@@ -275,6 +275,72 @@ To tear down: _"Clean up the team."_
   - **Future upgrade — OAuth agent actors:** Linear supports OAuth-installed "agent" accounts that don't consume a billable seat and get first-class per-agent attribution in audit logs and Insights ([docs](https://linear.app/developers/agents)). Requires registering an OAuth app per agent role and re-routing MCP calls — non-trivial work. Switch only when per-agent reporting starts mattering; the label workflow keeps working alongside.
 - **Free-tier issue cap:** Linear's free plan caps active (non-archived) issues at **250** across the workspace. This is the real pinch point — archive features aggressively at sprint boundaries to stay under it.
 
+## Importing existing artifacts
+
+When a project comes with pre-existing PRD or ARCH documents (or similar), the `/generate-prd` and `/generate-archdoc` skills support an **import mode**: pass the source path as the skill's argument and the doc-gen flow analyzes the legacy content, maps it to the template's framework, and runs the interview **only for the gaps**.
+
+### Why "import" rather than "replace"
+
+Existing artifacts encode decisions, stakeholder context, and constraints that took real work to gather. Importing preserves that signal. Throwing away the legacy doc and running a greenfield interview discards it.
+
+### Source formats supported
+
+- `.md` / `.markdown` / `.txt` — read directly
+- `.html` / `.htm` — read; HTML tags stripped for analysis
+- `.pdf` — Read tool with `pages` parameter (max 20 pages per request)
+- Google Docs / Drive files — `mcp__claude_ai_Google_Drive__download_file_content`
+- Other formats — convert to one of the above first
+
+### Classification rubric — PRD content
+
+| Existing content type | Maps to | Action |
+|---|---|---|
+| Problem statement, motivation | PRD §1 Overview | port directly |
+| Goals (qualitative) | PRD §2 Goals | port + push to quantify in interview |
+| Goals (with metrics) | PRD §2 Goals | port as-is |
+| User personas / audience | PRD §1 + §4 | port |
+| Feature list (high-level) | PRD §4 User Stories | **decompose** into "As a X..." form |
+| Feature list (detailed) | Linear backlog issues | port out of PRD entirely |
+| Implementation plan / "how it works" | ARCH.html | **flag as misplaced; relocate** |
+| Tech stack choices | ARCH.html | **flag as misplaced; relocate** |
+| Roadmap / timeline (coarse) | MILESTONES.md + Linear projects | port + restructure |
+| Roadmap / timeline (per-feature) | Linear issues | port as backlog |
+| Risks / open questions | PRD §10 | port directly |
+| Background / history | PRD §11 Appendix | archive |
+| Out-of-scope items | PRD §3 Non-Goals | port (uncommon in legacy PRDs — a win when found) |
+| Decided architectural choices | MILESTONES.md Decision Log + ARCH §8 | extract with rationale |
+
+### Classification rubric — ARCH content
+
+| Existing content type | Maps to | Action |
+|---|---|---|
+| System overview / context | ARCH §1 System Context | port + add Mermaid diagram |
+| Component breakdown / module list | ARCH §2 Components | port + add diagram |
+| Data model / schema | ARCH §2 + §3 Data Flow | port |
+| API spec / contracts | ARCH §2 + §3 | port; preserve detail |
+| Tech stack choices | ARCH §4 Tech Stack & Rationale | port + push to add rationale if missing |
+| Deployment topology | ARCH §5 Deployment Topology | port + diagram |
+| CI/CD pipeline | ARCH §6 CI/CD Pipeline | port |
+| Integration points | ARCH §7 Integration Points | port |
+| Non-functional requirements | PRD §6 Non-Functional Requirements | **flag as misplaced; relocate** |
+| Security architecture / threat model | SECURITY.html | **flag as misplaced; relocate** |
+| Trade-offs / alternatives | ARCH §8 Trade-offs | port (often missing — a win when found) |
+| Open questions | ARCH §9 Open Questions | port |
+| Roadmap / timeline | MILESTONES.md + Linear projects | **flag as misplaced; relocate** |
+| Acceptance criteria / feature specs | PRD §5 + Linear issues | **flag as misplaced; relocate** |
+| Background / context / history | ARCH appendix or archive | port to appendix |
+
+### What gets archived
+
+Original source documents are moved to `docs/archive/<YYYY-MM-DD>__<original-filename>` and referenced from the new doc's Appendix. Stored under git for an audit trail.
+
+### Limits and honest caveats
+
+- **80/20 automation.** The rubric handles ~80% of content classification; the remaining ~20% needs human judgment. The skill surfaces ambiguous cases for confirmation.
+- **Lossy refactoring is possible.** Some legacy content is valuable *because* it's prescriptive. The user can override the rubric per section before the refactor commits.
+- **Multi-file imports.** If a project's PRD is spread across multiple files or Google Docs, run import in stages — start with the most authoritative source, layer others in.
+- **AGILE pushback is welcome.** If the user disagrees with a proposed refactor (e.g. wants to preserve a waterfall roadmap), record the deviation in MILESTONES.md → Decision Log; the framework bends.
+
 ## Versioning external artifacts
 
 The repo + git tags are the canonical record of *what shipped*. Artifacts accessed via MCP — Figma designs, Google Docs/Sheets, etc. — live outside git and have their own version history. The current APIs don't support programmatic tagging in any usable way:

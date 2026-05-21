@@ -50,8 +50,8 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 
 **Skills** (`.claude/skills/`):
 
-- `/generate-prd` — interview-driven PRD generation (chatprd.ai-grounded)
-- `/generate-archdoc` — Architecture doc with Mermaid diagrams
+- `/generate-prd [source]` — interview-driven PRD generation (chatprd.ai-grounded). Accepts optional path to an existing PRD artifact (markdown / HTML / PDF / Google Doc) for **import mode**: analyzes the legacy content, maps it to the AGILE framework, ports what fits, flags what doesn't.
+- `/generate-archdoc [source]` — Architecture doc with Mermaid diagrams. Same import-mode support as `generate-prd` for legacy ARCH artifacts.
 - `/generate-secdoc` — STRIDE-based threat model + controls
 - `/start-feature` — branch + Linear issue + Implement team spawn
 - `/finish-feature` — commit, push, PR, link Linear
