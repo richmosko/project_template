@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Architecture &amp; Infrastructure — TBD</title>
+  <link rel="stylesheet" href="_assets/doc.css">
+  <script defer src="_assets/mermaid-init.js"></script>
+</head>
+<body>
+
+<header class="doc-header">
+  <h1>Architecture &amp; Infrastructure</h1>
+  <p class="doc-subtitle"><span class="tbd">Project name — TBD</span></p>
+  <div class="doc-meta">
+    <span><strong>Owner:</strong> <code>architect</code> agent</span>
+    <span><strong>Status:</strong> <span class="tbd">Draft</span></span>
+    <span><strong>Traces to:</strong> <a href="PRD.html">PRD.html</a></span>
+    <span><strong>Last updated:</strong> <span class="tbd">—</span></span>
+  </div>
+</header>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#context">System Context</a></li>
+    <li><a href="#components">Components</a></li>
+    <li><a href="#dataflow">Data Flow</a></li>
+    <li><a href="#stack">Tech Stack &amp; Rationale</a></li>
+    <li><a href="#topology">Deployment Topology</a></li>
+    <li><a href="#cicd">CI/CD Pipeline</a></li>
+    <li><a href="#integrations">Integration Points</a></li>
+    <li><a href="#tradeoffs">Trade-offs &amp; Alternatives</a></li>
+    <li><a href="#open-questions">Open Questions</a></li>
+  </ol>
+</nav>
+
+<section id="context" data-section="context">
+  <h2>1. System Context</h2>
+  <p class="section-hint">The system and the actors around it. C4 context level.</p>
+  <div class="stub">Replace the placeholder diagram. Add a one-paragraph narrative above it.</div>
+  <pre class="mermaid">
+flowchart LR
+  user(End User) --> system[Our System]
+  system --> dep1(Third-party API — TBD)
+  system --> db[(Data Store — TBD)]
+  </pre>
+</section>
+
+<section id="components" data-section="components">
+  <h2>2. Components</h2>
+  <p class="section-hint">3–7 components. Each has a single responsibility, an owner, and clear interfaces.</p>
+  <table>
+    <thead><tr><th>Component</th><th>Responsibility</th><th>Owner agent</th><th>Exposes</th><th>Consumes</th></tr></thead>
+    <tbody><tr><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr></tbody>
+  </table>
+  <pre class="mermaid">
+flowchart TB
+  ui[UI — frontend-lead] --> api[API — backend-lead]
+  api --> svc[Service layer — backend-lead]
+  svc --> db[(DB)]
+  svc --> queue[[Queue]]
+  </pre>
+</section>
+
+<section id="dataflow" data-section="dataflow">
+  <h2>3. Data Flow</h2>
+  <p class="section-hint">One sequence diagram per primary user story. Only diagram flows with non-trivial design choices.</p>
+  <div class="stub">Add a <code>&lt;pre class="mermaid"&gt;sequenceDiagram…&lt;/pre&gt;</code> block per major flow.</div>
+  <pre class="mermaid">
+sequenceDiagram
+  participant U as User
+  participant F as Frontend
+  participant A as API
+  participant D as DB
+  U->>F: Action — TBD
+  F->>A: Request — TBD
+  A->>D: Query — TBD
+  D-->>A: Result
+  A-->>F: Response
+  F-->>U: UI update
+  </pre>
+</section>
+
+<section id="stack" data-section="stack">
+  <h2>4. Tech Stack &amp; Rationale</h2>
+  <p class="section-hint">Justify every row. "We know it" is a valid reason — write it down.</p>
+  <table>
+    <thead><tr><th>Layer</th><th>Choice</th><th>Why</th><th>Alternatives considered</th></tr></thead>
+    <tbody>
+      <tr><td>Frontend framework</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr>
+      <tr><td>Backend language / framework</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr>
+      <tr><td>Data store</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr>
+      <tr><td>Auth</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr>
+      <tr><td>Hosting / runtime</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr>
+      <tr><td>Observability</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="topology" data-section="topology">
+  <h2>5. Deployment Topology</h2>
+  <p class="section-hint">Environments, network paths, trust boundaries. Cross-reference <a href="SECURITY.html#boundaries">SECURITY.html</a>.</p>
+  <pre class="mermaid">
+flowchart LR
+  subgraph prod[Production]
+    p_edge[Edge / CDN] --> p_api[API service]
+    p_api --> p_db[(DB)]
+  end
+  subgraph stg[Staging]
+    s_edge --> s_api --> s_db[(DB)]
+  end
+  subgraph dev[Dev]
+    d[Local stack]
+  end
+  </pre>
+</section>
+
+<section id="cicd" data-section="cicd">
+  <h2>6. CI/CD Pipeline</h2>
+  <p class="section-hint">Owned by <code>devops-engineer</code>. Stages, gates, deploy triggers.</p>
+  <table>
+    <thead><tr><th>Stage</th><th>Tool</th><th>Gate</th></tr></thead>
+    <tbody>
+      <tr><td>Lint</td><td class="tbd">—</td><td>Must pass</td></tr>
+      <tr><td>Test</td><td class="tbd">—</td><td>Must pass</td></tr>
+      <tr><td>Build</td><td class="tbd">—</td><td>Must pass</td></tr>
+      <tr><td>Security scan</td><td class="tbd">—</td><td>No high-severity findings</td></tr>
+      <tr><td>Deploy → staging</td><td class="tbd">—</td><td>Auto on merge to main</td></tr>
+      <tr><td>Deploy → prod</td><td class="tbd">—</td><td>Manual promote</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="integrations" data-section="integrations">
+  <h2>7. Integration Points</h2>
+  <p class="section-hint">For each third-party service: what it does, how we authenticate, rate limits, failure mode.</p>
+  <table>
+    <thead><tr><th>Service</th><th>Purpose</th><th>Auth</th><th>Limits</th><th>Failure mode</th></tr></thead>
+    <tbody><tr><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr></tbody>
+  </table>
+</section>
+
+<section id="tradeoffs" data-section="tradeoffs">
+  <h2>8. Trade-offs &amp; Alternatives</h2>
+  <p class="section-hint">"Why X, not Y?" — answered for each major decision. Future-self memory.</p>
+  <ul>
+    <li class="tbd">Chose …, rejected …, because …</li>
+  </ul>
+</section>
+
+<section id="open-questions" data-section="open-questions">
+  <h2>9. Open Questions</h2>
+  <p class="section-hint">Each has an owner and a target resolution date.</p>
+  <table>
+    <thead><tr><th>Question</th><th>Owner agent</th><th>Resolve by</th></tr></thead>
+    <tbody><tr><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr></tbody>
+  </table>
+</section>
+
+<footer class="doc-footer">
+  Generated by the <code>architect</code> agent via <code>/generate-archdoc</code>. Update when ARCH decisions change; log decisions in <a href="../MILESTONES.md">MILESTONES.md</a>.
+</footer>
+
+</body>
+</html>

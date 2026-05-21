@@ -1,0 +1,44 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Local working files (planning drafts, scratch)
+temp/
+
+# Claude Code: worktrees are pointers, not artifacts; personal settings overrides
+.claude/worktrees/
+.claude/settings.local.json
+.claude/linear-team.json
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Editor noise
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Dependencies (any language)
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Build artifacts
+dist/
+build/
+out/
+.next/
+.nuxt/
+
+# Test artifacts
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+logs/

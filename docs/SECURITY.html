@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Security &amp; Compliance — TBD</title>
+  <link rel="stylesheet" href="_assets/doc.css">
+  <script defer src="_assets/mermaid-init.js"></script>
+</head>
+<body>
+
+<header class="doc-header">
+  <h1>Security &amp; Compliance</h1>
+  <p class="doc-subtitle"><span class="tbd">Project name — TBD</span></p>
+  <div class="doc-meta">
+    <span><strong>Owner:</strong> <code>secops</code> agent</span>
+    <span><strong>Status:</strong> <span class="tbd">Draft</span></span>
+    <span><strong>Traces to:</strong> <a href="PRD.html">PRD.html</a>, <a href="ARCH.html">ARCH.html</a></span>
+    <span><strong>Last updated:</strong> <span class="tbd">—</span></span>
+  </div>
+</header>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#compliance">Compliance Posture</a></li>
+    <li><a href="#boundaries">Trust Boundaries</a></li>
+    <li><a href="#threats">Threat Model (STRIDE)</a></li>
+    <li><a href="#authnz">Authentication &amp; Authorization</a></li>
+    <li><a href="#data">Data Classification &amp; Handling</a></li>
+    <li><a href="#secrets">Secret Management</a></li>
+    <li><a href="#controls">Controls Catalog</a></li>
+    <li><a href="#cicd-sec">CI/CD Security</a></li>
+    <li><a href="#observability">Logging, Monitoring, Detection</a></li>
+    <li><a href="#ir">Incident Response</a></li>
+    <li><a href="#risks">Open Risks (Accepted)</a></li>
+  </ol>
+</nav>
+
+<section id="compliance" data-section="compliance">
+  <h2>1. Compliance Posture</h2>
+  <p class="section-hint">Source of truth is the PRD's Non-Functional Requirements section.</p>
+  <table>
+    <thead><tr><th>Regime</th><th>In scope?</th><th>Why</th><th>Target evidence</th></tr></thead>
+    <tbody>
+      <tr><td>HIPAA</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr>
+      <tr><td>PCI-DSS</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr>
+      <tr><td>GDPR</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr>
+      <tr><td>SOC 2</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr>
+      <tr><td>Other</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="boundaries" data-section="boundaries">
+  <h2>2. Trust Boundaries</h2>
+  <p class="section-hint">Pulled from ARCH.html components. Any boundary becomes a threat-model entry.</p>
+  <table>
+    <thead><tr><th>From</th><th>To</th><th>Boundary type</th><th>Notes</th></tr></thead>
+    <tbody><tr><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr></tbody>
+  </table>
+  <pre class="mermaid">
+flowchart LR
+  internet((Public Internet)) -.->|TLS| edge[Edge]
+  edge -.->|JWT| api[API]
+  api -.->|IAM| db[(DB)]
+  classDef boundary stroke-dasharray: 5 5;
+  class internet,edge,api,db boundary;
+  </pre>
+</section>
+
+<section id="threats" data-section="threats">
+  <h2>3. Threat Model (STRIDE)</h2>
+  <p class="section-hint">One table per component from ARCH.html. Focus on threats with non-trivial likelihood × impact.</p>
+  <div class="stub">Add a subsection per component. Example template provided.</div>
+  <h3>Example — Component: <span class="tbd">&lt;name&gt;</span></h3>
+  <table>
+    <thead><tr><th>Threat</th><th>STRIDE</th><th>Likelihood</th><th>Impact</th><th>Control(s)</th></tr></thead>
+    <tbody><tr><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr></tbody>
+  </table>
+</section>
+
+<section id="authnz" data-section="authnz">
+  <h2>4. Authentication &amp; Authorization</h2>
+  <p class="section-hint">How users and services authenticate; how authz decisions are made and enforced.</p>
+  <ul>
+    <li><strong>User authn:</strong> <span class="tbd">— provider, MFA policy, session model</span></li>
+    <li><strong>Service authn:</strong> <span class="tbd">— mTLS, signed JWTs, mesh identity</span></li>
+    <li><strong>Authorization model:</strong> <span class="tbd">— RBAC / ABAC / policy engine</span></li>
+    <li><strong>Enforcement point:</strong> <span class="tbd">— gateway / service / both</span></li>
+  </ul>
+</section>
+
+<section id="data" data-section="data">
+  <h2>5. Data Classification &amp; Handling</h2>
+  <table>
+    <thead><tr><th>Data type</th><th>Classification</th><th>At rest</th><th>In transit</th><th>Retention</th></tr></thead>
+    <tbody><tr><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr></tbody>
+  </table>
+</section>
+
+<section id="secrets" data-section="secrets">
+  <h2>6. Secret Management</h2>
+  <ul>
+    <li><strong>Vault:</strong> <span class="tbd">—</span></li>
+    <li><strong>Injection:</strong> <span class="tbd">— how secrets reach runtime</span></li>
+    <li><strong>Rotation:</strong> <span class="tbd">— cadence, automation</span></li>
+    <li><strong>Access:</strong> <span class="tbd">— least privilege; who/what can read</span></li>
+    <li><strong>Forbidden:</strong> secrets in code, secrets in logs, secrets in error messages, secrets in env files committed to git.</li>
+  </ul>
+</section>
+
+<section id="controls" data-section="controls">
+  <h2>7. Controls Catalog</h2>
+  <p class="section-hint">One row per control. Each maps to a threat-model entry.</p>
+  <table>
+    <thead><tr><th>Control</th><th>Threat addressed</th><th>Lives at</th><th>Tested by</th><th>Status</th></tr></thead>
+    <tbody><tr><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr></tbody>
+  </table>
+</section>
+
+<section id="cicd-sec" data-section="cicd-sec">
+  <h2>8. CI/CD Security</h2>
+  <ul>
+    <li>Signed commits / tags: <span class="tbd">—</span></li>
+    <li>Dependency scanning: <span class="tbd">—</span></li>
+    <li>Container / image scanning: <span class="tbd">—</span></li>
+    <li>SAST / DAST: <span class="tbd">—</span></li>
+    <li>SBOM generation: <span class="tbd">—</span></li>
+  </ul>
+</section>
+
+<section id="observability" data-section="observability">
+  <h2>9. Logging, Monitoring &amp; Detection</h2>
+  <ul>
+    <li><strong>Logged:</strong> request ID, user ID, action, outcome. <em>Never:</em> raw secrets, full PII.</li>
+    <li><strong>Storage &amp; retention:</strong> <span class="tbd">—</span></li>
+    <li><strong>Alerts:</strong> <span class="tbd">— auth failure spikes, authz denials, anomalous egress</span></li>
+    <li><strong>Audit log:</strong> <span class="tbd">— sensitive operations, immutable storage</span></li>
+  </ul>
+</section>
+
+<section id="ir" data-section="ir">
+  <h2>10. Incident Response</h2>
+  <ul>
+    <li><strong>On-call:</strong> <span class="tbd">—</span></li>
+    <li><strong>Severity criteria:</strong> <span class="tbd">— SEV1/2/3 definitions</span></li>
+    <li><strong>Containment → eradication → recovery:</strong> <span class="tbd">— runbook link</span></li>
+    <li><strong>Post-incident:</strong> blameless postmortem within 5 business days; entry in <a href="../MILESTONES.md">MILESTONES.md</a> Decision Log.</li>
+  </ul>
+</section>
+
+<section id="risks" data-section="risks">
+  <h2>11. Open Risks (Accepted)</h2>
+  <p class="section-hint">Risks we live with — for now. Each needs an owner, compensating controls, and a re-evaluation date.</p>
+  <table>
+    <thead><tr><th>Risk</th><th>Why acceptable</th><th>Compensating control</th><th>Re-evaluate by</th><th>Approved by</th></tr></thead>
+    <tbody><tr><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr></tbody>
+  </table>
+</section>
+
+<footer class="doc-footer">
+  Generated by the <code>secops</code> agent via <code>/generate-secdoc</code>. Re-run when ARCH changes; log security decisions in <a href="../MILESTONES.md">MILESTONES.md</a>.
+</footer>
+
+</body>
+</html>

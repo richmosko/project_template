@@ -1,0 +1,112 @@
+# Milestones & State
+
+> Live ledger of where the project is. Updated by the team-lead at every phase transition, feature completion, sprint boundary, and decision.
+
+## Project / Initiative
+
+This project's overall effort. Mirrored to a Linear **Initiative** at the workspace level. Status values: **Planned · Active · Completed**. Health values: **On track · At risk · Off track**.
+
+| Field | Value |
+|---|---|
+| Project name | _—_ |
+| Linear Initiative | _LINEAR-INIT-XXX_ |
+| Status | _Planned_ |
+| Owner | _—_ |
+| Target ship date | _—_ |
+| Health | _On track_ |
+| Notes | _—_ |
+
+## Current Phase
+
+**Phase:** _not started — run `/setup-linear-team` and begin Research_  
+**Started:** _—_  
+**Driver agent:** _—_  
+**Gate criteria:** _see [`WORKFLOW.md`](WORKFLOW.md)_
+
+## Active Feature
+
+A feature = one Linear issue = one PR = one Implement→Validate loop. Exists only during Implement phase.
+
+| Field | Value |
+|---|---|
+| Feature | _—_ |
+| Linear issue | _—_ |
+| Milestone | _—_ |
+| Sprint (Linear cycle) | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
+
+## Roadmap
+
+Milestones populate during the Plan phase. Each milestone maps to a **Linear project** and contains one or more sprints. Status values match Linear project statuses: **Backlog · Planned · In Progress · Paused · Completed · Cancelled**.
+
+| # | Milestone | Status | Linear Project | Notes |
+|---|---|---|---|---|
+| _e.g. M1_ | _MVP — auth + core flow_ | _Planned_ | _LINEAR-XXX_ | _—_ |
+
+## Sprints (Linear cycles)
+
+Sprints are time-bounded delivery cadences (~1–2 weeks). Each sprint maps to a **Linear cycle**, sits inside a milestone, and groups several features. Status is implied by date: **Upcoming · Current · Previous**.
+
+| Sprint | Milestone | Start | End | Features in sprint | Status | Notes |
+|---|---|---|---|---|---|---|
+| _e.g. S1_ | _M1_ | _—_ | _—_ | _—_ | _—_ | _—_ |
+
+## Features
+
+A feature = one **Linear issue** = one PR = one Implement→Validate loop. Status values match Linear issue statuses: **Backlog · Todo · In Progress · In Review · Done · Cancelled**.
+
+### Completed
+
+| Feature | Linear issue | Sprint | Milestone | Merged | PR |
+|---|---|---|---|---|---|
+| _none yet_ | | | | | |
+
+### In Flight
+
+| Feature | Linear issue | Sprint | Milestone | Branch | Status |
+|---|---|---|---|---|---|
+| _none yet_ | | | | | |
+
+### Backlog
+
+Pulled from Linear. The lead syncs the top of the backlog here at the start of each sprint for quick reference.
+
+| Feature | Linear issue | Milestone | Priority |
+|---|---|---|---|
+| _none yet_ | | | |
+
+## Releases
+
+Tagged releases of the project. Cut via `/merge-pr` when a milestone completes — tagging is never automatic.
+
+| Version | Date | Milestone shipped | Notes |
+|---|---|---|---|
+| _e.g. v0.1.0_ | _—_ | _M1_ | _—_ |
+
+## Decision Log (Appendix)
+
+Append-only. Format:
+
+```
+### YYYY-MM-DD — <short decision title>
+**Decision:** <one sentence>
+**Why:** <one or two sentences>
+**Alternatives considered:** <bullets>
+**Approved by:** <name>
+**Supersedes:** <ref to prior decision, if any>
+```
+
+---
+
+### YYYY-MM-DD — Project bootstrapped from template
+**Decision:** Use the `project_template` starter as the foundation for this project.
+**Why:** Provides the R→P→I→V workflow, team-agent roster, and artifact conventions out of the box.
+**Alternatives considered:** Bare repo + ad-hoc workflow.
+**Approved by:** _<your name>_
+
+<!--
+Add new decisions ABOVE this comment, newest first.
+-->
