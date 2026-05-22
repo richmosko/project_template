@@ -50,6 +50,24 @@ The conversation context isn't infinite. Use these heuristics so we don't lose c
 
 When in doubt about where we left off, **read MILESTONES.md first** — it's the ledger.
 
+### Resume runbook (fresh session, "let's continue")
+
+When a session starts cold and the user says any variant of "continue" / "pick up where we left off" / "what's next", the team-lead should run this sequence **before doing tactical work**:
+
+1. **Read the full `MILESTONES.md`** (not just the auto-injected head). Note Active Feature, Current Phase, and the most recent Sprint/Roadmap rows.
+2. **Inspect git state** in parallel: `git status`, `git rev-parse --abbrev-ref HEAD`, `git log --oneline -10`. The branch name tells you which loop you're in (`feature/*`, `phase/*`, or `main`).
+3. **Match branch → context:**
+   - On a `feature/*` branch → an Implement→Validate loop was in flight. Read the linked Linear issue, list recently-modified files (`git diff --stat main...HEAD`), and re-derive what's left from the issue's acceptance criteria.
+   - On a `phase/*` branch → a doc-update was in flight. Diff against main to see pending edits.
+   - On `main` with a clean tree → between loops. Decide the next move from MILESTONES.md (next backlog feature in the current sprint, or pending phase transition).
+4. **Check open PRs** with `gh pr list --state open` in case a previous session opened one that's waiting for `/merge-pr`.
+5. **Read `WORKFLOW.md` only if needed** — phase gate criteria, roster, or process detail. Don't pre-load it for every resume.
+6. **Surface the inferred pickup point** to the user in one or two sentences and **wait for confirmation** before doing heavy work. If state is ambiguous (no active feature, dirty tree on main, mismatched branch/MILESTONES.md), say so and ask.
+
+The auto-injected MILESTONES head gives you the dashboard; this runbook is the rest of the orientation. Skipping it risks acting on stale or partial context.
+
+**Mid-feature gotcha:** the previous session's tactical micro-state (which approach was ruled out, which test was being debugged) is not in any artifact. If you walked away mid-feature without `/compact`, expect to re-derive — or ask the user explicitly: "Mid-feature pickup — anything from last session I should know before I dive in?"
+
 ## First run / bootstrap
 
 When this template is freshly cloned for a new project, the team-lead should walk the user through this checklist on the first session:

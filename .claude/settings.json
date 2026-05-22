@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '--- Project state ---' && head -40 MILESTONES.md 2>/dev/null && echo '' && echo '--- Workflow phase reminder ---' && echo 'See WORKFLOW.md for phase→team mapping. CLAUDE.md is loaded automatically.'"
+            "command": "echo '--- Project state ---' && awk '/^## Roadmap/{exit} {print}' MILESTONES.md 2>/dev/null && echo '' && echo '--- Workflow phase reminder ---' && echo 'See WORKFLOW.md for phase→team mapping. CLAUDE.md is loaded automatically.'"
           }
         ]
       }
