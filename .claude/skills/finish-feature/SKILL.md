@@ -74,7 +74,7 @@ The Validate phase begins. QA + DevOps + Architect will review, deploy to stagin
 The shared task list is **session-scoped** — it disappears when the Implement team is cleaned up. Before any teardown:
 
 - Skim the anchor task and its subtasks. Anything that captures a **decision** or **lesson** gets promoted to durable state:
-  - Decisions → `MILESTONES.md` → Decision Log
+  - Decisions → `DECISIONS.md`
   - Implementation notes future-you would want → a Linear issue comment on the feature
 - Ephemeral status pings, WIP markers, and routine hand-offs **do not** get promoted — that's the whole point of transient state.
 

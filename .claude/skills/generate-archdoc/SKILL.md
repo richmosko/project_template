@@ -55,8 +55,8 @@ Ask: "Any overrides before I refactor?" Honor user preferences for ambiguous cas
 
 **f. Queue the spillover.** For content marked "Relocate":
 - → PRD.html: feed to `/generate-prd` or queue for the PM agent
-- → SECURITY.html: feed to `/generate-secdoc` or queue for the secops agent
-- → MILESTONES.md: queue as Decision Log entry
+- → SECURITY.html: feed to `/generate-secdoc` or queue for the seceng agent
+- → `DECISIONS.md`: queue as Decision Log entry
 - → Linear: queue as backlog issues
 
 Present each queued item for one-shot batch confirmation before writing.
@@ -149,6 +149,6 @@ Update `docs/ARCH.html` in place. Preserve the head, stylesheet link, and Mermai
 ## When you finish
 
 1. Cross-check: does every PRD user story have a corresponding data-flow diagram or component responsibility? Flag gaps in Open Questions.
-2. Run `SendMessage` to the `secops` teammate: "ARCH v1 is ready for joint threat-model review." Secops will produce SECURITY.html.
+2. Run `SendMessage` to the `seceng` teammate: "ARCH v1 is ready for joint threat-model review." SecEng will produce SECURITY.html.
 3. `/open-doc docs/ARCH.html` for user review.
 4. After both ARCH and SECURITY are approved, log the Plan→Implement transition in `MILESTONES.md`.

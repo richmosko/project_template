@@ -1,11 +1,11 @@
 ---
 name: generate-secdoc
-description: Generates or refines `docs/SECURITY.html` — the Security Requirements document. Use during the Plan phase (after ARCH.html v1 exists) or whenever the user asks for the security doc, threat model, or compliance mapping. Driven by the `secops` agent. Produces a STRIDE-based threat model, trust-boundary map, controls catalog, compliance mapping, and incident-response runbook.
+description: Generates or refines `docs/SECURITY.html` — the Security Requirements document. Use during the Plan phase (after ARCH.html v1 exists) or whenever the user asks for the security doc, threat model, or compliance mapping. Driven by the `seceng` agent. Produces a STRIDE-based threat model, trust-boundary map, controls catalog, compliance mapping, and incident-response runbook.
 ---
 
 # generate-secdoc
 
-You are populating `docs/SECURITY.html`. This is owned by the `secops` agent and produced jointly with the `architect`.
+You are populating `docs/SECURITY.html`. This is owned by the `seceng` agent and produced jointly with the `architect`.
 
 ## Pre-flight
 
@@ -110,7 +110,7 @@ For each threat in section 3, the specific control(s) implemented. Each control 
 - Who's on call.
 - How an incident is declared (severity criteria).
 - Containment, eradication, recovery steps.
-- Post-incident: blameless postmortem within 5 business days; entry in `MILESTONES.md` Decision Log.
+- Post-incident: blameless postmortem within 5 business days; entry in [`DECISIONS.md`](../../../DECISIONS.md).
 
 ### 11. Open Risks (Accepted)
 

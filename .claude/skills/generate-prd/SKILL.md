@@ -63,7 +63,7 @@ Ask: "Any overrides before I refactor?" Honor the user's preferences (e.g. they 
 
 **f. Queue the spillover.** For content marked "Relocate":
 - → ARCH.html: queue as draft content for a later `/generate-archdoc` run (or feed directly if architect agent is active)
-- → MILESTONES.md: queue as a Decision Log entry or Milestone row
+- → `DECISIONS.md`: queue as a Decision Log entry; or → `MILESTONES.md`: queue as a Milestone row
 - → Linear: queue as backlog issues (PM agent can call `save_issue` via MCP)
 
 Present each queued item to the user for one-shot batch confirmation before writing.
@@ -120,7 +120,7 @@ Ask quick-fire:
 - Accessibility: WCAG level?
 - Browser/device support?
 
-Fill **Non-Functional Requirements**. Flag the SecOps consult here.
+Fill **Non-Functional Requirements**. Flag the SecEng consult here.
 
 ### 7. Design Considerations
 
@@ -160,4 +160,4 @@ flowchart TD
 
 1. Show the user a summary of what's filled vs. still stubbed.
 2. Open the doc with `/open-doc docs/PRD.html` so they can review.
-3. Ask: "Approve PRD v1 to move to Plan phase?" If yes, add an entry to `MILESTONES.md` → Decision Log and update `## Current Phase` to "Plan".
+3. Ask: "Approve PRD v1 to move to Plan phase?" If yes, add an entry to [`DECISIONS.md`](../../../DECISIONS.md) and update `MILESTONES.md` → `## Current Phase` to "Plan".

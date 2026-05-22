@@ -7,11 +7,11 @@
 This repo is a **meta-template**, not a product. Clone it (or use it as a GitHub template) to seed a new project with:
 
 - a four-phase workflow (**Research → Plan → Implement ⇄ Validate**),
-- nine specialist team-Agents (PM, UX, Architect, SecOps, two implementation leads + a generalist, QA, DevOps),
+- nine specialist team-Agents (PM, UX, Architect, SecEng, two implementation leads + a generalist, QA, DevOps),
 - doc-generation skills for PRD / Architecture / Security,
 - workflow skills for branching, PR + Linear integration, releases,
 - HTML doc templates with embedded Mermaid diagrams,
-- a state ledger (`MILESTONES.md`) and decision log conventions,
+- a state ledger (`MILESTONES.md`), a separate append-only decision log (`DECISIONS.md`), and a backlog overflow queue (`BACKLOG.md`),
 - **AGILE issue / milestone / sprint tracking via [Linear](https://linear.app)** — our project / milestone / sprint / feature hierarchy maps to Linear's Initiative / Linear-Project / Cycle / Issue primitives,
 - session-management heuristics tuned for asynchronous solo development.
 
@@ -41,7 +41,7 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 | `product-manager` | PRD | Research |
 | `ux-designer` | wireframes, interaction design | late Research, Implement consult |
 | `architect` | ARCH doc, system design | Plan |
-| `secops` | SECURITY doc, threat model, gating | Plan + Validate |
+| `seceng` | SECURITY doc, threat model, gating | Plan + Validate |
 | `frontend-lead` | UI implementation | Implement |
 | `backend-lead` | API / service implementation | Implement |
 | `implementation-lead` | generalist (CLI / lib / ML / data) | Implement (non-web projects) |
@@ -57,17 +57,22 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 - `/finish-feature` — commit, push, PR, link Linear
 - `/merge-pr` — gated merge, tag releases, update state
 - `/open-doc` — open HTML/Markdown docs in default viewer
-- `/setup-linear-team` — wire Linear into a new project (one-time)
+- `/setup-linear-team` — wire Linear into a new project (one-time): links the shared team, creates this project's Initiative via MCP, seeds agent labels, seeds first-milestone stories to Linear and rest to `BACKLOG.md`
 - `/setup-claude-deploy-key` — generate a per-repo passphrase-less SSH deploy key so Claude can push to GitHub without TTY-unlockable passphrases (one-time per repo)
+- `/sync-backlog [count|milestone]` — promote items from `BACKLOG.md` to Linear in milestone-FIFO order. Called at sprint-cycle boundaries, on demand, or implicitly by `/start-feature` when a queued feature is requested
+- `/cleanup-linear [filter]` — bulk-archive Done Linear issues to free space under the 250-active-issue free-tier cap; use when sync-backlog warns near cap or at milestone close
 
 **Artifacts** (top level + `docs/`):
 
 - `CLAUDE.md` — session-bootstrap context (loaded automatically)
 - `WORKFLOW.md` — phases, roles, gates, team coordination
-- `MILESTONES.md` — live state ledger + Decision Log
+- `MILESTONES.md` — live state ledger (compact; auto-loaded)
+- `DECISIONS.md` — append-only decision log (not auto-loaded; pulled in when historical context is needed)
+- `BACKLOG.md` — overflow queue for Linear (items waiting to be promoted)
 - `docs/PRD.html` — Product Requirements (HTML + Mermaid)
 - `docs/ARCH.html` — Architecture + Infrastructure
 - `docs/SECURITY.html` — Security + Compliance
+- `docs/archive/` — stashed originals of imported PRD/ARCH artifacts
 - `docs/_assets/` — shared CSS + Mermaid loader
 
 ## Roles
@@ -193,7 +198,9 @@ If you prefer to override anything per-project without committing, drop it in `.
 
 - [`CLAUDE.md`](CLAUDE.md) — session bootstrap, first-run checklist, session-management heuristics.
 - [`WORKFLOW.md`](WORKFLOW.md) — phases, roles, Linear mapping, team coordination, decision logging.
-- [`MILESTONES.md`](MILESTONES.md) — state-ledger structure and Decision Log conventions.
+- [`MILESTONES.md`](MILESTONES.md) — live state-ledger structure.
+- [`DECISIONS.md`](DECISIONS.md) — append-only decision log; conventions in WORKFLOW.md → Decision logging.
+- [`BACKLOG.md`](BACKLOG.md) — Linear-overflow queue and FIFO promotion mechanism.
 - [`docs/starting-prompt.md`](docs/starting-prompt.md) — the original design brief that shaped this template.
 
 ## License

@@ -86,27 +86,6 @@ Tagged releases of the project. Cut via `/merge-pr` when a milestone completes �
 |---|---|---|---|
 | _e.g. v0.1.0_ | _—_ | _M1_ | _—_ |
 
-## Decision Log (Appendix)
+## Decisions
 
-Append-only. Format:
-
-```
-### YYYY-MM-DD — <short decision title>
-**Decision:** <one sentence>
-**Why:** <one or two sentences>
-**Alternatives considered:** <bullets>
-**Approved by:** <name>
-**Supersedes:** <ref to prior decision, if any>
-```
-
----
-
-### YYYY-MM-DD — Project bootstrapped from template
-**Decision:** Use the `project_template` starter as the foundation for this project.
-**Why:** Provides the R→P→I→V workflow, team-agent roster, and artifact conventions out of the box.
-**Alternatives considered:** Bare repo + ad-hoc workflow.
-**Approved by:** _<your name>_
-
-<!--
-Add new decisions ABOVE this comment, newest first.
--->
+The Decision Log lives in [`DECISIONS.md`](DECISIONS.md) at the repo root — split out so this file stays compact for auto-loading. Append new entries there; conventions are documented in [`WORKFLOW.md`](WORKFLOW.md) → Decision logging.

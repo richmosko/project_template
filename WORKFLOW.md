@@ -24,11 +24,11 @@ flowchart LR
 | **Implement** | implementation leads (per project config — see below) | Working code on a feature branch | All tests green; code reviewed by peer agent |
 | **Validate** | qa-engineer | Test results + release notes | Acceptance criteria met; SECURITY checks pass; PR merged |
 
-A phase gate is a **human decision**, not an automated check. The lead summarizes gate evidence; the user approves the transition. Approval gets logged in `MILESTONES.md` → Decision Log.
+A phase gate is a **human decision**, not an automated check. The lead summarizes gate evidence; the user approves the transition. Approval gets logged in [`DECISIONS.md`](DECISIONS.md).
 
 ## Project configuration
 
-Specialist roles (PM, UX, Architect, SecOps, QA, DevOps) apply universally. The **implementation lead(s)** are tuned per project:
+Specialist roles (PM, UX, Architect, SecEng, QA, DevOps) apply universally. The **implementation lead(s)** are tuned per project:
 
 | Project shape | Active implementation lead(s) |
 |---|---|
@@ -38,7 +38,7 @@ Specialist roles (PM, UX, Architect, SecOps, QA, DevOps) apply universally. The 
 | CLI, library, plugin, ML/data pipeline, single-binary service | `implementation-lead` (generalist) |
 | Hybrid (e.g. CLI + web admin) | mix as appropriate |
 
-**This project uses:** _e.g. `frontend-lead`, `backend-lead`_ — _set during Plan phase, log change as a Decision Log entry if it shifts later._
+**This project uses:** _e.g. `frontend-lead`, `backend-lead`_ — _set during Plan phase, log change as a `DECISIONS.md` entry if it shifts later._
 
 All implementation-lead agent files ship with the template; the project just picks which are active. Inactive ones can be left in place — they cost nothing until spawned.
 
@@ -49,12 +49,12 @@ All implementation-lead agent files ship with the template; the project just pic
 **Goal:** Decide *what* we're building and *for whom*.
 
 - **Driver:** `product-manager`
-- **Active team:** product-manager (driver), ux-designer (late in phase), secops (consult, high-level only)
+- **Active team:** product-manager (driver), ux-designer (late in phase), seceng (consult, high-level only)
 - **Activities:**
   - PM interviews the user via the `/generate-prd` skill (chatprd.ai-grounded template)
   - PM drafts user stories, success metrics, non-goals
   - UX produces wireframes / interaction sketches (late-phase, after stories stabilize)
-  - SecOps surfaces regulatory and high-level security considerations (e.g. "this handles PHI" → flag for SECURITY.md later)
+  - SecEng surfaces regulatory and high-level security considerations (e.g. "this handles PHI" → flag for SECURITY.md later)
 - **Artifact:** `docs/PRD.html`
 - **Gate:** User approves PRD v1.
 
@@ -63,10 +63,10 @@ All implementation-lead agent files ship with the template; the project just pic
 **Goal:** Decide *how* we'll build, deploy, and secure it.
 
 - **Driver:** `architect`
-- **Active team:** architect (driver), secops, devops-engineer, qa-engineer
+- **Active team:** architect (driver), seceng, devops-engineer, qa-engineer
 - **Activities:**
   - Architect drafts `ARCH.html` (system context, components, data flow, tech stack, deployment topology) via `/generate-archdoc`
-  - SecOps produces `SECURITY.html` via `/generate-secdoc` (threat model, trust boundaries, controls, compliance, incident response)
+  - SecEng produces `SECURITY.html` via `/generate-secdoc` (threat model, trust boundaries, controls, compliance, incident response)
   - DevOps defines CI/CD topology, IaC approach, environments
   - QA proposes a test strategy (unit, integration, E2E split; coverage targets; acceptance-test framework)
   - Lead breaks the roadmap into **milestones (Linear projects) → sprints (Linear cycles) → deliverables (Linear issues)**
@@ -97,7 +97,7 @@ All implementation-lead agent files ship with the template; the project just pic
   - QA runs full regression + acceptance suite
   - DevOps deploys to staging (or prod if release-ready)
   - Architect reviews for arch drift / debt accumulation
-  - SecOps re-engaged if any security control was touched
+  - SecEng re-engaged if any security control was touched
 - **Gate:** Acceptance criteria met → `/merge-pr` → update `MILESTONES.md`. **Tag a release only if this PR completes a release milestone** — the `/merge-pr` skill prompts; tagging is never automatic.
 
 After a Validate cycle, we either return to Implement (next feature in the sprint) or escalate to a new Research mini-loop (if findings invalidate the PRD).
@@ -154,7 +154,7 @@ Teammates claim and complete tasks; dependencies auto-unblock; the lead watches 
 
 Because the shared task list and mailbox are transient, the **lead promotes durable state outward** at feature/sprint/milestone boundaries:
 - Shared task list → MILESTONES.md sprint notes + Linear issue comments (so a future session can reconstruct what happened)
-- Mailbox exchanges containing decisions → MILESTONES.md Decision Log
+- Mailbox exchanges containing decisions → `DECISIONS.md`
 - Anything ephemeral (status pings, intermediate WIP) stays transient — that's the point.
 
 ## Tuning Agents per project
@@ -211,14 +211,14 @@ Useful for one-off "burn the budget" sessions — e.g. an end-of-milestone archi
 | `product-manager` | `sonnet` | `high` | Discovery interviews need deep listening + scope reasoning |
 | `ux-designer` | `sonnet` | `medium` | Dialogue + visual sketching; standard depth |
 | `architect` | `opus` | `high` | Novel system design with many tradeoffs |
-| `secops` | `sonnet` | `high` | Threat modeling is mostly pattern-matching; effort:high covers the depth |
+| `seceng` | `sonnet` | `high` | Threat modeling is mostly pattern-matching; effort:high covers the depth |
 | `frontend-lead` | `sonnet` | `medium` | Standard implementation work |
 | `backend-lead` | `sonnet` | `medium` | Standard implementation work |
 | `implementation-lead` | `sonnet` | `medium` | Standard implementation work |
 | `qa-engineer` | `sonnet` | `high` | Edge-case enumeration benefits from more reasoning budget |
 | `devops-engineer` | `sonnet` | `medium` | CI/CD + deploy work is mostly pattern-bound |
 
-Re-tune any of these per project; record the change as a Decision Log entry in `MILESTONES.md`.
+Re-tune any of these per project; record the change as an entry in [`DECISIONS.md`](DECISIONS.md).
 
 ## Team instantiation pattern
 
@@ -226,8 +226,8 @@ Because of the "one active team at a time" constraint and linear token cost, **s
 
 | Phase | Team to create |
 |---|---|
-| Research | `product-manager`, `ux-designer` (late), `secops` (consult) |
-| Plan | `architect`, `secops`, `devops-engineer`, `qa-engineer` |
+| Research | `product-manager`, `ux-designer` (late), `seceng` (consult) |
+| Plan | `architect`, `seceng`, `devops-engineer`, `qa-engineer` |
 | Implement | active implementation leads (see **Project configuration**), `qa-engineer` |
 | Validate | `qa-engineer`, `devops-engineer`, `architect` |
 
@@ -273,7 +273,22 @@ To tear down: _"Clean up the team."_
 
 - **Agent attribution via labels.** Every Linear issue carries one or more `agent:<role>` labels (e.g. `agent:backend-lead`, `agent:qa-engineer`). Labels are seeded automatically by `/setup-linear-team`. This is the v1 attribution mechanism.
   - **Future upgrade — OAuth agent actors:** Linear supports OAuth-installed "agent" accounts that don't consume a billable seat and get first-class per-agent attribution in audit logs and Insights ([docs](https://linear.app/developers/agents)). Requires registering an OAuth app per agent role and re-routing MCP calls — non-trivial work. Switch only when per-agent reporting starts mattering; the label workflow keeps working alongside.
-- **Free-tier issue cap:** Linear's free plan caps active (non-archived) issues at **250** across the workspace. This is the real pinch point — archive features aggressively at sprint boundaries to stay under it.
+- **Free-tier issue-cap mitigation (tiered overflow):** Linear's free plan caps active (non-archived) issues at **250 across the workspace**. The template uses a tiered overflow system to stay well under:
+
+  ```
+  docs/PRD.html        BACKLOG.md          Linear active        Linear archived
+  (canonical scope) →  (overflow queue) →  (≤200 hot set)   →   (cold storage)
+                            FIFO by               ↓
+                            milestone        promoted by /sync-backlog
+                                             consumed by /start-feature
+                                             archived by /cleanup-linear (or
+                                             Linear's auto-archive setting)
+  ```
+
+  - **`/setup-linear-team`** seeds only the **first milestone's** stories into Linear; everything else lands in [`BACKLOG.md`](BACKLOG.md) at the repo root.
+  - **`/sync-backlog`** promotes from BACKLOG.md to Linear at sprint-cycle boundaries (or on demand). FIFO by milestone stage; honors the active-issue budget.
+  - **`/start-feature`** runs a budget check before creating new Linear issues. At 80% of cap (>200 active) it warns; at the cap (250) it hard-blocks and routes new items to BACKLOG.md.
+  - **`/cleanup-linear`** archives Done issues on demand. Complementary to Linear's workspace **Auto-archive after N days** setting (Settings → Workflow; default 14 days) — enable it for passive cleanup.
 
 ## Importing existing artifacts
 
@@ -308,7 +323,7 @@ Existing artifacts encode decisions, stakeholder context, and constraints that t
 | Risks / open questions | PRD §10 | port directly |
 | Background / history | PRD §11 Appendix | archive |
 | Out-of-scope items | PRD §3 Non-Goals | port (uncommon in legacy PRDs — a win when found) |
-| Decided architectural choices | MILESTONES.md Decision Log + ARCH §8 | extract with rationale |
+| Decided architectural choices | `DECISIONS.md` + ARCH §8 | extract with rationale |
 
 ### Classification rubric — ARCH content
 
@@ -339,7 +354,7 @@ Original source documents are moved to `docs/archive/<YYYY-MM-DD>__<original-fil
 - **80/20 automation.** The rubric handles ~80% of content classification; the remaining ~20% needs human judgment. The skill surfaces ambiguous cases for confirmation.
 - **Lossy refactoring is possible.** Some legacy content is valuable *because* it's prescriptive. The user can override the rubric per section before the refactor commits.
 - **Multi-file imports.** If a project's PRD is spread across multiple files or Google Docs, run import in stages — start with the most authoritative source, layer others in.
-- **AGILE pushback is welcome.** If the user disagrees with a proposed refactor (e.g. wants to preserve a waterfall roadmap), record the deviation in MILESTONES.md → Decision Log; the framework bends.
+- **AGILE pushback is welcome.** If the user disagrees with a proposed refactor (e.g. wants to preserve a waterfall roadmap), record the deviation in `DECISIONS.md`; the framework bends.
 
 ## Versioning external artifacts
 
@@ -355,17 +370,20 @@ So revision tagging is **manual at milestone or release boundaries**:
 
 - **Figma** (Pro+ tiers): file menu → Save to version history → add a label (e.g. `v0.1.0 MVP designs`). *Free tier doesn't retain named versions; rely on auto-save for short-term recovery only.*
 - **Google Docs / Sheets** (all tiers including free): File → Version history → "Name current version" → label it (e.g. `v0.1.0`).
-- **Record the label** in the Decision Log entry for that release in `MILESTONES.md` so future-you can resolve "what Figma state corresponds to v0.1.0?" without guessing.
+- **Record the label** in the `DECISIONS.md` entry for that release so future-you can resolve "what Figma state corresponds to v0.1.0?" without guessing.
 
 The intent is **recovery in case something goes wrong** — not perfect cross-system reproducibility. Native auto-save history covers most damage; named versions at release boundaries cover the rest. Revisit this convention if/when MCPs expose programmatic revision-tagging.
 
 ## Decision logging
 
-Every non-trivial decision (stack pick, architecture pivot, scope cut, deferred feature, security exception) gets a one-paragraph entry in `MILESTONES.md` → `## Decision Log` with:
+Every non-trivial decision (stack pick, architecture pivot, scope cut, deferred feature, security exception) gets a one-paragraph entry in [`DECISIONS.md`](DECISIONS.md) at the repo root with:
 - Date (absolute, e.g. `2026-05-20`)
 - Decision (one sentence)
 - Why (one or two sentences)
 - Alternatives considered
 - Who approved
+- Supersedes (if it overturns a prior decision)
 
-The log is append-only. Mistakes get a new entry that supersedes the old one — don't edit history.
+The log is **append-only**. Mistakes get a new entry that supersedes the old one — don't edit history.
+
+`DECISIONS.md` is **not auto-loaded** into session context (unlike `MILESTONES.md`). Pull it in explicitly when you need to recall historical context — e.g. "why did we pick Postgres?" This split keeps the live-state ledger lean and lets the decision log scale as the project ages without bloating every session.

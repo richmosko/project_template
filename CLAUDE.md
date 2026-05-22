@@ -23,9 +23,11 @@ This repo was instantiated from the [project_template](https://github.com/richmo
 |---|---|---|
 | Product Requirements | [`docs/PRD.html`](docs/PRD.html) | product-manager |
 | Architecture & Infrastructure | [`docs/ARCH.html`](docs/ARCH.html) | architect |
-| Security & Compliance | [`docs/SECURITY.html`](docs/SECURITY.html) | secops |
+| Security & Compliance | [`docs/SECURITY.html`](docs/SECURITY.html) | seceng |
 | Workflow definition | [`WORKFLOW.md`](WORKFLOW.md) | team-lead (the main session) |
-| State + decision ledger | [`MILESTONES.md`](MILESTONES.md) | team-lead |
+| Live state ledger | [`MILESTONES.md`](MILESTONES.md) | team-lead |
+| Decision log | [`DECISIONS.md`](DECISIONS.md) | team-lead (append-only) |
+| Backlog overflow queue | [`BACKLOG.md`](BACKLOG.md) | team-lead + `/sync-backlog` |
 
 Open any HTML doc with `/open-doc docs/PRD.html` (or just double-click it).
 
@@ -33,7 +35,7 @@ Open any HTML doc with `/open-doc docs/PRD.html` (or just double-click it).
 
 Nine specialist Agents live in [`.claude/agents/`](.claude/agents/). The main session acts as **team-lead**; teammates are spawned per phase (not all at once) to manage token cost and the "one active team" constraint. See [`WORKFLOW.md`](WORKFLOW.md) for the phase→roster mapping.
 
-To start a phase team, say: _"Create a team for the Plan phase"_ — the lead will spawn `architect`, `secops`, `devops-engineer`, and `qa-engineer` as teammates (specific roster depends on project configuration; see [`WORKFLOW.md`](WORKFLOW.md) for the canonical phase→roster mapping).
+To start a phase team, say: _"Create a team for the Plan phase"_ — the lead will spawn `architect`, `seceng`, `devops-engineer`, and `qa-engineer` as teammates (specific roster depends on project configuration; see [`WORKFLOW.md`](WORKFLOW.md) for the canonical phase→roster mapping).
 
 ## Session management
 
@@ -60,9 +62,9 @@ When this template is freshly cloned for a new project, the team-lead should wal
    - L10: the GitHub URL (points at the template repo by default — change to this project's repo once created)
 5. **Run `/setup-linear-team`** to wire Linear into this project — link to your shared Linear team, create this project's Initiative, and seed the nine `agent:<role>` labels. Caches IDs in `.claude/linear-team.json`.
 6. **Verify teammate mode** in `.claude/settings.json` (default: `tmux` for split-pane). If you prefer in-process, change it before spawning the first team.
-7. **Spawn the Research team:** say _"Create an agent team for the Research phase"_ — the lead will spawn `product-manager` (and bring `ux-designer` + `secops` in later).
+7. **Spawn the Research team:** say _"Create an agent team for the Research phase"_ — the lead will spawn `product-manager` (and bring `ux-designer` + `seceng` in later).
 8. **Run `/generate-prd`** to start the discovery interview. The PM teammate drives.
-9. **Log the bootstrap** as the first entry in `MILESTONES.md` → Decision Log (the template already includes a stub — update the date and approver name).
+9. **Log the bootstrap** as the first entry in [`DECISIONS.md`](DECISIONS.md) (the template already includes a stub — update the date and approver name).
 
 After step 9, the project is in the Research phase and MILESTONES.md becomes the source of truth for "where we are".
 
@@ -70,5 +72,5 @@ After step 9, the project is in the Research phase and MILESTONES.md becomes the
 
 - **TDD by default**: write the failing test, then the implementation, then confirm green. Validate is not optional.
 - **Small commits, frequent PRs**: one PR per completed I→V loop (one feature). Use `/start-feature` and `/finish-feature` to automate the branch+Linear+PR plumbing.
-- **Decisions go in the ledger**: any non-trivial call (stack choice, architectural pivot, scope cut) gets an entry in the Decision Log appendix of `MILESTONES.md`.
+- **Decisions go in the ledger**: any non-trivial call (stack choice, architectural pivot, scope cut) gets an entry in [`DECISIONS.md`](DECISIONS.md).
 - **Skills over repetition**: if a process happens twice, extract it into `.claude/skills/`.
