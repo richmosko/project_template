@@ -23,7 +23,11 @@
 <nav class="toc">
   <h2>Contents</h2>
   <ol>
-    <li><a href="#overview">Overview &amp; Problem Statement</a></li>
+    <li><a href="#overview">Overview &amp; Problem Statement</a>
+      <ol>
+        <li><a href="#approach">High-Level Approach</a></li>
+      </ol>
+    </li>
     <li><a href="#goals">Goals &amp; Success Metrics</a></li>
     <li><a href="#non-goals">Non-Goals</a></li>
     <li><a href="#stories">User Stories &amp; Use Cases</a></li>
@@ -33,7 +37,11 @@
     <li><a href="#technical">Technical Considerations</a></li>
     <li><a href="#timeline">Timeline &amp; Milestones</a></li>
     <li><a href="#open-questions">Open Questions &amp; Risks</a></li>
-    <li><a href="#appendix">Appendix</a></li>
+    <li><a href="#appendix">Appendix</a>
+      <ol>
+        <li><a href="#faqs">FAQs</a></li>
+      </ol>
+    </li>
   </ol>
 </nav>
 
@@ -41,26 +49,27 @@
   <h2>1. Overview &amp; Problem Statement</h2>
   <p class="section-hint">Why we're building this. The user problem, who feels it, and the desired business outcome.</p>
   <div class="stub">Replace this block during the Research phase. Use <code>/generate-prd</code> to be interviewed.</div>
+
+  <h3 id="approach">1.1 High-Level Approach</h3>
+  <p class="section-hint">The rough shape of how we'll tackle the problem — a sentence or two so a reader can squint and see the same solution. Not a design or architecture; just the framing. (e.g. for "feature discoverability" → "an in-app notification center for relevant new features".)</p>
+  <div class="stub">One paragraph max. Detail belongs in <a href="ARCH.html">ARCH.html</a>.</div>
 </section>
 
 <section id="goals" data-section="goals">
   <h2>2. Goals &amp; Success Metrics</h2>
-  <p class="section-hint">What measurable outcomes prove the product succeeded? Include counter-metrics.</p>
-  <div class="stub">Quantify success at 30 days and 90 days post-launch. Each goal needs a metric.</div>
-  <table>
-    <thead><tr><th>Goal</th><th>Metric</th><th>Target</th><th>Counter-metric</th></tr></thead>
-    <tbody>
-      <tr><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr>
-    </tbody>
-  </table>
+  <p class="section-hint">What measurable outcomes prove the product succeeded? Mix measurable (metrics) and immeasurable (feelings). Include counter-metrics where relevant. Ideally in priority order.</p>
+  <div class="stub">Quantify success at 30 days and 90 days post-launch where possible.</div>
+  <ol>
+    <li class="tbd">Goal — metric / target — counter-metric (if any)</li>
+  </ol>
 </section>
 
 <section id="non-goals" data-section="non-goals">
   <h2>3. Non-Goals</h2>
-  <p class="section-hint">Explicitly out of scope. Defines what we're <em>not</em> building so scope stays disciplined.</p>
-  <ul>
-    <li class="tbd">—</li>
-  </ul>
+  <p class="section-hint">Explicitly out of scope — and <em>why</em>. Non-goals are as clarifying as goals: they shut down ambiguity, prevent scope creep, and make trade-offs visible.</p>
+  <ol>
+    <li class="tbd">What we're <em>not</em> doing — and the reason (deferred / out of charter / different team / etc.)</li>
+  </ol>
 </section>
 
 <section id="stories" data-section="stories">
@@ -137,6 +146,13 @@ flowchart LR
   <ul>
     <li class="tbd">—</li>
   </ul>
+
+  <h3 id="faqs">FAQs</h3>
+  <p class="section-hint">Optional. Short Q&amp;A pairs that help a newcomer grasp the project without reading the full PRD. Great place to capture "wait, why didn't we just…" questions that came up during Research.</p>
+  <dl class="faqs">
+    <dt class="tbd">Q: —</dt>
+    <dd class="tbd">A: —</dd>
+  </dl>
 </section>
 
 <footer class="doc-footer">
