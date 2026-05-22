@@ -57,20 +57,27 @@ When this template is freshly cloned for a new project, the team-lead should wal
 1. **Confirm the repo is a git repo.** `git rev-parse --git-dir` should succeed. If not, run `git init`.
 2. **Confirm `gh` is authenticated** to the GitHub account that will host this project. `gh auth status` — if not, prompt the user to run `gh auth login`.
 3. **Set up Claude's SSH deploy key** — run `/setup-claude-deploy-key`. Generates a passphrase-less Ed25519 key scoped to this repo (`~/.ssh/id_ed25519_claude_<repo>`), walks you through adding it to GitHub as a deploy key with **write access**, and pins the repo's git to use it via `core.sshCommand`. Without this step, Claude's `git push` will fail whenever your main SSH key is passphrase-protected (Claude Code's bash has no TTY to unlock it).
-4. **Replace the placeholders** in this file:
+4. **Enable GitHub branch protection on `main`** — go to **Settings → Branches → Add rule**. Suggested config for the solo + team-agents workflow:
+   - **Branch name pattern:** `main`
+   - ✅ **Require a pull request before merging** — this is the key gate; blocks direct `git push origin main`
+   - ☐ Require approvals — skip for solo dev; the `/merge-pr` workflow handles QA + lead approval. Re-enable if you have human collaborators.
+   - ✅ **Do not allow bypassing the above settings** — even admins go through PRs
+   - ✅ Require status checks (only if you have CI configured)
+   Without this, the workflow's "no direct pushes" rule is advisory only — branch protection is the hard enforcement layer.
+5. **Replace the placeholders** in this file:
    - L7–8: the "TBD" project description block
    - L10: the GitHub URL (points at the template repo by default — change to this project's repo once created)
-5. **Run `/setup-linear-team`** to wire Linear into this project — link to your shared Linear team, create this project's Initiative, and seed the nine `agent:<role>` labels. Caches IDs in `.claude/linear-team.json`.
-6. **Verify teammate mode** in `.claude/settings.json` (default: `tmux` for split-pane). If you prefer in-process, change it before spawning the first team.
-7. **Spawn the Research team:** say _"Create an agent team for the Research phase"_ — the lead will spawn `product-manager` (and bring `ux-designer` + `seceng` in later).
-8. **Run `/generate-prd`** to start the discovery interview. The PM teammate drives.
-9. **Log the bootstrap** as the first entry in [`DECISIONS.md`](DECISIONS.md) (the template already includes a stub — update the date and approver name).
+6. **Run `/setup-linear-team`** to wire Linear into this project — link to your shared Linear team, create this project's Initiative, and seed the nine `agent:<role>` labels. Caches IDs in `.claude/linear-team.json`.
+7. **Verify teammate mode** in `.claude/settings.json` (default: `tmux` for split-pane). If you prefer in-process, change it before spawning the first team.
+8. **Spawn the Research team:** say _"Create an agent team for the Research phase"_ — the lead will spawn `product-manager` (and bring `ux-designer` + `seceng` in later).
+9. **Run `/generate-prd`** to start the discovery interview. The PM teammate drives.
+10. **Log the bootstrap** as the first entry in [`DECISIONS.md`](DECISIONS.md) (the template already includes a stub — update the date and approver name).
 
-After step 9, the project is in the Research phase and MILESTONES.md becomes the source of truth for "where we are".
+After step 10, the project is in the Research phase and MILESTONES.md becomes the source of truth for "where we are".
 
 ## Working principles
 
 - **TDD by default**: write the failing test, then the implementation, then confirm green. Validate is not optional.
-- **Small commits, frequent PRs**: one PR per completed I→V loop (one feature). Use `/start-feature` and `/finish-feature` to automate the branch+Linear+PR plumbing.
+- **Small commits, frequent PRs**: one PR per completed I→V loop (one feature). Use `/start-feature` + `/finish-feature` for features tied to a Linear issue; use `/start-doc-update` + `/finish-doc-update` for non-feature doc edits. Merge via `/merge-pr` (team-lead) or GitHub UI (human review). **No direct pushes to `main`.**
 - **Decisions go in the ledger**: any non-trivial call (stack choice, architectural pivot, scope cut) gets an entry in [`DECISIONS.md`](DECISIONS.md).
 - **Skills over repetition**: if a process happens twice, extract it into `.claude/skills/`.

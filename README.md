@@ -53,9 +53,11 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 - `/generate-prd [source]` — interview-driven PRD generation (chatprd.ai-grounded). Accepts optional path to an existing PRD artifact (markdown / HTML / PDF / Google Doc) for **import mode**: analyzes the legacy content, maps it to the AGILE framework, ports what fits, flags what doesn't.
 - `/generate-archdoc [source]` — Architecture doc with Mermaid diagrams. Same import-mode support as `generate-prd` for legacy ARCH artifacts.
 - `/generate-secdoc` — STRIDE-based threat model + controls
-- `/start-feature` — branch + Linear issue + Implement team spawn
-- `/finish-feature` — commit, push, PR, link Linear
-- `/merge-pr` — gated merge, tag releases, update state
+- `/start-feature` — branch + Linear issue + budget check + Implement team spawn (also promotes from `BACKLOG.md` on demand)
+- `/finish-feature` — commit, push, PR, link Linear, hand off to Validate
+- `/start-doc-update <slug>` — kicks off a `phase/<phase>-<slug>` branch for non-feature doc edits (PRD/ARCH/SECURITY/WORKFLOW/etc.); no Linear issue, no implementation team
+- `/finish-doc-update` — commit + push + open PR for a doc-update branch; no QA handshake (lead reviews directly)
+- `/merge-pr` — gated team-lead merge after QA sign-off (features) or lead review (doc updates); squash-merges, archives, updates state. Alternative to human-review-and-merge via GitHub UI
 - `/open-doc` — open HTML/Markdown docs in default viewer
 - `/setup-linear-team` — wire Linear into a new project (one-time): links the shared team, creates this project's Initiative via MCP, seeds agent labels, seeds first-milestone stories to Linear and rest to `BACKLOG.md`
 - `/setup-claude-deploy-key` — generate a per-repo passphrase-less SSH deploy key so Claude can push to GitHub without TTY-unlockable passphrases (one-time per repo)
@@ -101,11 +103,12 @@ claude
 
 1. `gh auth status` — confirm GitHub auth.
 2. **`/setup-claude-deploy-key`** — generate a passphrase-less SSH key scoped to this repo, add it to GitHub as a deploy key with write access, and pin the repo's git to use it. Without this, Claude's `git push` will fail when your main SSH key is passphrase-protected.
-3. Replace the project description placeholders in `CLAUDE.md`.
-4. `/setup-linear-team` — link to your shared Linear team and create this project's Initiative.
-5. Verify `teammateMode` in `.claude/settings.json` (default: `tmux` for split-pane).
-6. Spawn the Research team: _"Create an agent team for the Research phase."_
-7. `/generate-prd` — start the discovery interview.
+3. **Enable GitHub branch protection on `main`** — Settings → Branches → Add rule → ✅ Require pull request before merging, ✅ Do not allow bypassing. This is the hard enforcement layer behind the workflow's "no direct pushes" rule.
+4. Replace the project description placeholders in `CLAUDE.md`.
+5. `/setup-linear-team` — link to your shared Linear team and create this project's Initiative.
+6. Verify `teammateMode` in `.claude/settings.json` (default: `tmux` for split-pane).
+7. Spawn the Research team: _"Create an agent team for the Research phase."_
+8. `/generate-prd` — start the discovery interview.
 
 ## The 4-tier hierarchy (Linear mapping)
 
