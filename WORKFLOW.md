@@ -335,15 +335,26 @@ Each `## §<section-id>` anchor matches an `<section id="...">` in the correspon
 - **ARCH / SECURITY review** during Plan — same loop, different doc.
 - **Periodic refreshes** mid-project — when a milestone closes, take a pass at whether the PRD assumptions still hold; same loop.
 
-### Inline-authoring mode (`scripts/serve-docs.sh`)
+### Inline-authoring mode (`scripts/serve-docs.sh` or `/serve-docs`)
 
 Hand-editing `comments.md` works for any editor, anywhere. For a friendlier review experience, the template ships a local server + JS widget that lets you author comments inline while reading the doc in a browser.
 
-```bash
-./scripts/serve-docs.sh
+**Two ways to start it:**
+
+```
+/serve-docs PRD              # preferred — server runs as background under
+                             # the Claude session; cleaned up on /exit;
+                             # opens the browser to PRD
+                             # (omit the doc arg to just start the server)
 ```
 
-The script starts a tiny Python server (stdlib only) at `http://localhost:8765` and serves `docs/`. Browse to `http://localhost:8765/PRD/` (or `ARCH/`, `SECURITY/`) — the widget activates:
+```bash
+./scripts/serve-docs.sh      # direct invocation — runs in your terminal
+                             # with live request logs; useful for debugging
+                             # the server itself
+```
+
+Both run the same server (Python stdlib only) at `http://localhost:8765` and serve `docs/`. The `/serve-docs` skill probes for an already-running instance before launching, so it's safe to invoke repeatedly. Browse to `http://localhost:8765/PRD/` (or `ARCH/`, `SECURITY/`) — the widget activates:
 
 - **A small status badge** in the bottom-right shows `connected (N comments)` or `offline`.
 - **Hover any section heading** to reveal a `+ Comment` button.
@@ -364,7 +375,8 @@ Sections that already have comments show a `💬 N` count badge next to the head
 ### Pass status
 
 - **Pass 1** (shipped) — convention + `/refine-doc` skill. Hand-edit `comments.md`, run the skill.
-- **Pass 2** (shipped) — inline widget + local server. Same format on disk; nicer authoring UX.
+- **Pass 2** (shipped) — inline widget + local server (`scripts/serve-docs.sh`). Same format on disk; nicer authoring UX.
+- **Pass 2 QoL** (shipped) — `/serve-docs` skill that backgrounds the server under the Claude session, so reviewing doesn't require juggling a separate terminal.
 - **Pass 3** (not planned) — would handle inline edit/delete of existing comments via the widget, comment threading, or multi-user attribution. Defer until single-user usage surfaces a real need.
 
 ## Version control & Linear
