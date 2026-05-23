@@ -399,3 +399,38 @@ Every non-trivial decision (stack pick, architecture pivot, scope cut, deferred 
 The log is **append-only**. Mistakes get a new entry that supersedes the old one — don't edit history.
 
 `DECISIONS.md` is **not auto-loaded** into session context (unlike `MILESTONES.md`). Pull it in explicitly when you need to recall historical context — e.g. "why did we pick Postgres?" This split keeps the live-state ledger lean and lets the decision log scale as the project ages without bloating every session.
+
+### What goes where — log-shape conventions
+
+Don't accumulate per-PR narrative inside this file or `WORKFLOW.md`. Each log shape has a home:
+
+| Question being answered | Where it lives | Why |
+|---|---|---|
+| **"Why did we choose X?"** (architectural decision, ADR) | [`DECISIONS.md`](DECISIONS.md) | Evergreen reference; survives long after the decision was made |
+| **"When did X happen?"** (per-PR execution narrative) | Git commit messages + `MILESTONES.md` → Features → Completed table (PR link + merge date) | Git log is comprehensive and free; MILESTONES gives at-a-glance scanning |
+| **"Where are we right now?"** (current state, active feature, sprint, phase) | [`MILESTONES.md`](MILESTONES.md) | Live, mutable, auto-loaded |
+| **"What changed in vX.Y.Z?"** (per-release notes for end-users) | **GitHub Releases** (see [Release process](#release-process) below) | Auto-drafted from PRs; published with its own URL/RSS/API; no extra file to maintain |
+
+The template intentionally **does not ship a `CHANGELOG.md`**. Git log + GitHub Releases cover the same need with no upkeep cost. If a downstream project wants an in-repo file (e.g. for editor-local grepping), add one — but it's not a default.
+
+## Release process
+
+Releases are **human decisions**, never automatic. The `/merge-pr` skill prompts at the right moment.
+
+**When to cut a release.** When the most recent merge completes a milestone's "Definition of done" (see `MILESTONES.md` → Roadmap row). Process milestones (M0, M1) typically don't get tagged releases — they're internal phase gates. Product milestones (M2+) get a tag when their release shape is real (e.g. v0.1.0 for M2 = MVP).
+
+**The flow at milestone close:**
+
+1. `/merge-pr` detects the merge completes a milestone; prompts: "Tag this as a release? (recommended: vX.Y.Z)"
+2. Confirm the semver number.
+3. Tag locally and push: `git tag -a vX.Y.Z -m "Release vX.Y.Z — <milestone name>"` → `git push origin vX.Y.Z`.
+4. **Draft GitHub Release notes** from the auto-generated PR list:
+   ```bash
+   gh release create vX.Y.Z --generate-notes --draft --title "vX.Y.Z — <milestone name>"
+   ```
+   The `--generate-notes` flag auto-populates from PR titles merged since the previous tag. The `--draft` flag holds it unpublished so you can curate for end-user framing (turn engineering subject lines into user-facing prose) before publishing.
+5. Edit the draft at `https://github.com/<owner>/<repo>/releases` — re-group by user impact, soften jargon, add migration notes if applicable.
+6. **Publish** when curated. The release is then immutable, has its own URL, RSS feed, and API endpoint — no extra file in the repo to maintain.
+7. Append a row to `MILESTONES.md` → Releases with the version, date, milestone shipped, and link to the published release.
+
+**Why GitHub Releases instead of `CHANGELOG.md`:** publishing happens once per release (low overhead), the auto-draft from PR titles is a real time-saver, and the artifact lives where downstream users naturally look (the repo's Releases page). If a project later wants both surfaces, they can add `CHANGELOG.md` and sync it manually — but it's not a default.

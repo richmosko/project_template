@@ -83,6 +83,27 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 - **Team Lead** — the main Claude Code session. Coordinates teams, delegates, summarizes specialist output into executive language.
 - **Agents** — nine specialists spawned per phase as Claude team-agents.
 
+## Common project-specific extensions
+
+The nine-Agent roster is the **floor, not the ceiling**. Some domains benefit from additional specialists. Spin up a new agent file in `.claude/agents/` (copying an existing one as a starting template) and document the addition in your project's `DECISIONS.md`. Examples that have come up in practice:
+
+| Extension | When to add | What it owns |
+|---|---|---|
+| **`visual-designer`** | Trust-driven UI (fintech, healthcare, regulated builds) where visual polish is functional, not decorative. Distinct from the generic `ux-designer`. | Design tokens, typography, color, spacing. Palette-and-typography lock with the Principal. Flags missing components back to UX rather than designing around the gap. |
+| **`compliance-officer`** | Regulated builds (HIPAA, SOC 2, PCI-DSS, FedRAMP) where compliance evidence isn't a side-effect of security work. | Compliance evidence trails, audit prep, control mapping, attestation packages. Distinct from the generic `seceng`. |
+| **`data-pipeline-lead`** | ML / ETL / analytics projects with substantial data-engineering surface. | Ingestion, transformation, lineage, data quality. Distinct from the generic `implementation-lead`. |
+
+These are **suggestions, not bundled assets** — the template doesn't ship the agent files for them. Adopt the role pattern; write the file when your project actually exercises the work.
+
+## Customizing doc preview
+
+The `/open-doc` skill routes by extension: `.html` → system browser, `.md` → One Markdown app (if installed) with editor fallback. This works for most macOS users but can be swapped:
+
+- **Use a different Markdown viewer** (Bear, IDE preview, `mdcat`, `glow`) → edit `.claude/skills/open-doc/SKILL.md` and replace the `open-one-markdown` route in step 2 with your tool of choice.
+- **Different browser for HTML** → the skill calls `open <path>` (macOS default). Swap to `open -a "Firefox"` or equivalent for a specific browser.
+- **Headless / SSH session** → replace the `open` calls with a terminal-friendly viewer (`w3m -dump`, `lynx`, etc.) or a network-share path.
+- **Project-specific viewer skill** → if your project needs a non-default workflow (e.g. opening every artifact through a specific tool chain), add a project-local skill alongside `/open-doc`. The template won't fight you.
+
 ## Quick start
 
 ### Use as a GitHub template
