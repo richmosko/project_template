@@ -283,6 +283,60 @@ docs/PRD/
 
 The `index.html` filename stays stable across the split, so external references (CLAUDE.md, README, skills) don't need updating.
 
+## Doc review loop (`comments.md` sidecar)
+
+Each HTML doc (`PRD`, `ARCH`, `SECURITY`) supports an optional sidecar `docs/<DOC>/comments.md` for in-process review notes. It's a feedback loop with Claude: write per-section comments in the file, then run `/refine-doc` to have the lead address them.
+
+### Format
+
+```markdown
+# PRD Comments
+
+Working notes for review of `docs/PRD/index.html`.
+
+---
+
+## §goals
+
+Need more counter-metrics — what does failure look like at 30 days?
+
+## §non-goals
+
+Should "internationalization" be deferred to v2, or called out explicitly?
+```
+
+Each `## §<section-id>` anchor matches an `<section id="...">` in the corresponding HTML doc. Section IDs already exist on every section in the template (`overview`, `goals`, `non-goals`, etc.) — no markup changes needed.
+
+### Workflow
+
+```
+1. Open docs/<DOC>/index.html in browser (Chrome via /open-doc).
+2. Read; jot per-section feedback into docs/<DOC>/comments.md.
+3. /start-doc-update <doc>-address-review-comments    # branch
+4. /refine-doc <DOC>                                  # lead addresses comments
+5. Review the diff to docs/<DOC>/index.html.
+6. /finish-doc-update → /merge-pr                     # land the changes
+```
+
+`/refine-doc` walks the sidecar in file order, addresses each comment in the matching HTML section, and **removes the addressed comments** from `comments.md` as it goes. Comments that need Principal clarification stay in place with a `> [refine-doc deferred YYYY-MM-DD]: <reason>` annotation — answer the question, re-run the skill.
+
+### Gitignored, by design
+
+`docs/*/comments.md` is gitignored at the template level. Comments are working notes, not permanent record:
+
+- The **resolution** is the doc change itself (committed via PR).
+- If a comment leads to a decision worth preserving long-term, log it in [`DECISIONS.md`](DECISIONS.md) before running `/refine-doc` — once addressed, the sidecar entry is gone.
+- Keeps PR history clean (no review-noise commits).
+- Each downstream project can opt into committing comments by un-ignoring the pattern in their own `.gitignore`, if they want a shared review trail.
+
+### When to use
+
+- **PRD review** during Research — primary use case. Walk through `docs/PRD/index.html` in the browser, jot feedback by section, refine.
+- **ARCH / SECURITY review** during Plan — same loop, different doc.
+- **Periodic refreshes** mid-project — when a milestone closes, take a pass at whether the PRD assumptions still hold; same loop.
+
+This is Pass 1 of the comments infrastructure — convention + skill, no browser UI yet. A future pass may add an inline-comment JS widget served via a local helper script; that's optional and gated on whether the convention proves valuable in practice.
+
 ## Version control & Linear
 
 - **Git is non-negotiable.** Commit at every meaningful step. Push at every completed I→V loop.
