@@ -42,3 +42,7 @@ coverage/
 # Logs
 *.log
 logs/
+
+# Vendored third-party assets (e.g. Mermaid bundle from scripts/vendor-mermaid.sh).
+# Downstream projects that want this committed can un-ignore in their own .gitignore.
+docs/_assets/vendor/

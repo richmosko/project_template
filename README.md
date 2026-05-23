@@ -156,6 +156,7 @@ One Linear team is shared across **all** your projects (free-tier-friendly). Eac
 │   ├── SECURITY.html            security (Plan + Validate)
 │   ├── starting-prompt.md       original design notes (kept for posterity)
 │   └── _assets/                 shared CSS + Mermaid loader
+├── scripts/                     repo-level helpers (vendor-mermaid.sh, …)
 └── .claude/
     ├── settings.json            hooks, env, permissions, teammateMode
     ├── agents/                  9 specialist definitions
@@ -213,10 +214,31 @@ If you prefer to override anything per-project without committing, drop it in `.
   - Watch the **250-active-issues** free-tier cap — archive features aggressively at sprint boundaries.
 - **Anthropic API access** — implicit via Claude Code itself; no additional config.
 
+### Mermaid loading: CDN vs vendored
+
+The HTML doc templates (`PRD.html`, `ARCH.html`, `SECURITY.html`) load Mermaid via `docs/_assets/mermaid-init.js`. The template ships with the **CDN variant** — fetches Mermaid from `cdn.jsdelivr.net` at doc-view time. Works out of the box; requires internet access to render diagrams.
+
+For projects that can't rely on CDN access — **regulated builds (fintech, healthcare), offline / air-gapped workflows, security-conscious postures** — swap to the vendored variant:
+
+```bash
+./scripts/vendor-mermaid.sh
+```
+
+The script:
+- Downloads the Mermaid UMD bundle to `docs/_assets/vendor/mermaid.min.js` (defaults to pinned major version; override with `MERMAID_VERSION=11.4.0` etc.)
+- Rewrites `docs/_assets/mermaid-init.js` to load from the local bundle instead of the CDN
+- Uses the UMD build (not ESM) so `file://` URLs work — you can still double-click the HTML docs from Finder
+
+The vendor directory is **gitignored by default** at the template level so the template itself doesn't carry the bundle. Downstream projects can either:
+- Leave it gitignored and document `./scripts/vendor-mermaid.sh` as a setup step (the script is idempotent), or
+- Un-ignore `docs/_assets/vendor/` in their own `.gitignore` to commit the bundle into their repo.
+
+Revert to CDN at any time: `git checkout docs/_assets/mermaid-init.js && rm -rf docs/_assets/vendor/`.
+
 ### Optional for richer artifacts
 
 - **Figma MCP** + **Figma plugin** — required only if the `ux-designer` Agent will produce wireframes / Code Connect mappings (skills under `figma:*`).
-- **Modern browser** — for viewing the generated HTML docs (`PRD.html`, `ARCH.html`, `SECURITY.html`). They're self-contained and load Mermaid from CDN, so an internet connection helps on first open.
+- **Modern browser** — for viewing the generated HTML docs (`PRD.html`, `ARCH.html`, `SECURITY.html`). They're self-contained; default-CDN variant needs internet on first open, vendored variant works offline.
 
 ## Where to read next
 
