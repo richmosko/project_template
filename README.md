@@ -71,9 +71,9 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 - `MILESTONES.md` — live state ledger (compact; auto-loaded)
 - `DECISIONS.md` — append-only decision log (not auto-loaded; pulled in when historical context is needed)
 - `BACKLOG.md` — overflow queue for Linear (items waiting to be promoted)
-- `docs/PRD.html` — Product Requirements (HTML + Mermaid)
-- `docs/ARCH.html` — Architecture + Infrastructure
-- `docs/SECURITY.html` — Security + Compliance
+- `docs/PRD/index.html` — Product Requirements (HTML + Mermaid)
+- `docs/ARCH/index.html` — Architecture + Infrastructure
+- `docs/SECURITY/index.html` — Security + Compliance
 - `docs/archive/` — stashed originals of imported PRD/ARCH artifacts
 - `docs/_assets/` — shared CSS + Mermaid loader
 
@@ -151,11 +151,13 @@ One Linear team is shared across **all** your projects (free-tier-friendly). Eac
 ├── MILESTONES.md                live state + decision ledger
 ├── README.md                    this file
 ├── docs/
-│   ├── PRD.html                 product requirements (Research)
-│   ├── ARCH.html                architecture (Plan)
-│   ├── SECURITY.html            security (Plan + Validate)
+│   ├── PRD/index.html           product requirements (Research)
+│   ├── ARCH/index.html          architecture (Plan)
+│   ├── SECURITY/index.html      security (Plan + Validate)
 │   ├── starting-prompt.md       original design notes (kept for posterity)
 │   └── _assets/                 shared CSS + Mermaid loader
+│   (each doc lives in its own subdir — add per-doc images / diagrams /
+│    sub-pages alongside the index.html as the doc grows)
 ├── scripts/                     repo-level helpers (vendor-mermaid.sh, …)
 └── .claude/
     ├── settings.json            hooks, env, permissions, teammateMode
@@ -216,7 +218,7 @@ If you prefer to override anything per-project without committing, drop it in `.
 
 ### Mermaid loading: CDN vs vendored
 
-The HTML doc templates (`PRD.html`, `ARCH.html`, `SECURITY.html`) load Mermaid via `docs/_assets/mermaid-init.js`. The template ships with the **CDN variant** — fetches Mermaid from `cdn.jsdelivr.net` at doc-view time. Works out of the box; requires internet access to render diagrams.
+The HTML doc templates (`docs/PRD/index.html`, `docs/ARCH/index.html`, `docs/SECURITY/index.html`) load Mermaid via `docs/_assets/mermaid-init.js`. The template ships with the **CDN variant** — fetches Mermaid from `cdn.jsdelivr.net` at doc-view time. Works out of the box; requires internet access to render diagrams.
 
 For projects that can't rely on CDN access — **regulated builds (fintech, healthcare), offline / air-gapped workflows, security-conscious postures** — swap to the vendored variant:
 
@@ -238,7 +240,7 @@ Revert to CDN at any time: `git checkout docs/_assets/mermaid-init.js && rm -rf 
 ### Optional for richer artifacts
 
 - **Figma MCP** + **Figma plugin** — required only if the `ux-designer` Agent will produce wireframes / Code Connect mappings (skills under `figma:*`).
-- **Modern browser** — for viewing the generated HTML docs (`PRD.html`, `ARCH.html`, `SECURITY.html`). They're self-contained; default-CDN variant needs internet on first open, vendored variant works offline.
+- **Modern browser** — for viewing the generated HTML docs (`docs/PRD/index.html` etc.). They're self-contained; default-CDN variant needs internet on first open, vendored variant works offline.
 
 ## Where to read next
 

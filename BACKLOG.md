@@ -9,7 +9,7 @@
 Linear's free tier caps **active (non-archived) issues at 250 across the workspace**. The template uses a tiered system to stay under:
 
 ```
-docs/PRD.html         BACKLOG.md (here)        Linear active issues       Linear archived
+docs/PRD/index.html   BACKLOG.md (here)        Linear active issues       Linear archived
 (canonical scope)  →  (overflow queue)      →  (hot working set, ≤200) →  (cold storage)
                                                       ↓
                           /sync-backlog promotes;  /start-feature consumes;  /cleanup-linear archives Done

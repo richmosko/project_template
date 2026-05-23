@@ -1,16 +1,16 @@
 ---
 name: generate-secdoc
-description: Generates or refines `docs/SECURITY.html` — the Security Requirements document. Use during the Plan phase (after ARCH.html v1 exists) or whenever the user asks for the security doc, threat model, or compliance mapping. Driven by the `seceng` agent. Produces a STRIDE-based threat model, trust-boundary map, controls catalog, compliance mapping, and incident-response runbook.
+description: Generates or refines `docs/SECURITY/index.html` — the Security Requirements document. Use during the Plan phase (after ARCH v1 exists) or whenever the user asks for the security doc, threat model, or compliance mapping. Driven by the `seceng` agent. Produces a STRIDE-based threat model, trust-boundary map, controls catalog, compliance mapping, and incident-response runbook.
 ---
 
 # generate-secdoc
 
-You are populating `docs/SECURITY.html`. This is owned by the `seceng` agent and produced jointly with the `architect`.
+You are populating `docs/SECURITY/index.html`. This is owned by the `seceng` agent and produced jointly with the `architect`.
 
 ## Pre-flight
 
-- Read `docs/PRD.html` (especially the Non-Functional Requirements → regulatory regime).
-- Read `docs/ARCH.html` — the threat model is structured around its components and trust boundaries. Do **not** start this skill before ARCH.html v1 exists.
+- Read `docs/PRD/index.html` (especially the Non-Functional Requirements → regulatory regime).
+- Read `docs/ARCH` — the threat model is structured around its components and trust boundaries. Do **not** start this skill before ARCH v1 exists.
 - Read `CLAUDE.md` and `MILESTONES.md` to confirm Plan phase.
 
 ## Sections
@@ -30,7 +30,7 @@ The PRD's Non-Functional Requirements section is the source. Push the user if th
 
 ### 2. Trust Boundaries
 
-Refer to ARCH.html components. List each boundary explicitly:
+Refer to ARCH components. List each boundary explicitly:
 
 | From | To | Boundary type | Notes |
 |---|---|---|---|
@@ -42,7 +42,7 @@ Embed a Mermaid `flowchart` showing the boundaries visually.
 
 ### 3. Threat Model (STRIDE)
 
-For each component in ARCH.html, walk through STRIDE:
+For each component in ARCH, walk through STRIDE:
 
 - **S**poofing — can the attacker pretend to be someone else?
 - **T**ampering — can they modify data in transit or at rest?
@@ -123,11 +123,11 @@ Risks we've decided to live with for now. Each entry:
 
 ## Writing to HTML
 
-Update `docs/SECURITY.html` in place. Each section is a `<section data-section="<name>">` block. Preserve head + assets links.
+Update `docs/SECURITY/index.html` in place. Each section is a `<section data-section="<name>">` block. Preserve head + assets links.
 
 ## When you finish
 
 1. Run `/security-review` on the current branch as a baseline (it should find nothing yet — no code).
 2. `SendMessage` to architect: "SECURITY v1 done; flag any new trust boundaries we should add to ARCH."
-3. `/open-doc docs/SECURITY.html` for user review.
+3. `/open-doc docs/SECURITY/index.html` for user review.
 4. Once ARCH and SECURITY are both approved, the Plan→Implement gate is open. Log in `MILESTONES.md`.
