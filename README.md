@@ -97,11 +97,12 @@ These are **suggestions, not bundled assets** — the template doesn't ship the 
 
 ## Customizing doc preview
 
-The `/open-doc` skill routes by extension: `.html` → system browser, `.md` → One Markdown app (if installed) with editor fallback. This works for most macOS users but can be swapped:
+The `/open-doc` skill routes by extension: `.html` → browser (Chrome → Safari fallback on macOS), `.md` → One Markdown app (if installed) with editor fallback. This works for most macOS users but can be swapped:
 
-- **Use a different Markdown viewer** (Bear, IDE preview, `mdcat`, `glow`) → edit `.claude/skills/open-doc/SKILL.md` and replace the `open-one-markdown` route in step 2 with your tool of choice.
-- **Different browser for HTML** → the skill calls `open <path>` (macOS default). Swap to `open -a "Firefox"` or equivalent for a specific browser.
-- **Headless / SSH session** → replace the `open` calls with a terminal-friendly viewer (`w3m -dump`, `lynx`, etc.) or a network-share path.
+- **Why Chrome → Safari (not the system default)?** On macOS, LaunchServices can route `.html` files through MacVim, VS Code, or any other app the user accidentally set as default. Using `open -a "Google Chrome"` (with Safari as fallback) bypasses that and ensures HTML docs always render in a real browser.
+- **Use a different default browser** (Firefox, Arc, Brave, etc.) → edit the `.html` route in `.claude/skills/open-doc/SKILL.md` step 2: change `"Google Chrome"` to `"Firefox"` / `"Arc"` / `"Brave Browser"` etc. Keep Safari as the fallback (it's always present on macOS).
+- **Use a different Markdown viewer** (Bear, IDE preview, `mdcat`, `glow`) → edit the same SKILL.md and replace the `open-one-markdown` route with your tool of choice.
+- **Headless / SSH session** → replace the `open -a` calls with a terminal-friendly viewer (`w3m -dump`, `lynx`, etc.) or a network-share path.
 - **Project-specific viewer skill** → if your project needs a non-default workflow (e.g. opening every artifact through a specific tool chain), add a project-local skill alongside `/open-doc`. The template won't fight you.
 
 ## Quick start
