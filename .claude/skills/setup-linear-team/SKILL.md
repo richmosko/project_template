@@ -89,7 +89,7 @@ Create `.claude/linear-team.json`:
 
 The file is gitignored — each clone resolves its own cache.
 
-### 5. Update MILESTONES.md
+### 5. Update MILESTONES.md → Project / Initiative
 
 Fill the `## Project / Initiative` block with:
 - Project name (use `initiativeName`)
@@ -99,7 +99,34 @@ Fill the `## Project / Initiative` block with:
 - Target ship date (blank until Plan)
 - Health (`On track` by default)
 
-### 6. Seed the backlog with tiered overflow (optional)
+### 6. Seed M0 + M1 process milestones as Linear projects
+
+The template ships MILESTONES.md with two **process milestones** in the Roadmap: M0 (Bootstrap & Research) and M1 (Plan). These give Research/Plan work the same Linear-tracked visibility that product milestones get. Create both as Linear projects under the Initiative so Research/Plan sub-tasks can flow as Linear issues.
+
+For each, call `mcp__claude_ai_Linear__save_project`:
+
+| # | Name | State | Linked initiative | Description |
+|---|---|---|---|---|
+| M0 | `M0 — Bootstrap & Research` | `started` | `<initiativeId>` | "Definition of done: PRD v1 approved; user stories enumerated; M2+ scope sketched in PRD §9." |
+| M1 | `M1 — Plan` | `planned` | `<initiativeId>` | "Definition of done: ARCH.html + SECURITY.html approved; M2+ Roadmap rows populated; first sprint planned." |
+
+Capture both `projectId` values; cache them in `.claude/linear-team.json` under a new `processMilestones` key:
+
+```json
+{
+  …existing keys…,
+  "processMilestones": {
+    "m0": "<project-id>",
+    "m1": "<project-id>"
+  }
+}
+```
+
+Then update the M0 + M1 rows in `MILESTONES.md` → Roadmap with the actual Linear project IDs (replacing the `LIN-XXX` placeholders).
+
+If the user subdivides M0 or M1 later (e.g. `M0a`/`M0b`), they'll create additional Linear projects manually and add rows to the Roadmap — the template's two seeded rows are the floor, not a cap.
+
+### 7. Seed the backlog with tiered overflow (optional)
 
 If the user is in Research/Plan phase with a draft PRD containing user stories, run the **tiered seeding** flow to keep Linear's active-issue count under 200 (80% of cap):
 
@@ -147,11 +174,12 @@ Proceed? [Y/n]
 - <YYYY-MM-DD>: Initial seeding from PRD — 6 items to Linear (M1), 13 items queued in BACKLOG.md (M2–M3)
 ```
 
-### 7. Confirm and finish
+### 8. Confirm and finish
 
 Print a summary:
 - Shared team: `<name>` (`<KEY>`)
 - Initiative: `<name>` (`<id>`)
+- Process milestones seeded: M0, M1 (Linear projects)
 - Labels seeded: 9 of 9
 - Issues seeded to Linear: N (from milestone 1)
 - Items queued in BACKLOG.md: M (from later milestones)
