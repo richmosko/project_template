@@ -32,11 +32,14 @@ find docs -maxdepth 2 -type f \( -name '*.html' -o -name '*.md' \) 2>/dev/null
 
 ### Step 2 — route by extension
 
-- **`.html`** → open in default browser:
+- **`.html`** → open in a browser **explicitly** (not via the default `.html` association — that can route through MacVim / VS Code / other text editors if the user has those set as the default for HTML, which is common):
   ```bash
-  open "<absolute-path>"   # macOS
+  open -a "Google Chrome" "<absolute-path>" 2>/dev/null \
+    || open -a "Safari" "<absolute-path>"
   ```
-  (On Linux this would be `xdg-open`; on Windows `start`. Default template assumes macOS — adjust per project.)
+  Chrome is tried first (common preference); Safari is the universal macOS fallback. Both calls use `open -a` to bypass LaunchServices' default-app preference for `.html`.
+
+  (On Linux: `xdg-open <path>` typically launches the system's preferred browser; on Windows: `start <path>` does. Default template assumes macOS — adjust per project. See README → Customizing doc preview for swapping in a different browser.)
 
 - **`.md`** → if the One Markdown app is installed (the `open-one-markdown` skill detects it), use that. Otherwise fall back to the user's editor (`$EDITOR file` or `open file`).
 
