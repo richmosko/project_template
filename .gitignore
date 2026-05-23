@@ -46,3 +46,7 @@ logs/
 # Vendored third-party assets (e.g. Mermaid bundle from scripts/vendor-mermaid.sh).
 # Downstream projects that want this committed can un-ignore in their own .gitignore.
 docs/_assets/vendor/
+
+# Doc review notes (sidecar comments addressed by /refine-doc).
+# In-process working artifacts; the resolution is the doc edits committed via PR.
+docs/*/comments.md
