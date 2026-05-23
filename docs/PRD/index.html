@@ -143,15 +143,17 @@ flowchart LR
 </section>
 
 <section id="appendix" data-section="appendix">
-  <h2>Appendix</h2>
+  <h2>11. Appendix</h2>
   <p class="section-hint">Research notes, competitive analysis, supporting links.</p>
   <ul>
     <li class="tbd">—</li>
   </ul>
 
-  <h3 id="faqs">FAQs</h3>
+  <h3 id="faqs">11.1 FAQs</h3>
   <p class="section-hint">Optional. Short Q&amp;A pairs that help a newcomer grasp the project without reading the full PRD. Great place to capture "wait, why didn't we just…" questions that came up during Research.</p>
   <dl class="faqs">
+    <dt>Q: How do I add review comments to this PRD?</dt>
+    <dd>A: Two ways. Hand-edit <code>docs/PRD/comments.md</code> with <code>## §&lt;section-id&gt;</code> blocks pointing at the <code>id</code> attribute of the section you're commenting on. Or run <code>./scripts/serve-docs.sh</code> from the repo root and browse to <code>http://localhost:8765/PRD/</code> — an inline widget appears next to each section heading with a <code>+ Comment</code> button. Both methods write to the same <code>comments.md</code> file. When you're ready for Claude to act on the comments, run <code>/refine-doc PRD</code> — each comment is addressed in the matching section and removed from the sidecar. The sidecar is gitignored; the actual resolution lives in this doc and is committed via PR. See <a href="../../WORKFLOW.md">WORKFLOW.md</a> → Doc review loop for the full pattern.</dd>
     <dt class="tbd">Q: —</dt>
     <dd class="tbd">A: —</dd>
   </dl>
