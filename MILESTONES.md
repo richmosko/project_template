@@ -40,11 +40,17 @@ A feature = one Linear issue = one PR = one Implement→Validate loop. Exists on
 
 ## Roadmap
 
-Milestones populate during the Plan phase. Each milestone maps to a **Linear project** and contains one or more sprints. Status values match Linear project statuses: **Backlog · Planned · In Progress · Paused · Completed · Cancelled**.
+Each milestone maps to a **Linear project** and contains one or more sprints. Status values match Linear project statuses: **Backlog · Planned · In Progress · Paused · Completed · Cancelled**.
+
+**Two flavors:**
+- **Process milestones** (M0, M1) track the Research and Plan phases themselves. They ship by default at bootstrap so the Roadmap is never empty. **Each can be subdivided** if a phase turns out to be complex (e.g. `M0a: PRD draft` → `M0b: PRD review & refinement`, or `M1a: Architecture` → `M1b: Security` → `M1c: Sprint planning`). Keep one Linear project per row.
+- **Product milestones** (M2+) are the actual scope chunks of the product. Populated by the `architect` during M1 (Plan) — that's the work product of Plan.
 
 | # | Milestone | Status | Linear Project | Notes |
 |---|---|---|---|---|
-| _e.g. M1_ | _MVP — auth + core flow_ | _Planned_ | _LINEAR-XXX_ | _—_ |
+| M0 | _Bootstrap & Research — PRD v1 approved_ | _In Progress_ | _LIN-XXX_ | Definition of done: `docs/PRD.html` signed off; user stories enumerated; M2+ scope sketched in PRD §9 Timeline |
+| M1 | _Plan — ARCH v1, SECURITY v1, Roadmap populated_ | _Planned_ | _LIN-XXX_ | Definition of done: `docs/ARCH.html` + `docs/SECURITY.html` approved; M2+ rows below populated; first sprint planned |
+| _M2_ | _first product milestone — populated by architect during M1_ | _Planned_ | _—_ | _—_ |
 
 ## Sprints (Linear cycles)
 

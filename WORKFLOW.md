@@ -271,9 +271,17 @@ To tear down: _"Clean up the team."_
 | Our concept | Linear primitive |
 |---|---|
 | Project (overall effort, this repo) | **Initiative** (workspace-level; has target date, owner, health) |
-| Milestone | Linear Project (created up-front during Plan, status `Planned` → `In Progress` → `Completed`) |
+| Milestone | Linear Project (status `Planned` → `In Progress` → `Completed`) |
 | Sprint | Linear Cycle (team-wide cadence; one cycle can contain features from multiple of your projects) |
 | Feature | Linear Issue (one issue = one PR = one I→V loop) |
+
+### Process milestones vs. product milestones
+
+Milestones come in two flavors. **Process milestones** (M0 — Bootstrap & Research, M1 — Plan) track the Research and Plan phases themselves as first-class Linear projects, seeded automatically by `/setup-linear-team`. **Product milestones** (M2+) are the actual scope chunks of the product and are populated by the `architect` during M1.
+
+The point of giving Research and Plan their own milestones is that those phases are often as complex as a product milestone — drafting a PRD or designing an architecture generates a real backlog of sub-tasks (interview a stakeholder, sketch a flow, decide a stack). Treating them as milestones means that work is **trackable as Linear issues** with the same visibility as product work, and a fresh session sees the Roadmap populated from Day 0 instead of waiting until Plan completes.
+
+**Subdivide if complexity warrants.** If Research turns out to be heavy, split M0 into `M0a — PRD draft`, `M0b — PRD review & refinement`. Same for M1 if Architecture vs Security warrant separate tracks. Each subdivision creates its own Linear project. The template seeds two rows as the floor, not a cap.
 
 - **Agent attribution via labels.** Every Linear issue carries one or more `agent:<role>` labels (e.g. `agent:backend-lead`, `agent:qa-engineer`). Labels are seeded automatically by `/setup-linear-team`. This is the v1 attribution mechanism.
   - **Future upgrade — OAuth agent actors:** Linear supports OAuth-installed "agent" accounts that don't consume a billable seat and get first-class per-agent attribution in audit logs and Insights ([docs](https://linear.app/developers/agents)). Requires registering an OAuth app per agent role and re-routing MCP calls — non-trivial work. Switch only when per-agent reporting starts mattering; the label workflow keeps working alongside.

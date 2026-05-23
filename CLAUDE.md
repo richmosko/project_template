@@ -85,7 +85,7 @@ When this template is freshly cloned for a new project, the team-lead should wal
 5. **Replace the placeholders** in this file:
    - L7–8: the "TBD" project description block
    - L10: the GitHub URL (points at the template repo by default — change to this project's repo once created)
-6. **Run `/setup-linear-team`** to wire Linear into this project — link to your shared Linear team, create this project's Initiative, and seed the nine `agent:<role>` labels. Caches IDs in `.claude/linear-team.json`.
+6. **Run `/setup-linear-team`** to wire Linear into this project — link to your shared Linear team, create this project's Initiative, seed M0 (Bootstrap & Research) + M1 (Plan) as Linear projects so Roadmap is populated from Day 0, and seed the nine `agent:<role>` labels. Caches IDs in `.claude/linear-team.json`.
 7. **Verify teammate mode** in `.claude/settings.json` (default: `tmux` for split-pane). If you prefer in-process, change it before spawning the first team.
 8. **Spawn the Research team:** say _"Create an agent team for the Research phase"_ — the lead will spawn `product-manager` (and bring `ux-designer` + `seceng` in later).
 9. **Run `/generate-prd`** to start the discovery interview. The PM teammate drives.
