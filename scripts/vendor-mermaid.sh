@@ -50,7 +50,7 @@ cat > "$INIT_JS" <<'EOF'
 
 (function () {
   var bundle = document.createElement("script");
-  bundle.src = "_assets/vendor/mermaid.min.js";
+  bundle.src = "../_assets/vendor/mermaid.min.js";
   bundle.onload = function () {
     var darkMode = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
     window.mermaid.initialize({
@@ -89,7 +89,7 @@ cat <<MSG
 ✓ Done. Mermaid now loads from $VENDOR_DIR/ instead of the CDN.
 
 Verify:
-  - Open docs/PRD.html (or ARCH.html / SECURITY.html) in a browser
+  - Open docs/PRD/index.html (or ARCH / SECURITY) in a browser
   - Disconnect from the internet — diagrams should still render
 
 Notes:

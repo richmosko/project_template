@@ -108,7 +108,7 @@ For each, call `mcp__claude_ai_Linear__save_project`:
 | # | Name | State | Linked initiative | Description |
 |---|---|---|---|---|
 | M0 | `M0 — Bootstrap & Research` | `started` | `<initiativeId>` | "Definition of done: PRD v1 approved; user stories enumerated; M2+ scope sketched in PRD §9." |
-| M1 | `M1 — Plan` | `planned` | `<initiativeId>` | "Definition of done: ARCH.html + SECURITY.html approved; M2+ Roadmap rows populated; first sprint planned." |
+| M1 | `M1 — Plan` | `planned` | `<initiativeId>` | "Definition of done: ARCH + SECURITY approved; M2+ Roadmap rows populated; first sprint planned." |
 
 Capture both `projectId` values; cache them in `.claude/linear-team.json` under a new `processMilestones` key:
 
@@ -130,7 +130,7 @@ If the user subdivides M0 or M1 later (e.g. `M0a`/`M0b`), they'll create additio
 
 If the user is in Research/Plan phase with a draft PRD containing user stories, run the **tiered seeding** flow to keep Linear's active-issue count under 200 (80% of cap):
 
-**a. Parse PRD user stories.** Read `docs/PRD.html` § User Stories. Group stories by their target milestone (if the PRD has a Timeline / Milestones section). If milestones aren't yet defined, treat everything as "M1 — to be planned" for now.
+**a. Parse PRD user stories.** Read `docs/PRD/index.html` § User Stories. Group stories by their target milestone (if the PRD has a Timeline / Milestones section). If milestones aren't yet defined, treat everything as "M1 — to be planned" for now.
 
 **b. Check current Linear active-issue count.** Call `mcp__claude_ai_Linear__list_issues` filtered by `state != archived`. Note the count; the goal is to end below 200.
 

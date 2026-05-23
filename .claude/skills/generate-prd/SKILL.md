@@ -1,11 +1,11 @@
 ---
 name: generate-prd
-description: Interview-driven generation of `docs/PRD.html`. Use during the Research phase, or whenever the user asks to "write the PRD", "generate the product spec", or "interview me about the product". Follows the chatprd.ai lightweight PRD template — Problem, Goals/Metrics, User Stories, Functional/Non-Functional Requirements, Design Considerations, Technical Considerations, Timeline, Open Questions, Appendix. **Supports import mode**: pass an optional path to an existing PRD artifact (markdown, HTML, PDF, Google Doc) and the skill analyzes the legacy content, maps it to the AGILE framework, and runs the interview only for gaps.
+description: Interview-driven generation of `docs/PRD/index.html`. Use during the Research phase, or whenever the user asks to "write the PRD", "generate the product spec", or "interview me about the product". Follows the chatprd.ai lightweight PRD template — Problem, Goals/Metrics, User Stories, Functional/Non-Functional Requirements, Design Considerations, Technical Considerations, Timeline, Open Questions, Appendix. **Supports import mode**: pass an optional path to an existing PRD artifact (markdown, HTML, PDF, Google Doc) and the skill analyzes the legacy content, maps it to the AGILE framework, and runs the interview only for gaps.
 ---
 
 # generate-prd
 
-You are running an interview to populate `docs/PRD.html`. This is the Research-phase driver activity. The `product-manager` teammate should run this skill (or the team-lead if no PM is active).
+You are running an interview to populate `docs/PRD/index.html`. This is the Research-phase driver activity. The `product-manager` teammate should run this skill (or the team-lead if no PM is active).
 
 ## Two modes
 
@@ -23,7 +23,7 @@ You are running an interview to populate `docs/PRD.html`. This is the Research-p
 
 ### 1. Pre-flight
 
-- Read `docs/PRD.html` if it exists. If sections already have content, treat this as a refinement pass, not a fresh start.
+- Read `docs/PRD/index.html` if it exists. If sections already have content, treat this as a refinement pass, not a fresh start.
 - Read `CLAUDE.md` and `MILESTONES.md` to confirm we're in the Research phase.
 - **If `$ARGUMENTS` is a path or URL to an existing PRD artifact:** run **Section 1a. Import mode** below before continuing. Otherwise, skip directly to Section 2.
 
@@ -43,7 +43,7 @@ When a legacy PRD exists, your job shifts from "interview from scratch" to "anal
 - **Port directly** — content fits the framework as-is
 - **Port with refinement** — fits but needs adjustment (e.g. quantify a qualitative goal)
 - **Decompose** — too coarse; needs breaking down (e.g. mega-feature → multiple user stories)
-- **Relocate** — belongs in ARCH.html, MILESTONES.md, or Linear instead of PRD
+- **Relocate** — belongs in ARCH, MILESTONES.md, or Linear instead of PRD
 - **Archive** — historical context; goes to Appendix or `docs/archive/`
 
 **c. Surface the mapping for confirmation.** Show the user a table summarizing what you found and how you'd handle each section:
@@ -52,17 +52,17 @@ When a legacy PRD exists, your job shifts from "interview from scratch" to "anal
 |---|---|---|
 | §1 "Overview" | Problem statement | Port directly → PRD §1 |
 | §3 "Features" | Feature list (high-level) | Decompose → 6 user stories |
-| §5 "Implementation Approach" | Implementation detail | **Relocate** → ARCH.html |
+| §5 "Implementation Approach" | Implementation detail | **Relocate** → ARCH |
 | ... | ... | ... |
 
 Ask: "Any overrides before I refactor?" Honor the user's preferences (e.g. they may want to keep something marked "relocate" in the PRD as a special case).
 
 **d. Stash the original.** Move the source file to `docs/archive/<YYYY-MM-DD>__<original-filename>` (today's absolute date). If it's an external URL (e.g. Google Doc), download a snapshot to that path; don't try to "move" the live doc.
 
-**e. Apply the ports.** Fill the relevant `<section>` blocks in `docs/PRD.html` with the classified+refined content. Add a reference at the bottom of PRD's Appendix: "Source documents: [docs/archive/...]"
+**e. Apply the ports.** Fill the relevant `<section>` blocks in `docs/PRD/index.html` with the classified+refined content. Add a reference at the bottom of PRD's Appendix: "Source documents: [docs/archive/...]"
 
 **f. Queue the spillover.** For content marked "Relocate":
-- → ARCH.html: queue as draft content for a later `/generate-archdoc` run (or feed directly if architect agent is active)
+- → ARCH: queue as draft content for a later `/generate-archdoc` run (or feed directly if architect agent is active)
 - → `DECISIONS.md`: queue as a Decision Log entry; or → `MILESTONES.md`: queue as a Milestone row
 - → Linear: queue as backlog issues (PM agent can call `save_issue` via MCP)
 
@@ -128,7 +128,7 @@ If a UX designer is active, hand off to them via `SendMessage`. Otherwise leave 
 
 ### 8. Technical Considerations
 
-Lightweight — what integrations or constraints do we already know about? (e.g. "must use the company's existing auth", "ships on Vercel"). Detail goes in ARCH.html during Plan.
+Lightweight — what integrations or constraints do we already know about? (e.g. "must use the company's existing auth", "ships on Vercel"). Detail goes in ARCH during Plan.
 
 Fill **Technical Considerations**.
 
@@ -146,7 +146,7 @@ Stub: "Research notes, competitive analysis, links."
 
 ## Writing to HTML
 
-Update `docs/PRD.html` in place. Preserve the `<head>`, the `_assets/doc.css` link, and the Mermaid loader. Only edit the section bodies. Each section is a `<section data-section="<name>">` block.
+Update `docs/PRD/index.html` in place. Preserve the `<head>`, the `_assets/doc.css` link, and the Mermaid loader. Only edit the section bodies. Each section is a `<section data-section="<name>">` block.
 
 If the user gives you raw Mermaid (e.g. for a user flow), wrap it as:
 ```html
@@ -159,5 +159,5 @@ flowchart TD
 ## When you finish
 
 1. Show the user a summary of what's filled vs. still stubbed.
-2. Open the doc with `/open-doc docs/PRD.html` so they can review.
+2. Open the doc with `/open-doc docs/PRD/index.html` so they can review.
 3. Ask: "Approve PRD v1 to move to Plan phase?" If yes, add an entry to [`DECISIONS.md`](../../../DECISIONS.md) and update `MILESTONES.md` → `## Current Phase` to "Plan".

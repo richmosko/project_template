@@ -1,5 +1,5 @@
 // Loads Mermaid from CDN and initializes it with theme-aware config.
-// Used by docs/PRD.html, docs/ARCH.html, docs/SECURITY.html.
+// Used by docs/PRD/index.html, docs/ARCH/index.html, docs/SECURITY/index.html.
 
 (function () {
   var script = document.createElement("script");

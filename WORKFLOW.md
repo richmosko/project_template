@@ -19,8 +19,8 @@ flowchart LR
 
 | Phase | Driver agent | Output artifact | Gate to next phase |
 |---|---|---|---|
-| **Research** | product-manager | `docs/PRD.html` (v1) | PRD covers Problem, Goals, Users, Stories, Non-Goals; user approves |
-| **Plan** | architect | `docs/ARCH.html` + `docs/SECURITY.html` | ARCH covers stack, components, data flow, CI/CD; SECURITY covers threat model + controls |
+| **Research** | product-manager | `docs/PRD/index.html` (v1) | PRD covers Problem, Goals, Users, Stories, Non-Goals; user approves |
+| **Plan** | architect | `docs/ARCH/index.html` + `docs/SECURITY/index.html` | ARCH covers stack, components, data flow, CI/CD; SECURITY covers threat model + controls |
 | **Implement** | implementation leads (per project config — see below) | Working code on a feature branch | All tests green; code reviewed by peer agent |
 | **Validate** | qa-engineer | Test results + release notes | Acceptance criteria met; SECURITY checks pass; PR merged |
 
@@ -55,7 +55,7 @@ All implementation-lead agent files ship with the template; the project just pic
   - PM drafts user stories, success metrics, non-goals
   - UX produces wireframes / interaction sketches (late-phase, after stories stabilize)
   - SecEng surfaces regulatory and high-level security considerations (e.g. "this handles PHI" → flag for SECURITY.md later)
-- **Artifact:** `docs/PRD.html`
+- **Artifact:** `docs/PRD/index.html`
 - **Gate:** User approves PRD v1.
 
 ### Plan
@@ -65,12 +65,12 @@ All implementation-lead agent files ship with the template; the project just pic
 - **Driver:** `architect`
 - **Active team:** architect (driver), seceng, devops-engineer, qa-engineer
 - **Activities:**
-  - Architect drafts `ARCH.html` (system context, components, data flow, tech stack, deployment topology) via `/generate-archdoc`
-  - SecEng produces `SECURITY.html` via `/generate-secdoc` (threat model, trust boundaries, controls, compliance, incident response)
+  - Architect drafts `ARCH` (system context, components, data flow, tech stack, deployment topology) via `/generate-archdoc`
+  - SecEng produces `SECURITY` via `/generate-secdoc` (threat model, trust boundaries, controls, compliance, incident response)
   - DevOps defines CI/CD topology, IaC approach, environments
   - QA proposes a test strategy (unit, integration, E2E split; coverage targets; acceptance-test framework)
   - Lead breaks the roadmap into **milestones (Linear projects) → sprints (Linear cycles) → deliverables (Linear issues)**
-- **Artifacts:** `docs/ARCH.html`, `docs/SECURITY.html`, populated `MILESTONES.md`, Linear backlog
+- **Artifacts:** `docs/ARCH/index.html`, `docs/SECURITY/index.html`, populated `MILESTONES.md`, Linear backlog
 - **Gate:** ARCH + SECURITY approved; Linear backlog populated for the first milestone.
 
 ### Implement
@@ -242,17 +242,46 @@ To tear down: _"Clean up the team."_
 ├── WORKFLOW.md                  this file
 ├── MILESTONES.md                live state + decision ledger
 ├── docs/
-│   ├── PRD.html                 product requirements (Research)
-│   ├── ARCH.html                architecture (Plan)
-│   ├── SECURITY.html            security (Plan, consult'd throughout)
+│   ├── PRD/index.html           product requirements (Research)
+│   ├── ARCH/index.html          architecture (Plan)
+│   ├── SECURITY/index.html      security (Plan, consult'd throughout)
 │   └── _assets/                 shared CSS + mermaid loader
 ├── .claude/
 │   ├── settings.json            hooks, env, permissions
 │   ├── linear-team.json         cached Linear team id (gitignored)
-│   ├── agents/                  8 specialist definitions
+│   ├── agents/                  9 specialist definitions
 │   └── skills/                  workflow + doc-gen skills
-└── src/, app/, lib/, etc.   source code layout decided during Plan, recorded in ARCH.html
+└── src/, app/, lib/, etc.   source code layout decided during Plan, recorded in ARCH
 ```
+
+### Doc-subdirectory convention
+
+Each top-level HTML doc lives in its own `docs/<DOC>/` directory with `index.html` as the entry point. This forward-plans for growth — when a doc accumulates supporting assets (mockup images, component diagrams, threat-model graphics, sub-pages) they sit alongside the index without crowding `docs/_assets/` (which stays reserved for template-shared CSS + JS).
+
+**Adding assets to a doc:**
+
+```
+docs/PRD/
+  index.html
+  images/
+    onboarding-mockup-01.png
+    onboarding-mockup-02.png
+  prd-v0.5.archive.html   ← optional: stash a frozen prior version
+```
+
+Reference these with relative paths from `index.html`: `<img src="images/onboarding-mockup-01.png">`. Don't dump per-doc assets into `docs/_assets/`.
+
+**Splitting a doc into multiple files** (only when growth warrants — flat single-file is fine until then):
+
+```
+docs/PRD/
+  index.html              ← keep as the entry / TOC
+  01-overview.html        ← linked from index.html
+  02-user-stories.html
+  …
+```
+
+The `index.html` filename stays stable across the split, so external references (CLAUDE.md, README, skills) don't need updating.
 
 ## Version control & Linear
 
@@ -288,7 +317,7 @@ The point of giving Research and Plan their own milestones is that those phases 
 - **Free-tier issue-cap mitigation (tiered overflow):** Linear's free plan caps active (non-archived) issues at **250 across the workspace**. The template uses a tiered overflow system to stay well under:
 
   ```
-  docs/PRD.html        BACKLOG.md          Linear active        Linear archived
+  docs/PRD/index.html        BACKLOG.md          Linear active        Linear archived
   (canonical scope) →  (overflow queue) →  (≤200 hot set)   →   (cold storage)
                             FIFO by               ↓
                             milestone        promoted by /sync-backlog
@@ -328,8 +357,8 @@ Existing artifacts encode decisions, stakeholder context, and constraints that t
 | User personas / audience | PRD §1 + §4 | port |
 | Feature list (high-level) | PRD §4 User Stories | **decompose** into "As a X..." form |
 | Feature list (detailed) | Linear backlog issues | port out of PRD entirely |
-| Implementation plan / "how it works" | ARCH.html | **flag as misplaced; relocate** |
-| Tech stack choices | ARCH.html | **flag as misplaced; relocate** |
+| Implementation plan / "how it works" | ARCH | **flag as misplaced; relocate** |
+| Tech stack choices | ARCH | **flag as misplaced; relocate** |
 | Roadmap / timeline (coarse) | MILESTONES.md + Linear projects | port + restructure |
 | Roadmap / timeline (per-feature) | Linear issues | port as backlog |
 | Risks / open questions | PRD §10 | port directly |
@@ -350,7 +379,7 @@ Existing artifacts encode decisions, stakeholder context, and constraints that t
 | CI/CD pipeline | ARCH §6 CI/CD Pipeline | port |
 | Integration points | ARCH §7 Integration Points | port |
 | Non-functional requirements | PRD §6 Non-Functional Requirements | **flag as misplaced; relocate** |
-| Security architecture / threat model | SECURITY.html | **flag as misplaced; relocate** |
+| Security architecture / threat model | SECURITY | **flag as misplaced; relocate** |
 | Trade-offs / alternatives | ARCH §8 Trade-offs | port (often missing — a win when found) |
 | Open questions | ARCH §9 Open Questions | port |
 | Roadmap / timeline | MILESTONES.md + Linear projects | **flag as misplaced; relocate** |

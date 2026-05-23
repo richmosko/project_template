@@ -1,6 +1,6 @@
 ---
 name: open-doc
-description: Opens an HTML or Markdown doc in the system default viewer. Use whenever the user asks to "show the PRD", "open the architecture doc", "preview SECURITY.html", or any variant of viewing a doc rendered. Takes a path as argument; defaults to `docs/PRD.html` if no argument.
+description: Opens an HTML or Markdown doc in the system default viewer. Use whenever the user asks to "show the PRD", "open the architecture doc", "preview SECURITY", or any variant of viewing a doc rendered. Takes a path as argument; defaults to `docs/PRD/index.html` if no argument.
 ---
 
 # open-doc
@@ -10,9 +10,9 @@ Opens a generated doc for human review.
 ## Usage
 
 ```
-/open-doc                       # opens docs/PRD.html by default
-/open-doc docs/ARCH.html        # opens the specified doc
-/open-doc docs/SECURITY.html
+/open-doc                       # opens docs/PRD/index.html by default
+/open-doc docs/ARCH/index.html        # opens the specified doc
+/open-doc docs/SECURITY/index.html
 /open-doc CLAUDE.md             # opens .md in One Markdown if available
 ```
 
@@ -20,7 +20,7 @@ Opens a generated doc for human review.
 
 ### Step 1 — resolve path
 
-If `$ARGUMENTS` is empty, default to `docs/PRD.html`.
+If `$ARGUMENTS` is empty, default to `docs/PRD/index.html`.
 
 Resolve to an absolute path. Verify it exists. If not, list available docs:
 

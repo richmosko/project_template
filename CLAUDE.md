@@ -5,7 +5,7 @@
 ## What this project is
 
 <!-- REPLACE on first run: one or two sentences on what the product is and who it's for. -->
-_TBD — fill in during the Research phase. See [`docs/PRD.html`](docs/PRD.html)._
+_TBD — fill in during the Research phase. See [`docs/PRD/index.html`](docs/PRD/index.html)._
 
 This repo was instantiated from the [project_template](https://github.com/richmosko/project_template) starter. The template's workflow, agent roster, and artifact conventions are defined in [`WORKFLOW.md`](WORKFLOW.md). The current state of the work — phase, sprint, feature, decisions — lives in [`MILESTONES.md`](MILESTONES.md). **Read MILESTONES.md before doing anything else.**
 
@@ -21,15 +21,15 @@ This repo was instantiated from the [project_template](https://github.com/richmo
 
 | Doc | Location | Owner agent |
 |---|---|---|
-| Product Requirements | [`docs/PRD.html`](docs/PRD.html) | product-manager |
-| Architecture & Infrastructure | [`docs/ARCH.html`](docs/ARCH.html) | architect |
-| Security & Compliance | [`docs/SECURITY.html`](docs/SECURITY.html) | seceng |
+| Product Requirements | [`docs/PRD/index.html`](docs/PRD/index.html) | product-manager |
+| Architecture & Infrastructure | [`docs/ARCH/index.html`](docs/ARCH/index.html) | architect |
+| Security & Compliance | [`docs/SECURITY/index.html`](docs/SECURITY/index.html) | seceng |
 | Workflow definition | [`WORKFLOW.md`](WORKFLOW.md) | team-lead (the main session) |
 | Live state ledger | [`MILESTONES.md`](MILESTONES.md) | team-lead |
 | Decision log | [`DECISIONS.md`](DECISIONS.md) | team-lead (append-only) |
 | Backlog overflow queue | [`BACKLOG.md`](BACKLOG.md) | team-lead + `/sync-backlog` |
 
-Open any HTML doc with `/open-doc docs/PRD.html` (or just double-click it).
+Open any HTML doc with `/open-doc docs/PRD/index.html` (or just double-click it).
 
 ## Team agents
 
