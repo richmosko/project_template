@@ -119,6 +119,14 @@ section h2 {
   letter-spacing: -0.01em;
 }
 
+section h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 1.75rem 0 0.4rem;
+  letter-spacing: -0.005em;
+  color: var(--muted);
+}
+
 section .section-hint {
   font-size: 0.85rem;
   color: var(--muted);
