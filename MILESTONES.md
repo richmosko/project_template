@@ -46,11 +46,11 @@ Each milestone maps to a **Linear project** and contains one or more sprints. St
 - **Process milestones** (M0, M1) track the Research and Plan phases themselves. They ship by default at bootstrap so the Roadmap is never empty. **Each can be subdivided** if a phase turns out to be complex (e.g. `M0a: PRD draft` → `M0b: PRD review & refinement`, or `M1a: Architecture` → `M1b: Security` → `M1c: Sprint planning`). Keep one Linear project per row.
 - **Product milestones** (M2+) are the actual scope chunks of the product. Populated by the `architect` during M1 (Plan) — that's the work product of Plan.
 
-| # | Milestone | Status | Linear Project | Notes |
-|---|---|---|---|---|
-| M0 | _Bootstrap & Research — PRD v1 approved_ | _In Progress_ | _LIN-XXX_ | Definition of done: `docs/PRD.html` signed off; user stories enumerated; M2+ scope sketched in PRD §9 Timeline |
-| M1 | _Plan — ARCH v1, SECURITY v1, Roadmap populated_ | _Planned_ | _LIN-XXX_ | Definition of done: `docs/ARCH.html` + `docs/SECURITY.html` approved; M2+ rows below populated; first sprint planned |
-| _M2_ | _first product milestone — populated by architect during M1_ | _Planned_ | _—_ | _—_ |
+| # | Milestone | Status | Gate | Linear Project | Notes |
+|---|---|---|---|---|---|
+| M0 | _Bootstrap & Research_ | _In Progress_ | _PRD locked_ | _LIN-XXX_ | Issues: PRD-drafting work (problem framing, user stories, NFRs, design considerations). |
+| M1 | _Plan_ | _Planned_ | _ARCH + SECURITY locked, M2+ Roadmap rows populated, first sprint planned_ | _LIN-XXX_ | Issues: (a) Draft ARCH; (b) Draft SECURITY; (c) **Populate product milestones in this Roadmap** (V1.0, V1.1, etc.); (d) Plan first sprint. |
+| _M2_ | _first product milestone — output of M1's "Populate product milestones" issue_ | _Planned_ | _—_ | _—_ | _—_ |
 
 ## Sprints (Linear cycles)
 
