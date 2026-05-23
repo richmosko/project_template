@@ -335,7 +335,37 @@ Each `## §<section-id>` anchor matches an `<section id="...">` in the correspon
 - **ARCH / SECURITY review** during Plan — same loop, different doc.
 - **Periodic refreshes** mid-project — when a milestone closes, take a pass at whether the PRD assumptions still hold; same loop.
 
-This is Pass 1 of the comments infrastructure — convention + skill, no browser UI yet. A future pass may add an inline-comment JS widget served via a local helper script; that's optional and gated on whether the convention proves valuable in practice.
+### Inline-authoring mode (`scripts/serve-docs.sh`)
+
+Hand-editing `comments.md` works for any editor, anywhere. For a friendlier review experience, the template ships a local server + JS widget that lets you author comments inline while reading the doc in a browser.
+
+```bash
+./scripts/serve-docs.sh
+```
+
+The script starts a tiny Python server (stdlib only) at `http://localhost:8765` and serves `docs/`. Browse to `http://localhost:8765/PRD/` (or `ARCH/`, `SECURITY/`) — the widget activates:
+
+- **A small status badge** in the bottom-right shows `connected (N comments)` or `offline`.
+- **Hover any section heading** to reveal a `+ Comment` button.
+- **Click `+ Comment`** to open an inline panel under the heading: any existing comments for the section are listed (read-only), and a textarea + Save button let you add a new one.
+- **Cmd/Ctrl+Enter** saves; **Esc** cancels.
+- **Save POSTs to the server**, which appends a `## §<section-id>` block to `docs/<DOC>/comments.md` on disk. The widget refreshes inline.
+
+Sections that already have comments show a `💬 N` count badge next to the heading. Click the badge to open the panel showing existing comments.
+
+**Format compatibility:** the widget and `/refine-doc` use the **same** `comments.md` format. You can mix authoring methods freely — write some comments via the widget, others by hand-editing the file. Both feed `/refine-doc` identically.
+
+**Graceful degradation:** if you open the HTML doc directly from disk (`file://`), or via a non-localhost host, the widget recognizes it can't reach a local server and shows the status badge as offline with a hint. The doc remains fully readable; only comment authoring is disabled. Hand-editing `comments.md` still works.
+
+**Lifecycle:** the server runs in the foreground — Cmd+C (Ctrl+C) to stop. Override the port with `DOCS_PORT=8080 ./scripts/serve-docs.sh` if 8765 collides.
+
+**Security shape:** the server binds to `127.0.0.1` only (no LAN exposure), accepts only its two API endpoints (`GET /api/comments`, `POST /api/comments`), and writes only to `docs/<DOC>/comments.md` after validating `doc` against a whitelist (`PRD`, `ARCH`, `SECURITY`) and `section` against the `[a-z][a-z0-9-]*` pattern. No auth needed.
+
+### Pass status
+
+- **Pass 1** (shipped) — convention + `/refine-doc` skill. Hand-edit `comments.md`, run the skill.
+- **Pass 2** (shipped) — inline widget + local server. Same format on disk; nicer authoring UX.
+- **Pass 3** (not planned) — would handle inline edit/delete of existing comments via the widget, comment threading, or multi-user attribution. Defer until single-user usage surfaces a real need.
 
 ## Version control & Linear
 

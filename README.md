@@ -54,6 +54,11 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 - `/generate-archdoc [source]` — Architecture doc with Mermaid diagrams. Same import-mode support as `generate-prd` for legacy ARCH artifacts.
 - `/generate-secdoc` — STRIDE-based threat model + controls
 - `/refine-doc <PRD|ARCH|SECURITY>` — walks `docs/<DOC>/comments.md` (gitignored review sidecar), addresses each `## §<section-id>` comment in the matching HTML section, removes addressed comments as it goes. Composable with `/start-doc-update` → `/finish-doc-update` → `/merge-pr`. See WORKFLOW.md → Doc review loop.
+
+**Helpers** (`scripts/`):
+
+- `scripts/serve-docs.sh` — local Python server (stdlib only) at `http://localhost:8765` that activates an **inline comment widget** in the HTML docs. Click `+ Comment` next to any section heading, type, save — the widget POSTs to the server which appends to `docs/<DOC>/comments.md`. Same format as hand-edited comments; both feed `/refine-doc`. See WORKFLOW.md → Doc review loop → Inline-authoring mode.
+- `scripts/vendor-mermaid.sh` — downloads Mermaid to `docs/_assets/vendor/` for projects that can't rely on CDN access at doc-view time (see Mermaid loading section above).
 - `/start-feature` — branch + Linear issue + budget check + Implement team spawn (also promotes from `BACKLOG.md` on demand)
 - `/finish-feature` — commit, push, PR, link Linear, hand off to Validate
 - `/start-doc-update <slug>` — kicks off a `phase/<phase>-<slug>` branch for non-feature doc edits (PRD/ARCH/SECURITY/WORKFLOW/etc.); no Linear issue, no implementation team
@@ -160,7 +165,7 @@ One Linear team is shared across **all** your projects (free-tier-friendly). Eac
 │   └── _assets/                 shared CSS + Mermaid loader
 │   (each doc lives in its own subdir — add per-doc images / diagrams /
 │    sub-pages alongside the index.html as the doc grows)
-├── scripts/                     repo-level helpers (vendor-mermaid.sh, …)
+├── scripts/                     repo-level helpers (vendor-mermaid.sh, serve-docs.sh, …)
 └── .claude/
     ├── settings.json            hooks, env, permissions, teammateMode
     ├── agents/                  9 specialist definitions
