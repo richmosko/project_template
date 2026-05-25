@@ -33,6 +33,8 @@ Open any HTML doc with `/open-doc docs/PRD/index.html` (or just double-click it)
 
 ## Team agents
 
+**This template requires Claude Code's experimental team-agents feature.** The workflow assumes each specialist Agent runs as a persistent teammate with its own context, mailbox, and access to the shared task list — not as one-shot subagents. The template ships with `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"` and `teammateMode: "tmux"` already set in [`.claude/settings.json`](.claude/settings.json); do not disable them. If team-agents is off, `SendMessage`, the shared task list, and the anchor-task coordination pattern in [`WORKFLOW.md`](WORKFLOW.md) all break.
+
 Nine specialist Agents live in [`.claude/agents/`](.claude/agents/). The main session acts as **team-lead**; teammates are spawned per phase (not all at once) to manage token cost and the "one active team" constraint. See [`WORKFLOW.md`](WORKFLOW.md) for the phase→roster mapping.
 
 To start a phase team, say: _"Create a team for the Plan phase"_ — the lead will spawn `architect`, `seceng`, `devops-engineer`, and `qa-engineer` as teammates (specific roster depends on project configuration; see [`WORKFLOW.md`](WORKFLOW.md) for the canonical phase→roster mapping).
@@ -86,7 +88,7 @@ When this template is freshly cloned for a new project, the team-lead should wal
    - L7–8: the "TBD" project description block
    - L10: the GitHub URL (points at the template repo by default — change to this project's repo once created)
 6. **Run `/setup-linear-team`** to wire Linear into this project — link to your shared Linear team, create this project's Initiative, seed M0 (Bootstrap & Research) + M1 (Plan) as Linear projects so Roadmap is populated from Day 0, and seed the nine `agent:<role>` labels. Caches IDs in `.claude/linear-team.json`.
-7. **Verify teammate mode** in `.claude/settings.json` (default: `tmux` for split-pane). If you prefer in-process, change it before spawning the first team.
+7. **Verify team-agents is enabled.** `.claude/settings.json` must have `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"` (shipped with the template — do not turn off; the workflow depends on it). Then pick `teammateMode`: `"tmux"` (default) for split-pane teammates that survive `/resume`, or `"in-process"` if you don't have tmux/iTerm2 with `it2`. Change it before spawning the first team.
 8. **Spawn the Research team:** say _"Create an agent team for the Research phase"_ — the lead will spawn `product-manager` (and bring `ux-designer` + `seceng` in later).
 9. **Run `/generate-prd`** to start the discovery interview. The PM teammate drives.
 10. **Log the bootstrap** as the first entry in [`DECISIONS.md`](DECISIONS.md) (the template already includes a stub — update the date and approver name).
