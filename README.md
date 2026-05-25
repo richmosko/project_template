@@ -157,6 +157,9 @@ One Linear team is shared across **all** your projects (free-tier-friendly). Eac
 ├── CLAUDE.md                    auto-loaded session context
 ├── WORKFLOW.md                  phases, roles, gates, coordination
 ├── MILESTONES.md                live state + decision ledger
+├── DECISIONS.md                 append-only project decisions (seed; you keep this)
+├── BACKLOG.md                   Linear overflow queue (seed; you keep this)
+├── TEMPLATE_DECISIONS.md        decisions about the template itself — DELETE on bootstrap
 ├── README.md                    this file
 ├── docs/
 │   ├── PRD/index.html           product requirements (Research)

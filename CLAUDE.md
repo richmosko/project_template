@@ -91,9 +91,10 @@ When this template is freshly cloned for a new project, the team-lead should wal
 7. **Verify team-agents is enabled.** `.claude/settings.json` must have `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"` (shipped with the template — do not turn off; the workflow depends on it). Then pick `teammateMode`: `"tmux"` (default) for split-pane teammates that survive `/resume`, or `"in-process"` if you don't have tmux/iTerm2 with `it2`. Change it before spawning the first team.
 8. **Spawn the Research team:** say _"Create an agent team for the Research phase"_ — the lead will spawn `product-manager` (and bring `ux-designer` + `seceng` in later).
 9. **Run `/generate-prd`** to start the discovery interview. The PM teammate drives.
-10. **Log the bootstrap** as the first entry in [`DECISIONS.md`](DECISIONS.md) (the template already includes a stub — update the date and approver name).
+10. **Log the bootstrap** as the first entry in [`DECISIONS.md`](DECISIONS.md) (the template already includes a stub — update the date and approver name). **Record the template version** on the `**Bootstrapped from:**` line — run `git -C <path-to-template-clone> describe --tags --abbrev=0`, or check the [project_template Releases page](https://github.com/richmosko/project_template/releases) for the latest published version.
+11. **Delete `TEMPLATE_DECISIONS.md`** — that file documents decisions about the template itself; it's not relevant to your project. Your project's decision log is `DECISIONS.md` (already in place).
 
-After step 10, the project is in the Research phase and MILESTONES.md becomes the source of truth for "where we are".
+After step 11, the project is in the Research phase and MILESTONES.md becomes the source of truth for "where we are".
 
 ## Working principles
 
