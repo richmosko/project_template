@@ -1,6 +1,6 @@
 ---
 name: setup-linear-team
-description: One-time bootstrap that wires Linear into this project — confirms the shared Linear team, creates this project's Initiative via MCP, seeds the nine `agent:<role>` labels, seeds first-milestone stories to Linear with overflow to `BACKLOG.md`, and caches IDs in `.claude/linear-team.json`. Run on the first session of a new project, or whenever the cache is missing. No arguments — interviews the user as needed.
+description: One-time bootstrap that wires Linear into this project — confirms the shared Linear team, creates this project's Initiative via MCP, seeds the nine `agent:<role>` labels, seeds first-milestone stories to Linear with overflow to `BACKLOG.md`, sets the delivery-autonomy methodology for `/drive`, and caches IDs in `.claude/linear-team.json`. Run on the first session of a new project, or whenever the cache is missing. No arguments — interviews the user as needed.
 ---
 
 # setup-linear-team
@@ -174,7 +174,26 @@ Proceed? [Y/n]
 - <YYYY-MM-DD>: Initial seeding from PRD — 6 items to Linear (M1), 13 items queued in BACKLOG.md (M2–M3)
 ```
 
-### 8. Confirm and finish
+### 8. Choose the delivery-autonomy methodology
+
+Configure how far a `/drive`-aimed goal-driven loop runs before handing control back. Ask via `AskUserQuestion` — **list `stop-at-merge` first and label it "(Recommended)"**:
+
+> **How should the goal-driven loop (`/drive`) deliver features?**
+>
+> - **Stop at merge (Recommended)** — the loop builds one feature up to an open, mergeable PR and stops. You review and merge. Keeps a human gate at every merge.
+> - **Self-merge within milestone** — the loop builds *and merges* every feature in a milestone, stopping at the milestone boundary. Faster, unattended (needs auto mode); the human gate moves to the milestone boundary.
+
+Write the answer into `WORKFLOW.md` → *Project configuration* → **Delivery autonomy** line, replacing the placeholder. Set the chosen value as the active one, e.g.:
+
+```
+**Delivery autonomy:** `stop-at-merge` (default) — set at bootstrap; see [Goal-driven loop](#goal-driven-loop-drive).
+```
+
+Then append a `DECISIONS.md` entry recording the choice (date, decision, why, who approved), per the decision-logging convention in `WORKFLOW.md`. If the user picks `self-merge-within-milestone`, also note in the summary that they'll need auto mode on when running the loop.
+
+This is the project default; it can be overridden per-invocation via a `/drive` argument and changed later by editing the WORKFLOW.md line + logging a new `DECISIONS.md` entry.
+
+### 9. Confirm and finish
 
 Print a summary:
 - Shared team: `<name>` (`<KEY>`)
@@ -183,6 +202,7 @@ Print a summary:
 - Labels seeded: 9 of 9
 - Issues seeded to Linear: N (from milestone 1)
 - Items queued in BACKLOG.md: M (from later milestones)
+- Delivery autonomy: `stop-at-merge` | `self-merge-within-milestone`
 - Active Linear count: N/250
 
 Suggest the next step:
