@@ -460,6 +460,54 @@ The point of giving Research and Plan their own milestones is that those phases 
   - **`/start-feature`** runs a budget check before creating new Linear issues. At 80% of cap (>200 active) it warns; at the cap (250) it hard-blocks and routes new items to BACKLOG.md.
   - **`/cleanup-linear`** archives Done issues on demand. Complementary to Linear's workspace **Auto-archive after N days** setting (Settings → Workflow; default 14 days) — enable it for passive cleanup.
 
+## Shared / reusable components
+
+Sometimes a chunk of a project is substantial enough — and reusable enough — to deserve its own repo. For a solo developer the driver is almost always **reuse**: a component used by more than one project, or one that needs its own release clock, or one you've **already built elsewhere** and want to pull in. All three reduce to the same model.
+
+### The model: a reusable component is its own template instance
+
+A graduated component is, structurally, its own project. So it gets the full treatment: **its own repo (cloned from this template), its own Linear Initiative** (in your shared team — no new infra), its own PRD-lite + ARCH scoped to the component, and its own [`/drive`](#goal-driven-loop-drive) loop. It's released on its **own cadence** via semver git tags. Parent projects consume it as a **dependency pinned to a tag**, and record the relationship as an ARCH integration point + a [`DECISIONS.md`](DECISIONS.md) entry on both sides.
+
+This reuses machinery you already have: the [shared-team / multi-Initiative model](#version-control--linear), the [release-tagging process](#release-process), and the template bootstrap itself. The component just becomes another Initiative in the same Linear team.
+
+### Graduation rubric — when to split
+
+Split a component into its own repo when **any** of these hold:
+
+- **Reuse** — it's (or will be) consumed by **≥2 projects**.
+- **Independent release cadence** — it ships on a different clock than its host.
+- **Access / boundary** — it needs separate visibility, licensing, or (future) collaborators.
+- **It's already a separate product** — borrowing an existing repo is this case by definition.
+
+**Do not split** when the only driver is **size or context management.** A big-but-cohesive project is better served by monorepo workspaces (pnpm/Nx/Turborepo, Cargo workspaces, Go multi-module) or git worktrees for parallel work, plus `/drive` per milestone — all of which avoid the cross-repo coordination tax. Splitting a non-reused component buys you overhead and no isolation benefit.
+
+### Release mechanism for solo dev — git tags, no registry
+
+You don't need to operate a package registry. Every major ecosystem consumes git tags directly, so **semver tags are your release mechanism**:
+
+| Ecosystem | Pin a tagged version |
+|---|---|
+| Go | `go get github.com/you/lib@v1.2.0` (native; no registry by design) |
+| npm / pnpm | `"lib": "github:you/lib#v1.2.0"` |
+| Python | `uv add "lib @ git+https://github.com/you/lib@v1.2.0"` |
+| Cargo | `lib = { git = "https://github.com/you/lib", tag = "v1.2.0" }` |
+| Containers | push to GHCR (free), pin by tag |
+
+The component's release flow is the same [Release process](#release-process) the template already defines — cut `vX.Y.Z`, draft GitHub Release notes. **Honor semver**: a breaking change ripples to every consumer, so bump the major and note migration in the release.
+
+### Spin off (extract a component → its own repo)
+
+Use **`/spin-off-component`**. It mechanizes the fiddly, error-prone part: extract the component out of the monorepo **with its history** (`git subtree split` by default; `git filter-repo` when files moved across the path over time), create a new repo from the template, import the extracted history under `src/`, cut `v0.1.0`, and record the linkage in both repos. It then hands off the **parent-side refactor** — swapping the in-tree code for the pinned dependency — to a normal [`/start-feature`](#implement) loop, so the swap is test-covered. See the skill for the full procedure and caveats.
+
+### Borrow (pull an existing repo in as a dependency)
+
+No skill — it's light enough to do by hand:
+
+1. **Pick the mechanism.** Default to a **pinned git-tag dependency** (per the table above). Reach for a git **submodule** only if you need the source co-located, or **subtree** if you'll routinely push changes back upstream.
+2. **Pin to a tag**, never a moving branch — reproducible builds.
+3. **Record it** — add an ARCH *Integration Points* entry ("consumes `lib@v1.2.0`") and a `DECISIONS.md` entry (what, why, version).
+4. **Cross-link if it's yours.** If the borrowed repo is another of your template instances, link the two Initiatives in Linear. If it's third-party, note the upstream source + license instead.
+
 ## Importing existing artifacts
 
 When a project comes with pre-existing PRD or ARCH documents (or similar), the `/generate-prd` and `/generate-archdoc` skills support an **import mode**: pass the source path as the skill's argument and the doc-gen flow analyzes the legacy content, maps it to the template's framework, and runs the interview **only for the gaps**.
