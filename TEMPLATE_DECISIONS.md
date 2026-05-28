@@ -19,6 +19,31 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 
 ---
 
+### 2026-05-28 — Shared / reusable components model + `/spin-off-component` (#PR)
+**Decision:** Add a "Shared / reusable components" model to the workflow. A substantial, reusable component graduates to its own repo as a fresh template instance with its own Linear Initiative, released on its own cadence via semver git tags, and consumed by parent projects as a tag-pinned dependency. Ship `/spin-off-component` to mechanize the history-preserving extraction + repo creation + initial `v0.1.0` release + linkage recording; **borrow** stays a documented procedure (no skill).
+**Why:** For a solo dev the recurring driver is reuse — a component used by ≥2 projects, needing its own release clock, or already built elsewhere. The shared-team / multi-Initiative model already supports this with no new infra; the only gaps were a graduation rubric, a linkage convention, and mechanizing the error-prone git extraction.
+**Alternatives considered:**
+- *Submodules / subtree as the default coupling:* sharp edges (detached HEAD, fiddly merge-back). Kept as opt-in for "borrow"; not the default.
+- *Monorepo workspaces only (never split):* the right answer when the driver is size/context — documented as the "don't split" path — but doesn't serve genuine reuse / independent release.
+- *Give "borrow" its own skill too:* deferred — pinning a dependency + recording linkage is light enough to stay convention-only until it proves repetitive.
+- *Require a package registry:* unnecessary for solo dev; git tags are consumed natively by every major ecosystem.
+
+**Approved by:** Mosko
+
+---
+
+### 2026-05-28 — `/drive` goal-driven loop + delivery-autonomy methodologies (#14)
+**Decision:** Add the `/drive` skill, which prepares a native `/goal` loop to run an Implement→Validate cycle hands-off and **surfaces the `/goal` line for the user to paste** (a skill cannot self-issue `/goal`). Two delivery-autonomy methodologies, chosen per project at `/setup-linear-team`: `stop-at-merge` (default) and `self-merge-within-milestone`.
+**Why:** Lets a large project be driven deliverable-by-deliverable with less turn-by-turn prompting, while keeping a human checkpoint at goal-set time. `stop-at-merge` preserves the per-feature human gate; `self-merge` trades it for unattended speed within a milestone (needs auto mode). Phase-gate transitions stay human under both.
+**Alternatives considered:**
+- *A skill that self-issues `/goal`:* impossible — no model-callable goal tool, no `SlashCommand` tool (verified against Claude Code docs). Construct-and-paste is the supported pattern.
+- *Stop hook or nested `claude -p "/goal"` subprocess to fake self-issue:* unsupported (no mid-session hook hot-reload; nested sessions contend over state). Rejected.
+- *Convention-only (no skill):* rejected — assembling a ~4,000-char condition from live state each loop is error-prone.
+
+**Approved by:** Mosko
+
+---
+
 ### 2026-05-25 — Template gets its own semver tags + GitHub Releases
 **Decision:** The `project_template` repo will tag its own semver versions (`vX.Y.Z`) and publish GitHub Releases, using the same `/merge-pr`-prompted process the template defines for downstream projects. Only meaningful template-shape changes get a tag — not every PR.
 **Why:** Downstream projects need a way to say *"this project was bootstrapped from project_template vX.Y.Z"* for recovery and debugging. Without tags, every workflow bug becomes "which commit of the template were you on?" guesswork. The template should eat its own dog food on this convention.

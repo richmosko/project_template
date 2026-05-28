@@ -71,6 +71,7 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 - `/setup-claude-deploy-key` — generate a per-repo passphrase-less SSH deploy key so Claude can push to GitHub without TTY-unlockable passphrases (one-time per repo)
 - `/sync-backlog [count|milestone]` — promote items from `BACKLOG.md` to Linear in milestone-FIFO order. Called at sprint-cycle boundaries, on demand, or implicitly by `/start-feature` when a queued feature is requested
 - `/cleanup-linear [filter]` — bulk-archive Done Linear issues to free space under the 250-active-issue free-tier cap; use when sync-backlog warns near cap or at milestone close
+- `/spin-off-component <path>` — extract a substantial, reusable component out of the monorepo into its own repo (a fresh template instance + Linear Initiative), preserving git history, cutting `v0.1.0`, and recording the parent↔child linkage. Mechanizes the git extraction; hands off the child bootstrap and the parent-side dependency swap. See WORKFLOW.md → Shared / reusable components
 
 **Artifacts** (top level + `docs/`):
 
@@ -150,6 +151,8 @@ claude
 | Feature (one PR, one I↔V loop) | Linear Issue |
 
 One Linear team is shared across **all** your projects (free-tier-friendly). Each project gets its own Initiative. Agent attribution rides on `agent:<role>` issue labels (v1 mechanism; OAuth agent actors are an upgrade path documented in `WORKFLOW.md`).
+
+Because the team is shared, a **reusable component** that graduates to its own repo (via `/spin-off-component`) is just another Initiative in the same team — same machinery, no new infra. See WORKFLOW.md → Shared / reusable components.
 
 ## Layout
 

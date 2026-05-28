@@ -103,3 +103,4 @@ After step 11, the project is in the Research phase and MILESTONES.md becomes th
 - **Goal-driven loops**: to run an I→V loop hands-off, use `/drive` — it aims a native `/goal` at the next feature (or milestone) per the project's delivery-autonomy setting, and surfaces the `/goal` line for you to paste. See [`WORKFLOW.md`](WORKFLOW.md) → Goal-driven loop.
 - **Decisions go in the ledger**: any non-trivial call (stack choice, architectural pivot, scope cut) gets an entry in [`DECISIONS.md`](DECISIONS.md).
 - **Skills over repetition**: if a process happens twice, extract it into `.claude/skills/`.
+- **Reusable components**: when a substantial component is reused across projects, needs its own release clock, or already lives elsewhere, treat it as its own template instance — spin it off with `/spin-off-component`, or borrow it as a pinned dependency. Don't split for size alone. See [`WORKFLOW.md`](WORKFLOW.md) → Shared / reusable components.
