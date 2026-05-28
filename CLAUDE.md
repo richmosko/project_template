@@ -87,7 +87,7 @@ When this template is freshly cloned for a new project, the team-lead should wal
 5. **Replace the placeholders** in this file:
    - L7–8: the "TBD" project description block
    - L10: the GitHub URL (points at the template repo by default — change to this project's repo once created)
-6. **Run `/setup-linear-team`** to wire Linear into this project — link to your shared Linear team, create this project's Initiative, seed M0 (Bootstrap & Research) + M1 (Plan) as Linear projects so Roadmap is populated from Day 0, and seed the nine `agent:<role>` labels. Caches IDs in `.claude/linear-team.json`.
+6. **Run `/setup-linear-team`** to wire Linear into this project — link to your shared Linear team, create this project's Initiative, seed M0 (Bootstrap & Research) + M1 (Plan) as Linear projects so Roadmap is populated from Day 0, seed the nine `agent:<role>` labels, and set the **delivery-autonomy methodology** for `/drive` (`stop-at-merge` recommended). Caches IDs in `.claude/linear-team.json`.
 7. **Verify team-agents is enabled.** `.claude/settings.json` must have `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"` (shipped with the template — do not turn off; the workflow depends on it). Then pick `teammateMode`: `"tmux"` (default) for split-pane teammates that survive `/resume`, or `"in-process"` if you don't have tmux/iTerm2 with `it2`. Change it before spawning the first team.
 8. **Spawn the Research team:** say _"Create an agent team for the Research phase"_ — the lead will spawn `product-manager` (and bring `ux-designer` + `seceng` in later).
 9. **Run `/generate-prd`** to start the discovery interview. The PM teammate drives.
@@ -100,5 +100,6 @@ After step 11, the project is in the Research phase and MILESTONES.md becomes th
 
 - **TDD by default**: write the failing test, then the implementation, then confirm green. Validate is not optional.
 - **Small commits, frequent PRs**: one PR per completed I→V loop (one feature). Use `/start-feature` + `/finish-feature` for features tied to a Linear issue; use `/start-doc-update` + `/finish-doc-update` for non-feature doc edits. Merge via `/merge-pr` (team-lead) or GitHub UI (human review). **No direct pushes to `main`.**
+- **Goal-driven loops**: to run an I→V loop hands-off, use `/drive` — it aims a native `/goal` at the next feature (or milestone) per the project's delivery-autonomy setting, and surfaces the `/goal` line for you to paste. See [`WORKFLOW.md`](WORKFLOW.md) → Goal-driven loop.
 - **Decisions go in the ledger**: any non-trivial call (stack choice, architectural pivot, scope cut) gets an entry in [`DECISIONS.md`](DECISIONS.md).
 - **Skills over repetition**: if a process happens twice, extract it into `.claude/skills/`.

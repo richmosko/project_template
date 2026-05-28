@@ -62,6 +62,7 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 - `scripts/vendor-mermaid.sh` — downloads Mermaid to `docs/_assets/vendor/` for projects that can't rely on CDN access at doc-view time (see Mermaid loading section above).
 - `/start-feature` — branch + Linear issue + budget check + Implement team spawn (also promotes from `BACKLOG.md` on demand)
 - `/finish-feature` — commit, push, PR, link Linear, hand off to Validate
+- `/drive [issue|milestone]` — aims a hands-off goal-driven loop at the next feature (or whole milestone), per the project's delivery-autonomy setting (`stop-at-merge` default / `self-merge-within-milestone`). Constructs the condition for the native `/goal` command and surfaces it for you to paste — the loop then runs the I↔V cycle until done. Needs Claude Code ≥ v2.1.139 (for `/goal`). See WORKFLOW.md → Goal-driven loop
 - `/start-doc-update <slug>` — kicks off a `phase/<phase>-<slug>` branch for non-feature doc edits (PRD/ARCH/SECURITY/WORKFLOW/etc.); no Linear issue, no implementation team
 - `/finish-doc-update` — commit + push + open PR for a doc-update branch; no QA handshake (lead reviews directly)
 - `/merge-pr` — gated team-lead merge after QA sign-off (features) or lead review (doc updates); squash-merges, archives, updates state. Alternative to human-review-and-merge via GitHub UI

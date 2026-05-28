@@ -42,6 +42,12 @@ Specialist roles (PM, UX, Architect, SecEng, QA, DevOps) apply universally. The 
 
 All implementation-lead agent files ship with the template; the project just picks which are active. Inactive ones can be left in place — they cost nothing until spawned.
 
+### Delivery autonomy
+
+How far a `/drive`-aimed [goal-driven loop](#goal-driven-loop-drive) runs before handing control back to you. Set once at `/setup-linear-team`; change by editing the line below and logging a `DECISIONS.md` entry.
+
+**Delivery autonomy:** _`stop-at-merge` (default) | `self-merge-within-milestone`_ — _set at bootstrap; see [Goal-driven loop](#goal-driven-loop-drive)._
+
 ## Phase-by-phase
 
 ### Research
@@ -101,6 +107,33 @@ All implementation-lead agent files ship with the template; the project just pic
 - **Gate:** Acceptance criteria met → `/merge-pr` → update `MILESTONES.md`. **Tag a release only if this PR completes a release milestone** — the `/merge-pr` skill prompts; tagging is never automatic.
 
 After a Validate cycle, we either return to Implement (next feature in the sprint) or escalate to a new Research mini-loop (if findings invalidate the PRD).
+
+## Goal-driven loop (`/drive`)
+
+The Implement→Validate inner loop can be driven turn-by-turn (you prompt each step) or handed to a **goal-driven loop** that keeps working until a completion condition is met. The engine is [`/goal`](https://code.claude.com/docs/en/goal.md) — a **native Claude Code command** (v2.1.139+), not something the template ships. After each turn, a fast evaluator (Haiku by default) checks the condition against what the session surfaced in the transcript; if unmet, the session continues automatically.
+
+The `/drive` skill prepares a goal: it reads the methodology, resolves the next unit of work, runs pre-flight, and **constructs the `/goal …` line for you to paste.**
+
+### Why you paste it (the human-paste constraint)
+
+A skill **cannot self-issue `/goal`** — there is no model-callable goal tool and no `SlashCommand` tool; `/goal` is user-typed only. So `/drive` ends by surfacing the exact line. This is a feature, not a limitation: it puts a **human checkpoint at goal-set time**, consistent with "a phase gate is a human decision." You read and approve the condition before the loop runs. (Faking it via a settings Stop hook or a nested `claude -p "/goal …"` subprocess is unsupported — no mid-session hook hot-reload, and nested sessions contend over state. Don't.)
+
+### The two methodologies
+
+Chosen per project at `/setup-linear-team`, stored in [Delivery autonomy](#delivery-autonomy) above. **`stop-at-merge` is the recommended default.**
+
+| | **`stop-at-merge`** (default) | **`self-merge-within-milestone`** |
+|---|---|---|
+| Goal scope | one **feature** | one **milestone** |
+| Loop runs | `/start-feature` → TDD → `/finish-feature` (opens PR) | for each issue: `/start-feature` → TDD → `/finish-feature` → `/merge-pr`, chained |
+| Stops at | the **open, mergeable PR** — you review + `/merge-pr` | the **milestone boundary** (queue empty) |
+| Human gate | preserved at every merge | delegated to the loop; gate moves to the milestone/phase boundary |
+| Needs auto mode | no (a few turns, attended) | **yes** — unattended multi-feature run; otherwise every tool call prompts |
+| Context | one feature per session | `/compact` between features to stay lean |
+
+`stop-at-merge` keeps WORKFLOW's per-feature human gate intact and is the safe default. `self-merge-within-milestone` trades that gate for speed within a milestone — appropriate once a milestone's scope is well-understood and low-risk. Either way, **phase-gate transitions (R→P→I→V) remain human decisions** — no methodology auto-advances a phase.
+
+`/goal` removes per-*turn* prompts; **auto mode** removes per-*tool* prompts. Self-merge needs both to run unattended.
 
 ## Roles
 
