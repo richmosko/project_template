@@ -19,7 +19,7 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 
 ---
 
-### 2026-05-28 — UX/UI design artifact home (`docs/DESIGN/`) + `/generate-designdoc` (#PR)
+### 2026-05-28 — UX/UI design artifact home (`docs/DESIGN/`) + `/generate-designdoc` (#16)
 **Decision:** Give UX/UI design its own first-class artifact home at `docs/DESIGN/` — an `index.html` doc plus the design-system deliverables (`tokens.css`, `screen.css`, `design-system-spec.md`) and `wireframes/` / `flows/` / `styled-screens/`. Owned by the `ux-designer` agent; generated/refined by a new `/generate-designdoc` skill; wired into the same doc-review loop (comments sidecar, `/refine-doc DESIGN`, `/serve-docs DESIGN`) as the other docs.
 **Why:** Design previously had no home of its own — flows/wireframes lived only in Figma + the PRD's Design Considerations section, and there was nowhere in-repo for a code-level design system (tokens/CSS) that `frontend-lead` consumes directly. Surfaced on a real test project.
 **Alternatives considered:**
