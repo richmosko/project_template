@@ -1,6 +1,6 @@
 // docs/_assets/comments.js
 //
-// Inline comment widget for the HTML docs (PRD / ARCH / SECURITY).
+// Inline comment widget for the HTML docs (PRD / ARCH / SECURITY / DESIGN).
 //
 // Requires the local server (scripts/serve-docs.sh) running at
 // http://localhost:8765/. When served from there, this widget:
@@ -18,8 +18,8 @@
 (function () {
   "use strict";
 
-  // Detect doc name from the URL path: /PRD/, /ARCH/, /SECURITY/
-  const docMatch = window.location.pathname.match(/\/(PRD|ARCH|SECURITY)\//);
+  // Detect doc name from the URL path: /PRD/, /ARCH/, /SECURITY/, /DESIGN/
+  const docMatch = window.location.pathname.match(/\/(PRD|ARCH|SECURITY|DESIGN)\//);
   if (!docMatch) return; // not a recognized doc — bail silently
   const DOC = docMatch[1];
 

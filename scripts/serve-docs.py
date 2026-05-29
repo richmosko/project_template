@@ -4,11 +4,11 @@ serve-docs.py — Local server for docs/ with a comments API.
 
 Serves docs/ over http://localhost:PORT (default 8765) and adds:
 
-  GET  /api/comments?doc=<PRD|ARCH|SECURITY>
+  GET  /api/comments?doc=<PRD|ARCH|SECURITY|DESIGN>
        → returns the parsed comments from docs/<doc>/comments.md as JSON.
 
   POST /api/comments
-       body: {"doc": "<PRD|ARCH|SECURITY>", "section": "<id>", "body": "..."}
+       body: {"doc": "<PRD|ARCH|SECURITY|DESIGN>", "section": "<id>", "body": "..."}
        → appends a `## §<section>\n\n<body>` block to docs/<doc>/comments.md
          (creates the file with a standard preamble if missing).
 
@@ -38,7 +38,7 @@ HOST = "127.0.0.1"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = REPO_ROOT / "docs"
 
-VALID_DOCS = {"PRD", "ARCH", "SECURITY"}
+VALID_DOCS = {"PRD", "ARCH", "SECURITY", "DESIGN"}
 ANCHOR_RE = re.compile(r"^## §([a-z][a-z0-9-]*)\s*$")
 SECTION_ID_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 
@@ -145,8 +145,9 @@ def main():
     print(f"  PRD:      http://{HOST}:{PORT}/PRD/")
     print(f"  ARCH:     http://{HOST}:{PORT}/ARCH/")
     print(f"  SECURITY: http://{HOST}:{PORT}/SECURITY/")
+    print(f"  DESIGN:   http://{HOST}:{PORT}/DESIGN/")
     print(f"\nComments API:")
-    print(f"  GET  /api/comments?doc=<PRD|ARCH|SECURITY>")
+    print(f"  GET  /api/comments?doc=<PRD|ARCH|SECURITY|DESIGN>")
     print(f"  POST /api/comments  body={{doc, section, body}}")
     print(f"\nCtrl+C to stop.\n")
     with socketserver.TCPServer((HOST, PORT), Handler) as httpd:

@@ -19,6 +19,21 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 
 ---
 
+### 2026-05-28 — UX/UI design artifact home (`docs/DESIGN/`) + `/generate-designdoc` (#16)
+**Decision:** Give UX/UI design its own first-class artifact home at `docs/DESIGN/` — an `index.html` doc plus the design-system deliverables (`tokens.css`, `screen.css`, `design-system-spec.md`) and `wireframes/` / `flows/` / `styled-screens/`. Owned by the `ux-designer` agent; generated/refined by a new `/generate-designdoc` skill; wired into the same doc-review loop (comments sidecar, `/refine-doc DESIGN`, `/serve-docs DESIGN`) as the other docs.
+**Why:** Design previously had no home of its own — flows/wireframes lived only in Figma + the PRD's Design Considerations section, and there was nowhere in-repo for a code-level design system (tokens/CSS) that `frontend-lead` consumes directly. Surfaced on a real test project.
+**Alternatives considered:**
+- *Keep design in Figma + the PRD only:* loses the in-repo, reviewable, code-level system and couples the contract to an external tool. Rejected.
+- *Tier 1 only (seed the home, skip the skill + review-loop wiring):* would leave DESIGN a second-class doc inconsistent with PRD/ARCH/SECURITY. Rejected for full parity.
+- *Treat `tokens.css`/`screen.css` as app source, not a design deliverable:* they're the design *contract* — during Implement `frontend-lead` derives the app's real styles from them; keeping them in `docs/DESIGN/` keeps them reviewable and decoupled from any one app layout.
+**Notes:**
+- **Cross-phase:** flows/wireframes begin late-Research; the design system matures through Plan/Implement. `start-doc-update` defaults `docs/DESIGN/*` to `phase/research-<slug>`.
+- Figma stays the high-fidelity tool; `docs/DESIGN/` is the in-repo home, kept in sync via exports + Code Connect.
+
+**Approved by:** Mosko
+
+---
+
 ### 2026-05-28 — Shared / reusable components model + `/spin-off-component` (#15)
 **Decision:** Add a "Shared / reusable components" model to the workflow. A substantial, reusable component graduates to its own repo as a fresh template instance with its own Linear Initiative, released on its own cadence via semver git tags, and consumed by parent projects as a tag-pinned dependency. Ship `/spin-off-component` to mechanize the history-preserving extraction + repo creation + initial `v0.1.0` release + linkage recording; **borrow** stays a documented procedure (no skill).
 **Why:** For a solo dev the recurring driver is reuse — a component used by ≥2 projects, needing its own release clock, or already built elsewhere. The shared-team / multi-Initiative model already supports this with no new infra; the only gaps were a graduation rubric, a linkage convention, and mechanizing the error-prone git extraction.

@@ -24,6 +24,7 @@ This repo was instantiated from the [project_template](https://github.com/richmo
 | Product Requirements | [`docs/PRD/index.html`](docs/PRD/index.html) | product-manager |
 | Architecture & Infrastructure | [`docs/ARCH/index.html`](docs/ARCH/index.html) | architect |
 | Security & Compliance | [`docs/SECURITY/index.html`](docs/SECURITY/index.html) | seceng |
+| Design System & UX | [`docs/DESIGN/index.html`](docs/DESIGN/index.html) | ux-designer |
 | Workflow definition | [`WORKFLOW.md`](WORKFLOW.md) | team-lead (the main session) |
 | Live state ledger | [`MILESTONES.md`](MILESTONES.md) | team-lead |
 | Decision log | [`DECISIONS.md`](DECISIONS.md) | team-lead (append-only) |

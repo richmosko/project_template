@@ -1,6 +1,6 @@
 ---
 name: refine-doc
-description: Reads `docs/<DOC>/comments.md` (an in-process review sidecar — gitignored), addresses each per-section comment in the corresponding HTML doc, and removes the addressed comments from the sidecar as it goes. Use after reviewing a doc in the browser and jotting feedback into the sidecar. Composable with `/start-doc-update` → `/finish-doc-update` → `/merge-pr` for landing the doc changes. Takes the doc name as argument: PRD, ARCH, or SECURITY.
+description: Reads `docs/<DOC>/comments.md` (an in-process review sidecar — gitignored), addresses each per-section comment in the corresponding HTML doc, and removes the addressed comments from the sidecar as it goes. Use after reviewing a doc in the browser and jotting feedback into the sidecar. Composable with `/start-doc-update` → `/finish-doc-update` → `/merge-pr` for landing the doc changes. Takes the doc name as argument: PRD, ARCH, SECURITY, or DESIGN.
 ---
 
 # refine-doc
@@ -9,7 +9,7 @@ Walks a doc's `comments.md` sidecar and applies each comment to the matching `<s
 
 ## Inputs
 
-- `$ARGUMENTS` — the doc name (`PRD`, `ARCH`, or `SECURITY`). Case-sensitive. Required.
+- `$ARGUMENTS` — the doc name (`PRD`, `ARCH`, `SECURITY`, or `DESIGN`). Case-sensitive. Required.
 
 ## The `comments.md` format
 
@@ -43,7 +43,7 @@ Should "internationalization" be deferred to v2, or called out explicitly?
 
 ### 1. Pre-flight
 
-- Verify `$ARGUMENTS` is one of `PRD`, `ARCH`, `SECURITY`. **Bail** with usage hint otherwise.
+- Verify `$ARGUMENTS` is one of `PRD`, `ARCH`, `SECURITY`, `DESIGN`. **Bail** with usage hint otherwise.
 - Verify `docs/<DOC>/index.html` exists. **Bail** if missing.
 - Read `docs/<DOC>/comments.md`. If the file doesn't exist or contains no `## §...` blocks, **bail** with: "No comments to refine in `docs/<DOC>/comments.md` — write some `## §<section-id>` blocks first."
 
@@ -130,10 +130,10 @@ PR body should list the addressed sections (from the step-6 summary) so the diff
 
 ## Failure modes
 
-- **Missing arg**: bail with `Usage: /refine-doc <PRD|ARCH|SECURITY>`.
+- **Missing arg**: bail with `Usage: /refine-doc <PRD|ARCH|SECURITY|DESIGN>`.
 - **Invalid arg**: same.
 - **No comments file or empty**: bail with a clear "nothing to do" message.
-- **HTML doc missing**: bail; suggest running `/generate-prd` (or archdoc/secdoc) to create the doc first.
+- **HTML doc missing**: bail; suggest running `/generate-prd` (or archdoc/secdoc/designdoc) to create the doc first.
 - **All comments target unknown sections**: don't edit anything; just annotate and report.
 - **Edit conflict** (Edit tool rejects because surrounding text shifted between reads): catch and re-read; if still failing, leave the comment in place with a `> [refine-doc edit-failed YYYY-MM-DD]: <reason>` annotation so the user can intervene.
 
