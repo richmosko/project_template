@@ -14,6 +14,7 @@ Lifecycle wrapper around `scripts/serve-docs.sh`. Spawns the local docs server a
 /serve-docs PRD          # start (if needed) + open browser at PRD doc
 /serve-docs ARCH         # same for ARCH
 /serve-docs SECURITY     # same for SECURITY
+/serve-docs DESIGN       # same for DESIGN
 /serve-docs status       # check if server is running
 /serve-docs stop         # kill the running server
 ```
@@ -31,7 +32,7 @@ Both run the same server; you can't have both at once (port conflict).
 
 `$ARGUMENTS` is one of:
 - empty → `start` (no browser open)
-- `PRD` / `ARCH` / `SECURITY` → `start` + open browser at the matching URL
+- `PRD` / `ARCH` / `SECURITY` / `DESIGN` → `start` + open browser at the matching URL
 - `start` → same as empty (start, no browser open)
 - `stop` → kill the server, then exit
 - `status` → report only, no action
@@ -111,6 +112,7 @@ Server running at http://localhost:8765/
   PRD:      http://localhost:8765/PRD/
   ARCH:     http://localhost:8765/ARCH/
   SECURITY: http://localhost:8765/SECURITY/
+  DESIGN:   http://localhost:8765/DESIGN/
 
 Inline comment widget is active. Type to add comments; they save to docs/<DOC>/comments.md.
 Run /refine-doc <DOC> when you're ready to address them.
@@ -121,7 +123,7 @@ To stop manually: /serve-docs stop
 
 ### 7. Open the browser if a doc name was passed
 
-If `$ARGUMENTS` is `PRD`, `ARCH`, or `SECURITY`:
+If `$ARGUMENTS` is `PRD`, `ARCH`, `SECURITY`, or `DESIGN`:
 
 ```bash
 open -a "Google Chrome" "http://localhost:${PORT:-8765}/${doc}/" 2>/dev/null \
@@ -132,7 +134,7 @@ open -a "Google Chrome" "http://localhost:${PORT:-8765}/${doc}/" 2>/dev/null \
 
 ## Failure modes
 
-- **Invalid argument**: bail with `Usage: /serve-docs [PRD|ARCH|SECURITY|start|stop|status]`.
+- **Invalid argument**: bail with `Usage: /serve-docs [PRD|ARCH|SECURITY|DESIGN|start|stop|status]`.
 - **Server start times out**: surface the error; suggest running `./scripts/serve-docs.sh` directly in a terminal to see live error output. Don't pretend success.
 - **Port already in use by a different process**: detection in step 2 returns 200 (something is up), but it might not be our server. If `status` was requested, just report the port is responsive; if `start` was requested, proceed (browser will reach whatever is listening). For sharper detection, future passes could probe `/api/comments` and verify the JSON shape, but step 2's curl-against-the-API endpoint already does this — a non-serve-docs server would 404 the path.
 - **`scripts/serve-docs.sh` is missing or non-executable**: surface the error from the Bash launch; suggest checking the repo bootstrap (the script ships with the template).

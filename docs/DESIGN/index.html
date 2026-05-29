@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Design — TBD</title>
+  <link rel="stylesheet" href="../_assets/doc.css">
+  <link rel="stylesheet" href="../_assets/comments.css">
+  <link rel="stylesheet" href="tokens.css">
+  <script defer src="../_assets/mermaid-init.js"></script>
+  <script defer src="../_assets/comments.js"></script>
+</head>
+<body>
+
+<header class="doc-header">
+  <h1>Design System &amp; UX</h1>
+  <p class="doc-subtitle"><span class="tbd">Project name — TBD</span></p>
+  <div class="doc-meta">
+    <span><strong>Owner:</strong> <code>ux-designer</code> agent</span>
+    <span><strong>Status:</strong> <span class="tbd">Draft</span></span>
+    <span><strong>Version:</strong> <span class="tbd">0.1</span></span>
+    <span><strong>Last updated:</strong> <span class="tbd">—</span></span>
+  </div>
+</header>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#overview">Overview &amp; Design Principles</a></li>
+    <li><a href="#design-system">Design System</a></li>
+    <li><a href="#tokens">Design Tokens</a></li>
+    <li><a href="#components">Components &amp; Screen Styles</a></li>
+    <li><a href="#flows">User Flows</a></li>
+    <li><a href="#wireframes">Wireframes</a></li>
+    <li><a href="#styled-screens">Styled Screens</a></li>
+    <li><a href="#accessibility">Accessibility</a></li>
+    <li><a href="#open-questions">Open Questions</a></li>
+    <li><a href="#appendix">Appendix</a>
+      <ol>
+        <li><a href="#faqs">FAQs</a></li>
+      </ol>
+    </li>
+  </ol>
+</nav>
+
+<section id="overview" data-section="overview">
+  <h2>1. Overview &amp; Design Principles</h2>
+  <p class="section-hint">What this product should feel like to use, and the principles that resolve design disputes. Owned by <code>ux-designer</code>; spans late-Research (flows, wireframes) through Plan/Implement (the design system matures as screens get built).</p>
+  <div class="stub">Replace during the Research/Plan phases. Use <code>/generate-designdoc</code> to be interviewed.</div>
+  <ul>
+    <li class="tbd">Principle — e.g. "mobile-first; design up, not down"</li>
+    <li class="tbd">Principle — e.g. "accessible by default (WCAG AA)"</li>
+    <li class="tbd">Principle — e.g. "no decorative loading states"</li>
+  </ul>
+</section>
+
+<section id="design-system" data-section="design-system">
+  <h2>2. Design System</h2>
+  <p class="section-hint">The single source of truth for the visual language. The written spec lives alongside this doc; the machine-readable system lives in the two CSS files that <code>frontend-lead</code> consumes directly.</p>
+  <ul>
+    <li><a href="design-system-spec.md">design-system-spec.md</a> — the written spec (token rationale, component inventory, usage rules)</li>
+    <li><a href="tokens.css">tokens.css</a> — design tokens as CSS custom properties</li>
+    <li><a href="screen.css">screen.css</a> — component &amp; screen styles built on the tokens</li>
+  </ul>
+  <p class="section-hint">Figma stays the high-fidelity design tool (via the <code>ux-designer</code>'s Figma skills); <code>docs/DESIGN/</code> is the in-repo, code-level home that ships with the project and is the contract for implementation.</p>
+</section>
+
+<section id="tokens" data-section="tokens">
+  <h2>3. Design Tokens</h2>
+  <p class="section-hint">Color, typography, spacing, radius, shadow, and motion primitives. Edit values in <a href="tokens.css">tokens.css</a> — the swatches below preview the live variables.</p>
+  <div class="stub">Token names below are scaffolding from <code>tokens.css</code>. Replace placeholder values with the project's palette and scale.</div>
+  <div style="display:flex; flex-wrap:wrap; gap:.75rem; margin:1rem 0;">
+    <div style="width:5rem;height:5rem;border-radius:var(--radius-md,8px);background:var(--color-primary,#888);display:flex;align-items:flex-end;padding:.25rem;font-size:.7rem;color:#fff;">primary</div>
+    <div style="width:5rem;height:5rem;border-radius:var(--radius-md,8px);background:var(--color-surface,#eee);border:1px solid var(--color-border,#ccc);display:flex;align-items:flex-end;padding:.25rem;font-size:.7rem;color:#333;">surface</div>
+    <div style="width:5rem;height:5rem;border-radius:var(--radius-md,8px);background:var(--color-text,#222);display:flex;align-items:flex-end;padding:.25rem;font-size:.7rem;color:#fff;">text</div>
+    <div style="width:5rem;height:5rem;border-radius:var(--radius-md,8px);background:var(--color-danger,#c0392b);display:flex;align-items:flex-end;padding:.25rem;font-size:.7rem;color:#fff;">danger</div>
+  </div>
+</section>
+
+<section id="components" data-section="components">
+  <h2>4. Components &amp; Screen Styles</h2>
+  <p class="section-hint">The component inventory and the styles that realize it, built on the tokens. Styles live in <a href="screen.css">screen.css</a>; document each component's states (default, hover, focus, disabled, loading, error) and link to its styled-screen example.</p>
+  <table>
+    <thead><tr><th>Component</th><th>States documented</th><th>Example</th></tr></thead>
+    <tbody>
+      <tr><td class="tbd">Button</td><td class="tbd">—</td><td class="tbd">—</td></tr>
+      <tr><td class="tbd">Input</td><td class="tbd">—</td><td class="tbd">—</td></tr>
+      <tr><td class="tbd">Card</td><td class="tbd">—</td><td class="tbd">—</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="flows" data-section="flows">
+  <h2>5. User Flows</h2>
+  <p class="section-hint">How users move through the product to accomplish the highest-traffic stories. Mermaid <code>flowchart</code> is fine for first-pass; source diagrams live in <a href="flows/">flows/</a>.</p>
+  <div class="stub">Sketch the top 3–8 stories from the PRD. One flow per major task.</div>
+  <pre class="mermaid">
+flowchart LR
+  start([User opens app]) --> action[Primary action — TBD]
+  action --> outcome([Outcome — TBD])
+  </pre>
+</section>
+
+<section id="wireframes" data-section="wireframes">
+  <h2>6. Wireframes</h2>
+  <p class="section-hint">Low-fidelity layout of each key screen — structure before style. Assets live in <a href="wireframes/">wireframes/</a> (images or HTML); promote to Figma for anything that will ship.</p>
+  <div class="stub">Reference wireframe assets with relative paths, e.g. <code>&lt;img src="wireframes/onboarding-01.png"&gt;</code>.</div>
+  <ul>
+    <li class="tbd">Screen — wireframe link</li>
+  </ul>
+</section>
+
+<section id="styled-screens" data-section="styled-screens">
+  <h2>7. Styled Screens</h2>
+  <p class="section-hint">High-fidelity screens that apply the design system to the wireframes. HTML mockups in <a href="styled-screens/">styled-screens/</a> consume <code>tokens.css</code> + <code>screen.css</code>, so they double as a visual regression reference and a head-start for <code>frontend-lead</code>.</p>
+  <ul>
+    <li class="tbd">Screen — styled-screen link</li>
+  </ul>
+</section>
+
+<section id="accessibility" data-section="accessibility">
+  <h2>8. Accessibility</h2>
+  <p class="section-hint">Accessibility is a design responsibility, not a QA afterthought. Document the target and any deliberate exceptions.</p>
+  <table>
+    <thead><tr><th>Concern</th><th>Standard / approach</th></tr></thead>
+    <tbody>
+      <tr><td>Color contrast</td><td class="tbd">WCAG AA (4.5:1 text, 3:1 large/UI)</td></tr>
+      <tr><td>Keyboard</td><td class="tbd">All interactive elements reachable &amp; operable</td></tr>
+      <tr><td>Screen readers</td><td class="tbd">Semantic markup; labelled controls</td></tr>
+      <tr><td>Motion</td><td class="tbd">Respect <code>prefers-reduced-motion</code></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="open-questions" data-section="open-questions">
+  <h2>9. Open Questions</h2>
+  <p class="section-hint">Unresolved design decisions and assumptions that could be wrong. Drives the next design conversation.</p>
+  <ul>
+    <li class="tbd">—</li>
+  </ul>
+</section>
+
+<section id="appendix" data-section="appendix">
+  <h2>10. Appendix</h2>
+  <p class="section-hint">Inspiration, references, prior art, links to Figma files.</p>
+  <ul>
+    <li class="tbd">—</li>
+  </ul>
+
+  <h3 id="faqs">10.1 FAQs</h3>
+  <dl class="faqs">
+    <dt>Q: How do I add review comments to this design doc?</dt>
+    <dd>A: Same as the other docs. Hand-edit <code>docs/DESIGN/comments.md</code> with <code>## §&lt;section-id&gt;</code> blocks pointing at a section's <code>id</code> (e.g. <code>tokens</code>, <code>flows</code>), or run <code>/serve-docs DESIGN</code> and use the inline <code>+ Comment</code> widget. Then run <code>/refine-doc DESIGN</code> to have the changes applied and the addressed comments removed. The sidecar is gitignored; resolutions land via PR. See <a href="../../WORKFLOW.md">WORKFLOW.md</a> → Doc review loop.</dd>
+    <dt>Q: Why is the design system in <code>docs/DESIGN/</code> and not in the app's source?</dt>
+    <dd>A: It's the design <em>deliverable</em> — the contract. During Implement, <code>frontend-lead</code> imports or derives the app's real stylesheets from <code>tokens.css</code> / <code>screen.css</code>. Keeping the canonical system here keeps it reviewable as a doc and decoupled from any one app's build layout.</dd>
+    <dt class="tbd">Q: —</dt>
+    <dd class="tbd">A: —</dd>
+  </dl>
+</section>
+
+<footer class="doc-footer">
+  Generated by the <code>ux-designer</code> agent via <code>/generate-designdoc</code>. Edit by re-running the skill or editing in place.
+</footer>
+
+</body>
+</html>

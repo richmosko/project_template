@@ -8,7 +8,7 @@ This repo is a **meta-template**, not a product. Clone it (or use it as a GitHub
 
 - a four-phase workflow (**Research → Plan → Implement ⇄ Validate**),
 - nine specialist team-Agents (PM, UX, Architect, SecEng, two implementation leads + a generalist, QA, DevOps),
-- doc-generation skills for PRD / Architecture / Security,
+- doc-generation skills for PRD / Architecture / Security / Design,
 - workflow skills for branching, PR + Linear integration, releases,
 - HTML doc templates with embedded Mermaid diagrams,
 - a state ledger (`MILESTONES.md`), a separate append-only decision log (`DECISIONS.md`), and a backlog overflow queue (`BACKLOG.md`),
@@ -53,8 +53,9 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 - `/generate-prd [source]` — interview-driven PRD generation (chatprd.ai-grounded). Accepts optional path to an existing PRD artifact (markdown / HTML / PDF / Google Doc) for **import mode**: analyzes the legacy content, maps it to the AGILE framework, ports what fits, flags what doesn't.
 - `/generate-archdoc [source]` — Architecture doc with Mermaid diagrams. Same import-mode support as `generate-prd` for legacy ARCH artifacts.
 - `/generate-secdoc` — STRIDE-based threat model + controls
-- `/refine-doc <PRD|ARCH|SECURITY>` — walks `docs/<DOC>/comments.md` (gitignored review sidecar), addresses each `## §<section-id>` comment in the matching HTML section, removes addressed comments as it goes. Composable with `/start-doc-update` → `/finish-doc-update` → `/merge-pr`. See WORKFLOW.md → Doc review loop.
-- `/serve-docs [PRD|ARCH|SECURITY|stop|status]` — starts `scripts/serve-docs.sh` in the background under the Claude session (no separate terminal needed) so the inline comment widget activates in the HTML docs. Pass a doc name to also open it in the browser. Server is cleaned up automatically on `/exit`.
+- `/generate-designdoc` — Design System & UX doc (`docs/DESIGN/`): principles, tokens (`tokens.css`), component styles (`screen.css`), `design-system-spec.md`, flows, wireframes, styled screens. Driven by `ux-designer`; cross-phase; pairs with Figma.
+- `/refine-doc <PRD|ARCH|SECURITY|DESIGN>` — walks `docs/<DOC>/comments.md` (gitignored review sidecar), addresses each `## §<section-id>` comment in the matching HTML section, removes addressed comments as it goes. Composable with `/start-doc-update` → `/finish-doc-update` → `/merge-pr`. See WORKFLOW.md → Doc review loop.
+- `/serve-docs [PRD|ARCH|SECURITY|DESIGN|stop|status]` — starts `scripts/serve-docs.sh` in the background under the Claude session (no separate terminal needed) so the inline comment widget activates in the HTML docs. Pass a doc name to also open it in the browser. Server is cleaned up automatically on `/exit`.
 
 **Helpers** (`scripts/`):
 
@@ -83,6 +84,7 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 - `docs/PRD/index.html` — Product Requirements (HTML + Mermaid)
 - `docs/ARCH/index.html` — Architecture + Infrastructure
 - `docs/SECURITY/index.html` — Security + Compliance
+- `docs/DESIGN/index.html` — Design System & UX (tokens.css, screen.css, spec, flows, wireframes, styled-screens)
 - `docs/archive/` — stashed originals of imported PRD/ARCH artifacts
 - `docs/_assets/` — shared CSS + Mermaid loader
 
@@ -169,6 +171,7 @@ Because the team is shared, a **reusable component** that graduates to its own r
 │   ├── PRD/index.html           product requirements (Research)
 │   ├── ARCH/index.html          architecture (Plan)
 │   ├── SECURITY/index.html      security (Plan + Validate)
+│   ├── DESIGN/                  design system & UX (cross-phase; ux-designer)
 │   ├── starting-prompt.md       original design notes (kept for posterity)
 │   └── _assets/                 shared CSS + Mermaid loader
 │   (each doc lives in its own subdir — add per-doc images / diagrams /

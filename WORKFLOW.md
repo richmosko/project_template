@@ -59,9 +59,9 @@ How far a `/drive`-aimed [goal-driven loop](#goal-driven-loop-drive) runs before
 - **Activities:**
   - PM interviews the user via the `/generate-prd` skill (chatprd.ai-grounded template)
   - PM drafts user stories, success metrics, non-goals
-  - UX produces wireframes / interaction sketches (late-phase, after stories stabilize)
+  - UX produces flows + wireframes in `docs/DESIGN/` via `/generate-designdoc` (late-phase, after stories stabilize) — the design system (`tokens.css`/`screen.css`) matures later, through Plan and Implement
   - SecEng surfaces regulatory and high-level security considerations (e.g. "this handles PHI" → flag for SECURITY.md later)
-- **Artifact:** `docs/PRD/index.html`
+- **Artifact:** `docs/PRD/index.html` (+ `docs/DESIGN/` flows & wireframes, late-phase)
 - **Gate:** User approves PRD v1.
 
 ### Plan
@@ -278,6 +278,12 @@ To tear down: _"Clean up the team."_
 │   ├── PRD/index.html           product requirements (Research)
 │   ├── ARCH/index.html          architecture (Plan)
 │   ├── SECURITY/index.html      security (Plan, consult'd throughout)
+│   ├── DESIGN/                  design system & UX (cross-phase; ux-designer)
+│   │   ├── index.html             entry: principles, flows, screen gallery
+│   │   ├── design-system-spec.md  written spec
+│   │   ├── tokens.css             design tokens
+│   │   ├── screen.css             component/screen styles
+│   │   ├── wireframes/  flows/  styled-screens/
 │   └── _assets/                 shared CSS + mermaid loader
 ├── .claude/
 │   ├── settings.json            hooks, env, permissions
@@ -318,7 +324,7 @@ The `index.html` filename stays stable across the split, so external references 
 
 ## Doc review loop (`comments.md` sidecar)
 
-Each HTML doc (`PRD`, `ARCH`, `SECURITY`) supports an optional sidecar `docs/<DOC>/comments.md` for in-process review notes. It's a feedback loop with Claude: write per-section comments in the file, then run `/refine-doc` to have the lead address them.
+Each HTML doc (`PRD`, `ARCH`, `SECURITY`, `DESIGN`) supports an optional sidecar `docs/<DOC>/comments.md` for in-process review notes. It's a feedback loop with Claude: write per-section comments in the file, then run `/refine-doc` to have the lead address them.
 
 ### Format
 
@@ -387,7 +393,7 @@ Hand-editing `comments.md` works for any editor, anywhere. For a friendlier revi
                              # the server itself
 ```
 
-Both run the same server (Python stdlib only) at `http://localhost:8765` and serve `docs/`. The `/serve-docs` skill probes for an already-running instance before launching, so it's safe to invoke repeatedly. Browse to `http://localhost:8765/PRD/` (or `ARCH/`, `SECURITY/`) — the widget activates:
+Both run the same server (Python stdlib only) at `http://localhost:8765` and serve `docs/`. The `/serve-docs` skill probes for an already-running instance before launching, so it's safe to invoke repeatedly. Browse to `http://localhost:8765/PRD/` (or `ARCH/`, `SECURITY/`, `DESIGN/`) — the widget activates:
 
 - **A small status badge** in the bottom-right shows `connected (N comments)` or `offline`.
 - **Hover any section heading** to reveal a `+ Comment` button.
@@ -403,7 +409,7 @@ Sections that already have comments show a `💬 N` count badge next to the head
 
 **Lifecycle:** the server runs in the foreground — Cmd+C (Ctrl+C) to stop. Override the port with `DOCS_PORT=8080 ./scripts/serve-docs.sh` if 8765 collides.
 
-**Security shape:** the server binds to `127.0.0.1` only (no LAN exposure), accepts only its two API endpoints (`GET /api/comments`, `POST /api/comments`), and writes only to `docs/<DOC>/comments.md` after validating `doc` against a whitelist (`PRD`, `ARCH`, `SECURITY`) and `section` against the `[a-z][a-z0-9-]*` pattern. No auth needed.
+**Security shape:** the server binds to `127.0.0.1` only (no LAN exposure), accepts only its two API endpoints (`GET /api/comments`, `POST /api/comments`), and writes only to `docs/<DOC>/comments.md` after validating `doc` against a whitelist (`PRD`, `ARCH`, `SECURITY`, `DESIGN`) and `section` against the `[a-z][a-z0-9-]*` pattern. No auth needed.
 
 ### Pass status
 
