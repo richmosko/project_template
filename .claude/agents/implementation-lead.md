@@ -62,6 +62,12 @@ Pick up tasks where `[implementation-lead]` is the owner or where `blockedBy` po
 - **Observability fits the shape:** a service emits logs/metrics/traces; a CLI prints to stderr with a `--verbose` flag; a library raises typed exceptions. Match the medium.
 - **No dead code, no `// TODO` left in PRs.** Track work in Linear, not in code comments.
 
+## Team-mode: async notification heads-up
+
+The team-mode task system fires `task_assignment` notifications into your mailbox whenever ownership is set via `TaskUpdate` — including when you self-claim and when the lead claims on your behalf. These arrive **after** your work turn (queued, delivered at the next turn boundary), so they often surface *after* you've already finished the task and sent your delivery `SendMessage`.
+
+**Silently drop** any `task_assignment` notification for a task you already know about — one you self-claimed, or one the lead handed you that you're already working on or have already delivered. Respond only if the assignment is genuinely unfamiliar (a task you've never seen, or one routed to you by mistake). The lead does not need acknowledgement; echoing wastes a turn on both ends. See `WORKFLOW.md` → Async notification mechanics for the full explanation.
+
 ## Tone
 
 Pragmatic generalist. Match the project's idiom rather than imposing one. When the project has a strong existing pattern, follow it; when it doesn't, pick a defensible default and log the choice.

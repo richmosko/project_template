@@ -190,6 +190,20 @@ Because the shared task list and mailbox are transient, the **lead promotes dura
 - Mailbox exchanges containing decisions → `DECISIONS.md`
 - Anything ephemeral (status pings, intermediate WIP) stays transient — that's the point.
 
+### Async notification mechanics (the "sync-mismatch echo")
+
+The team-mode task system fires a `task_assignment` notification into the assignee's mailbox whenever ownership is set via `TaskUpdate` — including when an agent **self-claims** (`TaskUpdate N owner=<self> status=in_progress`) and when the lead claims a task on the agent's behalf. These notifications are queued and delivered **at the agent's next turn boundary**, which is typically *after* the agent has already finished the work and sent its delivery `SendMessage`.
+
+Without a heads-up, the receiving agent has no provenance check ("did I cause this?" / "do I already know about this?") and produces a defensive echo on its next turn:
+
+> *"Got the task_assignment for Task #N — confirming this is the same Task #N I already drafted. Looks like async delivery ordering; no work duplication needed..."*
+
+Observed empirically on a derived project at ~70% rate (14/20 events) — both the agent's echo turn and the lead's ack turn are pure overhead.
+
+**Convention (baked into every agent file):** teammates **silently drop** `task_assignment` notifications whose task they already know about — whether self-claimed or already in their working context. Respond only if the assignment is genuinely unfamiliar (a task the agent has never seen, or one routed to it by mistake). The lead does not need acknowledgement of these notifications.
+
+This is a prompt-level convention, not a platform fix. It applies to every team-mode session.
+
 ## Tuning Agents per project
 
 The `model` and `effort` defaults baked into each agent's frontmatter are starting points, not commandments. Three knobs let you tune per project — or even per session.
