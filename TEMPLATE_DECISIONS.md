@@ -19,6 +19,20 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 
 ---
 
+### 2026-05-30 — Team-mode `task_assignment` echo-suppression convention
+**Decision:** Codify the "silently drop self-known `task_assignment` notifications" convention at the template level. Add an explanatory subsection to `WORKFLOW.md` → Team coordination ("Async notification mechanics") and append a short standardized heads-up block to every `.claude/agents/*.md` so the convention lands in each teammate's persistent system prompt at spawn time.
+**Why:** Surfaced as upstream feedback from a derived project (mosko-fintech Phase 3 ARCH session, PRs #65–#69). Team-mode fires a `task_assignment` notification on every `TaskUpdate` ownership change — including self-claim — and queues it for the assignee's next turn boundary, which is typically *after* the agent has already delivered its work. Without a heads-up, the agent has no provenance check and produces a defensive "sync-mismatch echo" message that wastes a turn on each end. Observed at ~70% rate (14/20 events) on the derived project. Mitigation tested at the project level; codifying at the template tier lets every downstream repo benefit without rediscovering the pattern.
+**Alternatives considered:**
+- *Skill-level convention only (e.g. in `/start-feature`):* this template doesn't centralize spawn prompts in a single skill — teammates' persistent context is their `.claude/agents/*.md` file, so a skill-only fix would miss most spawn paths.
+- *WORKFLOW.md only (no per-agent duplication):* canonical explanation but doesn't reach the agent's system prompt at spawn time — teammates would only see it if they read WORKFLOW.md on demand.
+- *Repo-level standalone doc (`docs/team-mode-conventions.md`):* less discoverable; not auto-loaded into agent context. Rejected.
+- *Upstream platform fix (provenance flag on notifications):* cleanest long-term but out of scope for the template. If/when Claude Code adds a `selfTriggered: true` flag, the convention can be relaxed.
+- *Switch all task ownership to lead-claim:* doesn't solve the problem — lead-claim fires the same notification shape to the assignee; the echo still happens.
+
+**Approved by:** Mosko
+
+---
+
 ### 2026-05-28 — UX/UI design artifact home (`docs/DESIGN/`) + `/generate-designdoc` (#16)
 **Decision:** Give UX/UI design its own first-class artifact home at `docs/DESIGN/` — an `index.html` doc plus the design-system deliverables (`tokens.css`, `screen.css`, `design-system-spec.md`) and `wireframes/` / `flows/` / `styled-screens/`. Owned by the `ux-designer` agent; generated/refined by a new `/generate-designdoc` skill; wired into the same doc-review loop (comments sidecar, `/refine-doc DESIGN`, `/serve-docs DESIGN`) as the other docs.
 **Why:** Design previously had no home of its own — flows/wireframes lived only in Figma + the PRD's Design Considerations section, and there was nowhere in-repo for a code-level design system (tokens/CSS) that `frontend-lead` consumes directly. Surfaced on a real test project.

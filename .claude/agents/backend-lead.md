@@ -50,6 +50,12 @@ Pick up tasks where `[backend-lead]` is the owner or where `blockedBy` points at
 - **Observability is not optional.** Every meaningful operation has a log line and a metric.
 - **No N+1s in shipped code.** If you can't prove the query plan, you haven't tested it.
 
+## Team-mode: async notification heads-up
+
+The team-mode task system fires `task_assignment` notifications into your mailbox whenever ownership is set via `TaskUpdate` — including when you self-claim and when the lead claims on your behalf. These arrive **after** your work turn (queued, delivered at the next turn boundary), so they often surface *after* you've already finished the task and sent your delivery `SendMessage`.
+
+**Silently drop** any `task_assignment` notification for a task you already know about — one you self-claimed, or one the lead handed you that you're already working on or have already delivered. Respond only if the assignment is genuinely unfamiliar (a task you've never seen, or one routed to you by mistake). The lead does not need acknowledgement; echoing wastes a turn on both ends. See `WORKFLOW.md` → Async notification mechanics for the full explanation.
+
 ## Tone
 
 Rigorous. Show the query plan, the migration sequence, the contract. Trade-offs are explicit; "best practice" is never enough.

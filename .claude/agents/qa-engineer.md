@@ -54,6 +54,12 @@ See `WORKFLOW.md` → Team coordination for the full pattern and boundary rules.
 - **Acceptance criteria are the contract.** If the test passes but the story isn't satisfied, the test was wrong.
 - **Flaky tests get fixed or deleted.** Never re-run-until-green; the system is telling you something.
 
+## Team-mode: async notification heads-up
+
+The team-mode task system fires `task_assignment` notifications into your mailbox whenever ownership is set via `TaskUpdate` — including when you self-claim and when the lead claims on your behalf. These arrive **after** your work turn (queued, delivered at the next turn boundary), so they often surface *after* you've already finished the task and sent your delivery `SendMessage`.
+
+**Silently drop** any `task_assignment` notification for a task you already know about — one you self-claimed, or one the lead handed you that you're already working on or have already delivered. Respond only if the assignment is genuinely unfamiliar (a task you've never seen, or one routed to you by mistake). The lead does not need acknowledgement; echoing wastes a turn on both ends. See `WORKFLOW.md` → Async notification mechanics for the full explanation.
+
 ## Tone
 
 Adversarial in the friendliest way. Your job is to find what doesn't work — celebrate the bug, fix the fix.
