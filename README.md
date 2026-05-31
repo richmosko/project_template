@@ -50,29 +50,34 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 
 **Skills** (`.claude/skills/`):
 
+*Doc generation & review:*
+
 - `/generate-prd [source]` — interview-driven PRD generation (chatprd.ai-grounded). Accepts optional path to an existing PRD artifact (markdown / HTML / PDF / Google Doc) for **import mode**: analyzes the legacy content, maps it to the AGILE framework, ports what fits, flags what doesn't.
 - `/generate-archdoc [source]` — Architecture doc with Mermaid diagrams. Same import-mode support as `generate-prd` for legacy ARCH artifacts.
 - `/generate-secdoc` — STRIDE-based threat model + controls
 - `/generate-designdoc` — Design System & UX doc (`docs/DESIGN/`): principles, tokens (`tokens.css`), component styles (`screen.css`), `design-system-spec.md`, flows, wireframes, styled screens. Driven by `ux-designer`; cross-phase; pairs with Figma.
 - `/refine-doc <PRD|ARCH|SECURITY|DESIGN>` — walks `docs/<DOC>/comments.md` (gitignored review sidecar), addresses each `## §<section-id>` comment in the matching HTML section, removes addressed comments as it goes. Composable with `/start-doc-update` → `/finish-doc-update` → `/merge-pr`. See WORKFLOW.md → Doc review loop.
 - `/serve-docs [PRD|ARCH|SECURITY|DESIGN|stop|status]` — starts `scripts/serve-docs.sh` in the background under the Claude session (no separate terminal needed) so the inline comment widget activates in the HTML docs. Pass a doc name to also open it in the browser. Server is cleaned up automatically on `/exit`.
+- `/open-doc` — open HTML/Markdown docs in default viewer
 
-**Helpers** (`scripts/`):
+*Workflow & operations:*
 
-- `scripts/serve-docs.sh` — local Python server (stdlib only) at `http://localhost:8765` that activates an **inline comment widget** in the HTML docs. Click `+ Comment` next to any section heading, type, save — the widget POSTs to the server which appends to `docs/<DOC>/comments.md`. Same format as hand-edited comments; both feed `/refine-doc`. See WORKFLOW.md → Doc review loop → Inline-authoring mode.
-- `scripts/vendor-mermaid.sh` — downloads Mermaid to `docs/_assets/vendor/` for projects that can't rely on CDN access at doc-view time (see Mermaid loading section above).
 - `/start-feature` — branch + Linear issue + budget check + Implement team spawn (also promotes from `BACKLOG.md` on demand)
 - `/finish-feature` — commit, push, PR, link Linear, hand off to Validate
 - `/drive [issue|milestone]` — aims a hands-off goal-driven loop at the next feature (or whole milestone), per the project's delivery-autonomy setting (`stop-at-merge` default / `self-merge-within-milestone`). Constructs the condition for the native `/goal` command and surfaces it for you to paste — the loop then runs the I↔V cycle until done. Needs Claude Code ≥ v2.1.139 (for `/goal`). See WORKFLOW.md → Goal-driven loop
 - `/start-doc-update <slug>` — kicks off a `phase/<phase>-<slug>` branch for non-feature doc edits (PRD/ARCH/SECURITY/WORKFLOW/etc.); no Linear issue, no implementation team
 - `/finish-doc-update` — commit + push + open PR for a doc-update branch; no QA handshake (lead reviews directly)
 - `/merge-pr` — gated team-lead merge after QA sign-off (features) or lead review (doc updates); squash-merges, archives, updates state. Alternative to human-review-and-merge via GitHub UI
-- `/open-doc` — open HTML/Markdown docs in default viewer
 - `/setup-linear-team` — wire Linear into a new project (one-time): links the shared team, creates this project's Initiative via MCP, seeds agent labels, seeds first-milestone stories to Linear and rest to `BACKLOG.md`
 - `/setup-claude-deploy-key` — generate a per-repo passphrase-less SSH deploy key so Claude can push to GitHub without TTY-unlockable passphrases (one-time per repo)
 - `/sync-backlog [count|milestone]` — promote items from `BACKLOG.md` to Linear in milestone-FIFO order. Called at sprint-cycle boundaries, on demand, or implicitly by `/start-feature` when a queued feature is requested
 - `/cleanup-linear [filter]` — bulk-archive Done Linear issues to free space under the 250-active-issue free-tier cap; use when sync-backlog warns near cap or at milestone close
 - `/spin-off-component <path>` — extract a substantial, reusable component out of the monorepo into its own repo (a fresh template instance + Linear Initiative), preserving git history, cutting `v0.1.0`, and recording the parent↔child linkage. Mechanizes the git extraction; hands off the child bootstrap and the parent-side dependency swap. See WORKFLOW.md → Shared / reusable components
+
+**Scripts** (`scripts/`):
+
+- `scripts/serve-docs.sh` — local Python server (stdlib only) at `http://localhost:8765` that activates an **inline comment widget** in the HTML docs. Click `+ Comment` next to any section heading, type, save — the widget POSTs to the server which appends to `docs/<DOC>/comments.md`. Same format as hand-edited comments; both feed `/refine-doc`. See WORKFLOW.md → Doc review loop → Inline-authoring mode.
+- `scripts/vendor-mermaid.sh` — downloads Mermaid to `docs/_assets/vendor/` for projects that can't rely on CDN access at doc-view time (see Mermaid loading section above).
 
 **Artifacts** (top level + `docs/`):
 
@@ -142,6 +147,59 @@ claude
 6. Verify `teammateMode` in `.claude/settings.json` (default: `tmux` for split-pane).
 7. Spawn the Research team: _"Create an agent team for the Research phase."_
 8. `/generate-prd` — start the discovery interview.
+
+## Session startup
+
+Every session starts minimal. Only the files needed to re-orient are auto-loaded; everything else is read lazily as the work demands. The `SessionStart` hook in `.claude/settings.json` runs an `awk` extractor over `MILESTONES.md` so the auto-loaded slice stays compact even as the Roadmap table grows.
+
+```mermaid
+flowchart TD
+  S0([New Claude Code session])
+
+  S0 --> A["Auto-loaded — every session"]
+
+  A --> A1["<b>CLAUDE.md</b> — full<br/><i>session bootstrap + first-run checklist</i>"]
+  A --> A2["<b>memory/MEMORY.md</b> — full<br/><i>auto-memory index only;<br/>individual memory files load lazily</i>"]
+  A --> A3["<b>MILESTONES.md</b> — partial<br/><i>SessionStart hook runs awk;<br/>top → just before</i> <code>## Roadmap</code>"]
+  A --> A4["<b>System reminders</b><br/><i>date · skills list · MCP instructions ·<br/>deferred tool names (no schemas)</i>"]
+
+  A1 --> Q{"Cold resume<br/>or fresh task?"}
+  A2 --> Q
+  A3 --> Q
+  A4 --> Q
+
+  Q -->|resume — continue work| RB["Resume runbook<br/><i>CLAUDE.md → Session management</i>"]
+
+  RB --> R1["<b>MILESTONES.md</b> — full re-read<br/><i>past the auto-loaded head</i>"]
+  RB --> R2["<code>git status · branch · log --oneline -10</code>"]
+  RB --> R3["<code>gh pr list --state open</code>"]
+  RB --> BR{"Branch type?"}
+
+  BR -->|feature/*| R5["Linear issue via MCP +<br/><code>git diff --stat main...HEAD</code>"]
+  BR -->|phase/*| R6["<code>git diff main</code><br/><i>pending doc edits</i>"]
+  BR -->|main clean| R7["MILESTONES Roadmap section<br/><i>for next move</i>"]
+
+  R1 --> CONF["Surface pickup point;<br/>wait for user confirmation"]
+  R2 --> CONF
+  R3 --> CONF
+  R5 --> CONF
+  R6 --> CONF
+  R7 --> CONF
+
+  Q -->|fresh task| W["Proceed"]
+  CONF --> W
+
+  W --> LZ["On-demand reads<br/><i>pulled only when relevant</i>"]
+
+  LZ --> L1["<b>WORKFLOW.md</b><br/><i>gates · roster · process detail</i>"]
+  LZ --> L2["<b>DECISIONS.md</b><br/><i>historical decisions</i>"]
+  LZ --> L3["<b>.claude/skills/&lt;name&gt;/SKILL.md</b><br/><i>on skill invocation</i>"]
+  LZ --> L4["<b>.claude/agents/&lt;role&gt;.md</b><br/><i>on teammate spawn</i>"]
+  LZ --> L5["<b>memory/&lt;entry&gt;.md</b><br/><i>individual memory files; when relevant</i>"]
+  LZ --> L6["Repo source · <code>docs/PRD</code> · <code>docs/ARCH</code> · ...<br/><i>via Read tool, on demand</i>"]
+```
+
+The **Resume runbook** (in `CLAUDE.md` → Session management) only fires when the lead is re-entering in-flight work — a "let's continue" cold start. Fresh tasks skip it. Either way, the bulk of the repo — `WORKFLOW.md`, `DECISIONS.md`, individual skill / agent / memory files, docs, source — is pulled only when the work in front of you needs it, keeping the context window honest.
 
 ## The 4-tier hierarchy (Linear mapping)
 
