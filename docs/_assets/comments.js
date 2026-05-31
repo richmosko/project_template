@@ -13,7 +13,7 @@
 // When opened via file:// (no server), the widget degrades gracefully —
 // shows a small status indicator explaining how to enable inline comments.
 //
-// See WORKFLOW.md → "Doc review loop" for the full pattern.
+// See process/WORKFLOW.md → "Doc review loop" for the full pattern.
 
 (function () {
   "use strict";

@@ -11,7 +11,7 @@ You are populating `docs/SECURITY/index.html`. This is owned by the `seceng` age
 
 - Read `docs/PRD/index.html` (especially the Non-Functional Requirements → regulatory regime).
 - Read `docs/ARCH` — the threat model is structured around its components and trust boundaries. Do **not** start this skill before ARCH v1 exists.
-- Read `CLAUDE.md` and `MILESTONES.md` to confirm Plan phase.
+- Read `CLAUDE.md` and `process/MILESTONES.md` to confirm Plan phase.
 
 ## Sections
 
@@ -110,7 +110,7 @@ For each threat in section 3, the specific control(s) implemented. Each control 
 - Who's on call.
 - How an incident is declared (severity criteria).
 - Containment, eradication, recovery steps.
-- Post-incident: blameless postmortem within 5 business days; entry in [`DECISIONS.md`](../../../DECISIONS.md).
+- Post-incident: blameless postmortem within 5 business days; entry in [`process/DECISIONS.md`](../../../process/DECISIONS.md).
 
 ### 11. Open Risks (Accepted)
 
@@ -130,4 +130,4 @@ Update `docs/SECURITY/index.html` in place. Each section is a `<section data-sec
 1. Run `/security-review` on the current branch as a baseline (it should find nothing yet — no code).
 2. `SendMessage` to architect: "SECURITY v1 done; flag any new trust boundaries we should add to ARCH."
 3. `/open-doc docs/SECURITY/index.html` for user review.
-4. Once ARCH and SECURITY are both approved, the Plan→Implement gate is open. Log in `MILESTONES.md`.
+4. Once ARCH and SECURITY are both approved, the Plan→Implement gate is open. Log in `process/MILESTONES.md`.

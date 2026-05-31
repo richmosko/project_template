@@ -1,6 +1,6 @@
 ---
 name: start-doc-update
-description: Kicks off a doc-only update on a `phase/<phase>-<slug>` branch — for changes to PRD, ARCH, SECURITY (in docs/), MILESTONES.md, DECISIONS.md, WORKFLOW.md, etc. that aren't tied to a Linear feature. Mirrors /start-feature but lighter: no Linear issue, no implementation team, no anchor task. Use during Research/Plan phases when an agent (PM, architect, seceng) needs to revise docs without a feature ticket, or for cross-cutting workflow/meta updates anytime.
+description: Kicks off a doc-only update on a `phase/<phase>-<slug>` branch — for changes to PRD, ARCH, SECURITY (in docs/), process/MILESTONES.md, process/DECISIONS.md, process/WORKFLOW.md, etc. that aren't tied to a Linear feature. Mirrors /start-feature but lighter: no Linear issue, no implementation team, no anchor task. Use during Research/Plan phases when an agent (PM, architect, seceng) needs to revise docs without a feature ticket, or for cross-cutting workflow/meta updates anytime.
 ---
 
 # start-doc-update
@@ -14,7 +14,7 @@ Bootstraps a phase-scoped doc-update branch. Use when you need to revise PRD/ARC
 | Implementing a user story tied to a Linear issue | `/start-feature` |
 | Updating PRD/ARCH/SECURITY during Research/Plan | **`/start-doc-update`** |
 | Adding a Decision Log entry that requires PR review | **`/start-doc-update`** |
-| Fixing a typo in WORKFLOW.md or CLAUDE.md | **`/start-doc-update`** |
+| Fixing a typo in process/WORKFLOW.md or CLAUDE.md | **`/start-doc-update`** |
 | Bumping a dependency in package.json | `/start-feature` (it has acceptance tests) |
 
 The simple rule: **if it has acceptance criteria and lives in Linear, use `/start-feature`. If it's purely docs/process and doesn't, use `/start-doc-update`.**
@@ -41,8 +41,8 @@ Match the doc being edited to the phase:
 | `docs/PRD/index.html` | `phase/research-<slug>` |
 | `docs/ARCH/index.html`, `docs/SECURITY/index.html` | `phase/plan-<slug>` |
 | `docs/DESIGN/*` (index.html, tokens.css, screen.css, spec, wireframes/flows/styled-screens) | `phase/research-<slug>` — UX starts late-Research. **Cross-phase**: if the design-system edit is happening during Plan/Implement, use `phase/plan-<slug>` or fold it into the relevant feature instead. |
-| `MILESTONES.md`, `DECISIONS.md`, `BACKLOG.md` | `phase/state-<slug>` |
-| `WORKFLOW.md`, `CLAUDE.md`, `README.md` | `phase/meta-<slug>` |
+| `process/MILESTONES.md`, `process/DECISIONS.md`, `process/BACKLOG.md` | `phase/state-<slug>` |
+| `process/WORKFLOW.md`, `CLAUDE.md`, `README.md` | `phase/meta-<slug>` |
 | Other (e.g. `.claude/agents/*.md`, `.claude/skills/*/SKILL.md`) | `phase/meta-<slug>` |
 | Ambiguous / multi-doc | ask the user which phase the change belongs to |
 

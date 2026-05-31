@@ -7,14 +7,14 @@
 <!-- REPLACE on first run: one or two sentences on what the product is and who it's for. -->
 _TBD — fill in during the Research phase. See [`docs/PRD/index.html`](docs/PRD/index.html)._
 
-This repo was instantiated from the [project_template](https://github.com/richmosko/project_template) starter. The template's workflow, agent roster, and artifact conventions are defined in [`WORKFLOW.md`](WORKFLOW.md). The current state of the work — phase, sprint, feature, decisions — lives in [`MILESTONES.md`](MILESTONES.md). **Read MILESTONES.md before doing anything else.**
+This repo was instantiated from the [project_template](https://github.com/richmosko/project_template) starter. The template's workflow, agent roster, and artifact conventions are defined in [`process/WORKFLOW.md`](process/WORKFLOW.md). The current state of the work — phase, sprint, feature, decisions — lives in [`process/MILESTONES.md`](process/MILESTONES.md). **Read process/MILESTONES.md before doing anything else.**
 
 ## Current state at a glance
 
-- **Project (Linear Initiative):** see `## Project / Initiative` in [`MILESTONES.md`](MILESTONES.md)
-- **Phase:** see `## Current Phase` in [`MILESTONES.md`](MILESTONES.md)
-- **Active feature:** see `## Active Feature` in [`MILESTONES.md`](MILESTONES.md) (a feature = one Linear issue = one PR = one I→V loop)
-- **Active sprint (Linear cycle):** see `## Sprints (Linear cycles)` in [`MILESTONES.md`](MILESTONES.md)
+- **Project (Linear Initiative):** see `## Project / Initiative` in [`process/MILESTONES.md`](process/MILESTONES.md)
+- **Phase:** see `## Current Phase` in [`process/MILESTONES.md`](process/MILESTONES.md)
+- **Active feature:** see `## Active Feature` in [`process/MILESTONES.md`](process/MILESTONES.md) (a feature = one Linear issue = one PR = one I→V loop)
+- **Active sprint (Linear cycle):** see `## Sprints (Linear cycles)` in [`process/MILESTONES.md`](process/MILESTONES.md)
 - **Linear binding:** see `.claude/linear-team.json` for the shared team ID + this project's Initiative ID (run `/setup-linear-team` if missing)
 
 ## Artifacts
@@ -25,46 +25,46 @@ This repo was instantiated from the [project_template](https://github.com/richmo
 | Architecture & Infrastructure | [`docs/ARCH/index.html`](docs/ARCH/index.html) | architect |
 | Security & Compliance | [`docs/SECURITY/index.html`](docs/SECURITY/index.html) | seceng |
 | Design System & UX | [`docs/DESIGN/index.html`](docs/DESIGN/index.html) | ux-designer |
-| Workflow definition | [`WORKFLOW.md`](WORKFLOW.md) | team-lead (the main session) |
-| Live state ledger | [`MILESTONES.md`](MILESTONES.md) | team-lead |
-| Decision log | [`DECISIONS.md`](DECISIONS.md) | team-lead (append-only) |
-| Backlog overflow queue | [`BACKLOG.md`](BACKLOG.md) | team-lead + `/sync-backlog` |
+| Workflow definition | [`process/WORKFLOW.md`](process/WORKFLOW.md) | team-lead (the main session) |
+| Live state ledger | [`process/MILESTONES.md`](process/MILESTONES.md) | team-lead |
+| Decision log | [`process/DECISIONS.md`](process/DECISIONS.md) | team-lead (append-only) |
+| Backlog overflow queue | [`process/BACKLOG.md`](process/BACKLOG.md) | team-lead + `/sync-backlog` |
 
 Open any HTML doc with `/open-doc docs/PRD/index.html` (or just double-click it).
 
 ## Team agents
 
-**This template requires Claude Code's experimental team-agents feature.** The workflow assumes each specialist Agent runs as a persistent teammate with its own context, mailbox, and access to the shared task list — not as one-shot subagents. The template ships with `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"` and `teammateMode: "tmux"` already set in [`.claude/settings.json`](.claude/settings.json); do not disable them. If team-agents is off, `SendMessage`, the shared task list, and the anchor-task coordination pattern in [`WORKFLOW.md`](WORKFLOW.md) all break.
+**This template requires Claude Code's experimental team-agents feature.** The workflow assumes each specialist Agent runs as a persistent teammate with its own context, mailbox, and access to the shared task list — not as one-shot subagents. The template ships with `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"` and `teammateMode: "tmux"` already set in [`.claude/settings.json`](.claude/settings.json); do not disable them. If team-agents is off, `SendMessage`, the shared task list, and the anchor-task coordination pattern in [`process/WORKFLOW.md`](process/WORKFLOW.md) all break.
 
-Nine specialist Agents live in [`.claude/agents/`](.claude/agents/). The main session acts as **team-lead**; teammates are spawned per phase (not all at once) to manage token cost and the "one active team" constraint. See [`WORKFLOW.md`](WORKFLOW.md) for the phase→roster mapping.
+Nine specialist Agents live in [`.claude/agents/`](.claude/agents/). The main session acts as **team-lead**; teammates are spawned per phase (not all at once) to manage token cost and the "one active team" constraint. See [`process/WORKFLOW.md`](process/WORKFLOW.md) for the phase→roster mapping.
 
-To start a phase team, say: _"Create a team for the Plan phase"_ — the lead will spawn `architect`, `seceng`, `devops-engineer`, and `qa-engineer` as teammates (specific roster depends on project configuration; see [`WORKFLOW.md`](WORKFLOW.md) for the canonical phase→roster mapping).
+To start a phase team, say: _"Create a team for the Plan phase"_ — the lead will spawn `architect`, `seceng`, `devops-engineer`, and `qa-engineer` as teammates (specific roster depends on project configuration; see [`process/WORKFLOW.md`](process/WORKFLOW.md) for the canonical phase→roster mapping).
 
 ## Session management
 
 The conversation context isn't infinite. Use these heuristics so we don't lose continuity at the wrong moment:
 
-- **End of an I→V loop** (feature shipped): run `/compact`, push the branch, update `MILESTONES.md`.
+- **End of an I→V loop** (feature shipped): run `/compact`, push the branch, update `process/MILESTONES.md`.
 - **Phase transition** (R→P, P→I, I→V, V→R): start a fresh session. Phase artifacts (PRD/ARCH/SECURITY) are the hand-off — make sure they're up-to-date before closing.
-- **Long async gap** (you stepped away for hours/days): start fresh; let CLAUDE.md + MILESTONES.md re-orient the new session. Whether to `/resume` depends on teammate mode:
+- **Long async gap** (you stepped away for hours/days): start fresh; let CLAUDE.md + process/MILESTONES.md re-orient the new session. Whether to `/resume` depends on teammate mode:
   - **In-process mode** (`teammateMode: "in-process"`): teammates do **not** survive `/resume`. Start fresh; do not message ghost teammates by name. Re-spawn the phase team if needed.
   - **Split-pane mode** (`teammateMode: "tmux"` or iTerm2 split-pane): teammates often survive `/resume` because each runs in its own pane/process. Verify each teammate is alive (a quick `SendMessage` ping) before trusting their context. If a pane was closed, treat that teammate as lost and re-spawn.
 - **Mid-feature, context > 70%**: `/compact` rather than starting fresh; in-flight work needs the working context.
 
-When in doubt about where we left off, **read MILESTONES.md first** — it's the ledger.
+When in doubt about where we left off, **read process/MILESTONES.md first** — it's the ledger.
 
 ### Resume runbook (fresh session, "let's continue")
 
 When a session starts cold and the user says any variant of "continue" / "pick up where we left off" / "what's next", the team-lead should run this sequence **before doing tactical work**:
 
-1. **Read the full `MILESTONES.md`** (not just the auto-injected head). Note Active Feature, Current Phase, and the most recent Sprint/Roadmap rows.
+1. **Read the full `process/MILESTONES.md`** (not just the auto-injected head). Note Active Feature, Current Phase, and the most recent Sprint/Roadmap rows.
 2. **Inspect git state** in parallel: `git status`, `git rev-parse --abbrev-ref HEAD`, `git log --oneline -10`. The branch name tells you which loop you're in (`feature/*`, `phase/*`, or `main`).
 3. **Match branch → context:**
    - On a `feature/*` branch → an Implement→Validate loop was in flight. Read the linked Linear issue, list recently-modified files (`git diff --stat main...HEAD`), and re-derive what's left from the issue's acceptance criteria.
    - On a `phase/*` branch → a doc-update was in flight. Diff against main to see pending edits.
-   - On `main` with a clean tree → between loops. Decide the next move from MILESTONES.md (next backlog feature in the current sprint, or pending phase transition).
+   - On `main` with a clean tree → between loops. Decide the next move from process/MILESTONES.md (next backlog feature in the current sprint, or pending phase transition).
 4. **Check open PRs** with `gh pr list --state open` in case a previous session opened one that's waiting for `/merge-pr`.
-5. **Read `WORKFLOW.md` only if needed** — phase gate criteria, roster, or process detail. Don't pre-load it for every resume.
+5. **Read `process/WORKFLOW.md` only if needed** — phase gate criteria, roster, or process detail. Don't pre-load it for every resume.
 6. **Surface the inferred pickup point** to the user in one or two sentences and **wait for confirmation** before doing heavy work. If state is ambiguous (no active feature, dirty tree on main, mismatched branch/MILESTONES.md), say so and ask.
 
 The auto-injected MILESTONES head gives you the dashboard; this runbook is the rest of the orientation. Skipping it risks acting on stale or partial context.
@@ -92,16 +92,16 @@ When this template is freshly cloned for a new project, the team-lead should wal
 7. **Verify team-agents is enabled.** `.claude/settings.json` must have `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"` (shipped with the template — do not turn off; the workflow depends on it). Then pick `teammateMode`: `"tmux"` (default) for split-pane teammates that survive `/resume`, or `"in-process"` if you don't have tmux/iTerm2 with `it2`. Change it before spawning the first team.
 8. **Spawn the Research team:** say _"Create an agent team for the Research phase"_ — the lead will spawn `product-manager` (and bring `ux-designer` + `seceng` in later).
 9. **Run `/generate-prd`** to start the discovery interview. The PM teammate drives.
-10. **Log the bootstrap** as the first entry in [`DECISIONS.md`](DECISIONS.md) (the template already includes a stub — update the date and approver name). **Record the template version** on the `**Bootstrapped from:**` line — run `git -C <path-to-template-clone> describe --tags --abbrev=0`, or check the [project_template Releases page](https://github.com/richmosko/project_template/releases) for the latest published version.
-11. **Delete `TEMPLATE_DECISIONS.md`** — that file documents decisions about the template itself; it's not relevant to your project. Your project's decision log is `DECISIONS.md` (already in place).
+10. **Log the bootstrap** as the first entry in [`process/DECISIONS.md`](process/DECISIONS.md) (the template already includes a stub — update the date and approver name). **Record the template version** on the `**Bootstrapped from:**` line — run `git -C <path-to-template-clone> describe --tags --abbrev=0`, or check the [project_template Releases page](https://github.com/richmosko/project_template/releases) for the latest published version.
+11. **Delete `process/TEMPLATE_DECISIONS.md`** — that file documents decisions about the template itself; it's not relevant to your project. Your project's decision log is `process/DECISIONS.md` (already in place).
 
-After step 11, the project is in the Research phase and MILESTONES.md becomes the source of truth for "where we are".
+After step 11, the project is in the Research phase and process/MILESTONES.md becomes the source of truth for "where we are".
 
 ## Working principles
 
 - **TDD by default**: write the failing test, then the implementation, then confirm green. Validate is not optional.
 - **Small commits, frequent PRs**: one PR per completed I→V loop (one feature). Use `/start-feature` + `/finish-feature` for features tied to a Linear issue; use `/start-doc-update` + `/finish-doc-update` for non-feature doc edits. Merge via `/merge-pr` (team-lead) or GitHub UI (human review). **No direct pushes to `main`.**
-- **Goal-driven loops**: to run an I→V loop hands-off, use `/drive` — it aims a native `/goal` at the next feature (or milestone) per the project's delivery-autonomy setting, and surfaces the `/goal` line for you to paste. See [`WORKFLOW.md`](WORKFLOW.md) → Goal-driven loop.
-- **Decisions go in the ledger**: any non-trivial call (stack choice, architectural pivot, scope cut) gets an entry in [`DECISIONS.md`](DECISIONS.md).
+- **Goal-driven loops**: to run an I→V loop hands-off, use `/drive` — it aims a native `/goal` at the next feature (or milestone) per the project's delivery-autonomy setting, and surfaces the `/goal` line for you to paste. See [`process/WORKFLOW.md`](process/WORKFLOW.md) → Goal-driven loop.
+- **Decisions go in the ledger**: any non-trivial call (stack choice, architectural pivot, scope cut) gets an entry in [`process/DECISIONS.md`](process/DECISIONS.md).
 - **Skills over repetition**: if a process happens twice, extract it into `.claude/skills/`.
-- **Reusable components**: when a substantial component is reused across projects, needs its own release clock, or already lives elsewhere, treat it as its own template instance — spin it off with `/spin-off-component`, or borrow it as a pinned dependency. Don't split for size alone. See [`WORKFLOW.md`](WORKFLOW.md) → Shared / reusable components.
+- **Reusable components**: when a substantial component is reused across projects, needs its own release clock, or already lives elsewhere, treat it as its own template instance — spin it off with `/spin-off-component`, or borrow it as a pinned dependency. Don't split for size alone. See [`process/WORKFLOW.md`](process/WORKFLOW.md) → Shared / reusable components.

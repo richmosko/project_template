@@ -141,5 +141,5 @@ PR body should list the addressed sections (from the step-6 summary) so the diff
 
 - `comments.md` is gitignored at `docs/*/comments.md`. Comments are working notes; the resolution is the doc change itself, which lands via PR.
 - This skill is **single-shot per file**. It walks the sidecar once and updates it. Re-run after each round of new comments.
-- If you want to preserve a comment for historical reference, copy it into `DECISIONS.md` before running `/refine-doc` — once addressed, it's gone from the sidecar.
+- If you want to preserve a comment for historical reference, copy it into `process/DECISIONS.md` before running `/refine-doc` — once addressed, it's gone from the sidecar.
 - The skill does not invent sections. If a comment proposes content that doesn't fit any existing section, defer with a note: "comment proposes new content; consider adding a `<section id="...">` to the HTML doc first."

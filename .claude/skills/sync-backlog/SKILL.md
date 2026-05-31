@@ -1,29 +1,29 @@
 ---
 name: sync-backlog
-description: Promotes the next batch of items from BACKLOG.md to Linear issues, in milestone FIFO order. Called at sprint-cycle boundaries during sprint planning, on demand by the user, or automatically by /start-feature when the requested feature is queued in BACKLOG.md. Honors the active-issue budget (won't create new issues past the 250-issue cap).
+description: Promotes the next batch of items from process/BACKLOG.md to Linear issues, in milestone FIFO order. Called at sprint-cycle boundaries during sprint planning, on demand by the user, or automatically by /start-feature when the requested feature is queued in process/BACKLOG.md. Honors the active-issue budget (won't create new issues past the 250-issue cap).
 ---
 
 # sync-backlog
 
-Promotes items from `BACKLOG.md` (overflow queue) into Linear issues. Default batch: "all items in the top milestone that fit under the active-issue budget."
+Promotes items from `process/BACKLOG.md` (overflow queue) into Linear issues. Default batch: "all items in the top milestone that fit under the active-issue budget."
 
 ## When to run
 
 - **At sprint-cycle start**, during sprint planning. The lead promotes the next batch.
 - **On demand**: "promote the next 5 items from backlog to Linear" or similar.
-- **Implicitly by `/start-feature`** when the requested feature isn't in Linear yet but its row exists in BACKLOG.md.
+- **Implicitly by `/start-feature`** when the requested feature isn't in Linear yet but its row exists in process/BACKLOG.md.
 
 ## Inputs
 
 - `$ARGUMENTS` — optional:
-  - **empty** → promote all items from the top milestone in BACKLOG.md that fit budget
+  - **empty** → promote all items from the top milestone in process/BACKLOG.md that fit budget
   - **integer** (e.g. `5`) → promote at most that many items, FIFO from the top
   - **milestone name** (e.g. `M1` or `M1 — MVP`) → promote items from that milestone only
 
 ## Pre-flight
 
 - Read `.claude/linear-team.json` for `teamId` and `initiativeId`. Bail if missing → direct the user to `/setup-linear-team`.
-- Read `BACKLOG.md`. Parse the milestone sections (`### Milestone: ...`) and their tables.
+- Read `process/BACKLOG.md`. Parse the milestone sections (`### Milestone: ...`) and their tables.
 - Call `mcp__claude_ai_Linear__list_issues` filtered by `state != archived` to get the current active count.
 
 ## Budget check
@@ -40,7 +40,7 @@ Cap the batch size at `250 − current` ("headroom") regardless of what the user
 
 ### 1. Pick the batch
 
-- Default: top milestone in BACKLOG.md (highest priority — first section in the file), all its items.
+- Default: top milestone in process/BACKLOG.md (highest priority — first section in the file), all its items.
 - If `$ARGUMENTS` is an integer, take that many from the top, FIFO across milestones.
 - If `$ARGUMENTS` is a milestone name, restrict to that milestone.
 - Apply the headroom cap from the budget check.
@@ -74,15 +74,15 @@ For each item in the confirmed batch, call `mcp__claude_ai_Linear__save_issue` w
 
 Capture the new Linear issue IDs as you go.
 
-### 4. Remove the promoted rows from BACKLOG.md
+### 4. Remove the promoted rows from process/BACKLOG.md
 
-Edit `BACKLOG.md`: delete the rows corresponding to promoted items from their milestone table. Preserve everything else (other milestones' items, the "How this file works" section, the Sync log).
+Edit `process/BACKLOG.md`: delete the rows corresponding to promoted items from their milestone table. Preserve everything else (other milestones' items, the "How this file works" section, the Sync log).
 
 If a milestone's table is now empty, leave the empty section in place — the structure tells future syncs there are no items in that milestone right now.
 
 ### 5. Append to the Sync log
 
-Append a single line to `## Sync log` at the bottom of `BACKLOG.md`:
+Append a single line to `## Sync log` at the bottom of `process/BACKLOG.md`:
 
 ```
 - <YYYY-MM-DD>: Promoted <N> items to Linear (<context>) — issues <FIRST-ID> through <LAST-ID>
@@ -99,7 +99,7 @@ Print a summary:
 ```
 Promoted: 5 items
 New Linear issues: PRJ-101, PRJ-102, PRJ-103, PRJ-104, PRJ-105
-Remaining in BACKLOG.md: 12 items
+Remaining in process/BACKLOG.md: 12 items
 Active Linear count: now 187/250
 ```
 
@@ -107,8 +107,8 @@ If active count is now > 200 (80% of cap), suggest: "Consider running `/cleanup-
 
 ## Failure modes
 
-- **BACKLOG.md missing**: report; suggest `/setup-linear-team` to scaffold one, or create manually.
-- **BACKLOG.md malformed**: report which section couldn't be parsed; ask the user to fix.
+- **process/BACKLOG.md missing**: report; suggest `/setup-linear-team` to scaffold one, or create manually.
+- **process/BACKLOG.md malformed**: report which section couldn't be parsed; ask the user to fix.
 - **Linear at cap**: hard block; advise `/cleanup-linear` first.
-- **Partial failure mid-batch** (some `save_issue` calls succeed, others fail): report partial progress, list which items were promoted and which weren't, and tell the user the failed rows are **still in BACKLOG.md** so a retry won't double-create.
-- **No items match the filter**: report cleanly ("Milestone M2 has no queued items"); suggest checking BACKLOG.md or relaxing the filter.
+- **Partial failure mid-batch** (some `save_issue` calls succeed, others fail): report partial progress, list which items were promoted and which weren't, and tell the user the failed rows are **still in process/BACKLOG.md** so a retry won't double-create.
+- **No items match the filter**: report cleanly ("Milestone M2 has no queued items"); suggest checking process/BACKLOG.md or relaxing the filter.

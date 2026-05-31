@@ -475,7 +475,7 @@ The point of giving Research and Plan their own milestones is that those phases 
                                              Linear's auto-archive setting)
   ```
 
-  - **`/setup-linear-team`** seeds only the **first milestone's** stories into Linear; everything else lands in [`BACKLOG.md`](BACKLOG.md) at the repo root.
+  - **`/setup-linear-team`** seeds only the **first milestone's** stories into Linear; everything else lands in [`BACKLOG.md`](BACKLOG.md) (sibling of this file under `process/`).
   - **`/sync-backlog`** promotes from BACKLOG.md to Linear at sprint-cycle boundaries (or on demand). FIFO by milestone stage; honors the active-issue budget.
   - **`/start-feature`** runs a budget check before creating new Linear issues. At 80% of cap (>200 active) it warns; at the cap (250) it hard-blocks and routes new items to BACKLOG.md.
   - **`/cleanup-linear`** archives Done issues on demand. Complementary to Linear's workspace **Auto-archive after N days** setting (Settings → Workflow; default 14 days) — enable it for passive cleanup.
@@ -614,7 +614,7 @@ The intent is **recovery in case something goes wrong** — not perfect cross-sy
 
 ## Decision logging
 
-Every non-trivial decision (stack pick, architecture pivot, scope cut, deferred feature, security exception) gets a one-paragraph entry in [`DECISIONS.md`](DECISIONS.md) at the repo root with:
+Every non-trivial decision (stack pick, architecture pivot, scope cut, deferred feature, security exception) gets a one-paragraph entry in [`DECISIONS.md`](DECISIONS.md) (sibling of this file under `process/`) with:
 - Date (absolute, e.g. `2026-05-20`)
 - Decision (one sentence)
 - Why (one or two sentences)

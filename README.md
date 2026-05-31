@@ -11,7 +11,7 @@ This repo is a **meta-template**, not a product. Clone it (or use it as a GitHub
 - doc-generation skills for PRD / Architecture / Security / Design,
 - workflow skills for branching, PR + Linear integration, releases,
 - HTML doc templates with embedded Mermaid diagrams,
-- a state ledger (`MILESTONES.md`), a separate append-only decision log (`DECISIONS.md`), and a backlog overflow queue (`BACKLOG.md`),
+- a state ledger (`process/MILESTONES.md`), a separate append-only decision log (`process/DECISIONS.md`), and a backlog overflow queue (`process/BACKLOG.md`),
 - **AGILE issue / milestone / sprint tracking via [Linear](https://linear.app)** — our project / milestone / sprint / feature hierarchy maps to Linear's Initiative / Linear-Project / Cycle / Issue primitives,
 - session-management heuristics tuned for asynchronous solo development.
 
@@ -30,7 +30,7 @@ flowchart LR
   V -->|project complete| done([Ship / Wind-down])
 ```
 
-Implement ⇄ Validate is the inner loop at three scales: **feature → milestone → project**. Sprints (Linear cycles) are a team-wide cadence wrapper, not a loop scale. Full details in [`WORKFLOW.md`](WORKFLOW.md).
+Implement ⇄ Validate is the inner loop at three scales: **feature → milestone → project**. Sprints (Linear cycles) are a team-wide cadence wrapper, not a loop scale. Full details in [`process/WORKFLOW.md`](process/WORKFLOW.md).
 
 ## What you get
 
@@ -56,36 +56,36 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 - `/generate-archdoc [source]` — Architecture doc with Mermaid diagrams. Same import-mode support as `generate-prd` for legacy ARCH artifacts.
 - `/generate-secdoc` — STRIDE-based threat model + controls
 - `/generate-designdoc` — Design System & UX doc (`docs/DESIGN/`): principles, tokens (`tokens.css`), component styles (`screen.css`), `design-system-spec.md`, flows, wireframes, styled screens. Driven by `ux-designer`; cross-phase; pairs with Figma.
-- `/refine-doc <PRD|ARCH|SECURITY|DESIGN>` — walks `docs/<DOC>/comments.md` (gitignored review sidecar), addresses each `## §<section-id>` comment in the matching HTML section, removes addressed comments as it goes. Composable with `/start-doc-update` → `/finish-doc-update` → `/merge-pr`. See WORKFLOW.md → Doc review loop.
+- `/refine-doc <PRD|ARCH|SECURITY|DESIGN>` — walks `docs/<DOC>/comments.md` (gitignored review sidecar), addresses each `## §<section-id>` comment in the matching HTML section, removes addressed comments as it goes. Composable with `/start-doc-update` → `/finish-doc-update` → `/merge-pr`. See process/WORKFLOW.md → Doc review loop.
 - `/serve-docs [PRD|ARCH|SECURITY|DESIGN|stop|status]` — starts `scripts/serve-docs.sh` in the background under the Claude session (no separate terminal needed) so the inline comment widget activates in the HTML docs. Pass a doc name to also open it in the browser. Server is cleaned up automatically on `/exit`.
 - `/open-doc` — open HTML/Markdown docs in default viewer
 
 *Workflow & operations:*
 
-- `/start-feature` — branch + Linear issue + budget check + Implement team spawn (also promotes from `BACKLOG.md` on demand)
+- `/start-feature` — branch + Linear issue + budget check + Implement team spawn (also promotes from `process/BACKLOG.md` on demand)
 - `/finish-feature` — commit, push, PR, link Linear, hand off to Validate
-- `/drive [issue|milestone]` — aims a hands-off goal-driven loop at the next feature (or whole milestone), per the project's delivery-autonomy setting (`stop-at-merge` default / `self-merge-within-milestone`). Constructs the condition for the native `/goal` command and surfaces it for you to paste — the loop then runs the I↔V cycle until done. Needs Claude Code ≥ v2.1.139 (for `/goal`). See WORKFLOW.md → Goal-driven loop
+- `/drive [issue|milestone]` — aims a hands-off goal-driven loop at the next feature (or whole milestone), per the project's delivery-autonomy setting (`stop-at-merge` default / `self-merge-within-milestone`). Constructs the condition for the native `/goal` command and surfaces it for you to paste — the loop then runs the I↔V cycle until done. Needs Claude Code ≥ v2.1.139 (for `/goal`). See process/WORKFLOW.md → Goal-driven loop
 - `/start-doc-update <slug>` — kicks off a `phase/<phase>-<slug>` branch for non-feature doc edits (PRD/ARCH/SECURITY/WORKFLOW/etc.); no Linear issue, no implementation team
 - `/finish-doc-update` — commit + push + open PR for a doc-update branch; no QA handshake (lead reviews directly)
 - `/merge-pr` — gated team-lead merge after QA sign-off (features) or lead review (doc updates); squash-merges, archives, updates state. Alternative to human-review-and-merge via GitHub UI
-- `/setup-linear-team` — wire Linear into a new project (one-time): links the shared team, creates this project's Initiative via MCP, seeds agent labels, seeds first-milestone stories to Linear and rest to `BACKLOG.md`
+- `/setup-linear-team` — wire Linear into a new project (one-time): links the shared team, creates this project's Initiative via MCP, seeds agent labels, seeds first-milestone stories to Linear and rest to `process/BACKLOG.md`
 - `/setup-claude-deploy-key` — generate a per-repo passphrase-less SSH deploy key so Claude can push to GitHub without TTY-unlockable passphrases (one-time per repo)
-- `/sync-backlog [count|milestone]` — promote items from `BACKLOG.md` to Linear in milestone-FIFO order. Called at sprint-cycle boundaries, on demand, or implicitly by `/start-feature` when a queued feature is requested
+- `/sync-backlog [count|milestone]` — promote items from `process/BACKLOG.md` to Linear in milestone-FIFO order. Called at sprint-cycle boundaries, on demand, or implicitly by `/start-feature` when a queued feature is requested
 - `/cleanup-linear [filter]` — bulk-archive Done Linear issues to free space under the 250-active-issue free-tier cap; use when sync-backlog warns near cap or at milestone close
-- `/spin-off-component <path>` — extract a substantial, reusable component out of the monorepo into its own repo (a fresh template instance + Linear Initiative), preserving git history, cutting `v0.1.0`, and recording the parent↔child linkage. Mechanizes the git extraction; hands off the child bootstrap and the parent-side dependency swap. See WORKFLOW.md → Shared / reusable components
+- `/spin-off-component <path>` — extract a substantial, reusable component out of the monorepo into its own repo (a fresh template instance + Linear Initiative), preserving git history, cutting `v0.1.0`, and recording the parent↔child linkage. Mechanizes the git extraction; hands off the child bootstrap and the parent-side dependency swap. See process/WORKFLOW.md → Shared / reusable components
 
 **Scripts** (`scripts/`):
 
-- `scripts/serve-docs.sh` — local Python server (stdlib only) at `http://localhost:8765` that activates an **inline comment widget** in the HTML docs. Click `+ Comment` next to any section heading, type, save — the widget POSTs to the server which appends to `docs/<DOC>/comments.md`. Same format as hand-edited comments; both feed `/refine-doc`. See WORKFLOW.md → Doc review loop → Inline-authoring mode.
+- `scripts/serve-docs.sh` — local Python server (stdlib only) at `http://localhost:8765` that activates an **inline comment widget** in the HTML docs. Click `+ Comment` next to any section heading, type, save — the widget POSTs to the server which appends to `docs/<DOC>/comments.md`. Same format as hand-edited comments; both feed `/refine-doc`. See process/WORKFLOW.md → Doc review loop → Inline-authoring mode.
 - `scripts/vendor-mermaid.sh` — downloads Mermaid to `docs/_assets/vendor/` for projects that can't rely on CDN access at doc-view time (see Mermaid loading section above).
 
 **Artifacts** (top level + `docs/`):
 
 - `CLAUDE.md` — session-bootstrap context (loaded automatically)
-- `WORKFLOW.md` — phases, roles, gates, team coordination
-- `MILESTONES.md` — live state ledger (compact; auto-loaded)
-- `DECISIONS.md` — append-only decision log (not auto-loaded; pulled in when historical context is needed)
-- `BACKLOG.md` — overflow queue for Linear (items waiting to be promoted)
+- `process/WORKFLOW.md` — phases, roles, gates, team coordination
+- `process/MILESTONES.md` — live state ledger (compact; auto-loaded)
+- `process/DECISIONS.md` — append-only decision log (not auto-loaded; pulled in when historical context is needed)
+- `process/BACKLOG.md` — overflow queue for Linear (items waiting to be promoted)
 - `docs/PRD/index.html` — Product Requirements (HTML + Mermaid)
 - `docs/ARCH/index.html` — Architecture + Infrastructure
 - `docs/SECURITY/index.html` — Security + Compliance
@@ -101,7 +101,7 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 
 ## Common project-specific extensions
 
-The nine-Agent roster is the **floor, not the ceiling**. Some domains benefit from additional specialists. Spin up a new agent file in `.claude/agents/` (copying an existing one as a starting template) and document the addition in your project's `DECISIONS.md`. Examples that have come up in practice:
+The nine-Agent roster is the **floor, not the ceiling**. Some domains benefit from additional specialists. Spin up a new agent file in `.claude/agents/` (copying an existing one as a starting template) and document the addition in your project's `process/DECISIONS.md`. Examples that have come up in practice:
 
 | Extension | When to add | What it owns |
 |---|---|---|
@@ -150,7 +150,7 @@ claude
 
 ## Session startup
 
-Every session starts minimal. Only the files needed to re-orient are auto-loaded; everything else is read lazily as the work demands. The `SessionStart` hook in `.claude/settings.json` runs an `awk` extractor over `MILESTONES.md` so the auto-loaded slice stays compact even as the Roadmap table grows.
+Every session starts minimal. Only the files needed to re-orient are auto-loaded; everything else is read lazily as the work demands. The `SessionStart` hook in `.claude/settings.json` runs an `awk` extractor over `process/MILESTONES.md` so the auto-loaded slice stays compact even as the Roadmap table grows.
 
 ```mermaid
 flowchart TD
@@ -160,7 +160,7 @@ flowchart TD
 
   A --> A1["<b>CLAUDE.md</b> — full<br/><i>session bootstrap + first-run checklist</i>"]
   A --> A2["<b>memory/MEMORY.md</b> — full<br/><i>auto-memory index only;<br/>individual memory files load lazily</i>"]
-  A --> A3["<b>MILESTONES.md</b> — partial<br/><i>SessionStart hook runs awk;<br/>top → just before</i> <code>## Roadmap</code>"]
+  A --> A3["<b>process/MILESTONES.md</b> — partial<br/><i>SessionStart hook runs awk;<br/>top → just before</i> <code>## Roadmap</code>"]
   A --> A4["<b>System reminders</b><br/><i>date · skills list · MCP instructions ·<br/>deferred tool names (no schemas)</i>"]
 
   A1 --> Q{"Cold resume<br/>or fresh task?"}
@@ -170,7 +170,7 @@ flowchart TD
 
   Q -->|resume — continue work| RB["Resume runbook<br/><i>CLAUDE.md → Session management</i>"]
 
-  RB --> R1["<b>MILESTONES.md</b> — full re-read<br/><i>past the auto-loaded head</i>"]
+  RB --> R1["<b>process/MILESTONES.md</b> — full re-read<br/><i>past the auto-loaded head</i>"]
   RB --> R2["<code>git status · branch · log --oneline -10</code>"]
   RB --> R3["<code>gh pr list --state open</code>"]
   RB --> BR{"Branch type?"}
@@ -191,15 +191,15 @@ flowchart TD
 
   W --> LZ["On-demand reads<br/><i>pulled only when relevant</i>"]
 
-  LZ --> L1["<b>WORKFLOW.md</b><br/><i>gates · roster · process detail</i>"]
-  LZ --> L2["<b>DECISIONS.md</b><br/><i>historical decisions</i>"]
+  LZ --> L1["<b>process/WORKFLOW.md</b><br/><i>gates · roster · process detail</i>"]
+  LZ --> L2["<b>process/DECISIONS.md</b><br/><i>historical decisions</i>"]
   LZ --> L3["<b>.claude/skills/&lt;name&gt;/SKILL.md</b><br/><i>on skill invocation</i>"]
   LZ --> L4["<b>.claude/agents/&lt;role&gt;.md</b><br/><i>on teammate spawn</i>"]
   LZ --> L5["<b>memory/&lt;entry&gt;.md</b><br/><i>individual memory files; when relevant</i>"]
   LZ --> L6["Repo source · <code>docs/PRD</code> · <code>docs/ARCH</code> · ...<br/><i>via Read tool, on demand</i>"]
 ```
 
-The **Resume runbook** (in `CLAUDE.md` → Session management) only fires when the lead is re-entering in-flight work — a "let's continue" cold start. Fresh tasks skip it. Either way, the bulk of the repo — `WORKFLOW.md`, `DECISIONS.md`, individual skill / agent / memory files, docs, source — is pulled only when the work in front of you needs it, keeping the context window honest.
+The **Resume runbook** (in `CLAUDE.md` → Session management) only fires when the lead is re-entering in-flight work — a "let's continue" cold start. Fresh tasks skip it. Either way, the bulk of the repo — `process/WORKFLOW.md`, `process/DECISIONS.md`, individual skill / agent / memory files, docs, source — is pulled only when the work in front of you needs it, keeping the context window honest.
 
 ## The 4-tier hierarchy (Linear mapping)
 
@@ -210,21 +210,23 @@ The **Resume runbook** (in `CLAUDE.md` → Session management) only fires when t
 | Sprint (team-wide cadence) | Linear Cycle |
 | Feature (one PR, one I↔V loop) | Linear Issue |
 
-One Linear team is shared across **all** your projects (free-tier-friendly). Each project gets its own Initiative. Agent attribution rides on `agent:<role>` issue labels (v1 mechanism; OAuth agent actors are an upgrade path documented in `WORKFLOW.md`).
+One Linear team is shared across **all** your projects (free-tier-friendly). Each project gets its own Initiative. Agent attribution rides on `agent:<role>` issue labels (v1 mechanism; OAuth agent actors are an upgrade path documented in `process/WORKFLOW.md`).
 
-Because the team is shared, a **reusable component** that graduates to its own repo (via `/spin-off-component`) is just another Initiative in the same team — same machinery, no new infra. See WORKFLOW.md → Shared / reusable components.
+Because the team is shared, a **reusable component** that graduates to its own repo (via `/spin-off-component`) is just another Initiative in the same team — same machinery, no new infra. See process/WORKFLOW.md → Shared / reusable components.
 
 ## Layout
 
 ```
 .
 ├── CLAUDE.md                    auto-loaded session context
-├── WORKFLOW.md                  phases, roles, gates, coordination
-├── MILESTONES.md                live state + decision ledger
-├── DECISIONS.md                 append-only project decisions (seed; you keep this)
-├── BACKLOG.md                   Linear overflow queue (seed; you keep this)
-├── TEMPLATE_DECISIONS.md        decisions about the template itself — DELETE on bootstrap
 ├── README.md                    this file
+├── LICENSE
+├── process/                     workflow definition + live project state
+│   ├── WORKFLOW.md              phases, roles, gates, coordination
+│   ├── MILESTONES.md            live state + decision ledger
+│   ├── DECISIONS.md             append-only project decisions (seed; you keep this)
+│   ├── BACKLOG.md               Linear overflow queue (seed; you keep this)
+│   └── TEMPLATE_DECISIONS.md    decisions about the template itself — DELETE on bootstrap
 ├── docs/
 │   ├── PRD/index.html           product requirements (Research)
 │   ├── ARCH/index.html          architecture (Plan)
@@ -275,7 +277,7 @@ The template **pre-sets** project-level config in `.claude/settings.json`:
 |---|---|---|
 | `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | `"1"` | Enables team-agents (mailbox, shared task list, peer SendMessage). |
 | `teammateMode` | `"tmux"` | Split-pane teammates; survives `/resume` (see [`CLAUDE.md`](CLAUDE.md) for mode trade-offs). |
-| `hooks.SessionStart` | reads `MILESTONES.md` | Auto-surfaces current project state at session start. |
+| `hooks.SessionStart` | reads `process/MILESTONES.md` | Auto-surfaces current project state at session start. |
 | `permissions.allow` | common read/git commands | Reduces permission prompts for routine ops. |
 
 **Verify in your user-level config (`~/.claude/settings.json`):**
@@ -321,10 +323,10 @@ Revert to CDN at any time: `git checkout docs/_assets/mermaid-init.js && rm -rf 
 ## Where to read next
 
 - [`CLAUDE.md`](CLAUDE.md) — session bootstrap, first-run checklist, session-management heuristics.
-- [`WORKFLOW.md`](WORKFLOW.md) — phases, roles, Linear mapping, team coordination, decision logging.
-- [`MILESTONES.md`](MILESTONES.md) — live state-ledger structure.
-- [`DECISIONS.md`](DECISIONS.md) — append-only decision log; conventions in WORKFLOW.md → Decision logging.
-- [`BACKLOG.md`](BACKLOG.md) — Linear-overflow queue and FIFO promotion mechanism.
+- [`process/WORKFLOW.md`](process/WORKFLOW.md) — phases, roles, Linear mapping, team coordination, decision logging.
+- [`process/MILESTONES.md`](process/MILESTONES.md) — live state-ledger structure.
+- [`process/DECISIONS.md`](process/DECISIONS.md) — append-only decision log; conventions in process/WORKFLOW.md → Decision logging.
+- [`process/BACKLOG.md`](process/BACKLOG.md) — Linear-overflow queue and FIFO promotion mechanism.
 - [`docs/starting-prompt.md`](docs/starting-prompt.md) — the original design brief that shaped this template.
 
 ## License
