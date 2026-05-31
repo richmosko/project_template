@@ -1,6 +1,6 @@
 ---
 name: spin-off-component
-description: Extracts a substantial, reusable component out of this monorepo into its own repo — as a fresh `project_template` instance — preserving git history, cutting an initial `v0.1.0` release, and recording the parent↔child linkage. Use when a component graduates to its own repo (reused across ≥2 projects, needs its own release cadence, or is becoming a standalone product — see WORKFLOW.md → Shared / reusable components). Mechanizes the error-prone git extraction + repo creation; hands off the child bootstrap and the parent-side dependency refactor to existing flows. Argument: the path to the component to extract (e.g. `src/auth`); if omitted, the skill asks.
+description: Extracts a substantial, reusable component out of this monorepo into its own repo — as a fresh `project_template` instance — preserving git history, cutting an initial `v0.1.0` release, and recording the parent↔child linkage. Use when a component graduates to its own repo (reused across ≥2 projects, needs its own release cadence, or is becoming a standalone product — see process/WORKFLOW.md → Shared / reusable components). Mechanizes the error-prone git extraction + repo creation; hands off the child bootstrap and the parent-side dependency refactor to existing flows. Argument: the path to the component to extract (e.g. `src/auth`); if omitted, the skill asks.
 ---
 
 # spin-off-component
@@ -9,7 +9,7 @@ Graduates a component from "directory in this repo" to "its own repo + Linear In
 
 ## When NOT to run
 
-If the only driver is size or context management, **don't split** — use monorepo workspaces or worktrees instead. See the graduation rubric in `WORKFLOW.md` → Shared / reusable components. Splitting a component that isn't actually reused buys overhead and no isolation.
+If the only driver is size or context management, **don't split** — use monorepo workspaces or worktrees instead. See the graduation rubric in `process/WORKFLOW.md` → Shared / reusable components. Splitting a component that isn't actually reused buys overhead and no isolation.
 
 ## Inputs
 
@@ -32,7 +32,7 @@ Run in parallel; **bail** on any failure with a clear message:
    - **`git subtree split` (default)** — built-in, no extra deps. Captures history **only for the time the files lived at the current path.** Good enough for most components.
    - **`git filter-repo`** — use when the component's files **moved** over time (renames/relocations) and you want their full history. Requires `git-filter-repo` (`brew install git-filter-repo` / `pip install git-filter-repo`).
 3. **Target path in the new repo** — default `src/<name>`. For a library that *is* the whole repo, root or an ecosystem-conventional path (e.g. a Go module at root) may be better. Confirm.
-4. **Ecosystem** — how the parent will eventually depend on it (Go module / npm / Python / Cargo / container), so the linkage notes and the hand-off use the right pin syntax (see `WORKFLOW.md` table).
+4. **Ecosystem** — how the parent will eventually depend on it (Go module / npm / Python / Cargo / container), so the linkage notes and the hand-off use the right pin syntax (see `process/WORKFLOW.md` table).
 
 ## Steps
 
@@ -86,19 +86,19 @@ git push origin v0.1.0
 gh release create v0.1.0 --generate-notes --draft --title "v0.1.0 — initial extraction"
 ```
 
-Leave the release as a **draft** for the user to curate + publish (per `WORKFLOW.md` → Release process).
+Leave the release as a **draft** for the user to curate + publish (per `process/WORKFLOW.md` → Release process).
 
 ### 4. Record the linkage (both repos)
 
-- **In the child repo:** append a `DECISIONS.md` entry — "Spun off from `<parent-repo>` on `<date>`; this repo owns `<component>` going forward." Note its first consumer.
-- **In the parent repo:** append a `DECISIONS.md` entry — "Extracted `<component-path>` into `<name>` (own repo + Initiative); will consume `<name>@v0.1.0` as a dependency." If the parent has an ARCH doc, add an *Integration Points* note. If ARCH doesn't exist yet, flag it for when it's written.
+- **In the child repo:** append a `process/DECISIONS.md` entry — "Spun off from `<parent-repo>` on `<date>`; this repo owns `<component>` going forward." Note its first consumer.
+- **In the parent repo:** append a `process/DECISIONS.md` entry — "Extracted `<component-path>` into `<name>` (own repo + Initiative); will consume `<name>@v0.1.0` as a dependency." If the parent has an ARCH doc, add an *Integration Points* note. If ARCH doesn't exist yet, flag it for when it's written.
 
 ### 5. Hand off the two follow-ups
 
 Print these clearly — the skill does **not** do them:
 
 1. **Bootstrap the child as a full template instance.** `cd` into the new repo and run the [first-run checklist](../../../CLAUDE.md) — at minimum `/setup-linear-team` (creates the child's Initiative in your shared team), then `/generate-prd` + `/generate-archdoc` **scoped to the component** (what it does, its public API surface, who consumes it). Replace the template placeholders in its `CLAUDE.md`.
-2. **Swap the parent over to the dependency.** Back in the parent, run [`/start-feature`](../start-feature/SKILL.md) for "consume `<name>@v0.1.0` instead of in-tree `<component-path>`": delete the in-tree directory, add the pinned dependency (ecosystem syntax per `WORKFLOW.md` table), update imports, and let the acceptance tests prove the swap is behavior-preserving. This is a normal tested I→V loop, **not** part of this skill.
+2. **Swap the parent over to the dependency.** Back in the parent, run [`/start-feature`](../start-feature/SKILL.md) for "consume `<name>@v0.1.0` instead of in-tree `<component-path>`": delete the in-tree directory, add the pinned dependency (ecosystem syntax per `process/WORKFLOW.md` table), update imports, and let the acceptance tests prove the swap is behavior-preserving. This is a normal tested I→V loop, **not** part of this skill.
 
 ## Caveats & failure modes
 

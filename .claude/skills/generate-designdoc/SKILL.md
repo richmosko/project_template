@@ -12,7 +12,7 @@ Figma stays the high-fidelity design tool (via the `ux-designer`'s `figma:*` ski
 ## Pre-flight
 
 - Read `docs/PRD/index.html` — especially **User Stories** (flows follow the highest-traffic stories) and **Non-Functional Requirements → Accessibility**.
-- Read `CLAUDE.md` + `MILESTONES.md` to confirm the phase. Late Research onward is fine; you don't need ARCH first (unlike `/generate-secdoc`).
+- Read `CLAUDE.md` + `process/MILESTONES.md` to confirm the phase. Late Research onward is fine; you don't need ARCH first (unlike `/generate-secdoc`).
 - Read the current `docs/DESIGN/index.html`, `tokens.css`, `screen.css`, and `design-system-spec.md` — this skill **refines in place**, it doesn't overwrite hand edits.
 - If the user passed an existing design artifact (Figma export, a style guide, a legacy CSS), treat it as import source: map it to the sections below and interview only for gaps (mirror the import behavior of `/generate-prd`).
 

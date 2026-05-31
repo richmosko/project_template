@@ -1,6 +1,6 @@
 ---
 name: drive
-description: Prepares a goal-driven development loop. Reads the project's delivery-autonomy methodology, resolves the next unit of work (a feature for stop-at-merge, a milestone for self-merge), runs pre-flight checks, constructs the matching `/goal` condition, and surfaces the exact `/goal …` line for you to paste. Use when you want to hand the next chunk of work to a `/goal` loop instead of driving it turn-by-turn. Optional argument: a Linear issue ID (stop-at-merge) or milestone ID (self-merge); if omitted, the skill infers the next unit from MILESTONES.md + Linear.
+description: Prepares a goal-driven development loop. Reads the project's delivery-autonomy methodology, resolves the next unit of work (a feature for stop-at-merge, a milestone for self-merge), runs pre-flight checks, constructs the matching `/goal` condition, and surfaces the exact `/goal …` line for you to paste. Use when you want to hand the next chunk of work to a `/goal` loop instead of driving it turn-by-turn. Optional argument: a Linear issue ID (stop-at-merge) or milestone ID (self-merge); if omitted, the skill infers the next unit from process/MILESTONES.md + Linear.
 ---
 
 # drive
@@ -9,7 +9,7 @@ Aims a [`/goal`](https://code.claude.com/docs/en/goal.md) loop at the next unit 
 
 ## The one hard constraint
 
-**A skill cannot set a `/goal` itself.** There is no model-callable goal tool and no `SlashCommand` tool — `/goal` is user-typed only. So `/drive` ends by printing the exact `/goal …` line for **you to paste**. This is by design, not a workaround: pasting the line is the human checkpoint at goal-set time, consistent with the template's "gates are human decisions" principle (`WORKFLOW.md`). You see and approve the condition before the loop runs.
+**A skill cannot set a `/goal` itself.** There is no model-callable goal tool and no `SlashCommand` tool — `/goal` is user-typed only. So `/drive` ends by printing the exact `/goal …` line for **you to paste**. This is by design, not a workaround: pasting the line is the human checkpoint at goal-set time, consistent with the template's "gates are human decisions" principle (`process/WORKFLOW.md`). You see and approve the condition before the loop runs.
 
 Do **not** try to fake self-issuing a goal: don't write a Stop hook into settings (no mid-session hot-reload), and don't spawn a nested `claude -p "/goal …"` subprocess (sessions fight over state). Both are unsupported. Construct-and-surface is the supported pattern.
 
@@ -22,12 +22,12 @@ Do **not** try to fake self-issuing a goal: don't write a Stop hook into setting
 
 ### 1. Resolve the delivery-autonomy methodology
 
-Read the **Delivery autonomy** config line in `WORKFLOW.md` (under *Project configuration*). It is one of:
+Read the **Delivery autonomy** config line in `process/WORKFLOW.md` (under *Project configuration*). It is one of:
 
 - **`stop-at-merge`** (default, recommended) — the loop builds **one feature** up to an open, mergeable PR and **stops before merging**. You review and run `/merge-pr`.
 - **`self-merge-within-milestone`** — the loop builds **every feature in a milestone**, merging each itself, and stops at the milestone boundary.
 
-If the config line is still the unfilled placeholder, **default to `stop-at-merge`** and tell the user: *"No delivery-autonomy methodology set — defaulting to stop-at-merge. Run `/setup-linear-team` or edit the Delivery autonomy line in WORKFLOW.md to change it."*
+If the config line is still the unfilled placeholder, **default to `stop-at-merge`** and tell the user: *"No delivery-autonomy methodology set — defaulting to stop-at-merge. Run `/setup-linear-team` or edit the Delivery autonomy line in process/WORKFLOW.md to change it."*
 
 A skill argument can override for this one invocation: if the user passed `self-merge` / `stop-at-merge` explicitly, honor it but don't rewrite the config.
 
@@ -35,12 +35,12 @@ A skill argument can override for this one invocation: if the user passed `self-
 
 **For `stop-at-merge` → one feature:**
 - If an issue ID was passed as the argument, use it.
-- Otherwise infer the next feature: check `MILESTONES.md` → Features → *In Flight* first (resume it); if none, take the top of *Backlog* / the next Linear issue in the current sprint. If the requested feature is only queued in `BACKLOG.md`, note that `/start-feature` will promote it.
+- Otherwise infer the next feature: check `process/MILESTONES.md` → Features → *In Flight* first (resume it); if none, take the top of *Backlog* / the next Linear issue in the current sprint. If the requested feature is only queued in `process/BACKLOG.md`, note that `/start-feature` will promote it.
 - You need the feature's **Linear issue ID, title, and acceptance criteria** to build a good condition. Pull them from Linear if not already in context.
 
 **For `self-merge-within-milestone` → one milestone:**
 - If a milestone ID was passed, use it.
-- Otherwise take the active milestone from `MILESTONES.md` → Roadmap (status *In Progress*), or the next *Planned* one.
+- Otherwise take the active milestone from `process/MILESTONES.md` → Roadmap (status *In Progress*), or the next *Planned* one.
 
 ### 3. Pre-flight
 
@@ -79,5 +79,5 @@ Then **stop.** The user pastes the line; the loop takes over from there.
 
 - **One goal per session.** Setting a new goal replaces any active one. `/goal clear` cancels; `/clear` (new conversation) also clears it. A goal active at session end is restored on `--resume`/`--continue` (counters reset).
 - **The evaluator can't run tools.** A fast model (Haiku by default) judges the condition only against what the session surfaced in the transcript. Write conditions whose proof lands in the transcript — "tests green" works because the loop runs the tests and the output is visible. `/finish-feature` and `/merge-pr` already echo PR/issue state, so those conditions are checkable.
-- **Methodology is per-project, not per-feature.** It's set once at `/setup-linear-team` and stored in `WORKFLOW.md`. Change it by editing that line and logging a `DECISIONS.md` entry. The skill argument is the per-invocation escape hatch.
-- **Record the live condition** in `MILESTONES.md` → Active Feature → *Goal* once `/start-feature` has claimed the feature, so a fresh session can see what the loop is chasing.
+- **Methodology is per-project, not per-feature.** It's set once at `/setup-linear-team` and stored in `process/WORKFLOW.md`. Change it by editing that line and logging a `process/DECISIONS.md` entry. The skill argument is the per-invocation escape hatch.
+- **Record the live condition** in `process/MILESTONES.md` → Active Feature → *Goal* once `/start-feature` has claimed the feature, so a fresh session can see what the loop is chasing.

@@ -10,12 +10,12 @@ You are populating `docs/ARCH/index.html`. This is the Plan-phase driver activit
 ## Two modes
 
 - **Greenfield mode** (no argument): design from scratch based on the PRD. Walk all sections.
-- **Import mode** (argument is a path or URL to an existing ARCH artifact): analyze the source, classify content by the rubric in `WORKFLOW.md` → Importing existing artifacts, port what fits, flag what doesn't, then design only for gaps.
+- **Import mode** (argument is a path or URL to an existing ARCH artifact): analyze the source, classify content by the rubric in `process/WORKFLOW.md` → Importing existing artifacts, port what fits, flag what doesn't, then design only for gaps.
 
 ## Pre-flight
 
 - Read `docs/PRD/index.html` — the architecture must be traceable to user stories and non-functional requirements.
-- Read `CLAUDE.md` and `MILESTONES.md`. Confirm we're in the Plan phase. If not, ask the user whether to switch phases or run this as a draft.
+- Read `CLAUDE.md` and `process/MILESTONES.md`. Confirm we're in the Plan phase. If not, ask the user whether to switch phases or run this as a draft.
 - If `docs/ARCH/index.html` exists with content, treat this as a refinement pass.
 - **If `$ARGUMENTS` is a path or URL to an existing ARCH artifact:** run **Import mode** below before walking the standard sections.
 
@@ -30,12 +30,12 @@ When a legacy architecture doc exists, your job shifts from "design from scratch
 - Google Doc URL — `mcp__claude_ai_Google_Drive__download_file_content`
 - Other formats — ask the user to convert first
 
-**b. Parse and classify.** Split the source into sections. Classify each per the rubric in `WORKFLOW.md` → Importing existing artifacts → "Classification rubric — ARCH content". Tag each as:
+**b. Parse and classify.** Split the source into sections. Classify each per the rubric in `process/WORKFLOW.md` → Importing existing artifacts → "Classification rubric — ARCH content". Tag each as:
 
 - **Port directly** — content fits the framework as-is
 - **Port with refinement** — fits but needs adjustment (e.g. add a Mermaid diagram; surface missing trade-offs)
 - **Decompose** — too coarse (e.g. a single "Architecture" section that contains components + data flow + deployment all mashed together)
-- **Relocate** — belongs in PRD, SECURITY, MILESTONES.md, or Linear instead of ARCH
+- **Relocate** — belongs in PRD, SECURITY, process/MILESTONES.md, or Linear instead of ARCH
 - **Archive** — historical context; goes to Appendix or `docs/archive/`
 
 **c. Surface the mapping for confirmation.** Show the user a table:
@@ -56,7 +56,7 @@ Ask: "Any overrides before I refactor?" Honor user preferences for ambiguous cas
 **f. Queue the spillover.** For content marked "Relocate":
 - → PRD: feed to `/generate-prd` or queue for the PM agent
 - → SECURITY: feed to `/generate-secdoc` or queue for the seceng agent
-- → `DECISIONS.md`: queue as Decision Log entry
+- → `process/DECISIONS.md`: queue as Decision Log entry
 - → Linear: queue as backlog issues
 
 Present each queued item for one-shot batch confirmation before writing.
@@ -151,4 +151,4 @@ Update `docs/ARCH/index.html` in place. Preserve the head, stylesheet link, and 
 1. Cross-check: does every PRD user story have a corresponding data-flow diagram or component responsibility? Flag gaps in Open Questions.
 2. Run `SendMessage` to the `seceng` teammate: "ARCH v1 is ready for joint threat-model review." SecEng will produce SECURITY.
 3. `/open-doc docs/ARCH/index.html` for user review.
-4. After both ARCH and SECURITY are approved, log the Plan→Implement transition in `MILESTONES.md`.
+4. After both ARCH and SECURITY are approved, log the Plan→Implement transition in `process/MILESTONES.md`.

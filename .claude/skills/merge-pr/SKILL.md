@@ -1,6 +1,6 @@
 ---
 name: merge-pr
-description: Merges the active feature's PR back to main after Validate has passed. Updates Linear, cleans up the branch, updates MILESTONES.md, and prepares the next feature slot. Use only after qa-engineer signs off. Optional argument: PR number (defaults to the PR for the current branch).
+description: Merges the active feature's PR back to main after Validate has passed. Updates Linear, cleans up the branch, updates process/MILESTONES.md, and prepares the next feature slot. Use only after qa-engineer signs off. Optional argument: PR number (defaults to the PR for the current branch).
 ---
 
 # merge-pr
@@ -54,7 +54,7 @@ git branch -d feature/<issue-id>-<slug>  # delete local branch
 - Add a final comment: "Merged in <commit-sha>. Closing."
 - The parent Linear cycle (sprint) and project (milestone) auto-track completion as constituent issues close.
 
-### 5. Update MILESTONES.md
+### 5. Update process/MILESTONES.md
 
 - Move the feature entry from `### In Flight` to `### Completed` (under Features), with the merge date and PR link.
 - Clear `## Active Feature`.
@@ -62,7 +62,7 @@ git branch -d feature/<issue-id>-<slug>  # delete local branch
 
 ### 6. Tag and draft GitHub Release if appropriate
 
-If this PR completes a release milestone (the milestone's Gate in `MILESTONES.md` Roadmap, or PRD's release shape), prompt:
+If this PR completes a release milestone (the milestone's Gate in `process/MILESTONES.md` Roadmap, or PRD's release shape), prompt:
 > "Tag this as a release? (y/n) — recommended tag: vX.Y.Z"
 
 If yes, run sequentially:
@@ -85,21 +85,21 @@ gh release create vX.Y.Z --generate-notes --draft --title "vX.Y.Z — <milestone
 
 The lead does *not* publish on the user's behalf — release notes are a Principal decision.
 
-**d. Add a row to `## Releases` in MILESTONES.md** with version, date, milestone shipped, and a link to the (still-draft, will become published) release URL. If the user hasn't published yet, mark the row as `Draft` and the lead can update it later when the user confirms publication.
+**d. Add a row to `## Releases` in process/MILESTONES.md** with version, date, milestone shipped, and a link to the (still-draft, will become published) release URL. If the user hasn't published yet, mark the row as `Draft` and the lead can update it later when the user confirms publication.
 
 Do **not** tag automatically. Releases are a human decision. **Process milestones (M0, M1) typically don't get tagged releases** — they're internal phase gates, not user-facing ship points.
 
-See `WORKFLOW.md` → Release process for the full convention.
+See `process/WORKFLOW.md` → Release process for the full convention.
 
 ### 7. Hand off
 
 `SendMessage` to the team-lead (you): "Feature <id> merged. Pick next feature or transition phase."
 
-The lead reads MILESTONES.md and decides: another feature in the current sprint, next sprint planning, or phase escalation (milestone complete → next milestone, or PRD-invalidating findings → Research mini-loop).
+The lead reads process/MILESTONES.md and decides: another feature in the current sprint, next sprint planning, or phase escalation (milestone complete → next milestone, or PRD-invalidating findings → Research mini-loop).
 
 ### 8. Tear down the team
 
 Once the lead has decided the next move:
 
-- "Clean up the team" — tears down the Implement team. The **shared task list disappears with it** (any state that mattered should already be in MILESTONES.md / Linear per `/finish-feature` step 6).
+- "Clean up the team" — tears down the Implement team. The **shared task list disappears with it** (any state that mattered should already be in process/MILESTONES.md / Linear per `/finish-feature` step 6).
 - The next phase (or next feature in the same sprint) spawns a fresh team.

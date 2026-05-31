@@ -94,4 +94,4 @@ Tagged releases of the project. Cut via `/merge-pr` when a milestone completes �
 
 ## Decisions
 
-The Decision Log lives in [`DECISIONS.md`](DECISIONS.md) at the repo root — split out so this file stays compact for auto-loading. Append new entries there; conventions are documented in [`WORKFLOW.md`](WORKFLOW.md) → Decision logging.
+The Decision Log lives alongside this file at [`DECISIONS.md`](DECISIONS.md) (under `process/`) — split out so this file stays compact for auto-loading. Append new entries there; conventions are documented in [`WORKFLOW.md`](WORKFLOW.md) → Decision logging.

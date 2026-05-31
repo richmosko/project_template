@@ -1,6 +1,6 @@
 ---
 name: finish-feature
-description: Closes a feature — commits, pushes, opens a PR linked to the active Linear issue, updates Linear status, and prepares the Validate handoff. Use when the implementation is complete, tests are green, and the feature is ready to merge. No arguments needed; reads feature state from MILESTONES.md and Linear.
+description: Closes a feature — commits, pushes, opens a PR linked to the active Linear issue, updates Linear status, and prepares the Validate handoff. Use when the implementation is complete, tests are green, and the feature is ready to merge. No arguments needed; reads feature state from process/MILESTONES.md and Linear.
 ---
 
 # finish-feature
@@ -59,7 +59,7 @@ Use a HEREDOC for the body.
 - Set issue status to "In Review".
 - Post a comment linking the PR URL.
 
-### 4. Update MILESTONES.md
+### 4. Update process/MILESTONES.md
 
 Move the active feature entry from `## Active Feature` to `### In Flight` (under Features), with the PR URL filled in.
 
@@ -74,7 +74,7 @@ The Validate phase begins. QA + DevOps + Architect will review, deploy to stagin
 The shared task list is **session-scoped** — it disappears when the Implement team is cleaned up. Before any teardown:
 
 - Skim the anchor task and its subtasks. Anything that captures a **decision** or **lesson** gets promoted to durable state:
-  - Decisions → `DECISIONS.md`
+  - Decisions → `process/DECISIONS.md`
   - Implementation notes future-you would want → a Linear issue comment on the feature
 - Ephemeral status pings, WIP markers, and routine hand-offs **do not** get promoted — that's the whole point of transient state.
 

@@ -150,7 +150,7 @@ flowchart LR
   <h3 id="faqs">10.1 FAQs</h3>
   <dl class="faqs">
     <dt>Q: How do I add review comments to this design doc?</dt>
-    <dd>A: Same as the other docs. Hand-edit <code>docs/DESIGN/comments.md</code> with <code>## §&lt;section-id&gt;</code> blocks pointing at a section's <code>id</code> (e.g. <code>tokens</code>, <code>flows</code>), or run <code>/serve-docs DESIGN</code> and use the inline <code>+ Comment</code> widget. Then run <code>/refine-doc DESIGN</code> to have the changes applied and the addressed comments removed. The sidecar is gitignored; resolutions land via PR. See <a href="../../WORKFLOW.md">WORKFLOW.md</a> → Doc review loop.</dd>
+    <dd>A: Same as the other docs. Hand-edit <code>docs/DESIGN/comments.md</code> with <code>## §&lt;section-id&gt;</code> blocks pointing at a section's <code>id</code> (e.g. <code>tokens</code>, <code>flows</code>), or run <code>/serve-docs DESIGN</code> and use the inline <code>+ Comment</code> widget. Then run <code>/refine-doc DESIGN</code> to have the changes applied and the addressed comments removed. The sidecar is gitignored; resolutions land via PR. See <a href="../../process/WORKFLOW.md">process/WORKFLOW.md</a> → Doc review loop.</dd>
     <dt>Q: Why is the design system in <code>docs/DESIGN/</code> and not in the app's source?</dt>
     <dd>A: It's the design <em>deliverable</em> — the contract. During Implement, <code>frontend-lead</code> imports or derives the app's real stylesheets from <code>tokens.css</code> / <code>screen.css</code>. Keeping the canonical system here keeps it reviewable as a doc and decoupled from any one app's build layout.</dd>
     <dt class="tbd">Q: —</dt>

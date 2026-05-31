@@ -1,6 +1,6 @@
 ---
 name: setup-linear-team
-description: One-time bootstrap that wires Linear into this project — confirms the shared Linear team, creates this project's Initiative via MCP, seeds the nine `agent:<role>` labels, seeds first-milestone stories to Linear with overflow to `BACKLOG.md`, sets the delivery-autonomy methodology for `/drive`, and caches IDs in `.claude/linear-team.json`. Run on the first session of a new project, or whenever the cache is missing. No arguments — interviews the user as needed.
+description: One-time bootstrap that wires Linear into this project — confirms the shared Linear team, creates this project's Initiative via MCP, seeds the nine `agent:<role>` labels, seeds first-milestone stories to Linear with overflow to `process/BACKLOG.md`, sets the delivery-autonomy methodology for `/drive`, and caches IDs in `.claude/linear-team.json`. Run on the first session of a new project, or whenever the cache is missing. No arguments — interviews the user as needed.
 ---
 
 # setup-linear-team
@@ -69,7 +69,7 @@ Check existing labels via `mcp__claude_ai_Linear__list_issue_labels` for this te
 | `agent:qa-engineer` | `#4cb782` (green) |
 | `agent:devops-engineer` | `#f59f00` (orange) |
 
-These labels are how agents claim ownership of issues — the v1 attribution mechanism (see `WORKFLOW.md` for the OAuth upgrade path).
+These labels are how agents claim ownership of issues — the v1 attribution mechanism (see `process/WORKFLOW.md` for the OAuth upgrade path).
 
 ### 4. Write the cache
 
@@ -89,7 +89,7 @@ Create `.claude/linear-team.json`:
 
 The file is gitignored — each clone resolves its own cache.
 
-### 5. Update MILESTONES.md → Project / Initiative
+### 5. Update process/MILESTONES.md → Project / Initiative
 
 Fill the `## Project / Initiative` block with:
 - Project name (use `initiativeName`)
@@ -101,7 +101,7 @@ Fill the `## Project / Initiative` block with:
 
 ### 6. Seed M0 + M1 process milestones as Linear projects
 
-The template ships MILESTONES.md with two **process milestones** in the Roadmap: M0 (Bootstrap & Research) and M1 (Plan). These give Research/Plan work the same Linear-tracked visibility that product milestones get. Create both as Linear projects under the Initiative so Research/Plan sub-tasks can flow as Linear issues.
+The template ships process/MILESTONES.md with two **process milestones** in the Roadmap: M0 (Bootstrap & Research) and M1 (Plan). These give Research/Plan work the same Linear-tracked visibility that product milestones get. Create both as Linear projects under the Initiative so Research/Plan sub-tasks can flow as Linear issues.
 
 For each, call `mcp__claude_ai_Linear__save_project`:
 
@@ -122,7 +122,7 @@ Capture both `projectId` values; cache them in `.claude/linear-team.json` under 
 }
 ```
 
-Then update the M0 + M1 rows in `MILESTONES.md` → Roadmap with the actual Linear project IDs (replacing the `LIN-XXX` placeholders).
+Then update the M0 + M1 rows in `process/MILESTONES.md` → Roadmap with the actual Linear project IDs (replacing the `LIN-XXX` placeholders).
 
 If the user subdivides M0 or M1 later (e.g. `M0a`/`M0b`), they'll create additional Linear projects manually and add rows to the Roadmap — the template's two seeded rows are the floor, not a cap.
 
@@ -137,15 +137,15 @@ If the user is in Research/Plan phase with a draft PRD containing user stories, 
 **c. Split the seeding:**
 
 - Stories in the **first milestone** → create as Linear issues (immediately actionable), subject to the budget cap.
-- Stories in **all other milestones** → write to `BACKLOG.md` (overflow queue), grouped by milestone.
+- Stories in **all other milestones** → write to `process/BACKLOG.md` (overflow queue), grouped by milestone.
 
 Show the split to the user before writing:
 
 ```
 Proposed seeding:
   - 6 stories from M1 → Linear (immediate)
-  - 9 stories from M2 → BACKLOG.md (overflow; promoted later via /sync-backlog)
-  - 4 stories from M3 → BACKLOG.md
+  - 9 stories from M2 → process/BACKLOG.md (overflow; promoted later via /sync-backlog)
+  - 4 stories from M3 → process/BACKLOG.md
 
 After seeding: Linear at 6/250 active.
 
@@ -159,7 +159,7 @@ Proceed? [Y/n]
 - `labels`: `agent:product-manager` (PM agent seeded these)
 - `project`: the Linear Project for the milestone, if it exists; otherwise unset (attaches at team level, still rolls up to the Initiative)
 
-**e. Write to BACKLOG.md** for the remainder. If `BACKLOG.md` doesn't exist yet, create it with the template structure (see existing `BACKLOG.md` for format). Each story becomes a row under its milestone heading:
+**e. Write to process/BACKLOG.md** for the remainder. If `process/BACKLOG.md` doesn't exist yet, create it with the template structure (see existing `process/BACKLOG.md` for format). Each story becomes a row under its milestone heading:
 
 ```markdown
 ### Milestone: M2 — Onboarding polish (priority 2)
@@ -168,10 +168,10 @@ Proceed? [Y/n]
 | As a user, I want to update my profile | P1 | PRD §4.5 | — |
 ```
 
-**f. Append a Sync log entry** to BACKLOG.md indicating the initial seeding:
+**f. Append a Sync log entry** to process/BACKLOG.md indicating the initial seeding:
 
 ```
-- <YYYY-MM-DD>: Initial seeding from PRD — 6 items to Linear (M1), 13 items queued in BACKLOG.md (M2–M3)
+- <YYYY-MM-DD>: Initial seeding from PRD — 6 items to Linear (M1), 13 items queued in process/BACKLOG.md (M2–M3)
 ```
 
 ### 8. Choose the delivery-autonomy methodology
@@ -183,15 +183,15 @@ Configure how far a `/drive`-aimed goal-driven loop runs before handing control 
 > - **Stop at merge (Recommended)** — the loop builds one feature up to an open, mergeable PR and stops. You review and merge. Keeps a human gate at every merge.
 > - **Self-merge within milestone** — the loop builds *and merges* every feature in a milestone, stopping at the milestone boundary. Faster, unattended (needs auto mode); the human gate moves to the milestone boundary.
 
-Write the answer into `WORKFLOW.md` → *Project configuration* → **Delivery autonomy** line, replacing the placeholder. Set the chosen value as the active one, e.g.:
+Write the answer into `process/WORKFLOW.md` → *Project configuration* → **Delivery autonomy** line, replacing the placeholder. Set the chosen value as the active one, e.g.:
 
 ```
 **Delivery autonomy:** `stop-at-merge` (default) — set at bootstrap; see [Goal-driven loop](#goal-driven-loop-drive).
 ```
 
-Then append a `DECISIONS.md` entry recording the choice (date, decision, why, who approved), per the decision-logging convention in `WORKFLOW.md`. If the user picks `self-merge-within-milestone`, also note in the summary that they'll need auto mode on when running the loop.
+Then append a `process/DECISIONS.md` entry recording the choice (date, decision, why, who approved), per the decision-logging convention in `process/WORKFLOW.md`. If the user picks `self-merge-within-milestone`, also note in the summary that they'll need auto mode on when running the loop.
 
-This is the project default; it can be overridden per-invocation via a `/drive` argument and changed later by editing the WORKFLOW.md line + logging a new `DECISIONS.md` entry.
+This is the project default; it can be overridden per-invocation via a `/drive` argument and changed later by editing the process/WORKFLOW.md line + logging a new `process/DECISIONS.md` entry.
 
 ### 9. Confirm and finish
 
@@ -201,7 +201,7 @@ Print a summary:
 - Process milestones seeded: M0, M1 (Linear projects)
 - Labels seeded: 9 of 9
 - Issues seeded to Linear: N (from milestone 1)
-- Items queued in BACKLOG.md: M (from later milestones)
+- Items queued in process/BACKLOG.md: M (from later milestones)
 - Delivery autonomy: `stop-at-merge` | `self-merge-within-milestone`
 - Active Linear count: N/250
 
@@ -221,4 +221,4 @@ Also remind the user (one-time advice on first run):
 - **Initiative creation IS now exposed** via `save_initiative` — use it instead of the manual UI path when possible.
 - **Shared-team model is intentional.** Linear's free tier caps you at 2 teams. Using one shared team across all your projects (with Initiatives differentiating them) keeps you well under the cap and shares the 250-active-issues budget across everything.
 - **Linear cycles are team-wide.** All of your projects share the same sprint cadence. Plan cycle scope across projects accordingly.
-- **Tiered backlog is the cap-management strategy.** See `WORKFLOW.md` → Version control & Linear → "Free-tier issue-cap mitigation" for the full pattern.
+- **Tiered backlog is the cap-management strategy.** See `process/WORKFLOW.md` → Version control & Linear → "Free-tier issue-cap mitigation" for the full pattern.
