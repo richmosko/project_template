@@ -21,9 +21,14 @@ The in-repo review loop (the comment widget + `comments.md` + `/refine-doc`) sta
 /export-doc PRD ARCH     # PRD + ARCH
 ```
 
-## Why headless Chrome (background)
+## How it works (background)
 
-The docs draw diagrams with **Mermaid**, which renders via JavaScript at load time. Only a browser engine runs that JS, so weasyprint / pandoc / wkhtmltopdf would emit PDFs with the diagrams missing. The script uses headless Chrome and briefly starts `scripts/serve-docs.py` so Mermaid's CDN module + relative assets resolve; the resulting PDF is fully standalone.
+`scripts/export-pdf.sh` briefly starts `scripts/serve-docs.py`, then delegates rendering to `scripts/print-pdf.mjs`, which drives Chrome over the DevTools Protocol. Two things make it reliable:
+
+- **Requires Node ≥ 22** (built-in `WebSocket`, no npm deps) to speak CDP and wait for the page to be ready before capturing.
+- **Diagrams** are re-rendered with **mermaid-cli** (`mmdc`, auto-fetched via `npx` on first run — its own bundled Chromium) and injected as PNGs. This is necessary because Chrome's `printToPDF` won't paint inline `<svg>` (diagrams would come out blank). The PNGs use the page's own computed theme, so they match on-screen. Prefers the conflict-free `chrome-headless-shell` binary when present.
+
+The resulting PDF is fully standalone (text, tables, tokens, and themed diagrams).
 
 ## Steps
 

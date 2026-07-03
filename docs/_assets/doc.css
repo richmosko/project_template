@@ -406,6 +406,10 @@ details > *:not(summary):last-child { margin-bottom: 1rem; }
             border: 1px solid var(--doc-border); border-radius: 8px; break-after: page; }
   section { break-inside: avoid; }
   details { break-inside: avoid; }
+  /* The .mermaid container's rounded background box creates a paint layer that
+     Chrome drops child content from when printing (diagram comes out blank).
+     Strip it to a plain block in print so the diagram image paints. */
+  .mermaid { background: none; border: none; border-radius: 0; padding: 0; overflow: visible; break-inside: avoid; }
   .stub { display: none; }
   /* Comment widget chrome + theme toggle never belong in a PDF/print snapshot. */
   .comments-status, .comments-controls, .comments-panel, .theme-toggle { display: none !important; }

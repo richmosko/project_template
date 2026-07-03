@@ -49,7 +49,7 @@ CHROME="${CHROME:-}"
 if [ -z "$CHROME" ]; then
   for c in \
     "$(command -v chrome-headless-shell 2>/dev/null || true)" \
-    "$HOME/.cache/puppeteer/chrome-headless-shell"/*/chrome-headless-shell* \
+    "$HOME/.cache/puppeteer/chrome-headless-shell"/*/*/chrome-headless-shell \
     "/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing" \
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
     "/Applications/Chromium.app/Contents/MacOS/Chromium" \
@@ -58,7 +58,8 @@ if [ -z "$CHROME" ]; then
     "$(command -v google-chrome 2>/dev/null || true)" \
     "$(command -v google-chrome-stable 2>/dev/null || true)" \
     "$(command -v chromium 2>/dev/null || true)"; do
-    if [ -n "$c" ] && [ -x "$c" ]; then CHROME="$c"; break; fi
+    # -f rejects directories and .app bundles that a glob can match but can't spawn.
+    if [ -n "$c" ] && [ -f "$c" ] && [ -x "$c" ]; then CHROME="$c"; break; fi
   done
 fi
 if [ -z "$CHROME" ] || [ ! -x "$CHROME" ]; then
@@ -81,6 +82,12 @@ esac
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "Error: python3 is required (to serve docs/ during rendering)." >&2
+  exit 1
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "Error: node (>=22) is required — scripts/print-pdf.mjs drives Chrome via" >&2
+  echo "the DevTools Protocol so Mermaid diagrams finish rendering before capture." >&2
   exit 1
 fi
 
@@ -110,6 +117,10 @@ else
 fi
 
 # ── Render each doc ─────────────────────────────────────────────────────────
+# Rendering is delegated to scripts/print-pdf.mjs, which drives Chrome over the
+# DevTools Protocol and WAITS until every Mermaid diagram has rendered to <svg>
+# before printing. (Plain `chrome --print-to-pdf` snapshots the page before
+# Mermaid's async, lazy-loaded renderer finishes, producing blank diagrams.)
 status=0
 for DOC in "${DOCS[@]}"; do
   SRC="docs/${DOC}/index.html"
@@ -120,36 +131,17 @@ for DOC in "${DOCS[@]}"; do
   OUT="docs/${DOC}/${DOC}.pdf"
   echo "Rendering ${DOC} → ${OUT}"
   rm -f "$OUT"
-  # --virtual-time-budget lets Mermaid's async render finish before the PDF is
-  # captured. Run in the background and bound the wait, so a single-instance
-  # conflict (Chrome already running) surfaces as an error, not an infinite hang.
-  "$CHROME" \
-      --headless=new \
-      --disable-gpu \
-      --no-sandbox \
-      --no-first-run \
-      --no-default-browser-check \
-      --disable-background-networking \
-      --user-data-dir="$TMP_PROFILE" \
-      --virtual-time-budget=15000 \
-      --print-to-pdf="$OUT" \
-      "${BASE}/${DOC}/index.html" >/dev/null 2>&1 &
-  CH=$!
-  ok=0
-  for _ in $(seq 1 60); do            # up to ~30s
-    if ! kill -0 "$CH" 2>/dev/null; then ok=1; break; fi
-    sleep 0.5
-  done
-  if [ "$ok" -eq 0 ]; then kill "$CH" 2>/dev/null || true; fi
-  wait "$CH" 2>/dev/null || true
-  if [ -s "$OUT" ]; then
+  ERR="$(mktemp)"
+  if node scripts/print-pdf.mjs "$CHROME" "${BASE}/${DOC}/index.html" "$OUT" 2>"$ERR" && [ -s "$OUT" ]; then
     echo "  ✓ $(du -h "$OUT" | cut -f1)  ${OUT}"
   else
-    echo "  ✗ failed to render ${DOC} (no PDF produced)." >&2
-    echo "    Most likely Chrome is already running — quit it and retry, or install" >&2
-    echo "    chrome-headless-shell (npx @puppeteer/browsers install chrome-headless-shell)." >&2
+    echo "  ✗ failed to render ${DOC}:" >&2
+    sed 's/^/    /' "$ERR" >&2 || true
+    echo "    (If Chrome is already running and conflicts, quit it and retry, or" >&2
+    echo "     install chrome-headless-shell: npx @puppeteer/browsers install chrome-headless-shell.)" >&2
     status=1
   fi
+  rm -f "$ERR"
 done
 
 exit $status
