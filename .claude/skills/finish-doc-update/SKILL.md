@@ -1,6 +1,6 @@
 ---
 name: finish-doc-update
-description: Closes a doc-only update — commits the doc edits, pushes the `phase/*` branch, and opens a PR. Mirrors /finish-feature but lighter: no Linear issue update, no QA handshake. After this, run /merge-pr (or merge via GitHub UI) to land the changes on main.
+description: Closes a doc-only update — commits the doc edits, regenerates the affected docs' PDF artifacts, pushes the `phase/*` branch, and opens a PR. Mirrors /finish-feature but lighter: no Linear issue update, no QA handshake. After this, run /merge-pr (or merge via GitHub UI) to land the changes on main.
 ---
 
 # finish-doc-update
@@ -30,22 +30,48 @@ Add the standard Claude trailer per global git instructions:
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 ```
 
-### 2. Push and open PR
+### 2. Regenerate PDF artifacts
+
+Doc PDFs live at `docs/<DOC>/<DOC>.pdf` and are committed to the repo so they render **inline on GitHub** (which won't render the raw `index.html`) and travel with the PR. Regenerate the ones this branch affects — no more, no less.
+
+1. **Determine affected docs** from the branch diff:
+   ```bash
+   git diff --name-only main...HEAD
+   ```
+   - Any `docs/_assets/**` or `docs/DESIGN/tokens.css` changed → **all four** docs (`PRD ARCH SECURITY DESIGN`): shared styling/tokens/fonts affect every doc's rendering.
+   - Otherwise → only the docs whose own `docs/<DOC>/index.html` changed.
+   - If neither a doc `index.html` nor a shared asset changed (e.g. only `process/*` or `CLAUDE.md`), **skip this step** — there's nothing to render. Note that in the PR body.
+
+2. **Generate** (headless Chrome + a temp docs server — same engine as `/export-doc`):
+   ```bash
+   ./scripts/export-pdf.sh <DOC ...>
+   ```
+   - **If it fails**, don't silently drop it. The usual cause is that Chrome is already running and the headless instance conflicts (the script says so). Surface the error and either (a) ask the user to quit Chrome and re-run `./scripts/export-pdf.sh <DOC ...>`, or (b) proceed with the PR and clearly note the PDFs weren't regenerated. **Never fabricate a successful render.**
+
+3. **Commit the PDFs** as their own commit (keeps the binary churn separate from the source diff):
+   ```bash
+   git add docs/*/*.pdf
+   git commit -m "docs(<phase>): regenerate PDF artifacts"
+   ```
+   Skip the commit if `git status` shows no PDF changes.
+
+### 3. Push and open PR
 
 ```bash
 git push -u origin HEAD
 ```
 
 Then `gh pr create` with:
-- **Title:** matches the most recent commit's subject (or summarize if multiple commits)
+- **Title:** matches the most recent *source* commit's subject (or summarize if multiple commits)
 - **Body:** include
   - A `## Summary` section (2–3 bullets — what changed and why)
   - A line: `**Type:** doc-only update (no Linear issue, no QA validation required)`
+  - A line noting the PDF artifacts: which docs were regenerated (or that PDF regen was skipped/failed, per Step 2)
   - The standard Claude footer
 
 Use a HEREDOC for the body.
 
-### 3. Hand off
+### 4. Hand off
 
 `SendMessage` to the team-lead (you): "Doc update opened as PR <url>. Ready for review and `/merge-pr` (or human merge via GitHub UI)."
 

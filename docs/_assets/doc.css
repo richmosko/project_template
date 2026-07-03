@@ -1,35 +1,73 @@
-/* Shared styling for PRD.html, ARCH.html, SECURITY.html
-   Lightweight, system-font-based, print-friendly. */
+/* Shared styling for PRD / ARCH / SECURITY / DESIGN docs. Print-friendly.
+
+   Palette + light/dark themes come from the design system (docs/DESIGN/tokens.css,
+   a shadcn preset). This file maps those tokens onto doc roles and lays the page
+   out as a content CARD floating on a tinted CANVAS (the shadcn dashboard look).
+
+   Fonts: Inter + Geist Mono are SELF-HOSTED below (variable woff2 in
+   _assets/fonts/, from Fontsource) — no external dependency, works offline and
+   in PDF export. Fall back to a system stack if the files are missing. */
+@import "../DESIGN/tokens.css";
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
+}
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/geist-mono-latin-wght-normal.woff2") format("woff2-variations");
+}
 
 :root {
-  --bg: #fdfcfa;
-  --fg: #1f1d1a;
-  --muted: #6b6a66;
-  --accent: #5d4ad0;
-  --accent-bg: #efecfb;
-  --border: #e6e4df;
-  --code-bg: #f5f3ee;
-  --warn-bg: #fff6dc;
-  --warn-border: #e6c668;
-  --stub-bg: #f9f4e8;
-  --stub-fg: #8a6a14;
+  /* Palette roles, mapped onto the design-system tokens (docs/DESIGN/tokens.css).
+     Prefixed --doc-* where the bare name would collide with a shadcn base token
+     (--border / --muted / --accent), so those base tokens flow through the docs
+     untouched. Fallbacks keep the docs styled if tokens.css is ever absent. */
+  --bg: var(--color-surface, #ffffff);
+  --fg: var(--color-text, #1f1d1a);
+  --doc-muted: var(--color-text-muted, #6b6a66);
+  /* Link/accent TEXT color. The lime --primary is a bright FILL — too light for
+     text on white — so derive a darkened lime (same hue + chroma, lower
+     lightness) for legible links in light mode. Dark mode overrides this with
+     --primary directly (already light-on-dark). First line is a plain fallback
+     for browsers without relative-color syntax. */
+  --doc-accent: oklch(0.52 0.15 131);
+  --doc-accent: oklch(from var(--color-primary) 0.52 c h);
+  --doc-border: var(--color-border, #e6e4df);
+  --doc-accent-bg: var(--color-surface-muted, #f1f1f0);   /* subtle fill: TOC, blockquote */
+  --code-bg: var(--color-surface-muted, #f5f3ee);          /* code, table header */
+
+  /* Page canvas + content card (shadcn dashboard look: white card on a canvas). */
+  --doc-canvas: var(--color-surface-muted, #f1f1f0);  /* light: subtle slate/gray behind the card */
+  --doc-card: var(--color-surface-raised, #ffffff);   /* the content card itself */
+
+  /* Radii — reuse the token scale when present. */
+  --doc-radius-sm: var(--radius-sm, 4px);
+  --doc-radius-md: var(--radius-md, 8px);
+
   --max-width: 880px;
 }
 
+/* Dark palette (bg / fg / border / surfaces) inherits from tokens.css via the
+   aliases above. Here we only (a) swap the link/accent color to the primary,
+   which is already light-on-dark, and (b) give the doc-specific scaffolding its
+   own dark values. Applied on OS-dark and on an explicit `.dark` class. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16161a;
-    --fg: #e9e7e2;
-    --muted: #a4a39e;
-    --accent: #b5a8ff;
-    --accent-bg: #2a2540;
-    --border: #2c2b30;
-    --code-bg: #1f1f25;
-    --warn-bg: #3a3220;
-    --warn-border: #8a7235;
-    --stub-bg: #2a2620;
-    --stub-fg: #cfb56a;
+  :root:not(.light) {
+    --doc-accent: var(--color-primary);
+    --doc-canvas: var(--background);   /* darkest surface, so the raised card stands out */
   }
+}
+
+:root.dark {
+  --doc-accent: var(--color-primary);
+  --doc-canvas: var(--background);
 }
 
 * { box-sizing: border-box; }
@@ -37,21 +75,28 @@
 html {
   font-size: 16px;
   -webkit-text-size-adjust: 100%;
+  background: var(--doc-canvas);   /* the tinted canvas behind the card */
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", system-ui, sans-serif;
-  background: var(--bg);
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", system-ui, sans-serif);
+  background: var(--doc-card);      /* white content card */
   color: var(--fg);
   line-height: 1.6;
-  margin: 0;
-  padding: 2.5rem 1.5rem 4rem;
   max-width: var(--max-width);
-  margin-inline: auto;
+  margin: 2.5rem auto 3rem;
+  padding: 2.75rem 3rem 3.5rem;
+  border: 1px solid var(--doc-border);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.1));
+}
+
+@media (max-width: 928px) {
+  body { margin: 1rem; padding: 1.75rem 1.5rem 2.5rem; }
 }
 
 header.doc-header {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--doc-border);
   padding-bottom: 1.5rem;
   margin-bottom: 2rem;
 }
@@ -63,7 +108,7 @@ header.doc-header h1 {
 }
 
 header.doc-header .doc-subtitle {
-  color: var(--muted);
+  color: var(--doc-muted);
   font-size: 1rem;
   margin: 0;
 }
@@ -74,14 +119,14 @@ header.doc-header .doc-meta {
   flex-wrap: wrap;
   gap: 1rem;
   font-size: 0.85rem;
-  color: var(--muted);
+  color: var(--doc-muted);
 }
 
 header.doc-header .doc-meta strong { color: var(--fg); font-weight: 600; }
 
 nav.toc {
-  background: var(--accent-bg);
-  border: 1px solid var(--border);
+  background: var(--doc-accent-bg);
+  border: 1px solid var(--doc-border);
   border-radius: 8px;
   padding: 1rem 1.25rem;
   margin-bottom: 2.5rem;
@@ -93,7 +138,7 @@ nav.toc h2 {
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--muted);
+  color: var(--doc-muted);
 }
 
 nav.toc ol {
@@ -102,11 +147,11 @@ nav.toc ol {
 }
 
 nav.toc a {
-  color: var(--accent);
+  color: var(--doc-muted);
   text-decoration: none;
 }
 
-nav.toc a:hover { text-decoration: underline; }
+nav.toc a:hover { color: var(--fg); }
 
 section {
   margin-bottom: 2.5rem;
@@ -124,22 +169,31 @@ section h3 {
   font-weight: 600;
   margin: 1.75rem 0 0.4rem;
   letter-spacing: -0.005em;
-  color: var(--muted);
+  color: var(--doc-muted);
 }
 
 section .section-hint {
   font-size: 0.85rem;
-  color: var(--muted);
+  color: var(--doc-muted);
   margin: 0 0 1rem;
   font-style: italic;
 }
 
 p { margin: 0 0 1rem; }
 
-a { color: var(--accent); }
+/* Prose links: neutral text + underline (like the reference), lime only on hover.
+   Lime is reserved for accents (active TOC item, blockquote bar), never body text. */
+a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--doc-border);
+}
+a:hover { color: var(--doc-accent); text-decoration-color: var(--doc-accent); }
 
 code, pre {
-  font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace);
   font-size: 0.9em;
 }
 
@@ -154,7 +208,7 @@ pre {
   padding: 1rem;
   border-radius: 8px;
   overflow-x: auto;
-  border: 1px solid var(--border);
+  border: 1px solid var(--doc-border);
 }
 
 pre code { background: none; padding: 0; }
@@ -169,47 +223,79 @@ table {
 th, td {
   text-align: left;
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--doc-border);
   vertical-align: top;
 }
 
 th {
   font-weight: 600;
-  background: var(--code-bg);
+  /* Primary (lime) header — the button pairing: lime fill + dark-green
+     on-primary text, with a matching on-primary underline. */
+  color: var(--color-on-primary);
+  background: var(--color-primary);
+  border-bottom: 2px solid var(--color-on-primary);
 }
+
+tbody tr:hover { background: color-mix(in srgb, var(--color-primary) 12%, transparent); }
 
 ul, ol { padding-left: 1.5rem; }
 li { margin: 0.25rem 0; }
 
 blockquote {
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid var(--doc-accent);
   margin: 0 0 1rem;
   padding: 0.5rem 1rem;
-  background: var(--accent-bg);
+  background: var(--doc-accent-bg);
   border-radius: 0 6px 6px 0;
   color: var(--fg);
 }
 
+/* Placeholder scaffolding ("✎ Replace this block…"). Neutral, not brand — a
+   dashed muted box reads as "fill me in" without clashing with the palette. */
 .stub {
-  background: var(--stub-bg);
-  color: var(--stub-fg);
+  background: var(--code-bg);
+  color: var(--doc-muted);
   padding: 0.75rem 1rem;
-  border-radius: 6px;
-  border-left: 3px solid var(--warn-border);
+  border-radius: var(--doc-radius-md);
+  border-left: 3px dashed var(--doc-border);
   font-size: 0.9rem;
+  font-style: italic;
   margin: 0 0 1rem;
 }
 
 .stub::before { content: "✎ "; font-weight: bold; }
 
 .tbd {
-  color: var(--muted);
+  color: var(--doc-muted);
   font-style: italic;
 }
 
+/* ── Token swatches (DESIGN doc) ──────────────────────────────────────────── */
+.tokens-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1rem 0 1.75rem;
+}
+.swatch { width: 6rem; }
+.swatch .chip {
+  display: block;
+  height: 3rem;
+  border-radius: var(--doc-radius-md);
+  border: 1px solid var(--doc-border);
+}
+.swatch .name {
+  display: block;
+  margin-top: 0.35rem;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.68rem;
+  color: var(--doc-muted);
+  word-break: break-all;
+}
+
 .mermaid {
-  background: var(--bg);
-  border: 1px solid var(--border);
+  background: var(--doc-card);
+  border: 1px solid var(--doc-border);
   border-radius: 8px;
   padding: 1rem;
   margin: 0 0 1.5rem;
@@ -220,15 +306,111 @@ blockquote {
 footer.doc-footer {
   margin-top: 4rem;
   padding-top: 1.5rem;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--doc-border);
   font-size: 0.8rem;
-  color: var(--muted);
+  color: var(--doc-muted);
   text-align: center;
 }
 
+/* ── Scroll-spy active state (toggled by toc.js) ──────────────────────────── */
+nav.toc a.active {
+  color: var(--doc-accent);
+  font-weight: 600;
+}
+
+/* ── Sticky TOC rail on wide viewports ────────────────────────────────────────
+   Below 1400px the TOC stays an inline block (its default). At/above 1400px
+   there's room to float it as a sticky rail to the LEFT of the centered column,
+   so it's always visible while reading — without restructuring any doc's HTML.
+   Positioned off the centered column: left = 50vw − half-column − (rail+gap). */
+@media (min-width: 1400px) {
+  nav.toc {
+    position: fixed;
+    top: 2.5rem;
+    left: calc(50vw - var(--max-width) / 2 - 236px);
+    width: 210px;
+    max-height: calc(100vh - 5rem);
+    overflow-y: auto;
+    margin: 0;
+    padding: 0 0 0 1rem;
+    background: transparent;
+    border: none;
+    border-left: 2px solid var(--doc-border);
+    border-radius: 0;
+  }
+  nav.toc ol { padding-left: 1rem; }
+  nav.toc ol ol { padding-left: 0.9rem; }
+  nav.toc a.active { border-left: 2px solid var(--doc-accent); margin-left: -1rem; padding-left: calc(1rem - 2px); }
+}
+
+/* ── Collapsible subsections — <details>/<summary> ────────────────────────────
+   Accessible (keyboard + screen-reader), survives Ctrl-F and print (toc.js
+   force-opens them before printing). Use for long/optional sub-content instead
+   of CSS tab hacks, which break find, print, and the comment widget's anchors. */
+details {
+  border: 1px solid var(--doc-border);
+  border-radius: var(--doc-radius-md);
+  background: var(--code-bg);
+  padding: 0 1rem;
+  margin: 0 0 1.5rem;
+}
+details > summary {
+  cursor: pointer;
+  padding: 0.75rem 0;
+  font-weight: 600;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before {
+  content: "\25B8"; /* ▸ */
+  color: var(--doc-accent);
+  font-size: 0.8em;
+  transition: transform var(--duration-fast, 120ms) var(--ease-standard, ease);
+}
+details[open] > summary::before { transform: rotate(90deg); }
+details > summary:hover { color: var(--doc-accent); }
+details[open] > summary { border-bottom: 1px solid var(--doc-border); margin-bottom: 1rem; }
+details > *:not(summary):last-child { margin-bottom: 1rem; }
+
+/* ── Theme toggle (Auto / Light / Dark) — added by toc.js ──────────────────── */
+.theme-toggle {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 50;
+  font: inherit;
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 0.4rem 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--doc-accent-bg);
+  color: var(--fg);
+  border: 1px solid var(--doc-border);
+  border-radius: var(--doc-radius-md);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.06));
+}
+.theme-toggle:hover { border-color: var(--doc-accent); }
+
 @media print {
-  body { max-width: none; padding: 1rem; }
-  nav.toc { break-after: page; }
+  html { background: none; }
+  /* Flatten the card for print — no canvas, border, shadow, or float. */
+  body { max-width: none; margin: 0; padding: 1rem; border: none; border-radius: 0; box-shadow: none; background: none; }
+  /* Rail → inline block; the fixed rail would otherwise overlap the page. */
+  nav.toc { position: static; width: auto; margin: 0 0 1.5rem; padding: 1rem 1.25rem;
+            border: 1px solid var(--doc-border); border-radius: 8px; break-after: page; }
   section { break-inside: avoid; }
+  details { break-inside: avoid; }
+  /* The .mermaid container's rounded background box creates a paint layer that
+     Chrome drops child content from when printing (diagram comes out blank).
+     Strip it to a plain block in print so the diagram image paints. */
+  .mermaid { background: none; border: none; border-radius: 0; padding: 0; overflow: visible; break-inside: avoid; }
   .stub { display: none; }
+  /* Comment widget chrome + theme toggle never belong in a PDF/print snapshot. */
+  .comments-status, .comments-controls, .comments-panel, .theme-toggle { display: none !important; }
 }
