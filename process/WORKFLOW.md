@@ -190,6 +190,19 @@ Because the shared task list and mailbox are transient, the **lead promotes dura
 - Mailbox exchanges containing decisions → `DECISIONS.md`
 - Anything ephemeral (status pings, intermediate WIP) stays transient — that's the point.
 
+### Completed-table rolloff
+
+The `MILESTONES.md` **Features → Completed** table is **capped to the active milestone**. It carries only the features closed under the current milestone — not the whole project's history.
+
+Why: `MILESTONES.md` is read in full on resume (see [CLAUDE.md](../CLAUDE.md) → Resume runbook). An unbounded Completed log would grow every feature and inflate that read on long projects. The table is also redundant with the canonical record — each row is reconstructable from **Linear** (Done issues filtered by milestone), **git history**, and the [Releases](MILESTONES.md#releases) table. So it earns its place only as a *recent-work-at-a-glance* view, and "recent" means "this milestone."
+
+**Rolloff happens at milestone close.** When a milestone transitions to Completed (the same boundary where `/merge-pr` may tag a release):
+1. Confirm every Completed row for the closing milestone is `Done` in Linear (that's the durable copy).
+2. If the milestone shipped a release, ensure it has a [Releases](MILESTONES.md#releases) row — that's the in-repo summary that outlives the rolled-off rows.
+3. **Clear** the closing milestone's rows from the Completed table, leaving only the incoming milestone's features (usually none yet).
+
+This is a **lead duty at the milestone boundary**, parallel to the promotion duties above — not something `/finish-feature` or a per-feature merge touches. Within a milestone the table simply accumulates; it only shrinks when the milestone ends.
+
 ### Async notification mechanics (the "sync-mismatch echo")
 
 The team-mode task system fires a `task_assignment` notification into the assignee's mailbox whenever ownership is set via `TaskUpdate` — including when an agent **self-claims** (`TaskUpdate N owner=<self> status=in_progress`) and when the lead claims a task on the agent's behalf. These notifications are queued and delivered **at the agent's next turn boundary**, which is typically *after* the agent has already finished the work and sent its delivery `SendMessage`.
