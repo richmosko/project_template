@@ -66,6 +66,8 @@ A feature = one **Linear issue** = one PR = one Implement→Validate loop. Statu
 
 ### Completed
 
+**Capped to the active milestone.** Only features completed under the current milestone live here. When a milestone closes, its completed rows **roll off** — the durable record survives in Linear (Done issues), git history, and the [Releases](#releases) table below. This keeps a full read of this file cheap on resume; see [`WORKFLOW.md`](WORKFLOW.md) → Completed-table rolloff.
+
 | Feature | Linear issue | Sprint | Milestone | Merged | PR |
 |---|---|---|---|---|---|
 | _none yet_ | | | | | |

@@ -56,9 +56,10 @@ git branch -d feature/<issue-id>-<slug>  # delete local branch
 
 ### 5. Update process/MILESTONES.md
 
-- Move the feature entry from `### In Flight` to `### Completed` (under Features), with the merge date and PR link.
+- Move the feature entry from `### In Flight` to `### Completed` (under Features), with the merge date and PR link. The Completed table is **capped to the active milestone** — within a milestone it just accumulates; you only append here.
 - Clear `## Active Feature`.
 - If this feature completed a sprint (Linear cycle) or milestone (Linear project), update the corresponding row in `## Sprints` or `## Roadmap`.
+- **If this feature closed a milestone**, roll off the Completed table after finishing step 6: confirm the closing milestone's rows are all `Done` in Linear and (if it shipped a release) that a `## Releases` row exists, then **clear those rows** from `### Completed`, leaving only the incoming milestone's features. See `process/WORKFLOW.md` → Completed-table rolloff.
 
 ### 6. Tag and draft GitHub Release if appropriate
 
