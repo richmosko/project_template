@@ -19,6 +19,18 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 
 ---
 
+### 2026-07-21 — `mcp-broker` context-firewall agent for verbose remote MCP servers
+**Decision:** Ship a tenth teammate, `mcp-broker` (`.claude/agents/mcp-broker.md`), that owns the chatty remote MCP servers (Linear, Google Drive, Gmail, Calendar, Spotify). Callers delegate a *query intent* via `SendMessage`; the broker makes the fat MCP call in its own isolated context and returns only the distilled fact + IDs. Wired in **additively** — the nine specialists keep their own `mcpServers` and the Linear skills keep calling Linear directly; the broker is an opt-in escape hatch for ad-hoc, payload-heavy traffic, documented in `WORKFLOW.md` → MCP Broker, `CLAUDE.md`, and `README.md`.
+**Why:** Surfaced as upstream feedback from a derived project — touching Linear caused large jumps in context % because the multi-KB JSON those tools return lands permanently in the team-lead's window. A subagent has an isolated context, so routing the raw payload through a broker keeps the bloat off the lead and returns ~3 lines instead of ~5 KB. The win is largest on reads (`list_issues`, `get_issue`, `get_project`, `get_thread`, `search_files`); writes return little, so the broker covers them for single-writer tidiness rather than context savings.
+**Alternatives considered:**
+- *Full rewire (strip `mcpServers` from the nine + route the Linear skills through the broker):* maximum savings but couples every agent + ~15 skill files to the broker being alive; large, error-prone edit. Deferred — revisit if additive delegation proves insufficient.
+- *Rewire agents only (strip `mcpServers` from the nine, leave skills):* enforces the pattern but still couples every agent to a live broker for no gain when a direct call is cheaper. Rejected in favor of additive opt-in.
+- *Broker owns all MCP incl. Figma + claude-in-chrome:* those are interactive, per-node/live-session tools a broker can't distill — counterproductive. Scoped to remote-JSON servers only.
+- *Give the broker an `agent:<role>` Linear label:* it's a utility that doesn't own issues, so no attribution label; the nine-label seed in `/setup-linear-team` stays nine.
+**Approved by:** Mosko
+
+---
+
 ### 2026-05-30 — Team-mode `task_assignment` echo-suppression convention
 **Decision:** Codify the "silently drop self-known `task_assignment` notifications" convention at the template level. Add an explanatory subsection to `WORKFLOW.md` → Team coordination ("Async notification mechanics") and append a short standardized heads-up block to every `.claude/agents/*.md` so the convention lands in each teammate's persistent system prompt at spawn time.
 **Why:** Surfaced as upstream feedback from a derived project (mosko-fintech Phase 3 ARCH session, PRs #65–#69). Team-mode fires a `task_assignment` notification on every `TaskUpdate` ownership change — including self-claim — and queues it for the assignee's next turn boundary, which is typically *after* the agent has already delivered its work. Without a heads-up, the agent has no provenance check and produces a defensive "sync-mismatch echo" message that wastes a turn on each end. Observed at ~70% rate (14/20 events) on the derived project. Mitigation tested at the project level; codifying at the template tier lets every downstream repo benefit without rediscovering the pattern.
