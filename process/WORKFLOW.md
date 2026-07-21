@@ -148,10 +148,27 @@ Chosen per project at `/setup-linear-team`, stored in [Delivery autonomy](#deliv
 - **Translates and summarizes for the Principal.** Agents communicate in their domain's idiom (architecture trade-offs, threat-model entries, test pyramids, deploy topologies). The lead distills their output into **executive summaries** — what changed, what it means, what decision the Principal needs to make next. If an agent's reply is dense or jargon-heavy, restate it in plain language before relaying it.
 
 ### Agents (`.claude/agents/*.md`)
-- See `.claude/agents/` for the nine specialist definitions and their domains.
+- See `.claude/agents/` for the nine specialist definitions and their domains, plus the `mcp-broker` utility agent (see [MCP Broker](#mcp-broker)).
 - Each runs in its own persistent context as a teammate (requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`).
 - Peers communicate via `SendMessage` without going through the lead.
 - Authorized by the Principal; coordinated by the Team Lead.
+
+## MCP Broker
+
+Remote MCP servers — **Linear** above all, but also Google Drive, Gmail, Calendar, Spotify — return payloads that are enormous relative to the fact you actually need. A single `list_issues` or `get_thread` can drop multiple kilobytes of JSON into whoever called it, and in the **team-lead's** window that context is paid for by the whole session, permanently. That's the observed "context % jumps when I touch Linear" problem.
+
+The `mcp-broker` teammate is the fix: a **context firewall**. It's the one agent that touches those servers, so the raw JSON lands in *its* isolated context and only a distilled answer — the fact plus the IDs needed to act — comes back over `SendMessage`. Delegate the query, get back three lines instead of five kilobytes.
+
+**When to delegate to the broker:**
+- Any **read** whose payload dwarfs the answer: `list_issues`, `get_issue`, `get_project`, `list_cycles`, `search_files`, `read_file_content`, `search_threads`, `list_events`. Phrase it as an intent — _"acceptance criteria for ABC-123", "in-progress issues in milestone M2"_ — and let the broker return the minimum.
+- **Ad-hoc writes** you'd otherwise do by hand (`save_comment`, `create_event`); the broker confirms back just the resulting ID/URL.
+
+**When NOT to:**
+- The Linear-heavy **skills** (`/start-feature`, `/finish-feature`, `/sync-backlog`, `/setup-linear-team`, `/cleanup-linear`, `/drive`) call Linear directly in the lead's context **by design** — they're additive to the broker, not routed through it. The broker covers the ad-hoc queries those skills don't own.
+- **Figma and claude-in-chrome** are interactive, per-node/live-session tools — a broker can't distill them. The owning agents (ux-designer, frontend-lead) drive those directly.
+- One-off tiny reads where spawning/round-tripping costs more than the payload you'd save. Judgment call; the broker earns its keep on *repeated* or *fat* traffic.
+
+The broker is a **utility agent, not phase-bound** — spawn it in any phase where MCP traffic gets heavy (most often Research, when the PM is seeding/querying the Linear backlog, and any phase doing a lot of issue lookups), and tear it down with the rest of the team. This is an **additive** convention: the nine specialists still declare their own `mcpServers` and can call Linear directly when it's cheaper to. The broker is the escape hatch for when it isn't.
 
 ## Team coordination
 
@@ -291,7 +308,7 @@ Because of the "one active team at a time" constraint and linear token cost, **s
 | Implement | active implementation leads (see **Project configuration**), `qa-engineer` |
 | Validate | `qa-engineer`, `devops-engineer`, `architect` |
 
-To create: _"Create an agent team for the Plan phase."_
+Add `mcp-broker` to **any** of these teams when that phase does heavy remote-MCP querying (see [MCP Broker](#mcp-broker)) — it's a utility teammate, not tied to a phase. To create: _"Create an agent team for the Plan phase."_
 To tear down: _"Clean up the team."_
 
 ## Artifact map
@@ -315,7 +332,7 @@ To tear down: _"Clean up the team."_
 ├── .claude/
 │   ├── settings.json            hooks, env, permissions
 │   ├── linear-team.json         cached Linear team id (gitignored)
-│   ├── agents/                  9 specialist definitions
+│   ├── agents/                  9 specialists + mcp-broker utility agent
 │   └── skills/                  workflow + doc-gen skills
 └── src/, app/, lib/, etc.   source code layout decided during Plan, recorded in ARCH
 ```
