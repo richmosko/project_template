@@ -7,7 +7,7 @@
 This repo is a **meta-template**, not a product. Clone it (or use it as a GitHub template) to seed a new project with:
 
 - a four-phase workflow (**Research → Plan → Implement ⇄ Validate**),
-- nine specialist team-Agents (PM, UX, Architect, SecEng, two implementation leads + a generalist, QA, DevOps),
+- nine specialist team-Agents (PM, UX, Architect, SecEng, two implementation leads + a generalist, QA, DevOps) plus an `mcp-broker` context-firewall agent,
 - doc-generation skills for PRD / Architecture / Security / Design,
 - workflow skills for branching, PR + Linear integration, releases,
 - HTML doc templates with embedded Mermaid diagrams,
@@ -97,7 +97,7 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 
 - **Principal** (you) — sets vision, makes gate decisions, authorizes Agents.
 - **Team Lead** — the main Claude Code session. Coordinates teams, delegates, summarizes specialist output into executive language.
-- **Agents** — nine specialists spawned per phase as Claude team-agents.
+- **Agents** — nine specialists spawned per phase as Claude team-agents, plus the `mcp-broker` utility agent (a context firewall for verbose remote MCP servers like Linear — delegate a query, get back the distilled fact instead of kilobytes of JSON).
 
 ## Common project-specific extensions
 
@@ -239,7 +239,7 @@ Because the team is shared, a **reusable component** that graduates to its own r
 ├── scripts/                     repo-level helpers (vendor-mermaid.sh, serve-docs.sh, …)
 └── .claude/
     ├── settings.json            hooks, env, permissions, teammateMode
-    ├── agents/                  9 specialist definitions
+    ├── agents/                  9 specialists + mcp-broker utility agent
     └── skills/                  workflow + doc-gen skills
 ```
 
