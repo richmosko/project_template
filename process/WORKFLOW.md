@@ -744,3 +744,38 @@ Releases are **human decisions**, never automatic. The `/merge-pr` skill prompts
 7. Append a row to `MILESTONES.md` → Releases with the version, date, milestone shipped, and link to the published release.
 
 **Why GitHub Releases instead of `CHANGELOG.md`:** publishing happens once per release (low overhead), the auto-draft from PR titles is a real time-saver, and the artifact lives where downstream users naturally look (the repo's Releases page). If a project later wants both surfaces, they can add `CHANGELOG.md` and sync it manually — but it's not a default.
+
+## Deployment topology
+
+The [Release process](#release-process) defines *when a version is cut*; this section defines *where each branch/tag deploys*. They're deliberately separate: the template's default keeps `main` continuously integrated while **production advances only at release cadence** — so you get trunk-based development's small, continuously-reviewed PRs **and** milestone-atomic production deploys, without a long-lived integration branch.
+
+**The rule of thumb:** `main` churning per-feature is only a problem if `main` deploys straight to production. So **don't point production at `main`.** Point it at the release **tags** the [Release process](#release-process) already cuts.
+
+### Default: trunk-based, prod ≠ main
+
+| Environment | Deploy trigger | Cadence | Purpose |
+|---|---|---|---|
+| **Preview / ephemeral** | every PR (or push to `feature/*`) | per-feature | Each feature gets a live URL for the [Validate](#validate) phase — QA and you review the *real thing*, not just green tests. Vercel / Netlify / Cloudflare Pages / Render / Amplify provision these automatically per PR. |
+| **Staging** | push to `main` | per-feature (continuous) | `main` is continuously integrated and auto-deployed to staging. Churn here is the *integration signal*, not a hazard — staging ≠ prod, so nothing user-facing is at risk. |
+| **Production** | git **tag** `v*` (or a `production` branch you fast-forward at milestone close) | per-milestone / release | Prod moves **only** when a `MINOR`/`PATCH` tag is cut — exactly the milestone cadence, with **zero** extra branch topology. |
+
+This is the mapping to reach for when asked "where do I point the deploy webhook?" — **preview → PRs, staging → `main`, production → tags.**
+
+Platform specifics (all consume git tags directly — no registry needed):
+- **Vercel / Netlify / Cloudflare Pages:** set production to a designated branch and gate it on tags via a GitHub Action, or point production at the tag and let every other branch/PR auto-get a preview URL.
+- **Render / Railway / Fly:** prod service deploys on tag push (GitHub Action → deploy hook); staging service tracks `main`.
+- **Roll-your-own GitHub Actions** (cleanest, platform-agnostic): `on: push: branches: [main]` → staging job; `on: push: tags: ['v*']` → prod job.
+
+### "Every issue must not break `main`" is a CI gate, not a branch
+
+The guarantee that a feature can't break `main` comes from **branch protection → required status checks**, *not* from where PRs target. The feature PR runs the full test suite and GitHub **refuses the merge if it's red**; combined with the [TDD-first](#implement) rule, `main` stays green by construction. So make **Require status checks to pass** a *mandatory* box in the `main` protection rule (the first-run checklist lists it as optional "only if you have CI" — once you have CI, it isn't optional). This is the actual enforcement layer; no branch topology substitutes for it.
+
+The one thing CI can't catch is a feature that's individually green but **incomplete as a user-facing capability**. That's what **feature flags / shipping the code dark** are for — not a branch. Merging releasable-but-unreleased code to `main` behind a flag is the trunk-based norm and is healthier than a long-lived divergent branch that drifts and conflicts.
+
+### Multi-major deploys
+
+Production for each active major deploys from **its own tags**: `v2.1.0` from `main` (highest active major), `v1.4.2` from the `release/1.x` branch (see [Parallel major maintenance](#versioning-scheme)). If both majors are live for users, run a production environment per major, each triggered by its matching tag namespace. Staging still tracks `main` (the newest major); a `release/N.x` branch can get its own staging environment if a maintenance line needs pre-prod validation.
+
+### Opt-in alternative: milestone-integration branch
+
+If a milestone must stay **coherent and off `main` until complete** — a risky migration, an atomic cutover, or work that can't be safely flagged dark — a per-milestone integration branch (`milestone/N.y`) is a legitimate opt-in: features merge into it, and a single PR lands it on `main` at the milestone boundary. Treat it as a **per-milestone exception, logged in [`DECISIONS.md`](DECISIONS.md)** — not the default — because it costs the template's 1:1 *issue = PR = I→V loop* invariant, replaces N small reviewable PRs with one big-bang diff (worst-case for agent review quality), and accumulates drift against `main`. It also needs its own required status checks, or it becomes an unprotected de-facto trunk. Reach for it only when feature flags genuinely can't isolate the risk.
