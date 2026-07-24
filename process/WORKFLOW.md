@@ -174,6 +174,8 @@ Remote MCP servers — **Linear** above all, but also Google Drive, Gmail, Calen
 
 The `mcp-broker` teammate is the fix: a **context firewall**. It's the one agent that touches those servers, so the raw JSON lands in *its* isolated context and only a distilled answer — the fact plus the IDs needed to act — comes back over `SendMessage`. Delegate the query, get back three lines instead of five kilobytes.
 
+**Default when the broker is on the team:** if `mcp-broker` has been spawned into the current team, route **all** ad-hoc `list_*` / `get_*` / `search_*` reads against the owned servers (Linear, Drive, Gmail, Calendar, Spotify) through it — that's the firm default, not a case-by-case judgment. The only agents exempt are the named Linear skills below, which call directly by design. Don't reach for a direct call "just this once" to save a round-trip; that's exactly the traffic the firewall exists to catch. The judgment call only applies when the broker is *not* on the team (is one fat read worth spawning one for?).
+
 **When to delegate to the broker:**
 - Any **read** whose payload dwarfs the answer: `list_issues`, `get_issue`, `get_project`, `get_initiative`, `search_files`, `read_file_content`, `search_threads`, `list_events`. Phrase it as an intent — _"acceptance criteria for ABC-123", "in-progress issues in milestone 1.1"_ — and let the broker return the minimum.
 - **Ad-hoc writes** you'd otherwise do by hand (`save_comment`, `create_event`); the broker confirms back just the resulting ID/URL.
