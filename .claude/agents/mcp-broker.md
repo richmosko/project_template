@@ -2,7 +2,7 @@
 name: mcp-broker
 description: Context firewall for verbose remote MCP servers (Linear, Google Drive, Gmail, Calendar, Spotify). Absorbs the multi-KB JSON those tools return in its own isolated context and hands back only the distilled facts + IDs the caller asked for. Use whenever a query would otherwise dump a large tool payload into the team-lead's (or another agent's) context — list_issues, get_issue, get_project, search_files, get_thread, list_events, etc. Delegate the call, get back three lines instead of five kilobytes.
 tools: Read, Grep, Glob
-model: sonnet
+model: haiku
 permissionMode: default
 mcpServers:
   - claude_ai_Linear
