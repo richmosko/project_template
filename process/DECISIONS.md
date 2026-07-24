@@ -19,6 +19,16 @@ The log is **append-only**. Don't edit historical entries. If a past decision is
 
 ---
 
+### 2026-07-23 — Deployment topology: trunk-based, production deploys from tags
+**Decision:** Default deploy wiring is **preview → PRs, staging → `main`, production → release tags (`v*`)**; "no feature breaks `main`" is enforced by making required CI status checks a *mandatory* box in `main` branch protection, not by branch topology. Incomplete-but-mergeable work ships dark behind feature flags. A per-milestone integration branch is an opt-in exception, logged per-use.
+**Why:** Keeps trunk-based development's small, continuously-reviewed PRs while making production advance only at milestone/release cadence — satisfying the CI/CD concern (prod never sees half-finished milestone work) without a long-lived integration branch that costs the 1:1 issue=PR=I→V invariant, forces big-bang reviews, and accumulates drift.
+**Alternatives considered:**
+- *Milestone-integration branch as default* (features → `milestone/N.y` → one PR to `main` at milestone close) — rejected as default: breaks the 1:1 invariant, degrades review quality, drifts from `main`; kept as a logged opt-in for un-flaggable atomic work.
+- *Point production directly at `main`* — rejected: makes every feature merge a prod deploy, the exact churn the concern was about.
+- *Rely on the `self-merge-within-milestone` autonomy knob* — orthogonal (it moves the *human gate*, not the *deploy target*); doesn't address CI/CD.
+**Approved by:** Rich Mosko
+**Supersedes:** _none — new section in [`WORKFLOW.md`](WORKFLOW.md) → Deployment topology._
+
 ### YYYY-MM-DD — Project bootstrapped from template
 **Decision:** Use the `project_template` starter as the foundation for this project.
 **Bootstrapped from:** `project_template` _vX.Y.Z_ (replace with the actual tag — check `git tag -l` on the template repo, or the value in `.claude/linear-team.json` → `templateVersion` if recorded)

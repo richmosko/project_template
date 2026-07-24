@@ -59,6 +59,7 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 - `/refine-doc <PRD|ARCH|SECURITY|DESIGN>` — walks `docs/<DOC>/comments.md` (gitignored review sidecar), addresses each `## §<section-id>` comment in the matching HTML section, removes addressed comments as it goes. Composable with `/start-doc-update` → `/finish-doc-update` → `/merge-pr`. See process/WORKFLOW.md → Doc review loop.
 - `/serve-docs [PRD|ARCH|SECURITY|DESIGN|stop|status]` — starts `scripts/serve-docs.sh` in the background under the Claude session (no separate terminal needed) so the inline comment widget activates in the HTML docs. Pass a doc name to also open it in the browser. Server is cleaned up automatically on `/exit`.
 - `/open-doc` — open HTML/Markdown docs in default viewer
+- `/export-doc [PRD|ARCH|SECURITY|DESIGN]` — render an HTML doc to a standalone, portable PDF via `scripts/export-pdf.sh` (Mermaid diagrams included; defaults to all four). GitHub renders the PDF inline where it won't render the raw HTML.
 
 *Workflow & operations:*
 
@@ -76,7 +77,8 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 
 **Scripts** (`scripts/`):
 
-- `scripts/serve-docs.sh` — local Python server (stdlib only) at `http://localhost:8765` that activates an **inline comment widget** in the HTML docs. Click `+ Comment` next to any section heading, type, save — the widget POSTs to the server which appends to `docs/<DOC>/comments.md`. Same format as hand-edited comments; both feed `/refine-doc`. See process/WORKFLOW.md → Doc review loop → Inline-authoring mode.
+- `scripts/serve-docs.sh` — wrapper that runs `scripts/serve-docs.py`, a stdlib-only Python server at `http://localhost:8765` that activates an **inline comment widget** in the HTML docs. Click `+ Comment` next to any section heading, type, save — the widget POSTs to the server which appends to `docs/<DOC>/comments.md`. Same format as hand-edited comments; both feed `/refine-doc`. See process/WORKFLOW.md → Doc review loop → Inline-authoring mode.
+- `scripts/export-pdf.sh` + `scripts/print-pdf.mjs` — the PDF-export toolchain behind `/export-doc`. `export-pdf.sh` briefly starts the docs server and drives headless Chrome (via the Node `print-pdf.mjs` driver, which waits until Mermaid diagrams have actually rendered) to print each doc to a standalone PDF. Headless Chrome is required because only a real browser engine executes the JS that draws the Mermaid diagrams.
 - `scripts/vendor-mermaid.sh` — downloads Mermaid to `docs/_assets/vendor/` for projects that can't rely on CDN access at doc-view time (see Mermaid loading section above).
 
 **Artifacts** (top level + `docs/`):
@@ -324,7 +326,7 @@ Revert to CDN at any time: `git checkout docs/_assets/mermaid-init.js && rm -rf 
 ## Where to read next
 
 - [`CLAUDE.md`](CLAUDE.md) — session bootstrap, first-run checklist, session-management heuristics.
-- [`process/WORKFLOW.md`](process/WORKFLOW.md) — phases, roles, Linear mapping, team coordination, decision logging.
+- [`process/WORKFLOW.md`](process/WORKFLOW.md) — phases, roles, Linear mapping, team coordination, decision logging, release process, deployment topology.
 - [`process/MILESTONES.md`](process/MILESTONES.md) — live state-ledger structure.
 - [`process/DECISIONS.md`](process/DECISIONS.md) — append-only decision log; conventions in process/WORKFLOW.md → Decision logging.
 - [`process/BACKLOG.md`](process/BACKLOG.md) — Linear-overflow queue and FIFO promotion mechanism.
