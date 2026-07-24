@@ -18,8 +18,8 @@ Linear's workspace setting can auto-archive Done issues after a delay (default 1
 
 - `$ARGUMENTS` — optional filter:
   - **empty** → archive all Done issues on the shared team
-  - **milestone name** (e.g. `M1`) → archive Done issues in that Linear Project only
-  - **sprint name** (e.g. `Sprint 3`) → archive Done issues from that Linear cycle
+  - **milestone name** (e.g. `1.0`) → archive Done issues in that Linear Project only
+  - **major line** (e.g. `V1`) → archive Done issues under that Initiative only
   - **age** (e.g. `30d`, `2w`) → archive Done issues whose completed date is older than the threshold
 
 ## Pre-flight

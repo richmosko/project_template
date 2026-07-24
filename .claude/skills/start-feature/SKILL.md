@@ -5,7 +5,7 @@ description: Kicks off a feature — creates a feature branch, claims a Linear i
 
 # start-feature
 
-Bootstraps one feature = one Implement→Validate loop = one PR. Features are the innermost work unit; they live inside sprints (Linear cycles), which live inside milestones (Linear projects).
+Bootstraps one feature = one Implement→Validate loop = one PR. Features are the innermost work unit; they live inside milestones (Linear projects), which live inside major lines (Linear initiatives). Session Cycles group the features you attempt in one working session — a heuristic, not a Linear layer.
 
 ## Inputs
 
@@ -70,7 +70,7 @@ Slug rule: lowercase, ASCII, hyphens; max 50 chars total branch length.
 
 Drop a markdown block in the conversation with:
 - Issue title and link
-- Parent sprint (Linear cycle) and milestone (Linear project)
+- Parent milestone (Linear project) and major line (Linear initiative)
 - Acceptance criteria (parsed from the Linear issue description)
 - Proposed approach (high-level — implementation leads detail it later)
 - Estimated I→V loop duration
@@ -102,7 +102,7 @@ Set the `## Active Feature` block:
 - Feature: the issue title
 - Linear issue: ABC-123
 - Milestone: parent Linear project name
-- Sprint (Linear cycle): parent cycle name
+- Session Cycle: the current session's label (heuristic; e.g. `SC3`)
 - Branch: feature/abc-123-...
 - Started: today's date (absolute)
 - Goal: one sentence
@@ -113,7 +113,7 @@ Set the `## Active Feature` block:
 - **Branch exists already**: ask the user if they want to switch to the existing branch (feature was interrupted) or pick a different feature.
 - **Linear MCP not configured**: prompt to run `/setup-linear-team` first.
 - **Uncommitted changes on main**: stop and ask the user to commit or stash first. Never auto-stash.
-- **No active Linear cycle**: warn the user — features should normally belong to a sprint (cycle). Either create a cycle in Linear first, or proceed and flag the orphan feature in process/MILESTONES.md.
+- **No milestone for the feature**: warn the user — a feature should belong to a milestone (Linear project). Either attach it to the active milestone, or proceed and flag the orphan feature in process/MILESTONES.md. (There is no Linear cycle to check — Session Cycles are a heuristic, not a Linear artifact.)
 - **Linear at active-issue cap (250)**: hard-block; advise `/cleanup-linear` before retrying.
 - **Requested feature not found in Linear or process/BACKLOG.md**: report; suggest checking the PRD or refining the search term.
 - **Promotion from process/BACKLOG.md fails mid-flow**: report partial state (item was removed from process/BACKLOG.md but Linear issue creation failed); advise the user to manually restore the row to process/BACKLOG.md or retry.

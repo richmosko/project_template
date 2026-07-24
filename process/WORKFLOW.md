@@ -4,7 +4,7 @@
 
 ## Phase model
 
-Every project moves through four phases. **Implement and Validate are nested loops at three scales** — from innermost to outermost: **feature → milestone → project**. The same I↔V mechanics repeat at each scale; only the size of the deliverable changes. (Sprints — Linear cycles — are a **team-wide time-bound delivery cadence** that groups features. They're an orthogonal cadence wrapper, not a loop scale: sprint boundaries are bookkeeping events, not I↔V gates.)
+Every project moves through four phases. **Implement and Validate are nested loops at three scales** — from innermost to outermost: **feature → milestone → major line**. The same I↔V mechanics repeat at each scale; only the size of the deliverable changes. (**Session Cycles** are a **context-bounded working rhythm** — the AI-native replacement for a sprint. They group the features + directives you plan to attempt in one Claude session before context bloats past ~80%. They're a heuristic planning wrapper, not a loop scale and **not** a Linear artifact: session boundaries are bookkeeping events, not I↔V gates. See [Session Cycles](#session-cycles).)
 
 ```mermaid
 flowchart LR
@@ -75,7 +75,8 @@ How far a `/drive`-aimed [goal-driven loop](#goal-driven-loop-drive) runs before
   - SecEng produces `SECURITY` via `/generate-secdoc` (threat model, trust boundaries, controls, compliance, incident response)
   - DevOps defines CI/CD topology, IaC approach, environments
   - QA proposes a test strategy (unit, integration, E2E split; coverage targets; acceptance-test framework)
-  - Lead breaks the roadmap into **milestones (Linear projects) → sprints (Linear cycles) → deliverables (Linear issues)**
+  - Lead breaks the roadmap into **milestones (Linear projects) → features (Linear issues)**; Session Cycles are a session-time planning heuristic, not a roadmap layer
+  - Architect **designates the GA milestone** for the major line — the one that tags `N.0.0` — and fills the Roadmap's *Target tag* column (see [Versioning scheme](#versioning-scheme))
 - **Artifacts:** `docs/ARCH/index.html`, `docs/SECURITY/index.html`, populated `MILESTONES.md`, Linear backlog
 - **Gate:** ARCH + SECURITY approved; Linear backlog populated for the first milestone.
 
@@ -106,7 +107,7 @@ How far a `/drive`-aimed [goal-driven loop](#goal-driven-loop-drive) runs before
   - SecEng re-engaged if any security control was touched
 - **Gate:** Acceptance criteria met → `/merge-pr` → update `MILESTONES.md`. **Tag a release only if this PR completes a release milestone** — the `/merge-pr` skill prompts; tagging is never automatic.
 
-After a Validate cycle, we either return to Implement (next feature in the sprint) or escalate to a new Research mini-loop (if findings invalidate the PRD).
+After a Validate cycle, we either return to Implement (next feature in this Session Cycle) or escalate to a new Research mini-loop (if findings invalidate the PRD).
 
 ## Goal-driven loop (`/drive`)
 
@@ -135,6 +136,20 @@ Chosen per project at `/setup-linear-team`, stored in [Delivery autonomy](#deliv
 
 `/goal` removes per-*turn* prompts; **auto mode** removes per-*tool* prompts. Self-merge needs both to run unattended.
 
+## Session Cycles
+
+A **Session Cycle** is this workflow's AI-native replacement for a sprint. A human sprint is bounded by *calendar* (1–2 weeks); a Session Cycle is bounded by *context budget* — one continuous Claude session, from a fresh start (or post-`/compact`) until context crosses ~80% or a natural boundary (feature merge, phase transition). It is the unit that actually governs throughput in an AI-driven project, because the real WIP limit here is the context window, not the calendar.
+
+**Heuristic only — zero Linear footprint.** A Session Cycle is *not* mirrored to a Linear Cycle, and the template does not create Linear Cycles at all. (Linear MCP calls are expensive token-wise; a cadence wrapper that exists only to be queried would tax every session that touches it.) Session Cycles live in this file's [Session Cycles table](MILESTONES.md#session-cycles) as lightweight notes and nowhere else. Features still belong to **milestones** (Linear projects) and **major lines** (Linear initiatives) — those are the durable layers.
+
+**The ritual: session planning at the start of each session.** Before doing tactical work, pick the small set of features + user directives you'll attempt this session — the set that plausibly fits under ~80% context. Defaults:
+
+- **1 feature (one I→V loop) per session** is the baseline — it matches the "`/compact` at end of each I→V loop" rule in [CLAUDE.md](../CLAUDE.md) → Session management.
+- Batch 2–3 issues into one session only if they're tightly related *and* the combined context stays under budget.
+- **Directives count against the same budget.** A session heavy on ad-hoc reviews / doc tweaks fits fewer issues. Plan accordingly.
+
+**Session planning is also the promotion trigger.** Backlog→Linear promotion (`/sync-backlog`) and Done-issue archiving (`/cleanup-linear`) happen **at session-planning time or on demand** — there is no "cycle boundary" event anymore, because there is no Linear Cycle. When you plan a session and find the active-issue set thin, promote; when it's bloated with Done issues, archive.
+
 ## Roles
 
 ### Principal (you)
@@ -160,7 +175,7 @@ Remote MCP servers — **Linear** above all, but also Google Drive, Gmail, Calen
 The `mcp-broker` teammate is the fix: a **context firewall**. It's the one agent that touches those servers, so the raw JSON lands in *its* isolated context and only a distilled answer — the fact plus the IDs needed to act — comes back over `SendMessage`. Delegate the query, get back three lines instead of five kilobytes.
 
 **When to delegate to the broker:**
-- Any **read** whose payload dwarfs the answer: `list_issues`, `get_issue`, `get_project`, `list_cycles`, `search_files`, `read_file_content`, `search_threads`, `list_events`. Phrase it as an intent — _"acceptance criteria for ABC-123", "in-progress issues in milestone M2"_ — and let the broker return the minimum.
+- Any **read** whose payload dwarfs the answer: `list_issues`, `get_issue`, `get_project`, `get_initiative`, `search_files`, `read_file_content`, `search_threads`, `list_events`. Phrase it as an intent — _"acceptance criteria for ABC-123", "in-progress issues in milestone 1.1"_ — and let the broker return the minimum.
 - **Ad-hoc writes** you'd otherwise do by hand (`save_comment`, `create_event`); the broker confirms back just the resulting ID/URL.
 
 **When NOT to:**
@@ -176,7 +191,7 @@ Three distinct mechanisms, each with a different scope. Use the right one for th
 
 | Mechanism | Scope | Use for |
 |---|---|---|
-| **Linear** | durable, cross-session | Canonical work store — features, milestones, sprints, releases. Survives session restart. |
+| **Linear** | durable, cross-session | Canonical work store — features (issues), milestones (projects), major lines (initiatives). Survives session restart. **Session Cycles live here only as a heuristic, never as a Linear Cycle.** |
 | **Shared task list** | session-scoped (transient) | In-session execution coordination — hand-offs, dependencies, "I'm working on X now," parallel scheduling. **Does not survive `/resume` or session end.** |
 | **SendMessage / mailbox** | point-to-point | Direct questions, opinions, peer-review pings, "look at this" nudges. Lands in the recipient's mailbox automatically; no broadcast. |
 
@@ -202,8 +217,8 @@ Teammates claim and complete tasks; dependencies auto-unblock; the lead watches 
 
 ### Lead's promotion duty
 
-Because the shared task list and mailbox are transient, the **lead promotes durable state outward** at feature/sprint/milestone boundaries:
-- Shared task list → MILESTONES.md sprint notes + Linear issue comments (so a future session can reconstruct what happened)
+Because the shared task list and mailbox are transient, the **lead promotes durable state outward** at feature/session/milestone boundaries:
+- Shared task list → MILESTONES.md Session Cycle notes + Linear issue comments (so a future session can reconstruct what happened)
 - Mailbox exchanges containing decisions → `DECISIONS.md`
 - Anything ephemeral (status pings, intermediate WIP) stays transient — that's the point.
 
@@ -474,18 +489,57 @@ Sections that already have comments show a `💬 N` count badge next to the head
 - **SSH-key setup once per repo.** Run `/setup-claude-deploy-key` on first bootstrap — it generates a passphrase-less Ed25519 key (`~/.ssh/id_ed25519_claude_<repo>`), helps you register it as a GitHub deploy key with write access, and pins the repo's git to use it via `core.sshCommand`. This eliminates `Permission denied (publickey)` failures that occur when Claude Code can't unlock your main passphrase-protected SSH key from its non-TTY bash.
 - **Commits** include the Linear issue ID when applicable: `feat(ABC-123): add login flow`.
 - **PRs** auto-link to Linear via the `/finish-feature` skill.
-- **Linear (shared-team model):** one Linear team across **all** your projects (Linear's free tier caps you at 2 teams; we use a single shared team for the whole workspace). Each project gets its own **Initiative**. Set up via `/setup-linear-team` on first session.
+- **Linear (shared-team model):** one Linear team across **all** your projects (Linear's free tier caps you at 2 teams; we use a single shared team for the whole workspace). Each **major version line** gets its own **Initiative** — so `V1` and `V2` are two Initiatives that can run concurrently (see [Versioning scheme](#versioning-scheme)). Set up via `/setup-linear-team` on first session.
 
-| Our concept | Linear primitive |
-|---|---|
-| Project (overall effort, this repo) | **Initiative** (workspace-level; has target date, owner, health) |
-| Milestone | Linear Project (status `Planned` → `In Progress` → `Completed`) |
-| Sprint | Linear Cycle (team-wide cadence; one cycle can contain features from multiple of your projects) |
-| Feature | Linear Issue (one issue = one PR = one I→V loop) |
+| Our concept | Linear primitive | Version digit |
+|---|---|---|
+| **Major version line** (`V1`, `V2`, …) | **Initiative** (one per major line; concurrent; has target date, owner, health; closes when the line is EOL'd) | **MAJOR** (`x`) |
+| **Milestone** | Linear Project (product milestones **named by target version**; status `Planned` → `In Progress` → `Completed`) | **MINOR** (`y`) |
+| **Feature** | Linear Issue (one issue = one PR = one I→V loop) | — (identity via Linear ID + release notes) |
+| **Hotfix** | Linear Issue (fix on a shipped milestone) | **PATCH** (`z`) |
+| **Session Cycle** | *(none — heuristic, session-scoped; see [Session Cycles](#session-cycles))* | — |
+
+> **Note the shift from earlier versions of this template:** an Initiative is no longer "the whole project forever." It's scoped to **one major line**, so it has a natural close (line EOL) and lets you maintain `V1.x` and develop `V2.x` in parallel as two open Initiatives.
+
+### Versioning scheme
+
+Releases follow **strict [semver](https://semver.org)** — `MAJOR.MINOR.PATCH` — with each digit bound to a workflow layer:
+
+| Digit | Bound to | Bumps when |
+|---|---|---|
+| **MAJOR** (`x`) | Initiative / major line | A breaking change ships. A new major **opens a new Initiative**. |
+| **MINOR** (`y`) | Milestone | A **product milestone** completes (a backward-compatible feature batch). |
+| **PATCH** (`z`) | Hotfix | A backward-compatible fix ships against an already-released milestone. |
+
+**A feature is not a version digit.** Features land continuously inside a milestone; their identity is the **Linear issue ID + PR**, and they're enumerated in the milestone's GitHub Release notes. Keeping `z` for hotfixes preserves semver's compatibility signal — `v1.3.2` tells a consumer it's a safe patch over `v1.3.0`, which it couldn't if `z` counted features.
+
+**MINOR is not the milestone ordinal.** `MINOR` restarts at `0` for each major and counts *product releases within that major*. The `Mn` label (M0, M1, M2…) is just a per-Initiative sequential tag that also numbers the non-tagging process milestones — so it always runs ahead of `MINOR`. To kill the ambiguity, **name product milestones by their target version** (`1.0`, `1.1`, `2.0`), so milestone ↔ `MAJOR.MINOR` is 1:1 by construction. Process milestones keep descriptive names (Bootstrap & Research, Plan).
+
+**One milestone per MINOR (Model A).** The run-up to any `N.0.0` is a *single* milestone named `N.0`, internally subdivided via the [M0a/M0b mechanism](#process-milestones-vs-product-milestones) when it's large. Pre-release checkpoints inside it are cut as semver pre-release tags (`N.0.0-alpha.1`, `-beta.1`, `-rc.1`), which sort *before* `N.0.0`. This keeps the 1:1 milestone↔version mapping intact.
+
+**GA is designated at planning time, never inferred.** During Plan (M1), the `architect` flags exactly one milestone per major line as **GA** — the one that tags `N.0.0` — and records target versions in the Roadmap's *Target tag* column. Don't assume "first product milestone = `N.0.0`."
+
+**The `0.y.z` → `1.0.0` transition.** The founding Initiative starts at MAJOR `0`, semver's reserved "no compatibility promise" zone, so its pre-GA milestones get **real minor numbers** — `0.1.0`, `0.2.0`, `0.3.0`. Cutting `1.0.0` is the human act of *declaring the line stable*; you create a milestone literally named `1.0` and the MINOR counter resets there. Later majors (`V2`+) have no reserved zone, so their pre-GA run-up uses **pre-release identifiers** (`2.0.0-rc.1`) or stays untagged while `V1.x` keeps shipping to users.
+
+**Parallel major maintenance (`V1.x` + `V2.x`).** When breaking work starts, open Initiative `V2`; now two Initiatives are open. `main` tracks the **highest active major**; each prior major gets a long-lived **`release/N.x` branch**. Tags are cut from the matching branch (`v1.4.2` from `release/1.x`, `v2.1.0` from `main`); the flat tag namespace disambiguates automatically. A `V1` bugfix is an issue under Initiative `V1` (PATCH bump only); a `V2` feature is an issue under Initiative `V2`. Initiative `V1` moves to **Completed** when you EOL the `1.x` line.
+
+Worked example — the two Initiatives side by side:
+
+```
+Initiative V1                          Initiative V2 (opens later, runs concurrently)
+─────────────                          ──────────────
+Bootstrap & Research  → (untagged)     V2 Research / Plan   → (untagged)
+Plan                  → (untagged)     2.0 (GA-designated)  → v2.0.0
+0.1 (MVP)             → v0.1.0           ├─ checkpoint       → v2.0.0-beta.1
+0.2                   → v0.2.0         2.1                  → v2.1.0
+1.0 (GA-designated)   → v1.0.0
+1.1                   → v1.1.0
+  └─ hotfix           → v1.1.1  ◄─── still shipping from release/1.x
+```
 
 ### Process milestones vs. product milestones
 
-Milestones come in two flavors. **Process milestones** (M0 — Bootstrap & Research, M1 — Plan) track the Research and Plan phases themselves as first-class Linear projects, seeded automatically by `/setup-linear-team`. **Product milestones** (M2+) are the actual scope chunks of the product and are populated by the `architect` during M1.
+Milestones come in two flavors. **Process milestones** (M0 — Bootstrap & Research, M1 — Plan) track the Research and Plan phases themselves as first-class Linear projects, seeded automatically by `/setup-linear-team`; they keep descriptive names and **do not tag releases**. **Product milestones** are the actual scope chunks of the product, **named by their target version** (`1.0`, `1.1`, …), and are populated by the `architect` during M1 — who also flags which one is [GA](#versioning-scheme).
 
 The point of giving Research and Plan their own milestones is that those phases are often as complex as a product milestone — drafting a PRD or designing an architecture generates a real backlog of sub-tasks (interview a stakeholder, sketch a flow, decide a stack). Treating them as milestones means that work is **trackable as Linear issues** with the same visibility as product work, and a fresh session sees the Roadmap populated from Day 0 instead of waiting until Plan completes.
 
@@ -506,7 +560,7 @@ The point of giving Research and Plan their own milestones is that those phases 
   ```
 
   - **`/setup-linear-team`** seeds only the **first milestone's** stories into Linear; everything else lands in [`BACKLOG.md`](BACKLOG.md) (sibling of this file under `process/`).
-  - **`/sync-backlog`** promotes from BACKLOG.md to Linear at sprint-cycle boundaries (or on demand). FIFO by milestone stage; honors the active-issue budget.
+  - **`/sync-backlog`** promotes from BACKLOG.md to Linear at **session-planning time** (the [Session Cycle](#session-cycles) ritual) or on demand. FIFO by milestone stage; honors the active-issue budget.
   - **`/start-feature`** runs a budget check before creating new Linear issues. At 80% of cap (>200 active) it warns; at the cap (250) it hard-blocks and routes new items to BACKLOG.md.
   - **`/cleanup-linear`** archives Done issues on demand. Complementary to Linear's workspace **Auto-archive after N days** setting (Settings → Workflow; default 14 days) — enable it for passive cleanup.
 
@@ -664,7 +718,7 @@ Don't accumulate per-PR narrative inside this file or `WORKFLOW.md`. Each log sh
 |---|---|---|
 | **"Why did we choose X?"** (architectural decision, ADR) | [`DECISIONS.md`](DECISIONS.md) | Evergreen reference; survives long after the decision was made |
 | **"When did X happen?"** (per-PR execution narrative) | Git commit messages + `MILESTONES.md` → Features → Completed table (PR link + merge date) | Git log is comprehensive and free; MILESTONES gives at-a-glance scanning |
-| **"Where are we right now?"** (current state, active feature, sprint, phase) | [`MILESTONES.md`](MILESTONES.md) | Live, mutable, auto-loaded |
+| **"Where are we right now?"** (current state, active feature, session cycle, phase) | [`MILESTONES.md`](MILESTONES.md) | Live, mutable, auto-loaded |
 | **"What changed in vX.Y.Z?"** (per-release notes for end-users) | **GitHub Releases** (see [Release process](#release-process) below) | Auto-drafted from PRs; published with its own URL/RSS/API; no extra file to maintain |
 
 The template intentionally **does not ship a `CHANGELOG.md`**. Git log + GitHub Releases cover the same need with no upkeep cost. If a downstream project wants an in-repo file (e.g. for editor-local grepping), add one — but it's not a default.
@@ -673,7 +727,7 @@ The template intentionally **does not ship a `CHANGELOG.md`**. Git log + GitHub 
 
 Releases are **human decisions**, never automatic. The `/merge-pr` skill prompts at the right moment.
 
-**When to cut a release.** When the most recent merge completes a milestone's "Definition of done" (see `MILESTONES.md` → Roadmap row). Process milestones (M0, M1) typically don't get tagged releases — they're internal phase gates. Product milestones (M2+) get a tag when their release shape is real (e.g. v0.1.0 for M2 = MVP).
+**When to cut a release.** When the most recent merge completes a milestone's "Definition of done" (see `MILESTONES.md` → Roadmap row). Process milestones (Bootstrap & Research, Plan) don't get tagged releases — they're internal phase gates. Product milestones tag on completion, and **the version comes from the milestone's name + its Roadmap *Target tag*** per the [Versioning scheme](#versioning-scheme): a milestone named `1.1` completing tags `v1.1.0`; the [GA](#versioning-scheme)-designated milestone of a major line tags `vN.0.0`; a hotfix against a shipped milestone bumps PATCH (`v1.1.1`). Pre-release checkpoints inside a not-yet-GA milestone are cut as `-alpha/-beta/-rc` tags, and `V1.x` maintenance releases are tagged from the `release/1.x` branch while `main` carries the newest major.
 
 **The flow at milestone close:**
 

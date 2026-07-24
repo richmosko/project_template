@@ -7,14 +7,14 @@
 <!-- REPLACE on first run: one or two sentences on what the product is and who it's for. -->
 _TBD — fill in during the Research phase. See [`docs/PRD/index.html`](docs/PRD/index.html)._
 
-This repo was instantiated from the [project_template](https://github.com/richmosko/project_template) starter. The template's workflow, agent roster, and artifact conventions are defined in [`process/WORKFLOW.md`](process/WORKFLOW.md). The current state of the work — phase, sprint, feature, decisions — lives in [`process/MILESTONES.md`](process/MILESTONES.md). **Read process/MILESTONES.md before doing anything else.**
+This repo was instantiated from the [project_template](https://github.com/richmosko/project_template) starter. The template's workflow, agent roster, and artifact conventions are defined in [`process/WORKFLOW.md`](process/WORKFLOW.md). The current state of the work — phase, session cycle, feature, decisions — lives in [`process/MILESTONES.md`](process/MILESTONES.md). **Read process/MILESTONES.md before doing anything else.**
 
 ## Current state at a glance
 
-- **Project (Linear Initiative):** see `## Project / Initiative` in [`process/MILESTONES.md`](process/MILESTONES.md)
+- **Major line (Linear Initiative):** see `## Major line / Initiative` in [`process/MILESTONES.md`](process/MILESTONES.md) — one Initiative per major version line (`V1`, `V2`, …)
 - **Phase:** see `## Current Phase` in [`process/MILESTONES.md`](process/MILESTONES.md)
 - **Active feature:** see `## Active Feature` in [`process/MILESTONES.md`](process/MILESTONES.md) (a feature = one Linear issue = one PR = one I→V loop)
-- **Active sprint (Linear cycle):** see `## Sprints (Linear cycles)` in [`process/MILESTONES.md`](process/MILESTONES.md)
+- **Active session cycle:** see `## Session Cycles` in [`process/MILESTONES.md`](process/MILESTONES.md) — a context-bounded work session (heuristic; no Linear artifact)
 - **Linear binding:** see `.claude/linear-team.json` for the shared team ID + this project's Initiative ID (run `/setup-linear-team` if missing)
 
 ## Artifacts
@@ -59,12 +59,12 @@ When in doubt about where we left off, **read process/MILESTONES.md first** — 
 
 When a session starts cold and the user says any variant of "continue" / "pick up where we left off" / "what's next", the team-lead should run this sequence **before doing tactical work**:
 
-1. **Read the full `process/MILESTONES.md`** (not just the auto-injected head). Note Active Feature, Current Phase, and the most recent Sprint/Roadmap rows.
+1. **Read the full `process/MILESTONES.md`** (not just the auto-injected head). Note Active Feature, Current Phase, and the most recent Session Cycle / Roadmap rows.
 2. **Inspect git state** in parallel: `git status`, `git rev-parse --abbrev-ref HEAD`, `git log --oneline -10`. The branch name tells you which loop you're in (`feature/*`, `phase/*`, or `main`).
 3. **Match branch → context:**
    - On a `feature/*` branch → an Implement→Validate loop was in flight. Read the linked Linear issue, list recently-modified files (`git diff --stat main...HEAD`), and re-derive what's left from the issue's acceptance criteria.
    - On a `phase/*` branch → a doc-update was in flight. Diff against main to see pending edits.
-   - On `main` with a clean tree → between loops. Decide the next move from process/MILESTONES.md (next backlog feature in the current sprint, or pending phase transition).
+   - On `main` with a clean tree → between loops. Decide the next move from process/MILESTONES.md (next backlog feature for this session cycle, or pending phase transition).
 4. **Check open PRs** with `gh pr list --state open` in case a previous session opened one that's waiting for `/merge-pr`.
 5. **Read `process/WORKFLOW.md` only if needed** — phase gate criteria, roster, or process detail. Don't pre-load it for every resume.
 6. **Surface the inferred pickup point** to the user in one or two sentences and **wait for confirmation** before doing heavy work. If state is ambiguous (no active feature, dirty tree on main, mismatched branch/MILESTONES.md), say so and ask.

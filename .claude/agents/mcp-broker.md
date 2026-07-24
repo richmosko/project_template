@@ -39,7 +39,7 @@ Rule of thumb: if your reply is more than ~15 lines for a read, you're probably 
 
 ## Reads vs. writes
 
-- **Reads are your bread and butter** — `list_issues`, `get_issue`, `get_project`, `list_cycles`, `search_files`, `read_file_content`, `search_threads`, `get_thread`, `list_events`. These return the fat payloads; distilling them is the whole point.
+- **Reads are your bread and butter** — `list_issues`, `get_issue`, `get_project`, `get_initiative`, `search_files`, `read_file_content`, `search_threads`, `get_thread`, `list_events`. These return the fat payloads; distilling them is the whole point.
 - **Writes are fine to delegate too** (`save_issue`, `save_comment`, `save_document`, `create_event`) — they return little, so the context win is smaller, but routing them through you keeps one teammate as the single writer and lets you confirm back just the resulting ID/URL. When a caller hands you a write, echo back only **what changed + the identifier**, not the full returned object.
 
 ## What you must preserve, not just shrink

@@ -5,7 +5,7 @@ description: One-time bootstrap that wires Linear into this project — confirms
 
 # setup-linear-team
 
-Bootstraps Linear for this project under the **shared-team model**: one Linear team for the whole workspace (free-tier-friendly), one **Initiative** per project (this repo), labels for per-agent attribution, and a tiered overflow system to keep active issues under the 250-issue cap.
+Bootstraps Linear for this project under the **shared-team model**: one Linear team for the whole workspace (free-tier-friendly), one **Initiative per major version line** (the founding line is `V1`; later majors open their own Initiatives), labels for per-agent attribution, and a tiered overflow system to keep active issues under the 250-issue cap.
 
 ## When to run
 
@@ -89,10 +89,10 @@ Create `.claude/linear-team.json`:
 
 The file is gitignored — each clone resolves its own cache.
 
-### 5. Update process/MILESTONES.md → Project / Initiative
+### 5. Update process/MILESTONES.md → Major line / Initiative
 
-Fill the `## Project / Initiative` block with:
-- Project name (use `initiativeName`)
+Fill the founding row of the `## Major line / Initiative` table (the founding line is `V1`, starting at MAJOR `0`):
+- Major line (`V1`)
 - Linear Initiative (paste ID with a link, e.g. `[INIT-abc](https://linear.app/<workspace>/initiative/<id>)`)
 - Status (`Planned` until Plan phase completes)
 - Owner (the user)
@@ -107,8 +107,8 @@ For each, call `mcp__claude_ai_Linear__save_project`:
 
 | # | Name | State | Linked initiative | Description |
 |---|---|---|---|---|
-| M0 | `M0 — Bootstrap & Research` | `started` | `<initiativeId>` | "Definition of done: PRD v1 approved; user stories enumerated; M2+ scope sketched in PRD §9." |
-| M1 | `M1 — Plan` | `planned` | `<initiativeId>` | "Definition of done: ARCH + SECURITY approved; M2+ Roadmap rows populated; first sprint planned." |
+| M0 | `M0 — Bootstrap & Research` | `started` | `<initiativeId>` | "Definition of done: PRD v1 approved; user stories enumerated; product-milestone scope sketched in PRD §9." |
+| M1 | `M1 — Plan` | `planned` | `<initiativeId>` | "Definition of done: ARCH + SECURITY approved; product-milestone Roadmap rows populated + GA milestone designated; first session planned." |
 
 Capture both `projectId` values; cache them in `.claude/linear-team.json` under a new `processMilestones` key:
 
@@ -220,5 +220,6 @@ Also remind the user (one-time advice on first run):
 - **Don't attempt to create teams via MCP** — that operation isn't exposed; direct the user to Linear's UI.
 - **Initiative creation IS now exposed** via `save_initiative` — use it instead of the manual UI path when possible.
 - **Shared-team model is intentional.** Linear's free tier caps you at 2 teams. Using one shared team across all your projects (with Initiatives differentiating them) keeps you well under the cap and shares the 250-active-issues budget across everything.
-- **Linear cycles are team-wide.** All of your projects share the same sprint cadence. Plan cycle scope across projects accordingly.
+- **One Initiative per major version line.** `V1` and `V2` are separate Initiatives that can run concurrently; a new major opens a new Initiative. See `process/WORKFLOW.md` → Versioning scheme.
+- **Do not create Linear Cycles.** Session Cycles are a session-planning heuristic with no Linear footprint (Linear MCP calls are token-expensive). Don't seed or reference Linear Cycles anywhere. See `process/WORKFLOW.md` → Session Cycles.
 - **Tiered backlog is the cap-management strategy.** See `process/WORKFLOW.md` → Version control & Linear → "Free-tier issue-cap mitigation" for the full pattern.

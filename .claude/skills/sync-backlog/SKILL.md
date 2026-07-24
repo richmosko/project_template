@@ -1,6 +1,6 @@
 ---
 name: sync-backlog
-description: Promotes the next batch of items from process/BACKLOG.md to Linear issues, in milestone FIFO order. Called at sprint-cycle boundaries during sprint planning, on demand by the user, or automatically by /start-feature when the requested feature is queued in process/BACKLOG.md. Honors the active-issue budget (won't create new issues past the 250-issue cap).
+description: Promotes the next batch of items from process/BACKLOG.md to Linear issues, in milestone FIFO order. Called at session-planning time, on demand by the user, or automatically by /start-feature when the requested feature is queued in process/BACKLOG.md. Honors the active-issue budget (won't create new issues past the 250-issue cap).
 ---
 
 # sync-backlog
@@ -9,7 +9,7 @@ Promotes items from `process/BACKLOG.md` (overflow queue) into Linear issues. De
 
 ## When to run
 
-- **At sprint-cycle start**, during sprint planning. The lead promotes the next batch.
+- **At session-planning time**, when starting a new [Session Cycle](../../../process/WORKFLOW.md). The lead promotes the next batch to refill the active-issue set.
 - **On demand**: "promote the next 5 items from backlog to Linear" or similar.
 - **Implicitly by `/start-feature`** when the requested feature isn't in Linear yet but its row exists in process/BACKLOG.md.
 
@@ -88,7 +88,7 @@ Append a single line to `## Sync log` at the bottom of `process/BACKLOG.md`:
 - <YYYY-MM-DD>: Promoted <N> items to Linear (<context>) — issues <FIRST-ID> through <LAST-ID>
 ```
 
-Where `<context>` is one of: `"Sprint <N> planning"`, `"on-demand"`, or `"auto from /start-feature"`.
+Where `<context>` is one of: `"session planning"`, `"on-demand"`, or `"auto from /start-feature"`.
 
 If the new IDs aren't contiguous (rare but possible), list them as a comma-separated list instead of "through".
 
