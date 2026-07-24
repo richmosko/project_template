@@ -35,7 +35,7 @@ A skill argument can override for this one invocation: if the user passed `self-
 
 **For `stop-at-merge` → one feature:**
 - If an issue ID was passed as the argument, use it.
-- Otherwise infer the next feature: check `process/MILESTONES.md` → Features → *In Flight* first (resume it); if none, take the top of *Backlog* / the next Linear issue in the current sprint. If the requested feature is only queued in `process/BACKLOG.md`, note that `/start-feature` will promote it.
+- Otherwise infer the next feature: check `process/MILESTONES.md` → Features → *In Flight* first (resume it); if none, take the top of *Backlog* / the next Linear issue in the current milestone. If the requested feature is only queued in `process/BACKLOG.md`, note that `/start-feature` will promote it.
 - You need the feature's **Linear issue ID, title, and acceptance criteria** to build a good condition. Pull them from Linear if not already in context.
 
 **For `self-merge-within-milestone` → one milestone:**

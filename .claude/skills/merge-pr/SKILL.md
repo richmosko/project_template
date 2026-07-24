@@ -52,19 +52,19 @@ git branch -d feature/<issue-id>-<slug>  # delete local branch
 
 - Set issue status to "Done".
 - Add a final comment: "Merged in <commit-sha>. Closing."
-- The parent Linear cycle (sprint) and project (milestone) auto-track completion as constituent issues close.
+- The parent Linear project (milestone) and Initiative (major line) auto-track completion as constituent issues close.
 
 ### 5. Update process/MILESTONES.md
 
 - Move the feature entry from `### In Flight` to `### Completed` (under Features), with the merge date and PR link. The Completed table is **capped to the active milestone** — within a milestone it just accumulates; you only append here.
 - Clear `## Active Feature`.
-- If this feature completed a sprint (Linear cycle) or milestone (Linear project), update the corresponding row in `## Sprints` or `## Roadmap`.
+- Update the `## Session Cycles` note for the active session, and if this feature completed a milestone (Linear project), update the corresponding row in `## Roadmap`.
 - **If this feature closed a milestone**, roll off the Completed table after finishing step 6: confirm the closing milestone's rows are all `Done` in Linear and (if it shipped a release) that a `## Releases` row exists, then **clear those rows** from `### Completed`, leaving only the incoming milestone's features. See `process/WORKFLOW.md` → Completed-table rolloff.
 
 ### 6. Tag and draft GitHub Release if appropriate
 
-If this PR completes a release milestone (the milestone's Gate in `process/MILESTONES.md` Roadmap, or PRD's release shape), prompt:
-> "Tag this as a release? (y/n) — recommended tag: vX.Y.Z"
+If this PR completes a release milestone (the milestone's Gate in `process/MILESTONES.md` Roadmap, or PRD's release shape), prompt. **Derive the version from the milestone name + its Roadmap *Target tag***, not from a guess (see `process/WORKFLOW.md` → Versioning scheme): a milestone named `1.1` → `v1.1.0`; the GA-designated milestone of a major line → `vN.0.0`; a hotfix on a shipped milestone → PATCH bump (`v1.1.1`). For a not-yet-GA milestone, offer a pre-release tag (`v2.0.0-rc.1`). For a `V1.x` maintenance release while `main` carries a newer major, tag from the `release/1.x` branch.
+> "Tag this as a release? (y/n) — recommended tag: v<MAJOR>.<MINOR>.<PATCH> (from milestone <name>)"
 
 If yes, run sequentially:
 
@@ -86,9 +86,9 @@ gh release create vX.Y.Z --generate-notes --draft --title "vX.Y.Z — <milestone
 
 The lead does *not* publish on the user's behalf — release notes are a Principal decision.
 
-**d. Add a row to `## Releases` in process/MILESTONES.md** with version, date, milestone shipped, and a link to the (still-draft, will become published) release URL. If the user hasn't published yet, mark the row as `Draft` and the lead can update it later when the user confirms publication.
+**d. Add a row to `## Releases` in process/MILESTONES.md** with version, date, major line, milestone shipped, branch, and a link to the (still-draft, will become published) release URL. If the user hasn't published yet, mark the row as `Draft` and the lead can update it later when the user confirms publication.
 
-Do **not** tag automatically. Releases are a human decision. **Process milestones (M0, M1) typically don't get tagged releases** — they're internal phase gates, not user-facing ship points.
+Do **not** tag automatically. Releases are a human decision. **Process milestones (Bootstrap & Research, Plan) don't get tagged releases** — they're internal phase gates, not user-facing ship points.
 
 See `process/WORKFLOW.md` → Release process for the full convention.
 
@@ -96,11 +96,11 @@ See `process/WORKFLOW.md` → Release process for the full convention.
 
 `SendMessage` to the team-lead (you): "Feature <id> merged. Pick next feature or transition phase."
 
-The lead reads process/MILESTONES.md and decides: another feature in the current sprint, next sprint planning, or phase escalation (milestone complete → next milestone, or PRD-invalidating findings → Research mini-loop).
+The lead reads process/MILESTONES.md and decides: another feature in the current session cycle, plan a fresh session, or phase escalation (milestone complete → next milestone, or PRD-invalidating findings → Research mini-loop).
 
 ### 8. Tear down the team
 
 Once the lead has decided the next move:
 
 - "Clean up the team" — tears down the Implement team. The **shared task list disappears with it** (any state that mattered should already be in process/MILESTONES.md / Linear per `/finish-feature` step 6).
-- The next phase (or next feature in the same sprint) spawns a fresh team.
+- The next phase (or next feature in the same session cycle) spawns a fresh team.

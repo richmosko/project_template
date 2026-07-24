@@ -1,7 +1,7 @@
 # Backlog
 
 > Overflow queue for Linear. Items here are scoped but **not yet active in Linear**.
-> Promoted to Linear via `/sync-backlog` — at sprint-cycle boundaries, on demand, or automatically by `/start-feature` when a requested feature is queued here.
+> Promoted to Linear via `/sync-backlog` — at session-planning time, on demand, or automatically by `/start-feature` when a requested feature is queued here.
 > Rows are **removed from this file** once promoted; promotion events are recorded in the [Sync log](#sync-log) at the bottom for audit.
 
 ## How this file works
@@ -16,7 +16,7 @@ docs/PRD/index.html   BACKLOG.md (here)        Linear active issues       Linear
 ```
 
 - `setup-linear-team` seeds only the **first milestone's** stories into Linear; everything else lands here.
-- `/sync-backlog` promotes the next batch when a new sprint cycle starts (or on demand).
+- `/sync-backlog` promotes the next batch at session-planning time (or on demand).
 - `/start-feature` runs a budget check before creating new Linear issues; routes to BACKLOG.md if Linear is near cap.
 
 ## Ordering
@@ -47,7 +47,7 @@ If you want strict priority ordering, sort the rows within a milestone manually 
 Append-only. Records each `/sync-backlog` promotion event for audit. Format:
 
 ```
-- <YYYY-MM-DD>: Promoted <N> items to Linear (<context — e.g. "Sprint 3 planning" or "on-demand">) — issues <FIRST-ID> through <LAST-ID>
+- <YYYY-MM-DD>: Promoted <N> items to Linear (<context — e.g. "session planning" or "on-demand">) — issues <FIRST-ID> through <LAST-ID>
 ```
 
 <!-- Promotion events go below this line, newest at bottom. -->

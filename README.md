@@ -12,7 +12,7 @@ This repo is a **meta-template**, not a product. Clone it (or use it as a GitHub
 - workflow skills for branching, PR + Linear integration, releases,
 - HTML doc templates with embedded Mermaid diagrams,
 - a state ledger (`process/MILESTONES.md`), a separate append-only decision log (`process/DECISIONS.md`), and a backlog overflow queue (`process/BACKLOG.md`),
-- **AGILE issue / milestone / sprint tracking via [Linear](https://linear.app)** — our project / milestone / sprint / feature hierarchy maps to Linear's Initiative / Linear-Project / Cycle / Issue primitives,
+- **AGILE issue / milestone tracking via [Linear](https://linear.app)** — our major-line / milestone / feature hierarchy maps to Linear's Initiative / Linear-Project / Issue primitives (semver `MAJOR.MINOR.PATCH` binds to those layers; Session Cycles are a heuristic with no Linear footprint),
 - session-management heuristics tuned for asynchronous solo development.
 
 The goal: every new project starts with the same shape, so async hand-offs and context-window management are predictable.
@@ -30,7 +30,7 @@ flowchart LR
   V -->|project complete| done([Ship / Wind-down])
 ```
 
-Implement ⇄ Validate is the inner loop at three scales: **feature → milestone → project**. Sprints (Linear cycles) are a team-wide cadence wrapper, not a loop scale. Full details in [`process/WORKFLOW.md`](process/WORKFLOW.md).
+Implement ⇄ Validate is the inner loop at three scales: **feature → milestone → major line**. Session Cycles (context-bounded work sessions, not Linear artifacts) are a heuristic planning wrapper, not a loop scale. Full details in [`process/WORKFLOW.md`](process/WORKFLOW.md).
 
 ## What you get
 
@@ -70,7 +70,7 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 - `/merge-pr` — gated team-lead merge after QA sign-off (features) or lead review (doc updates); squash-merges, archives, updates state. Alternative to human-review-and-merge via GitHub UI
 - `/setup-linear-team` — wire Linear into a new project (one-time): links the shared team, creates this project's Initiative via MCP, seeds agent labels, seeds first-milestone stories to Linear and rest to `process/BACKLOG.md`
 - `/setup-claude-deploy-key` — generate a per-repo passphrase-less SSH deploy key so Claude can push to GitHub without TTY-unlockable passphrases (one-time per repo)
-- `/sync-backlog [count|milestone]` — promote items from `process/BACKLOG.md` to Linear in milestone-FIFO order. Called at sprint-cycle boundaries, on demand, or implicitly by `/start-feature` when a queued feature is requested
+- `/sync-backlog [count|milestone]` — promote items from `process/BACKLOG.md` to Linear in milestone-FIFO order. Called at session-planning time, on demand, or implicitly by `/start-feature` when a queued feature is requested
 - `/cleanup-linear [filter]` — bulk-archive Done Linear issues to free space under the 250-active-issue free-tier cap; use when sync-backlog warns near cap or at milestone close
 - `/spin-off-component <path>` — extract a substantial, reusable component out of the monorepo into its own repo (a fresh template instance + Linear Initiative), preserving git history, cutting `v0.1.0`, and recording the parent↔child linkage. Mechanizes the git extraction; hands off the child bootstrap and the parent-side dependency swap. See process/WORKFLOW.md → Shared / reusable components
 
@@ -201,16 +201,17 @@ flowchart TD
 
 The **Resume runbook** (in `CLAUDE.md` → Session management) only fires when the lead is re-entering in-flight work — a "let's continue" cold start. Fresh tasks skip it. Either way, the bulk of the repo — `process/WORKFLOW.md`, `process/DECISIONS.md`, individual skill / agent / memory files, docs, source — is pulled only when the work in front of you needs it, keeping the context window honest.
 
-## The 4-tier hierarchy (Linear mapping)
+## The hierarchy (Linear mapping + semver)
 
-| Concept | Linear primitive |
-|---|---|
-| Project (overall effort, this repo) | **Initiative** |
-| Milestone | Linear Project |
-| Sprint (team-wide cadence) | Linear Cycle |
-| Feature (one PR, one I↔V loop) | Linear Issue |
+| Concept | Linear primitive | Version digit |
+|---|---|---|
+| Major version line (`V1`, `V2`, …) | **Initiative** (one per major line; concurrent) | `MAJOR` |
+| Milestone (named by target version) | Linear Project | `MINOR` |
+| Feature (one PR, one I↔V loop) | Linear Issue | — |
+| Hotfix | Linear Issue | `PATCH` |
+| Session Cycle (context-bounded session) | *(none — heuristic)* | — |
 
-One Linear team is shared across **all** your projects (free-tier-friendly). Each project gets its own Initiative. Agent attribution rides on `agent:<role>` issue labels (v1 mechanism; OAuth agent actors are an upgrade path documented in `process/WORKFLOW.md`).
+One Linear team is shared across **all** your projects (free-tier-friendly). Each **major line** gets its own Initiative, so `V1.x` maintenance and `V2.x` development run as two concurrent Initiatives; an Initiative closes when its line is EOL'd. Session Cycles are a session-planning heuristic with **no** Linear Cycle (Linear MCP calls are token-expensive). Agent attribution rides on `agent:<role>` issue labels (v1 mechanism; OAuth agent actors are an upgrade path documented in `process/WORKFLOW.md`). Full semver rules in [`process/WORKFLOW.md`](process/WORKFLOW.md) → Versioning scheme.
 
 Because the team is shared, a **reusable component** that graduates to its own repo (via `/spin-off-component`) is just another Initiative in the same team — same machinery, no new infra. See process/WORKFLOW.md → Shared / reusable components.
 
@@ -291,7 +292,7 @@ If you prefer to override anything per-project without committing, drop it in `.
 
 - **Linear MCP** — connected at the workspace level (claude.ai → Settings → MCP → Linear, or equivalent). Required for `/setup-linear-team`, ticket sync, and Initiative/Project creation. **Free tier is fully supported.**
   - On first project, you'll be asked to create a shared Linear team and per-project Initiative manually in Linear's UI (these aren't exposed by the current MCP). The skill walks you through it.
-  - Watch the **250-active-issues** free-tier cap — archive features aggressively at sprint boundaries.
+  - Watch the **250-active-issues** free-tier cap — archive features aggressively at session-planning time (or on demand via `/cleanup-linear`).
 - **Anthropic API access** — implicit via Claude Code itself; no additional config.
 
 ### Mermaid loading: CDN vs vendored
