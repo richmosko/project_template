@@ -66,9 +66,11 @@ You are the user's advisor, not only their dispatcher.
 
 ## Hand-off protocol — you are the receiving half
 
-Agents return conclusions and route long findings to `temp/<agent>-<topic>.md`. **`temp/` is gitignored: an overflow file has no watcher and does not survive cleanup.**
+Agents return conclusions and route long findings to `temp/<YYYY-MM-DD>-<agent>-<topic>.md`. **`temp/` is gitignored: an overflow file has no watcher and does not survive cleanup.**
 
 **You own placing anything durable into a tracked artifact — or discarding it — before session close.** An agent that routes a finding to `temp/` has discharged its half; the finding is not recorded until you place it.
+
+The buffer's state model: **a file exists in `temp/` iff it is unplaced** — placement or discard *is* deletion, and a deliberate multi-session keep carries a `hold-until: YYYY-MM-DD` frontmatter stamp (yours to grant, with a one-line reason). `/sweep-temp` mechanizes the walk; the SessionStart hook reports the pending count every session. There is no auto-deletion anywhere — a stale finding gets louder, never quieter.
 
 ## Deciding
 
@@ -103,7 +105,7 @@ Counts, phase state, backlog order, and current shas are read from their canonic
 Three obligations converge here; none may cross the session boundary unmet:
 
 1. **Ledger debt cleared** — `process/MILESTONES.md`'s `## Active Feature`, `## Current Phase`, and `## Session Cycles` reflect what landed this session. A stale ledger does not merely lag; it misdirects the next session, which orients off it before reading anything else.
-2. **`temp/` swept** — every finding an agent routed there is placed into a tracked artifact or explicitly discarded. Unplaced findings do not survive cleanup.
+2. **`temp/` swept** — run `/sweep-temp`: every finding an agent routed there is placed into a tracked artifact, discarded with a stated rationale, or explicitly held (`hold-until:`). Unplaced findings do not survive cleanup.
 3. **Housekeeping done** — merged branches deleted local and remote, checkout back on `main`, `/compact` run if closing mid-arc (see CLAUDE.md → Session management).
 
 ## Escalate to the user

@@ -72,6 +72,7 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 - `/setup-linear-team` — wire Linear into a new project (one-time): links the shared team, creates this project's Initiative via MCP, seeds agent labels, seeds first-milestone stories to Linear and rest to `process/BACKLOG.md`
 - `/setup-claude-deploy-key` — generate a per-repo passphrase-less SSH deploy key so Claude can push to GitHub without TTY-unlockable passphrases (one-time per repo)
 - `/sync-backlog [count|milestone]` — promote items from `process/BACKLOG.md` to Linear in milestone-FIFO order. Called at session-planning time, on demand, or implicitly by `/start-feature` when a queued feature is requested
+- `/sweep-temp [status]` — interactive sweep of the gitignored `temp/` hand-off buffer: every unplaced agent finding gets placed into a tracked artifact, discarded with a rationale, or explicitly held (`hold-until:` frontmatter). Team-lead session-close obligation; a SessionStart hook reports the pending count (14-day staleness threshold; visibility only, never auto-deletion). `status` = read-only inventory. See process/WORKFLOW.md → Hand-off protocol & the `temp/` buffer
 - `/cleanup-linear [filter]` — bulk-archive Done Linear issues to free space under the 250-active-issue free-tier cap; use when sync-backlog warns near cap or at milestone close
 - `/spin-off-component <path>` — extract a substantial, reusable component out of the monorepo into its own repo (a fresh template instance + Linear Initiative), preserving git history, cutting `v0.1.0`, and recording the parent↔child linkage. Mechanizes the git extraction; hands off the child bootstrap and the parent-side dependency swap. See process/WORKFLOW.md → Shared / reusable components
 
@@ -99,7 +100,7 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 
 - **Principal** (you) — sets vision, makes gate decisions, authorizes Agents.
 - **Team Lead** — the main Claude Code session. Coordinates teams, delegates, summarizes specialist output into executive language. Not spawnable: its identity and operating directives live in [`.claude/roles/team-lead.md`](.claude/roles/team-lead.md), injected at session start by a `SessionStart` hook.
-- **Agents** — nine specialists spawned per phase as Claude team-agents, plus the `mcp-broker` utility agent (a context firewall for verbose remote MCP servers like Linear — delegate a query, get back the distilled fact instead of kilobytes of JSON). Every agent reports back through a shared **hand-off protocol**: conclusions, not evidence — a fixed Summary / Paths changed / Broken / Bubble-up format, with long findings routed to gitignored `temp/` files that the team-lead places into tracked artifacts (or discards) before session close.
+- **Agents** — nine specialists spawned per phase as Claude team-agents, plus the `mcp-broker` utility agent (a context firewall for verbose remote MCP servers like Linear — delegate a query, get back the distilled fact instead of kilobytes of JSON). Every agent reports back through a shared **hand-off protocol**: conclusions, not evidence — a fixed Summary / Paths changed / Broken / Bubble-up format, with long findings routed to gitignored, date-prefixed `temp/` files that the team-lead places into tracked artifacts (or discards) before session close via `/sweep-temp`.
 
 ## Common project-specific extensions
 
@@ -152,7 +153,7 @@ claude
 
 ## Session startup
 
-Every session starts minimal. Only the files needed to re-orient are auto-loaded; everything else is read lazily as the work demands. Two `SessionStart` hooks in `.claude/settings.json` do the injection: the first loads the team-lead role definition (`.claude/roles/team-lead.md` — main-session identity; spawned teammates keep their own agent-file identity), and the second runs an `awk` extractor over `process/MILESTONES.md` so the auto-loaded state slice stays compact even as the Roadmap table grows.
+Every session starts minimal. Only the files needed to re-orient are auto-loaded; everything else is read lazily as the work demands. Three `SessionStart` hooks in `.claude/settings.json` do the injection: the first loads the team-lead role definition (`.claude/roles/team-lead.md` — main-session identity; spawned teammates keep their own agent-file identity), the second runs an `awk` extractor over `process/MILESTONES.md` so the auto-loaded state slice stays compact even as the Roadmap table grows, and the third reports the `temp/` hand-off buffer's pending count whenever it's non-empty (silent when clean).
 
 ```mermaid
 flowchart TD
@@ -283,7 +284,7 @@ The template **pre-sets** project-level config in `.claude/settings.json`:
 |---|---|---|
 | `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | `"1"` | Enables team-agents (mailbox, shared task list, peer SendMessage). |
 | `teammateMode` | `"tmux"` | Split-pane teammates; survives `/resume` (see [`CLAUDE.md`](CLAUDE.md) for mode trade-offs). |
-| `hooks.SessionStart` | injects `.claude/roles/team-lead.md` + reads `process/MILESTONES.md` | Loads the team-lead role (main-session identity) and auto-surfaces current project state at session start. |
+| `hooks.SessionStart` | injects `.claude/roles/team-lead.md` + reads `process/MILESTONES.md` + reports `temp/` | Loads the team-lead role (main-session identity), auto-surfaces current project state, and nags on unplaced `temp/` hand-off files at session start. |
 | `permissions.allow` | common read/git commands | Reduces permission prompts for routine ops. |
 
 **Verify in your user-level config (`~/.claude/settings.json`):**
