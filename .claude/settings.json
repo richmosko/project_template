@@ -36,6 +36,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "[ -f .claude/roles/team-lead.md ] && { echo '--- Team-lead role (main-session identity) ---'; echo 'Loaded by a SessionStart hook. If you are the main session, this is your identity: you are team-lead. If you are a spawned teammate, your identity is your own definition in .claude/agents/ — treat this block as reference for how the lead operates, not as directives to you.'; echo ''; cat .claude/roles/team-lead.md; echo ''; }; exit 0"
+          },
+          {
+            "type": "command",
             "command": "echo '--- Project state ---' && awk '/^## Roadmap/{exit} {print}' process/MILESTONES.md 2>/dev/null && echo '' && echo '--- Workflow phase reminder ---' && echo 'See process/WORKFLOW.md for phase→team mapping. CLAUDE.md is loaded automatically.'"
           }
         ]
