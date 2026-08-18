@@ -98,8 +98,8 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 ## Roles
 
 - **Principal** (you) — sets vision, makes gate decisions, authorizes Agents.
-- **Team Lead** — the main Claude Code session. Coordinates teams, delegates, summarizes specialist output into executive language.
-- **Agents** — nine specialists spawned per phase as Claude team-agents, plus the `mcp-broker` utility agent (a context firewall for verbose remote MCP servers like Linear — delegate a query, get back the distilled fact instead of kilobytes of JSON).
+- **Team Lead** — the main Claude Code session. Coordinates teams, delegates, summarizes specialist output into executive language. Not spawnable: its identity and operating directives live in [`.claude/roles/team-lead.md`](.claude/roles/team-lead.md), injected at session start by a `SessionStart` hook.
+- **Agents** — nine specialists spawned per phase as Claude team-agents, plus the `mcp-broker` utility agent (a context firewall for verbose remote MCP servers like Linear — delegate a query, get back the distilled fact instead of kilobytes of JSON). Every agent reports back through a shared **hand-off protocol**: conclusions, not evidence — a fixed Summary / Paths changed / Broken / Bubble-up format, with long findings routed to gitignored `temp/` files that the team-lead places into tracked artifacts (or discards) before session close.
 
 ## Common project-specific extensions
 
@@ -152,7 +152,7 @@ claude
 
 ## Session startup
 
-Every session starts minimal. Only the files needed to re-orient are auto-loaded; everything else is read lazily as the work demands. The `SessionStart` hook in `.claude/settings.json` runs an `awk` extractor over `process/MILESTONES.md` so the auto-loaded slice stays compact even as the Roadmap table grows.
+Every session starts minimal. Only the files needed to re-orient are auto-loaded; everything else is read lazily as the work demands. Two `SessionStart` hooks in `.claude/settings.json` do the injection: the first loads the team-lead role definition (`.claude/roles/team-lead.md` — main-session identity; spawned teammates keep their own agent-file identity), and the second runs an `awk` extractor over `process/MILESTONES.md` so the auto-loaded state slice stays compact even as the Roadmap table grows.
 
 ```mermaid
 flowchart TD
@@ -163,12 +163,14 @@ flowchart TD
   A --> A1["<b>CLAUDE.md</b> — full<br/><i>session bootstrap + first-run checklist</i>"]
   A --> A2["<b>memory/MEMORY.md</b> — full<br/><i>auto-memory index only;<br/>individual memory files load lazily</i>"]
   A --> A3["<b>process/MILESTONES.md</b> — partial<br/><i>SessionStart hook runs awk;<br/>top → just before</i> <code>## Roadmap</code>"]
-  A --> A4["<b>System reminders</b><br/><i>date · skills list · MCP instructions ·<br/>deferred tool names (no schemas)</i>"]
+  A --> A4["<b>.claude/roles/team-lead.md</b> — full<br/><i>SessionStart hook; main-session<br/>identity + operating directives</i>"]
+  A --> A5["<b>System reminders</b><br/><i>date · skills list · MCP instructions ·<br/>deferred tool names (no schemas)</i>"]
 
   A1 --> Q{"Cold resume<br/>or fresh task?"}
   A2 --> Q
   A3 --> Q
   A4 --> Q
+  A5 --> Q
 
   Q -->|resume — continue work| RB["Resume runbook<br/><i>CLAUDE.md → Session management</i>"]
 
@@ -243,6 +245,7 @@ Because the team is shared, a **reusable component** that graduates to its own r
 └── .claude/
     ├── settings.json            hooks, env, permissions, teammateMode
     ├── agents/                  9 specialists + mcp-broker utility agent
+    ├── roles/                   team-lead role (main-session identity, hook-injected)
     └── skills/                  workflow + doc-gen skills
 ```
 
@@ -280,7 +283,7 @@ The template **pre-sets** project-level config in `.claude/settings.json`:
 |---|---|---|
 | `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | `"1"` | Enables team-agents (mailbox, shared task list, peer SendMessage). |
 | `teammateMode` | `"tmux"` | Split-pane teammates; survives `/resume` (see [`CLAUDE.md`](CLAUDE.md) for mode trade-offs). |
-| `hooks.SessionStart` | reads `process/MILESTONES.md` | Auto-surfaces current project state at session start. |
+| `hooks.SessionStart` | injects `.claude/roles/team-lead.md` + reads `process/MILESTONES.md` | Loads the team-lead role (main-session identity) and auto-surfaces current project state at session start. |
 | `permissions.allow` | common read/git commands | Reduces permission prompts for routine ops. |
 
 **Verify in your user-level config (`~/.claude/settings.json`):**
