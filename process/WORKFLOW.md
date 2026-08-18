@@ -251,6 +251,25 @@ Observed empirically on a derived project at ~70% rate (14/20 events) — both t
 
 This is a prompt-level convention, not a platform fix. It applies to every team-mode session.
 
+## Hand-off protocol & the `temp/` buffer
+
+Every agent brief carries the same **Hand-off protocol**: deliveries return **conclusions, not evidence** — a fixed four-item format (Summary / Paths changed / Broken / Bubble up), never raw file contents, command output, or transcripts. A finding that needs evidence goes to an overflow file instead of into the message: `temp/<YYYY-MM-DD>-<agent>-<topic>.md`, with the path relayed. This keeps every delivery small enough that the lead's context — which the whole session pays for — doesn't absorb the team's working data.
+
+`temp/` is a **hand-off buffer, not storage**. It is gitignored, so nothing in it survives on its own; the team-lead owns the receiving half. The lifecycle is deliberately minimal:
+
+| State | Representation |
+|---|---|
+| Pending | file exists — a finding awaiting the lead's decision |
+| Held | `hold-until: YYYY-MM-DD` frontmatter (lead-stamped, dated, one-line reason) |
+| Placed / discarded | **file deleted** — placement into a tracked artifact, or discard with a stated rationale, *is* deletion |
+
+There is no manifest and no status field — a second source of truth would drift from the directory listing. The filename's date prefix makes age visible in a bare `ls`.
+
+**Hygiene machinery (visibility, never auto-deletion):**
+
+- **`/sweep-temp`** — the interactive walk: inventory, per-file place / discard / hold decisions, placements landed through the normal branch flow. Session-close obligation #2 in the team-lead role file. `/sweep-temp status` gives the read-only inventory.
+- **SessionStart hook** — whenever `temp/` is non-empty, every session opens with the pending count and how many files are past the **14-day staleness threshold**. Past the threshold (or past an expired hold), `/sweep-temp` recommends discard by default — but deletion only ever happens inside a sweep decision. A stale unplaced finding gets louder each session, never quieter.
+
 ## Tuning Agents per project
 
 The `model` and `effort` defaults baked into each agent's frontmatter are starting points, not commandments. Three knobs let you tune per project — or even per session.

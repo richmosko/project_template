@@ -85,7 +85,7 @@ Return exactly:
 3. **Broken** — failing tests, gates, or checks. "None" is a complete answer.
 4. **Bubble up** — findings the team-lead or the user must act on, and judgment calls
    you made that they might have made differently. One line each. If a finding needs
-   evidence, write it to `temp/<agent>-<topic>.md` and give the path — do not paste
+   evidence, write it to `temp/<YYYY-MM-DD>-<agent>-<topic>.md` and give the path — do not paste
    it.
 
 ⚠ Item 4 has no length limit on the *finding*, only on the *message*. Suppressing
