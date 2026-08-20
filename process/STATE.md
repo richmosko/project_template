@@ -17,14 +17,14 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Session Cycle | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | WORKFLOW.md anchor-task pattern: document the degraded mode |
+| Issue | PT-18 (cairn) |
+| Milestone | 0.5 |
+| Session Cycle | SC3 |
+| Branch | `feature/pt-18-anchor-task-degraded-mode` |
+| Started | 2026-08-20 |
+| Goal | WORKFLOW.md states the Task-tool session requirement and codifies the SendMessage + temp/ fallback as the anchor-task pattern's degraded mode. |
+| Status | In Review — [PR #47](https://github.com/richmosko/project_template/pull/47) |
 
 ## Session Cycles
 

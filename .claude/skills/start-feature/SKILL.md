@@ -80,6 +80,8 @@ After user confirmation:
 
 ### 7. Create the anchor task on the shared task list
 
+**Skip this step if the session lacks the Task tools** (`TaskCreate` etc. — session-gated by model; check your own tool set) and coordinate via lead-mediated `SendMessage` dispatch instead — see `process/WORKFLOW.md` → Task-tool availability & the degraded mode.
+
 Following the anchor-task pattern in `process/WORKFLOW.md` → Team coordination:
 
 - One **anchor task** mirroring the cairn issue: title = feature title, description = acceptance criteria verbatim, owner = `qa-engineer` (TDD starts with the failing test).
