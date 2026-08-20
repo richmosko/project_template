@@ -564,7 +564,7 @@ The point of giving Research and Plan their own milestones is that those phases 
 **Subdivide if complexity warrants.** If Research turns out to be heavy, split M0 into `M0a — PRD draft`, `M0b — PRD review & refinement`. Same for M1 if Architecture vs Security warrant separate tracks. Each subdivision is its own milestone file. `/setup-tracker` seeds two as the floor, not a cap.
 
 - **Agent attribution is the `assignee` field.** Every issue carries `assignee: <role>` matching a file in `.claude/agents/` (or `@handle` for a human); comments carry per-author attribution natively (`### @qa-engineer — <date>`). The Linear-era `agent:<role>` labels are retired.
-- **No cap, no overflow tier.** cairn has no issue limit and no forced archiving, so the Linear-era machinery (`BACKLOG.md` promotion queue, `/sync-backlog`, `/cleanup-linear`, budget checks in `/start-feature`) is retired. A scoped item is simply an issue with `status: backlog`; `cairn archive --done-before <date>` is occasional hygiene so a years-old project's board stays readable — issues remain in git and greppable forever.
+- **No cap, no overflow tier.** cairn has no issue limit and no forced archiving, so the Linear-era overflow machinery — the backlog promotion queue and its skills, plus budget checks in `/start-feature` — is retired. A scoped item is simply an issue with `status: backlog`; `cairn archive --done-before <date>` is occasional hygiene so a years-old project's board stays readable — issues remain in git and greppable forever.
 
 ## Shared / reusable components
 

@@ -1,6 +1,6 @@
 ---
 name: setup-tracker
-description: One-time bootstrap that scaffolds cairn (the file-based issue tracker) for this project — creates process/cairn/ with config.yml (ID prefix derived from the repo name, confirmed by the user once), seeds the founding major (V1) and the M0/M1 process milestones, optionally seeds PRD user stories as backlog issues, imports any legacy process/BACKLOG.md rows, and sets the delivery-autonomy methodology for /drive. Run on the first session of a new project, or whenever process/cairn/ is missing. Replaces the retired /setup-linear-team. No arguments — interviews the user as needed.
+description: One-time bootstrap that scaffolds cairn (the file-based issue tracker) for this project — creates process/cairn/ with config.yml (ID prefix derived from the repo name, confirmed by the user once), seeds the founding major (V1) and the M0/M1 process milestones, optionally seeds PRD user stories as backlog issues, and sets the delivery-autonomy methodology for /drive. Run on the first session of a new project, or whenever process/cairn/ is missing. No arguments — interviews the user as needed.
 ---
 
 # setup-tracker
@@ -82,17 +82,7 @@ scripts/cairn/cairn new "<story title>" --status backlog --milestone <M0|M1|null
 
 Show the count before writing ("Seed 14 stories from the PRD as backlog issues?"). Stories without a clear milestone get `--milestone` omitted (null = unassigned; the architect attaches them during Plan).
 
-### 5. Import legacy `process/BACKLOG.md` (migration only)
-
-If `process/BACKLOG.md` exists and has queued rows (a project migrating from the Linear era), convert each row:
-
-```bash
-scripts/cairn/cairn new "<row title>" --status backlog --milestone <row milestone, if a matching milestones/ file exists>
-```
-
-Preserve `Priority` via `cairn set <id> priority=<P0-P3>` when the row has one. Then reduce `process/BACKLOG.md` to the deprecated stub (pointer to the board) and note the import count in the summary. Fresh projects skip this step — the template ships the stub.
-
-### 6. Choose the delivery-autonomy methodology
+### 5. Choose the delivery-autonomy methodology
 
 Ask via `AskUserQuestion` — list `stop-at-merge` first, labeled "(Recommended)":
 
@@ -102,7 +92,7 @@ Ask via `AskUserQuestion` — list `stop-at-merge` first, labeled "(Recommended)
 
 Write the answer into `process/WORKFLOW.md` → *Project configuration* → **Delivery autonomy**, and append a `process/DECISIONS.md` entry (date, decision, why, approver).
 
-### 7. Lint, commit, confirm
+### 6. Lint, commit, confirm
 
 ```bash
 scripts/cairn/cairn check        # must exit 0 on the freshly seeded tree
@@ -113,7 +103,7 @@ Commit the scaffold (via the current branch flow — `/start-doc-update` if noth
 
 - Prefix: `<PREFIX>` · data dir: `process/cairn/`
 - Seeded: `majors/V1.md`, `milestones/M0.md`, `milestones/M1.md`
-- Issues seeded: N from PRD, M imported from BACKLOG.md
+- Issues seeded: N from PRD
 - Delivery autonomy: `<choice>`
 - Board: `/cairn` starts it at `http://localhost:8766/`
 

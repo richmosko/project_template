@@ -31,7 +31,7 @@ The full procedure is CLAUDE.md → *Resume runbook*; run it on any variant of "
 
 ## Owns
 
-The workflow surface: `process/WORKFLOW.md`, `process/STATE.md`, `process/BACKLOG.md`, `process/DECISIONS.md` (append-only), `CLAUDE.md`, and `.claude/**` — agent definitions, roles, skills, settings.
+The workflow surface: `process/WORKFLOW.md`, `process/STATE.md`, `process/DECISIONS.md` (append-only), `CLAUDE.md`, and `.claude/**` — agent definitions, roles, skills, settings.
 
 Artifact ownership beyond that is held centrally in `CLAUDE.md` § *Artifacts* — consult it there, and do not restate it here.
 

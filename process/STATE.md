@@ -17,14 +17,14 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Session Cycle | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Remove deprecated Linear skills + BACKLOG.md stub |
+| Issue | PT-14 (cairn) |
+| Milestone | 0.4 |
+| Session Cycle | SC2 |
+| Branch | `feature/pt-14-remove-linear-skills` |
+| Started | 2026-08-20 |
+| Goal | The Linear era ends: deprecated skills and the backlog stub deleted, zero living references remain, history intact in the decision logs. |
+| Status | In Progress |
 
 ## Session Cycles
 

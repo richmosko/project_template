@@ -296,7 +296,7 @@ If you prefer to override anything per-project without committing, drop it in `.
 
 ### External integrations
 
-- **No tracker service needed** — cairn ships inside the template: issue tracking is markdown files in the repo, the board is a local Python-stdlib server (`/cairn`), and macOS's stock `python3` suffices. (Linear-era projects: the deprecated `/setup-linear-team` / `/sync-backlog` / `/cleanup-linear` skills remain for one release; `/setup-tracker` imports a legacy `process/BACKLOG.md`.)
+- **No tracker service needed** — cairn ships inside the template: issue tracking is markdown files in the repo, the board is a local Python-stdlib server (`/cairn`), and macOS's stock `python3` suffices.
 - **Anthropic API access** — implicit via Claude Code itself; no additional config.
 
 ### Mermaid loading: CDN vs vendored

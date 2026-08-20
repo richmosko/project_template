@@ -30,7 +30,6 @@ This repo was instantiated from the [project_template](https://github.com/richmo
 | Tracker data — majors, milestones, issues | [`process/cairn/`](process/cairn/) | all agents (issues); team-lead + architect (majors/milestones) |
 | Live state ledger | [`process/STATE.md`](process/STATE.md) | team-lead |
 | Decision log | [`process/DECISIONS.md`](process/DECISIONS.md) | team-lead (append-only) |
-| ~~Backlog overflow queue~~ | [`process/BACKLOG.md`](process/BACKLOG.md) — deprecated stub; backlog = `status: backlog` issues in the tracker | — |
 
 Open any HTML doc with `/open-doc docs/PRD/index.html` (or just double-click it).
 
