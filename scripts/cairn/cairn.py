@@ -39,6 +39,7 @@ import http.server
 import json
 import os
 import re
+import stat
 import sys
 import tempfile
 import urllib.parse
@@ -427,14 +428,26 @@ def dump_frontmatter(fields: Dict[str, Any]) -> str:
 
 
 def _atomic_write(path: Path, text: str) -> None:
-    """Write `text` to `path` via a same-directory temp file + os.replace."""
+    """Write `text` to `path` via a same-directory temp file + os.replace.
+
+    Preserves the original file's mode (PT-7): `os.replace` is a rename,
+    so the final file's permission bits come from the *source* -- without
+    an explicit chmod, mkstemp's 0600 default silently replaces whatever
+    mode the file had (e.g. 0644 -> 0600) on every frontmatter rewrite.
+    """
     path = Path(path)
+    try:
+        original_mode = stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        original_mode = None
     fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
+        if original_mode is not None:
+            os.chmod(tmp_name, original_mode)
         os.replace(tmp_name, str(path))
     except BaseException:
         try:
