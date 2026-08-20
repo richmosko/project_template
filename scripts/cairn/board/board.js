@@ -643,6 +643,19 @@
         return;
       }
       issue.seen = result.data.seen;
+      if (field === "title") {
+        // PT-11: reflect the new title in the open drawer's h2 straight
+        // from this response, not the next poll -- gated on `field` so a
+        // different field's response (e.g. status, landing before or
+        // after a title edit) never touches the h2. The card behind the
+        // drawer still refreshes via the existing refreshBoardSilently()
+        // path below, unchanged.
+        issue.title = result.data.title;
+        if (state.openIssueId === issue.id) {
+          var h2 = document.querySelector("#drawer h2");
+          if (h2) h2.textContent = result.data.title;
+        }
+      }
       refreshBoardSilently();
     });
   }
