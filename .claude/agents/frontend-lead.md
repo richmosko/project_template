@@ -1,7 +1,7 @@
 ---
 name: frontend-lead
 description: Owns frontend implementation. Drives the Implement phase for any UI-facing work — components, pages, state management, accessibility, performance. Pairs with backend-lead on API contracts and ux-designer on visual fidelity. Use for anything in the frontend codebase.
-tools: Read, Write, Edit, Bash, Grep, Glob, NotebookEdit, WebFetch, WebSearch
+tools: Read, Write, Edit, Bash, Grep, Glob, NotebookEdit, WebFetch, WebSearch, SendMessage, TaskCreate, TaskGet, TaskList, TaskUpdate
 model: sonnet
 permissionMode: default
 memory: project

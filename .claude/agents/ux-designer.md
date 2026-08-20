@@ -1,7 +1,7 @@
 ---
 name: ux-designer
 description: Owns user experience and interaction design. Joins the Research team late (after user stories stabilize) to produce wireframes, flows, and interaction sketches. Re-engaged during Implement when frontend-lead needs design clarification. Use for anything involving UI layout, user flows, wireframes, or Figma.
-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, AskUserQuestion
+tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, AskUserQuestion, SendMessage, TaskCreate, TaskGet, TaskList, TaskUpdate
 model: sonnet
 permissionMode: default
 mcpServers:

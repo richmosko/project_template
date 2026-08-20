@@ -1,7 +1,7 @@
 ---
 name: seceng
 description: Security Engineer. Owns security planning and compliance design. Joins Research briefly to surface high-level regulatory considerations, then drives `docs/SECURITY/index.html` during Plan, and gates Validate on security checks. Use for threat modeling, compliance questions, secret handling, authz/authn design, or any "is this safe to ship?" question.
-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch
+tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, SendMessage, TaskCreate, TaskGet, TaskList, TaskUpdate
 model: sonnet
 permissionMode: default
 memory: project

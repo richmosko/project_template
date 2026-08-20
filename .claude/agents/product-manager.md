@@ -1,7 +1,7 @@
 ---
 name: product-manager
 description: Owns the Research phase. Drives the PRD via user interviews, writes user stories, defines success metrics, identifies non-goals, and seeds the tracker backlog (cairn issues). Consults UX (late Research) and SecEng (high-level only). Use whenever the work touches `docs/PRD/index.html`, scope decisions, or the question "what are we building and for whom?"
-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, AskUserQuestion
+tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, AskUserQuestion, SendMessage, TaskCreate, TaskGet, TaskList, TaskUpdate
 model: sonnet
 permissionMode: default
 memory: project
