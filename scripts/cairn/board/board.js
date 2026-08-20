@@ -492,7 +492,10 @@
     }
     var fileP = document.createElement("div");
     fileP.className = "file-link";
-    fileP.textContent = "File: process/cairn/issues/" + issue.id + ".md";
+    // PT-10: the server now serves the issue's real on-disk path (correct
+    // for both process/cairn/... and any other --data-dir setup, and for
+    // an archived issue's archive/ location) -- no longer hardcoded here.
+    fileP.textContent = "File: " + issue.path;
     drawer.appendChild(fileP);
 
     var split = splitAcceptanceCriteria(issue.description);
@@ -640,6 +643,19 @@
         return;
       }
       issue.seen = result.data.seen;
+      if (field === "title") {
+        // PT-11: reflect the new title in the open drawer's h2 straight
+        // from this response, not the next poll -- gated on `field` so a
+        // different field's response (e.g. status, landing before or
+        // after a title edit) never touches the h2. The card behind the
+        // drawer still refreshes via the existing refreshBoardSilently()
+        // path below, unchanged.
+        issue.title = result.data.title;
+        if (state.openIssueId === issue.id) {
+          var h2 = document.querySelector("#drawer h2");
+          if (h2) h2.textContent = result.data.title;
+        }
+      }
       refreshBoardSilently();
     });
   }

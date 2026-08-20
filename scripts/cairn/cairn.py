@@ -760,18 +760,32 @@ def build_board_payload(data_dir: Path) -> Dict[str, Any]:
         issue = dict(fm)
         issue["seen"] = get_seen(path)
         issue["sub_issue_count"] = child_counts.get(fm.get("id"), 0)
+        issue["path"] = str(path)  # PT-10: same contract as build_issue_payload's "path"
         issues.append(issue)
 
     return {"majors": majors, "milestones": milestones, "issues": issues}
 
 
 def build_issue_payload(data_dir: Path, issue_id: str) -> Optional[Dict[str, Any]]:
-    """Frontmatter + description + full comments + seen. None if not found."""
+    """Frontmatter + description + full comments + seen + path. None if not found.
+
+    `path` (PT-10) is `str(path)` exactly as constructed by find_issue_path
+    (data_dir joined with "issues" or "archive" and the filename) — not a
+    hardcoded "issues/" guess. This is deliberately *not* normalized to
+    absolute or to any fixed root: it inherits whatever relativity/
+    absoluteness `data_dir` itself has, so it reads as
+    "process/cairn/issues/PT-1.md" when the server is run the documented
+    way (relative --data-dir from a repo root) and as a real absolute path
+    under any other --data-dir setup — either way it's the file's actual
+    on-disk path, correct for an archived issue (archive/) too, which the
+    old hardcoded drawer string never was.
+    """
     path = find_issue_path(data_dir, issue_id)
     if path is None:
         return None
     issue = parse_issue(path.read_text(encoding="utf-8"))
     issue["seen"] = get_seen(path)
+    issue["path"] = str(path)
     return issue
 
 

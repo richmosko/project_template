@@ -14,6 +14,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import helpers  # noqa: F401
 
@@ -183,6 +184,74 @@ class IssueEndpointTests(ServerTestCase):
         self.assertEqual(ctx.exception.code, 404)
 
 
+class PT10IssuePathFieldTests(ServerTestCase):
+    """PT-10: GET /api/issue/<id> must carry the file's real repo-relative
+    path -- board.js:495 currently hardcodes "process/cairn/issues/" +
+    id + ".md" in the drawer, which is wrong for any archived issue. Pinned
+    at the subdirectory+filename suffix level, not the exact root prefix:
+    the real repo runs with --data-dir process/cairn, but this suite's
+    fixture copies live under a temp dir with no "process/" segment
+    (helpers.copy_fixture_data_dir names the copy just "cairn") -- any
+    implementation that's correct in production will still produce a
+    string ending in ".../issues/PT-1.md" or ".../archive/PT-9.md" here.
+    PT-9 is the fixture's pre-archived issue (tests/fixtures/process/cairn/
+    archive/PT-9.md).
+    """
+
+    def test_active_issue_path_names_the_issues_subdir(self):
+        resp = http_get(f"{self.base_url}/api/issue/PT-1")
+        payload = json.loads(resp.read())
+        self.assertIn("path", payload)
+        self.assertTrue(
+            payload["path"].replace("\\", "/").endswith("issues/PT-1.md"),
+            payload["path"],
+        )
+
+    def test_archived_issue_path_names_the_archive_subdir(self):
+        resp = http_get(f"{self.base_url}/api/issue/PT-9")
+        payload = json.loads(resp.read())
+        self.assertIn("path", payload)
+        self.assertTrue(
+            payload["path"].replace("\\", "/").endswith("archive/PT-9.md"),
+            payload["path"],
+        )
+
+    def test_path_resolves_to_the_actual_file_on_disk(self):
+        # The strongest, implementation-agnostic invariant: however the
+        # server chooses to root the string (repo-relative, data-dir-
+        # relative, or absolute), it must point at the real file, not just
+        # be a plausible-looking tag.
+        resp = http_get(f"{self.base_url}/api/issue/PT-1")
+        payload = json.loads(resp.read())
+        self.assertIn("path", payload)
+        served = Path(payload["path"])
+        candidate = served
+        if not candidate.is_absolute():
+            for root in (Path.cwd(), self.data_dir.parent, self.data_dir):
+                if (root / candidate).exists():
+                    candidate = root / candidate
+                    break
+        self.assertTrue(Path(candidate).exists(), f"served path {payload['path']!r} does not resolve to a real file")
+        self.assertEqual(Path(candidate).resolve(), (self.data_dir / "issues" / "PT-1.md").resolve())
+
+    def test_board_payload_path_is_correct_when_present(self):
+        # AC's "(if cheap)" clause on the board payload is optional scope
+        # -- build_board_payload already holds the Path object for each
+        # issue in hand, so it's cheap, but not required. If the field
+        # shows up there too, it must be correct; if it's absent, that's
+        # a legitimate implementation choice this test doesn't force.
+        #
+        # implementation-lead (PT-10): the skip guard that used to live
+        # here ("if 'path' not in pt1: self.skipTest(...)") is removed --
+        # build_board_payload now carries "path" (see cairn.py), so this
+        # assertion runs live. Sanctioned edit, confined to removing the
+        # guard only, per team-lead's instruction; flagged for QA audit.
+        resp = http_get(f"{self.base_url}/api/board")
+        payload = json.loads(resp.read())
+        pt1 = next(i for i in payload["issues"] if i["id"] == "PT-1")
+        self.assertTrue(pt1["path"].replace("\\", "/").endswith("issues/PT-1.md"), pt1["path"])
+
+
 class CreateIssueTests(ServerTestCase):
     def test_post_creates_issue_with_allocated_id(self):
         resp = http_post(f"{self.base_url}/api/issue", {"title": "Created from the board"})
@@ -230,6 +299,22 @@ class PatchIssueTests(ServerTestCase):
         # Persisted, not just echoed.
         resp2 = http_get(f"{self.base_url}/api/issue/PT-1")
         self.assertEqual(json.loads(resp2.read())["status"], "in-review")
+
+    def test_patch_response_round_trips_the_new_title(self):
+        # PT-11 prerequisite (regression guard, already true today): the
+        # drawer's h2 fix reads the new title straight off the POST
+        # response (result.data), never re-fetching -- confirm the server
+        # side of that contract is already correct before treating h2
+        # staleness as a client-only bug. Green today; would need to move
+        # here first if it weren't.
+        seen = self._seen("PT-1")
+        resp = http_post(
+            f"{self.base_url}/api/issue/PT-1",
+            {"seen": seen, "patch": {"title": "Renamed via drawer"}},
+        )
+        self.assertEqual(resp.status, 200)
+        payload = json.loads(resp.read())
+        self.assertEqual(payload["title"], "Renamed via drawer")
 
     def test_patch_with_stale_seen_returns_409(self):
         seen = self._seen("PT-1")
