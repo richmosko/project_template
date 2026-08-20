@@ -562,9 +562,34 @@
     drawer.appendChild(inlineSelect("priority", ["", "P0", "P1", "P2", "P3"], issue.priority, issue, PRIORITY_LABELS));
 
     if (issue.pr) {
+      // PT-20: DOM-built, not innerHTML string concat -- `pr` is free-text
+      // frontmatter with no server-side format validation (hand-editable
+      // issue files are untrusted per the ratified threat model). Building
+      // via createElement/property-assignment (never HTML-parsing the
+      // value) closes the attribute-breakout variant (a pr value like
+      // `"><img src=x onerror=...>` can no longer escape the attribute
+      // context, since it's never parsed as markup at all). That alone
+      // does NOT close a javascript: URI in `pr` though -- an <a> built
+      // via the DOM still executes a javascript: href on click, same as
+      // one built via innerHTML -- so the scheme is explicitly allowlisted
+      // to http(s) before rendering as a clickable link; anything else
+      // (including javascript:/data:/vbscript: etc.) renders as inert
+      // plain text instead.
       var prP = document.createElement("div");
       prP.className = "pr-link";
-      prP.innerHTML = 'PR: <a href="' + issue.pr + '" target="_blank" rel="noopener">' + issue.pr + "</a>";
+      prP.appendChild(document.createTextNode("PR: "));
+      if (/^https?:\/\//i.test(issue.pr)) {
+        var prLink = document.createElement("a");
+        prLink.href = issue.pr;
+        prLink.target = "_blank";
+        prLink.rel = "noopener";
+        prLink.textContent = issue.pr;
+        prP.appendChild(prLink);
+      } else {
+        var prText = document.createElement("span");
+        prText.textContent = issue.pr;
+        prP.appendChild(prText);
+      }
       drawer.appendChild(prP);
     }
     var fileP = document.createElement("div");

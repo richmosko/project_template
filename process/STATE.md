@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Markdown rendering in the detail drawer (vendored JS renderer) |
-| Issue | PT-4 |
+| Feature | Drawer PR link builds innerHTML by string concat — escape/DOM-build issue.pr (pre-existing XSS) |
+| Issue | PT-20 |
 | Milestone | 0.5 |
 | Session Cycle | SC4 |
-| Branch | `feature/pt-4-drawer-markdown` |
+| Branch | `feature/pt-20-pr-link-xss` |
 | Started | 2026-08-20 |
-| Goal | Issue bodies and comments render as markdown in the board's detail drawer via a vendored (offline, no-CDN) renderer, with raw-HTML output sanitized. |
+| Goal | Close the pre-existing pr-link XSS (board.js:567) via createElement/textContent, and add a sha256 checksum step to vendor/NOTICE.md's re-vendoring instructions. |
 | Status | In Progress |
 
 ## Session Cycles

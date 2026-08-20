@@ -29,13 +29,43 @@ source of most historical DOMPurify mXSS bypass classes).
 
 ## Re-vendoring / updating
 
+unpkg serves the same bytes npm publishes, but it's still a third-party
+CDN sitting between you and the registry — verify against the npm
+registry's own published checksum (its `dist.shasum`/`dist.integrity`),
+not just "the download succeeded" (PT-20, seceng finding: an unauthenticated
+curl-by-eye isn't a supply-chain verification step). Verify the tarball,
+not the individual unpkg file — the registry only publishes a checksum for
+the whole package tarball, not per-file.
+
 ```
-curl -fsSL -o scripts/cairn/board/vendor/marked.js \
-  "https://unpkg.com/marked@<version>/lib/marked.umd.js"
-curl -fsSL -o scripts/cairn/board/vendor/purify.min.js \
-  "https://unpkg.com/dompurify@<version>/dist/purify.min.js"
+# 1. Fetch the registry's published tarball + shasum for the target version.
+curl -s "https://registry.npmjs.org/marked/<version>" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['dist']['tarball']); print(d['dist']['shasum'])"
+
+# 2. Download the tarball and verify its sha1 matches dist.shasum exactly.
+curl -fsSL -o marked.tgz "<tarball url from step 1>"
+shasum -a 1 marked.tgz   # must equal the shasum printed in step 1
+
+# 3. Extract and copy the file out -- do not re-download from unpkg once
+#    the tarball itself is verified.
+tar xzf marked.tgz
+cp package/lib/marked.umd.js scripts/cairn/board/vendor/marked.js
+
+# Repeat all three steps for dompurify (tarball path: package/dist/purify.min.js).
 ```
 
 Then strip any trailing `//# sourceMappingURL=...` line from both files
-before committing, and re-check the versions against known CVEs (seceng did
-this at PT-4's implementation time for 18.0.10 / 3.4.14 — clean).
+before committing, re-check the versions against known CVEs (seceng did
+this at PT-4's implementation time for 18.0.10 / 3.4.14 — clean), and
+update the sha256 checksums below to match the newly committed files.
+
+## Checksums of the committed files (post sourceMappingURL-strip)
+
+These are `shasum -a 256` of the files as they sit in this directory today
+— re-run and update after any re-vendor, so a future audit can confirm
+what's on disk hasn't drifted from what NOTICE.md documents:
+
+```
+f649aa15858f991f0407930b427905ce06f47949a768e1d491e986fc41407a80  marked.js
+1a83c283c3229acad7ad9f8f874572bcb031df0f79e114318a2957dc2ffcc117  purify.min.js
+```
