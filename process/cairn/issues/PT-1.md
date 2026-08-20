@@ -1,13 +1,13 @@
 ---
 id: PT-1
 title: Board phase 2: SSE live push (fs-scan watcher + EventSource, poll fallback)
-status: in-progress
+status: done
 milestone: "0.4"
 parent: null
 assignee: null
 labels: []
 priority: P2
-pr: null
+pr: https://github.com/richmosko/project_template/pull/42
 created: 2026-08-20
 updated: 2026-08-20
 ---
@@ -52,3 +52,17 @@ tests. Also ruled: watcher lifecycle binds to make_server (exists ⇒ watching,
 close ⇒ stopped), and the event contract is the COARSE variant (any-change event →
 full client refresh) — TRACKER.md's per-id sketch is recorded here as a deliberate
 deferral, a future refinement (candidate for 0.5), not this ticket.
+
+### @team-lead — 2026-08-20
+
+Browser-level verification of the client half performed by team-lead (2026-08-20,
+throwaway data dir on :18801, real Chrome): SSE connects on load, indicator shows
+"● live"; an external CLI edit moved the card TODO→IN PROGRESS with zero user
+interaction (single SSE-triggered /api/board fetch in the window — poll suspended);
+killing the server flipped the indicator to "○ polling"; restarting flipped it back
+to "● live" via EventSource auto-reconnect. Items 6/8 of QA's checklist remain
+code-audit-verified (EventSource-less browsers aren't reproducible in real Chrome).
+This closes the browser-verification gap QA disclosed. Incident during the probe,
+disclosed: an over-broad `lsof -ti :port | head -1` kill took out a Chrome tab
+process instead of the server once — corrected to `-sTCP:LISTEN` scoping; no data
+affected.
