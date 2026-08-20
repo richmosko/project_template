@@ -72,7 +72,11 @@ scripts/cairn/            THE ENGINE — self-contained, spin-off-ready
     └── board.css
 ```
 
-**Data under `process/`** because it *is* process state — sibling to `MILESTONES.md`, `DECISIONS.md`, `BACKLOG.md`. Cohesion beats a shorter path; `process/cairn/` is still a distinctive grep root. (A project that prefers a top-level `cairn/` can set `data_dir` in `config.yml`; the engine does not care.)
+**Data under `process/`** because it *is* process state — sibling to `MILESTONES.md`, `DECISIONS.md`, `BACKLOG.md`. Cohesion beats a shorter path; `process/cairn/` is still a distinctive grep root.
+
+**The layout is fixed at `process/cairn/` in v1.** An earlier draft offered a `data_dir` key in `config.yml` for projects preferring a top-level `cairn/`; it is removed, because the key is circular — `config.yml` lives *inside* the directory it would declare, so the engine must already have found the directory before it can read where the directory is. Relocation, if it is ever wanted, belongs to an env var or a flag, not to the config file.
+
+**A missing or config-less data dir is an error, never an empty result.** If the engine cannot resolve a directory containing `config.yml`, it says so and exits non-zero — it does not report zero issues. "No tracker here" and "no issues here" are different facts and must never render identically.
 
 **Engine under `scripts/cairn/`** and nowhere else. It touches no project file outside `process/cairn/`, so `git subtree split --prefix=scripts/cairn` extracts it cleanly if `/spin-off-component` is ever warranted. Keeping data and engine in separate trees is what makes that split trivial — a combined `cairn/` would drag every project's issue history into the extracted repo.
 
@@ -82,7 +86,6 @@ scripts/cairn/            THE ENGINE — self-contained, spin-off-ready
 prefix: PT              # issue ID prefix; derived from the repo name at setup,
                         # confirmed or overridden by the user once (see /setup-tracker)
 port: 8766              # board server port
-data_dir: process/cairn
 board:
   columns: [backlog, todo, in-progress, in-review, done]
   swimlane: milestone   # milestone | none
@@ -373,7 +376,7 @@ Content-Type: application/json
 {"id":"PT-14","status":"in-review","updated":"2026-08-19","seen":"1755600987654321"}
 ```
 
-Stale-card case:
+Stale-card case — the `current` object below is **illustrative, not a schema**. Any response that carries at least the issue's current field values and a fresh `seen` is conformant; returning the full issue payload (description and comments included) is a superset and is preferred, since it lets the drawer re-render from the same response.
 
 ```
 409 Conflict
@@ -516,5 +519,6 @@ Every question this spec opened has been ruled. Each resolution is folded into t
 | 5 | Should `/start-feature` reserve IDs on `main` to avoid cross-branch collisions? | **No — the git add/add conflict stays the detector.** A rare loud conflict beats an extra `main` commit per feature, forever. | [ID scheme](#id-scheme-and-collision-free-allocation) |
 | 6 | Does the CLI violate "agents never need a server"? | **No — the CLI stands as specified.** The constraint reads as no-MCP / no-HTTP / no-JSON-in-context, which a one-line-printing local script satisfies. | [CLI](#cli) |
 | 7 | Should the board write back acceptance-criteria checkboxes? | **Deferred.** Phase 1 keeps zero body-touching write paths (comment append excepted — tail-only). If ever built, it would be the first middle-of-file rewrite and needs its own design. | [Candidate follow-ups](#candidate-follow-ups-designed-for-not-committed) |
+| 8 | Should `config.yml` carry a `data_dir` key so a project can relocate the tracker to a top-level `cairn/`? | **No — affordance removed (2026-08-20, during stage-2 conformance review).** The key is circular: `config.yml` lives inside the directory it would declare. v1 fixes the layout at `process/cairn/`, and a **loud-error contract** replaces it — an unresolvable data dir is an error, never an empty result. | [Directory layout](#directory-layout) · [`config.yml`](#configyml) |
 
-Nothing in this spec is pending a decision. What remains open is only what stage 3 discovers in the building.
+Rows 1–7 were ruled 2026-08-19 at design time; row 8 was ruled 2026-08-20, when building the engine surfaced a question the spec had answered wrongly. Nothing in this spec is pending a decision.
