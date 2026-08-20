@@ -51,6 +51,11 @@ both as `python3 cairn.py ...` and via the bash shim `scripts/cairn/cairn`.
 
 - `check_repo(data_dir: Path) -> list[str]` — pointed, human-readable error strings (mentions the offending file/id); `[]` means clean. Catches per-file `YamlError`/`FrontmatterError` internally rather than propagating.
 
+## Snapshot
+
+- `build_snapshot_markdown(data_dir: Path, generated_at: str | None = None) -> str` — PT-2: a point-in-time markdown rendering of the tracker (majors, milestones/roadmap, issues grouped by status), meant for `cairn snapshot >> process/STATE.md` (offline reading — a plane, a phone, a cold session before the board is up). A RENDERING, never an input; cairn never parses it back. Opens with a header containing the words "generated", "do not edit", and "cairn snapshot" (regeneration instructions) — exact wording is the implementation's choice, those substrings are what tests pin. Must not open with `"---"` (so a misplaced copy can't be mistaken for frontmatter — see `SnapshotNonIngestionTests`). `generated_at` is an injectable override for test determinism (mirrors `append_comment`'s `comment_date` pattern); when `None`, sources a real wall-clock timestamp (this is a CLI-facing function, not a workflow-script-sandbox one — wall-clock is fine here). Everything else must be deterministic given an unchanged tree, independent of on-disk iteration order: majors, then milestones, then issues grouped by status in `DEFAULT_COLUMNS` order (`backlog, todo, in-progress, in-review, done`) + `cancelled` last, each issue sorted **numerically** by id within its status group (not the lexicographic order `_dir_glob` returns — `PT-10` must sort after `PT-2`, not before).
+- `cmd_snapshot(args) -> int` — CLI `cairn snapshot`. Prints `build_snapshot_markdown(resolve_data_dir(args))` to stdout (no `generated_at` override — real timestamp). Respects `--data-dir` in both positions per PT-9. Writes nothing to disk; STDOUT only, the caller decides whether/where to redirect (`>> process/STATE.md`).
+
 ## CLI
 
 - `main(argv: list[str]) -> int` — argparse-based. Global `--data-dir PATH` flag (tests always pass it explicitly). Subcommands: `new`, `ls`, `set`, `comment`, `show`, `archive`, `check`, `serve` — flags per the CLI table in the spec. Returns a process exit code.
