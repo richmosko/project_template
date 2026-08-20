@@ -31,7 +31,7 @@ The log is **append-only**. Don't edit historical entries. If a past decision is
 
 ### YYYY-MM-DD — Project bootstrapped from template
 **Decision:** Use the `project_template` starter as the foundation for this project.
-**Bootstrapped from:** `project_template` _vX.Y.Z_ (replace with the actual tag — check `git tag -l` on the template repo, or the value in `.claude/linear-team.json` → `templateVersion` if recorded)
+**Bootstrapped from:** `project_template` _vX.Y.Z_ (replace with the actual tag — check `git tag -l` on the template repo, or its GitHub Releases page)
 **Why:** Provides the R→P→I→V workflow, team-agent roster, and artifact conventions out of the box.
 **Alternatives considered:** Bare repo + ad-hoc workflow.
 **Approved by:** _<your name>_

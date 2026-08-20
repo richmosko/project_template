@@ -490,7 +490,7 @@ Stage 3 preview. Linear skills stay in place for **one release**, marked depreca
 | `/finish-feature` | `cairn set <id> status=in-review pr=<url>`; comment with the PR link. |
 | `/merge-pr` | `cairn set <id> status=done`; merge comment. The Linear-archive step becomes an optional `cairn archive` at milestone close. Release-tagging logic unchanged. |
 | `/drive` | Re-point work resolution to cairn (`cairn ls --status todo --milestone <m>`). Goal-condition strings unchanged. |
-| `/sync-backlog` | **Retire.** Its reason to exist was the cap. One-shot `cairn import-backlog` converts existing `process/BACKLOG.md` rows into `status: backlog` issues. |
+| `/sync-backlog` | **Retire.** Its reason to exist was the cap. `/setup-tracker` step 5 converts existing `process/BACKLOG.md` rows into `status: backlog` issues via `cairn new` (ruled during stage 3: a one-shot engine subcommand wasn't worth the permanent surface). |
 | `/cleanup-linear` | **Retire.** Replaced by `cairn archive`, reframed as hygiene rather than quota relief. |
 | `process/BACKLOG.md` | **Dissolves into the tracker** as `status: backlog`, ordered by `priority` then ID. Kept one release as a deprecated stub pointing at the board. Jotting a rough item is `cairn new "…" --status backlog` — cheaper than editing a markdown table. |
 | `.claude/linear-team.json` | → `process/cairn/config.yml`, and **committed** rather than gitignored: it holds no credentials, and every clone should agree on the ID prefix. |

@@ -1,11 +1,11 @@
 ---
 name: finish-feature
-description: Closes a feature — commits, pushes, opens a PR linked to the active Linear issue, updates Linear status, and prepares the Validate handoff. Use when the implementation is complete, tests are green, and the feature is ready to merge. No arguments needed; reads feature state from process/MILESTONES.md and Linear.
+description: Closes a feature — commits, pushes, opens a PR linked to the active cairn issue, updates the issue (status → in-review, pr → URL), and prepares the Validate handoff. Use when the implementation is complete, tests are green, and the feature is ready to merge. No arguments needed; reads feature state from process/MILESTONES.md and the issue file.
 ---
 
 # finish-feature
 
-Wraps one Implement→Validate loop (one feature) and queues it for merge.
+Wraps one Implement→Validate loop (one feature) and queues it for merge. The tracker is **cairn** (`process/cairn/`, via the `scripts/cairn/cairn` CLI).
 
 ## Pre-flight checks
 
@@ -15,10 +15,10 @@ Run these in parallel; abort with a clear message if any fails:
 # 1. We're on a feature branch
 git rev-parse --abbrev-ref HEAD | grep -q '^feature/' || echo "ERROR: not on a feature branch"
 
-# 2. Tests are green (heuristic: project should have a `test` script)
+# 2. Tests are green (heuristic: project should have a test script)
 npm test 2>/dev/null || yarn test 2>/dev/null || pytest 2>/dev/null || echo "WARNING: no test runner detected"
 
-# 3. No uncommitted changes
+# 3. No uncommitted changes beyond the tracker's own status edits
 git status --porcelain
 ```
 
@@ -28,15 +28,10 @@ If tests are red, **do not proceed**. Surface the failure and let the user (or Q
 
 ### 1. Stage and commit
 
-- Run `git status` and `git diff` to see what's changing.
-- Group changes into logical commits if they aren't already. One commit per logical change.
-- Commit message format: `<type>(<linear-id>): <subject>` — e.g. `feat(ABC-123): add login form`.
-- Use a HEREDOC for the body if non-trivial.
-
-Add the trailer per global git instructions:
-```
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-```
+- `git status` / `git diff` to see what's changing.
+- Group into logical commits — one per logical change. The cairn issue-file edits from this loop (status flips, comments) ride with the feature's commits.
+- Commit message format: `<type>(<issue-id>): <subject>` — e.g. `feat(PT-14): add login form`.
+- Trailer per global git instructions.
 
 ### 2. Push and open PR
 
@@ -45,38 +40,42 @@ git push -u origin HEAD
 ```
 
 Then `gh pr create` with:
-- Title: matches the Linear issue title
-- Body: includes
-  - `Closes <linear-issue-url>`
+- Title: matches the issue title, prefixed with the ID (`feat(PT-14): …`)
+- Body:
+  - `Tracker: PT-14 — process/cairn/issues/PT-14.md` (there is no auto-close integration; `/merge-pr` flips the status)
   - `## Summary` (2–4 bullets)
   - `## Test plan` (checklist of what QA validated)
   - The standard footer
 
-Use a HEREDOC for the body.
+### 3. Update the issue
 
-### 3. Update Linear
+```bash
+scripts/cairn/cairn set <ID> status=in-review pr=<PR-URL>
+scripts/cairn/cairn comment <ID> --author team-lead --body - <<'EOF'
+PR opened: <PR-URL>. Awaiting Validate.
+EOF
+```
 
-- Set issue status to "In Review".
-- Post a comment linking the PR URL.
+Commit this tracker edit as a final chore commit on the branch (`chore(PT-14): tracker → in-review`) and push — the PR then carries its own status change.
 
 ### 4. Update process/MILESTONES.md
 
-Move the active feature entry from `## Active Feature` to `### In Flight` (under Features), with the PR URL filled in.
+Update the `## Active Feature` block: Status → "In Review", add the PR URL. (The board's in-review column shows the same fact — MILESTONES.md keeps only the active-feature pointer, per the table dissolution ruled in `process/TRACKER.md`.)
 
 ### 5. Run validation handshake
 
-`SendMessage` to qa-engineer: "Feature <id> opened as PR <url>. Drive Validate."
+`SendMessage` to qa-engineer: "Feature <ID> opened as PR <url>. Drive Validate." (If teammate messaging is unavailable, the qa-engineer picks up via the anchor task or a `temp/` note — see the hand-off protocol in `process/WORKFLOW.md`.)
 
-The Validate phase begins. QA + DevOps + Architect will review, deploy to staging, and either approve merge (then `/merge-pr`) or send back a fix request.
+The Validate phase begins. QA + DevOps + Architect review, deploy to staging, and either approve merge (then `/merge-pr`) or send back a fix request.
 
 ### 6. Promote durable state before teardown
 
-The shared task list is **session-scoped** — it disappears when the Implement team is cleaned up. Before any teardown:
+The shared task list is **session-scoped** — it disappears with the team. Before teardown:
 
-- Skim the anchor task and its subtasks. Anything that captures a **decision** or **lesson** gets promoted to durable state:
+- Anything on the anchor task that captures a **decision** or **lesson** gets promoted:
   - Decisions → `process/DECISIONS.md`
-  - Implementation notes future-you would want → a Linear issue comment on the feature
-- Ephemeral status pings, WIP markers, and routine hand-offs **do not** get promoted — that's the whole point of transient state.
+  - Implementation notes future-you wants → `cairn comment <ID> --author <role> --body -` (the issue file is the durable record)
+- Ephemeral status pings and WIP markers stay transient — that's the point.
 
 ## After-merge follow-up
 

@@ -1,9 +1,11 @@
 ---
 name: setup-linear-team
-description: One-time bootstrap that wires Linear into this project — confirms the shared Linear team, creates this project's Initiative via MCP, seeds the nine `agent:<role>` labels, seeds first-milestone stories to Linear with overflow to `process/BACKLOG.md`, sets the delivery-autonomy methodology for `/drive`, and caches IDs in `.claude/linear-team.json`. Run on the first session of a new project, or whenever the cache is missing. No arguments — interviews the user as needed.
+description: DEPRECATED — Linear-era skill kept one release for unmigrated projects; see banner. One-time bootstrap that wires Linear into this project — confirms the shared Linear team, creates this project's Initiative via MCP, seeds the nine `agent:<role>` labels, seeds first-milestone stories to Linear with overflow to `process/BACKLOG.md`, sets the delivery-autonomy methodology for `/drive`, and caches IDs in `.claude/linear-team.json`. Run on the first session of a new project, or whenever the cache is missing. No arguments — interviews the user as needed.
 ---
 
 # setup-linear-team
+
+> ⚠️ **DEPRECATED (Linear era — removed next release).** Superseded by `/setup-tracker`, which bootstraps cairn (the file-based tracker, `process/TRACKER.md`) with no MCP, no caps, and no overflow tiers. Use this skill only to wire Linear into a legacy project that has not migrated.
 
 Bootstraps Linear for this project under the **shared-team model**: one Linear team for the whole workspace (free-tier-friendly), one **Initiative per major version line** (the founding line is `V1`; later majors open their own Initiatives), labels for per-agent attribution, and a tiered overflow system to keep active issues under the 250-issue cap.
 

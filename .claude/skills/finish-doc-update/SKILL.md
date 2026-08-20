@@ -1,6 +1,6 @@
 ---
 name: finish-doc-update
-description: Closes a doc-only update — commits the doc edits, regenerates the affected docs' PDF artifacts, pushes the `phase/*` branch, and opens a PR. Mirrors /finish-feature but lighter: no Linear issue update, no QA handshake. After this, run /merge-pr (or merge via GitHub UI) to land the changes on main.
+description: Closes a doc-only update — commits the doc edits, regenerates the affected docs' PDF artifacts, pushes the `phase/*` branch, and opens a PR. Mirrors /finish-feature but lighter: no tracker issue update, no QA handshake. After this, run /merge-pr (or merge via GitHub UI) to land the changes on main.
 ---
 
 # finish-doc-update
@@ -65,7 +65,7 @@ Then `gh pr create` with:
 - **Title:** matches the most recent *source* commit's subject (or summarize if multiple commits)
 - **Body:** include
   - A `## Summary` section (2–3 bullets — what changed and why)
-  - A line: `**Type:** doc-only update (no Linear issue, no QA validation required)`
+  - A line: `**Type:** doc-only update (no tracker issue, no QA validation required)`
   - A line noting the PDF artifacts: which docs were regenerated (or that PDF regen was skipped/failed, per Step 2)
   - The standard Claude footer
 

@@ -9,10 +9,10 @@ This repo is a **meta-template**, not a product. Clone it (or use it as a GitHub
 - a four-phase workflow (**Research → Plan → Implement ⇄ Validate**),
 - nine specialist team-Agents (PM, UX, Architect, SecEng, two implementation leads + a generalist, QA, DevOps) plus an `mcp-broker` context-firewall agent,
 - doc-generation skills for PRD / Architecture / Security / Design,
-- workflow skills for branching, PR + Linear integration, releases,
+- workflow skills for branching, PR + tracker integration, releases,
 - HTML doc templates with embedded Mermaid diagrams,
-- a state ledger (`process/MILESTONES.md`), a separate append-only decision log (`process/DECISIONS.md`), and a backlog overflow queue (`process/BACKLOG.md`),
-- **AGILE issue / milestone tracking via [Linear](https://linear.app)** — our major-line / milestone / feature hierarchy maps to Linear's Initiative / Linear-Project / Issue primitives (semver `MAJOR.MINOR.PATCH` binds to those layers; Session Cycles are a heuristic with no Linear footprint),
+- a state ledger (`process/MILESTONES.md`) and a separate append-only decision log (`process/DECISIONS.md`),
+- **AGILE issue / milestone tracking via cairn** — a file-based tracker that ships inside the template (`process/TRACKER.md`): majors / milestones / issues as markdown-in-git, a local Kanban board, no caps, no accounts, zero MCP (semver `MAJOR.MINOR.PATCH` binds to those layers; Session Cycles are a heuristic with no tracker footprint),
 - session-management heuristics tuned for asynchronous solo development.
 
 The goal: every new project starts with the same shape, so async hand-offs and context-window management are predictable.
@@ -30,7 +30,7 @@ flowchart LR
   V -->|project complete| done([Ship / Wind-down])
 ```
 
-Implement ⇄ Validate is the inner loop at three scales: **feature → milestone → major line**. Session Cycles (context-bounded work sessions, not Linear artifacts) are a heuristic planning wrapper, not a loop scale. Full details in [`process/WORKFLOW.md`](process/WORKFLOW.md).
+Implement ⇄ Validate is the inner loop at three scales: **feature → milestone → major line**. Session Cycles (context-bounded work sessions, not tracker artifacts) are a heuristic planning wrapper, not a loop scale. Full details in [`process/WORKFLOW.md`](process/WORKFLOW.md).
 
 ## What you get
 
@@ -63,18 +63,17 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 
 *Workflow & operations:*
 
-- `/start-feature` — branch + Linear issue + budget check + Implement team spawn (also promotes from `process/BACKLOG.md` on demand)
-- `/finish-feature` — commit, push, PR, link Linear, hand off to Validate
+- `/start-feature` — branch + cairn issue claim + Implement team spawn
+- `/finish-feature` — commit, push, PR, flip the issue to in-review, hand off to Validate
 - `/drive [issue|milestone]` — aims a hands-off goal-driven loop at the next feature (or whole milestone), per the project's delivery-autonomy setting (`stop-at-merge` default / `self-merge-within-milestone`). Constructs the condition for the native `/goal` command and surfaces it for you to paste — the loop then runs the I↔V cycle until done. Needs Claude Code ≥ v2.1.139 (for `/goal`). See process/WORKFLOW.md → Goal-driven loop
-- `/start-doc-update <slug>` — kicks off a `phase/<phase>-<slug>` branch for non-feature doc edits (PRD/ARCH/SECURITY/WORKFLOW/etc.); no Linear issue, no implementation team
+- `/start-doc-update <slug>` — kicks off a `phase/<phase>-<slug>` branch for non-feature doc edits (PRD/ARCH/SECURITY/WORKFLOW/etc.); no tracker issue, no implementation team
 - `/finish-doc-update` — commit + push + open PR for a doc-update branch; no QA handshake (lead reviews directly)
 - `/merge-pr` — gated team-lead merge after QA sign-off (features) or lead review (doc updates); squash-merges, archives, updates state. Alternative to human-review-and-merge via GitHub UI
-- `/setup-linear-team` — wire Linear into a new project (one-time): links the shared team, creates this project's Initiative via MCP, seeds agent labels, seeds first-milestone stories to Linear and rest to `process/BACKLOG.md`
+- `/setup-tracker` — bootstrap cairn for a new project (one-time): confirms the issue-ID prefix, scaffolds `process/cairn/`, seeds the founding major + M0/M1 milestones, optionally seeds PRD stories as backlog issues
+- `/cairn` — start the local Kanban/list board (`http://localhost:8766/`); a stateless lens over `process/cairn/` — agents never need it
 - `/setup-claude-deploy-key` — generate a per-repo passphrase-less SSH deploy key so Claude can push to GitHub without TTY-unlockable passphrases (one-time per repo)
-- `/sync-backlog [count|milestone]` — promote items from `process/BACKLOG.md` to Linear in milestone-FIFO order. Called at session-planning time, on demand, or implicitly by `/start-feature` when a queued feature is requested
 - `/sweep-temp [status]` — interactive sweep of the gitignored `temp/` hand-off buffer: every unplaced agent finding gets placed into a tracked artifact, discarded with a rationale, or explicitly held (`hold-until:` frontmatter). Team-lead session-close obligation; a SessionStart hook reports the pending count (14-day staleness threshold; visibility only, never auto-deletion). `status` = read-only inventory. See process/WORKFLOW.md → Hand-off protocol & the `temp/` buffer
-- `/cleanup-linear [filter]` — bulk-archive Done Linear issues to free space under the 250-active-issue free-tier cap; use when sync-backlog warns near cap or at milestone close
-- `/spin-off-component <path>` — extract a substantial, reusable component out of the monorepo into its own repo (a fresh template instance + Linear Initiative), preserving git history, cutting `v0.1.0`, and recording the parent↔child linkage. Mechanizes the git extraction; hands off the child bootstrap and the parent-side dependency swap. See process/WORKFLOW.md → Shared / reusable components
+- `/spin-off-component <path>` — extract a substantial, reusable component out of the monorepo into its own repo (a fresh template instance with its own tracker), preserving git history, cutting `v0.1.0`, and recording the parent↔child linkage. Mechanizes the git extraction; hands off the child bootstrap and the parent-side dependency swap. See process/WORKFLOW.md → Shared / reusable components
 
 **Scripts** (`scripts/`):
 
@@ -88,7 +87,7 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 - `process/WORKFLOW.md` — phases, roles, gates, team coordination
 - `process/MILESTONES.md` — live state ledger (compact; auto-loaded)
 - `process/DECISIONS.md` — append-only decision log (not auto-loaded; pulled in when historical context is needed)
-- `process/BACKLOG.md` — overflow queue for Linear (items waiting to be promoted)
+- `process/cairn/` — the tracker's data: majors, milestones, issues, archive (`process/TRACKER.md` is the spec)
 - `docs/PRD/index.html` — Product Requirements (HTML + Mermaid)
 - `docs/ARCH/index.html` — Architecture + Infrastructure
 - `docs/SECURITY/index.html` — Security + Compliance
@@ -100,7 +99,7 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 
 - **Principal** (you) — sets vision, makes gate decisions, authorizes Agents.
 - **Team Lead** — the main Claude Code session. Coordinates teams, delegates, summarizes specialist output into executive language. Not spawnable: its identity and operating directives live in [`.claude/roles/team-lead.md`](.claude/roles/team-lead.md), injected at session start by a `SessionStart` hook.
-- **Agents** — nine specialists spawned per phase as Claude team-agents, plus the `mcp-broker` utility agent (a context firewall for verbose remote MCP servers like Linear — delegate a query, get back the distilled fact instead of kilobytes of JSON). Every agent reports back through a shared **hand-off protocol**: conclusions, not evidence — a fixed Summary / Paths changed / Broken / Bubble-up format, with long findings routed to gitignored, date-prefixed `temp/` files that the team-lead places into tracked artifacts (or discards) before session close via `/sweep-temp`.
+- **Agents** — nine specialists spawned per phase as Claude team-agents, plus the `mcp-broker` utility agent (a context firewall for verbose remote MCP servers like Google Drive and Gmail — delegate a query, get back the distilled fact instead of kilobytes of JSON). Every agent reports back through a shared **hand-off protocol**: conclusions, not evidence — a fixed Summary / Paths changed / Broken / Bubble-up format, with long findings routed to gitignored, date-prefixed `temp/` files that the team-lead places into tracked artifacts (or discards) before session close via `/sweep-temp`.
 
 ## Common project-specific extensions
 
@@ -146,14 +145,14 @@ claude
 2. **`/setup-claude-deploy-key`** — generate a passphrase-less SSH key scoped to this repo, add it to GitHub as a deploy key with write access, and pin the repo's git to use it. Without this, Claude's `git push` will fail when your main SSH key is passphrase-protected.
 3. **Enable GitHub branch protection on `main`** — Settings → Branches → Add rule → ✅ Require pull request before merging, ✅ Do not allow bypassing. This is the hard enforcement layer behind the workflow's "no direct pushes" rule.
 4. Replace the project description placeholders in `CLAUDE.md`.
-5. `/setup-linear-team` — link to your shared Linear team and create this project's Initiative.
+5. `/setup-tracker` — bootstrap cairn (confirm the issue-ID prefix; seeds V1 + M0/M1).
 6. Verify `teammateMode` in `.claude/settings.json` (default: `tmux` for split-pane).
 7. Spawn the Research team: _"Create an agent team for the Research phase."_
 8. `/generate-prd` — start the discovery interview.
 
 ## Session startup
 
-Every session starts minimal. Only the files needed to re-orient are auto-loaded; everything else is read lazily as the work demands. Three `SessionStart` hooks in `.claude/settings.json` do the injection: the first loads the team-lead role definition (`.claude/roles/team-lead.md` — main-session identity; spawned teammates keep their own agent-file identity), the second runs an `awk` extractor over `process/MILESTONES.md` so the auto-loaded state slice stays compact even as the Roadmap table grows, and the third reports the `temp/` hand-off buffer's pending count whenever it's non-empty (silent when clean).
+Every session starts minimal. Only the files needed to re-orient are auto-loaded; everything else is read lazily as the work demands. Three `SessionStart` hooks in `.claude/settings.json` do the injection: the first loads the team-lead role definition (`.claude/roles/team-lead.md` — main-session identity; spawned teammates keep their own agent-file identity), the second runs an `awk` extractor over `process/MILESTONES.md` so the auto-loaded state slice stays compact even as the Session Cycles and Releases tables grow, and the third reports the `temp/` hand-off buffer's pending count whenever it's non-empty (silent when clean).
 
 ```mermaid
 flowchart TD
@@ -163,7 +162,7 @@ flowchart TD
 
   A --> A1["<b>CLAUDE.md</b> — full<br/><i>session bootstrap + first-run checklist</i>"]
   A --> A2["<b>memory/MEMORY.md</b> — full<br/><i>auto-memory index only;<br/>individual memory files load lazily</i>"]
-  A --> A3["<b>process/MILESTONES.md</b> — partial<br/><i>SessionStart hook runs awk;<br/>top → just before</i> <code>## Roadmap</code>"]
+  A --> A3["<b>process/MILESTONES.md</b> — partial<br/><i>SessionStart hook runs awk;<br/>top → just before</i> <code>## Releases</code>"]
   A --> A4["<b>.claude/roles/team-lead.md</b> — full<br/><i>SessionStart hook; main-session<br/>identity + operating directives</i>"]
   A --> A5["<b>System reminders</b><br/><i>date · skills list · MCP instructions ·<br/>deferred tool names (no schemas)</i>"]
 
@@ -180,9 +179,9 @@ flowchart TD
   RB --> R3["<code>gh pr list --state open</code>"]
   RB --> BR{"Branch type?"}
 
-  BR -->|feature/*| R5["Linear issue via MCP +<br/><code>git diff --stat main...HEAD</code>"]
+  BR -->|feature/*| R5["<code>cairn show &lt;ID&gt;</code> +<br/><code>git diff --stat main...HEAD</code>"]
   BR -->|phase/*| R6["<code>git diff main</code><br/><i>pending doc edits</i>"]
-  BR -->|main clean| R7["MILESTONES Roadmap section<br/><i>for next move</i>"]
+  BR -->|main clean| R7["<code>cairn ls --status todo</code><br/><i>for next move</i>"]
 
   R1 --> CONF["Surface pickup point;<br/>wait for user confirmation"]
   R2 --> CONF
@@ -206,19 +205,19 @@ flowchart TD
 
 The **Resume runbook** (in `CLAUDE.md` → Session management) only fires when the lead is re-entering in-flight work — a "let's continue" cold start. Fresh tasks skip it. Either way, the bulk of the repo — `process/WORKFLOW.md`, `process/DECISIONS.md`, individual skill / agent / memory files, docs, source — is pulled only when the work in front of you needs it, keeping the context window honest.
 
-## The hierarchy (Linear mapping + semver)
+## The hierarchy (cairn mapping + semver)
 
-| Concept | Linear primitive | Version digit |
+| Concept | cairn artifact | Version digit |
 |---|---|---|
-| Major version line (`V1`, `V2`, …) | **Initiative** (one per major line; concurrent) | `MAJOR` |
-| Milestone (named by target version) | Linear Project | `MINOR` |
-| Feature (one PR, one I↔V loop) | Linear Issue | — |
-| Hotfix | Linear Issue | `PATCH` |
+| Major version line (`V1`, `V2`, …) | `process/cairn/majors/<id>.md` (one per major; concurrent) | `MAJOR` |
+| Milestone (named by target version) | `process/cairn/milestones/<name>.md` | `MINOR` |
+| Feature (one PR, one I↔V loop) | `process/cairn/issues/<ID>.md` | — |
+| Hotfix | issue on the milestone it patches | `PATCH` |
 | Session Cycle (context-bounded session) | *(none — heuristic)* | — |
 
-One Linear team is shared across **all** your projects (free-tier-friendly). Each **major line** gets its own Initiative, so `V1.x` maintenance and `V2.x` development run as two concurrent Initiatives; an Initiative closes when its line is EOL'd. Session Cycles are a session-planning heuristic with **no** Linear Cycle (Linear MCP calls are token-expensive). Agent attribution rides on `agent:<role>` issue labels (v1 mechanism; OAuth agent actors are an upgrade path documented in `process/WORKFLOW.md`). Full semver rules in [`process/WORKFLOW.md`](process/WORKFLOW.md) → Versioning scheme.
+The tracker is **per-repo, files in git** — no accounts, no caps, no MCP. Each **major line** gets its own `majors/` file, so `V1.x` maintenance and `V2.x` development run concurrently; a major closes (`status: completed`) when its line is EOL'd. Session Cycles are a session-planning heuristic with **no** tracker artifact. Agent attribution is the issue's `assignee:` field plus per-author comment headers. View it all on the local board (`/cairn` → `http://localhost:8766/`). Full semver rules in [`process/WORKFLOW.md`](process/WORKFLOW.md) → Versioning scheme; full tracker spec in [`process/TRACKER.md`](process/TRACKER.md).
 
-Because the team is shared, a **reusable component** that graduates to its own repo (via `/spin-off-component`) is just another Initiative in the same team — same machinery, no new infra. See process/WORKFLOW.md → Shared / reusable components.
+A **reusable component** that graduates to its own repo (via `/spin-off-component`) brings its own tracker with it (`/setup-tracker` in the child) — same machinery, no new infra. See process/WORKFLOW.md → Shared / reusable components.
 
 ## Layout
 
@@ -231,7 +230,8 @@ Because the team is shared, a **reusable component** that graduates to its own r
 │   ├── WORKFLOW.md              phases, roles, gates, coordination
 │   ├── MILESTONES.md            live state + decision ledger
 │   ├── DECISIONS.md             append-only project decisions (seed; you keep this)
-│   ├── BACKLOG.md               Linear overflow queue (seed; you keep this)
+│   ├── TRACKER.md               cairn spec — the file-based issue tracker
+│   ├── cairn/                   tracker data: majors, milestones, issues, archive
 │   └── TEMPLATE_DECISIONS.md    decisions about the template itself — DELETE on bootstrap
 ├── docs/
 │   ├── PRD/index.html           product requirements (Research)
@@ -296,9 +296,7 @@ If you prefer to override anything per-project without committing, drop it in `.
 
 ### External integrations
 
-- **Linear MCP** — connected at the workspace level (claude.ai → Settings → MCP → Linear, or equivalent). Required for `/setup-linear-team`, ticket sync, and Initiative/Project creation. **Free tier is fully supported.**
-  - On first project, you'll be asked to create a shared Linear team and per-project Initiative manually in Linear's UI (these aren't exposed by the current MCP). The skill walks you through it.
-  - Watch the **250-active-issues** free-tier cap — archive features aggressively at session-planning time (or on demand via `/cleanup-linear`).
+- **No tracker service needed** — cairn ships inside the template: issue tracking is markdown files in the repo, the board is a local Python-stdlib server (`/cairn`), and macOS's stock `python3` suffices. (Linear-era projects: the deprecated `/setup-linear-team` / `/sync-backlog` / `/cleanup-linear` skills remain for one release; `/setup-tracker` imports a legacy `process/BACKLOG.md`.)
 - **Anthropic API access** — implicit via Claude Code itself; no additional config.
 
 ### Mermaid loading: CDN vs vendored
@@ -330,10 +328,10 @@ Revert to CDN at any time: `git checkout docs/_assets/mermaid-init.js && rm -rf 
 ## Where to read next
 
 - [`CLAUDE.md`](CLAUDE.md) — session bootstrap, first-run checklist, session-management heuristics.
-- [`process/WORKFLOW.md`](process/WORKFLOW.md) — phases, roles, Linear mapping, team coordination, decision logging, release process, deployment topology.
+- [`process/WORKFLOW.md`](process/WORKFLOW.md) — phases, roles, tracker mapping, team coordination, decision logging, release process, deployment topology.
 - [`process/MILESTONES.md`](process/MILESTONES.md) — live state-ledger structure.
 - [`process/DECISIONS.md`](process/DECISIONS.md) — append-only decision log; conventions in process/WORKFLOW.md → Decision logging.
-- [`process/BACKLOG.md`](process/BACKLOG.md) — Linear-overflow queue and FIFO promotion mechanism.
+- [`process/TRACKER.md`](process/TRACKER.md) — cairn: data model, board server, CLI, and the skills that ride on it.
 - [`docs/starting-prompt.md`](docs/starting-prompt.md) — the original design brief that shaped this template.
 
 ## License

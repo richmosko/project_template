@@ -43,7 +43,7 @@ When a legacy PRD exists, your job shifts from "interview from scratch" to "anal
 - **Port directly** — content fits the framework as-is
 - **Port with refinement** — fits but needs adjustment (e.g. quantify a qualitative goal)
 - **Decompose** — too coarse; needs breaking down (e.g. mega-feature → multiple user stories)
-- **Relocate** — belongs in ARCH, process/MILESTONES.md, or Linear instead of PRD
+- **Relocate** — belongs in ARCH, process/MILESTONES.md, or the tracker instead of PRD
 - **Archive** — historical context; goes to Appendix or `docs/archive/`
 
 **c. Surface the mapping for confirmation.** Show the user a table summarizing what you found and how you'd handle each section:
@@ -64,7 +64,7 @@ Ask: "Any overrides before I refactor?" Honor the user's preferences (e.g. they 
 **f. Queue the spillover.** For content marked "Relocate":
 - → ARCH: queue as draft content for a later `/generate-archdoc` run (or feed directly if architect agent is active)
 - → `process/DECISIONS.md`: queue as a Decision Log entry; or → `process/MILESTONES.md`: queue as a Milestone row
-- → Linear: queue as backlog issues (PM agent can call `save_issue` via MCP)
+- → tracker: queue as backlog issues (`scripts/cairn/cairn new "<story>" --status backlog`)
 
 Present each queued item to the user for one-shot batch confirmation before writing.
 

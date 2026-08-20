@@ -1,9 +1,11 @@
 ---
 name: cleanup-linear
-description: Bulk-archives Done Linear issues to free space under the 250-active-issue free-tier cap. Use when /sync-backlog warns about active count approaching cap, when /start-feature is hard-blocked, at milestone close as hygiene, or periodically on long-running projects. Reports before/after counts.
+description: DEPRECATED — Linear-era skill kept one release for unmigrated projects; see banner. Bulk-archives Done Linear issues to free space under the 250-active-issue free-tier cap. Use when /sync-backlog warns about active count approaching cap, when /start-feature is hard-blocked, at milestone close as hygiene, or periodically on long-running projects. Reports before/after counts.
 ---
 
 # cleanup-linear
+
+> ⚠️ **DEPRECATED (Linear era — removed next release).** Superseded by `scripts/cairn/cairn archive --done-before <date>` — reframed as hygiene (keeping the board readable), never quota relief, because there is no quota.
 
 Explicitly archives **Done** issues on the shared Linear team to keep the active-issue count under the free-tier cap.
 

@@ -1,23 +1,23 @@
 ---
 name: start-doc-update
-description: Kicks off a doc-only update on a `phase/<phase>-<slug>` branch — for changes to PRD, ARCH, SECURITY (in docs/), process/MILESTONES.md, process/DECISIONS.md, process/WORKFLOW.md, etc. that aren't tied to a Linear feature. Mirrors /start-feature but lighter: no Linear issue, no implementation team, no anchor task. Use during Research/Plan phases when an agent (PM, architect, seceng) needs to revise docs without a feature ticket, or for cross-cutting workflow/meta updates anytime.
+description: Kicks off a doc-only update on a `phase/<phase>-<slug>` branch — for changes to PRD, ARCH, SECURITY (in docs/), process/MILESTONES.md, process/DECISIONS.md, process/WORKFLOW.md, etc. that aren't tied to a tracker feature. Mirrors /start-feature but lighter: no cairn issue, no implementation team, no anchor task. Use during Research/Plan phases when an agent (PM, architect, seceng) needs to revise docs without a feature ticket, or for cross-cutting workflow/meta updates anytime.
 ---
 
 # start-doc-update
 
-Bootstraps a phase-scoped doc-update branch. Use when you need to revise PRD/ARCH/SECURITY/MILESTONES/DECISIONS/WORKFLOW/CLAUDE and the change isn't tied to a Linear feature.
+Bootstraps a phase-scoped doc-update branch. Use when you need to revise PRD/ARCH/SECURITY/MILESTONES/DECISIONS/WORKFLOW/CLAUDE and the change isn't tied to a tracker feature.
 
 ## When to use vs `/start-feature`
 
 | Situation | Use |
 |---|---|
-| Implementing a user story tied to a Linear issue | `/start-feature` |
+| Implementing a user story tied to a cairn issue | `/start-feature` |
 | Updating PRD/ARCH/SECURITY during Research/Plan | **`/start-doc-update`** |
 | Adding a Decision Log entry that requires PR review | **`/start-doc-update`** |
 | Fixing a typo in process/WORKFLOW.md or CLAUDE.md | **`/start-doc-update`** |
 | Bumping a dependency in package.json | `/start-feature` (it has acceptance tests) |
 
-The simple rule: **if it has acceptance criteria and lives in Linear, use `/start-feature`. If it's purely docs/process and doesn't, use `/start-doc-update`.**
+The simple rule: **if it has acceptance criteria and lives in the tracker, use `/start-feature`. If it's purely docs/process and doesn't, use `/start-doc-update`.**
 
 ## Inputs
 
