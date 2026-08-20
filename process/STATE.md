@@ -41,8 +41,8 @@ Tagged releases across all major lines. Cut via `/merge-pr` when a product miles
 
 | Version | Date | Major line | Milestone shipped | Branch | Notes |
 |---|---|---|---|---|---|
-| v0.4.0 | 2026-08-20 | V1 | 0.4 (hardening) | main | Draft — [release](https://github.com/richmosko/project_template/releases) pending Mosko's curation/publish. 13 issues, PRs #34–#42: STATE.md rename, Linear removal, engine/board hardening, teammate coordination toolset, SSE live push. |
-| v0.3.0 | 2026-08-20 | V1 | 0.3 (cairn) | main | Draft — [release](https://github.com/richmosko/project_template/releases) pending Mosko's curation/publish. cairn replaces Linear: spec #28, engine #29, skills migration #30, dogfood #31. |
+| v0.4.0 | 2026-08-20 | V1 | 0.4 (hardening) | main | Published — [release](https://github.com/richmosko/project_template/releases/tag/v0.4.0). 13 issues, PRs #34–#42: STATE.md rename, Linear removal, engine/board hardening, teammate coordination toolset, SSE live push. |
+| v0.3.0 | 2026-08-20 | V1 | 0.3 (cairn) | main | Published — [release](https://github.com/richmosko/project_template/releases/tag/v0.3.0). cairn replaces Linear: spec #28, engine #29, skills migration #30, dogfood #31. |
 
 ## Decisions
 
