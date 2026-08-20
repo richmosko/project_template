@@ -42,6 +42,10 @@
     sortKey: "id",
     sortDir: 1,
     openIssueId: null,
+    // PT-16: per-swimlane collapse, view-local only -- keyed by the same
+    // lane key renderKanban groups on (a milestone id, or the literal
+    // string "(none)"). Never persisted -- the board is a stateless lens.
+    collapsedLanes: {},
   };
 
   // ------------------------------------------------------------------
@@ -171,7 +175,8 @@
       progressEl.appendChild(span);
     });
 
-    populateSelect("filter-milestone", uniqueSorted(board.issues.map(function (i) { return i.milestone; })));
+    var milestoneLabelFor = function (v) { return milestoneLabel(board, v); };
+    populateSelect("filter-milestone", uniqueSorted(board.issues.map(function (i) { return i.milestone; })), milestoneLabelFor);
     populateSelect("filter-assignee", uniqueSorted(board.issues.map(function (i) { return i.assignee; })));
     var labels = [];
     board.issues.forEach(function (i) { (i.labels || []).forEach(function (l) { labels.push(l); }); });
@@ -179,7 +184,7 @@
     // All known milestones, not just ones already carrying an issue —
     // a fresh milestone with zero issues yet should still be choosable
     // when creating the first one for it.
-    populateSelect("new-issue-milestone", (board.milestones || []).map(function (m) { return m.id; }).sort());
+    populateSelect("new-issue-milestone", (board.milestones || []).map(function (m) { return m.id; }).sort(), milestoneLabelFor);
   }
 
   function uniqueSorted(values) {
@@ -188,7 +193,16 @@
     return Object.keys(set).sort();
   }
 
-  function populateSelect(id, values) {
+  // PT-16: "id · name", falling back to the bare id when the milestone has
+  // no `name` or `id` names no milestone file at all (e.g. the "(none)"
+  // swimlane key, or a dangling milestone reference) -- mirrors the
+  // progress-strip's existing id·name rendering (renderHeader, above).
+  function milestoneLabel(board, id) {
+    var ms = (board.milestones || []).filter(function (m) { return m.id === id; })[0];
+    return ms && ms.name ? id + " · " + ms.name : id;
+  }
+
+  function populateSelect(id, values, labelFor) {
     var el = document.getElementById(id);
     var current = el.value;
     var placeholder = el.options[0];
@@ -196,8 +210,8 @@
     el.appendChild(placeholder);
     values.forEach(function (v) {
       var opt = document.createElement("option");
-      opt.value = v;
-      opt.textContent = v;
+      opt.value = v; // PT-16: label decorates, value stays the bare id
+      opt.textContent = labelFor ? labelFor(v) : v;
       el.appendChild(opt);
     });
     el.value = current;
@@ -295,6 +309,7 @@
   }
 
   function renderKanban() {
+    var board = state.board;
     var main = document.getElementById("main");
     main.innerHTML = "";
     var issues = filteredIssues();
@@ -319,11 +334,39 @@
     order.forEach(function (key) {
       var lane = document.createElement("div");
       lane.className = "swimlane";
+
+      // PT-16: id·name label (milestoneLabel falls back to the bare key
+      // for "(none)" and any dangling milestone id -- no special-casing
+      // needed) + a per-lane collapse toggle. Collapse state lives only
+      // in state.collapsedLanes (in-memory) -- never written to disk, no
+      // network call fires on toggle.
+      var collapsed = !!state.collapsedLanes[key];
       var laneHeader = document.createElement("div");
       laneHeader.className = "swimlane-header";
-      laneHeader.textContent = key;
+
+      var toggleBtn = document.createElement("button");
+      toggleBtn.type = "button";
+      toggleBtn.className = "swimlane-toggle";
+      toggleBtn.textContent = collapsed ? "▸" : "▾";
+      toggleBtn.setAttribute("aria-label", (collapsed ? "Expand " : "Collapse ") + key);
+      toggleBtn.addEventListener("click", function () {
+        state.collapsedLanes[key] = !collapsed;
+        render();
+      });
+      laneHeader.appendChild(toggleBtn);
+
+      var labelSpan = document.createElement("span");
+      labelSpan.className = "swimlane-label";
+      labelSpan.textContent = milestoneLabel(board, key);
+      laneHeader.appendChild(labelSpan);
+
+      var countSpan = document.createElement("span");
+      countSpan.className = "swimlane-count";
+      countSpan.textContent = byMilestone[key].length;
+      laneHeader.appendChild(countSpan);
+
       lane.appendChild(laneHeader);
-      lane.appendChild(columnsFor(byMilestone[key]));
+      if (!collapsed) lane.appendChild(columnsFor(byMilestone[key]));
       main.appendChild(lane);
     });
   }
