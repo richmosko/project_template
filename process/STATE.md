@@ -1,4 +1,4 @@
-# Milestones & State
+# State
 
 > Live ledger of where the project is. Updated by the team-lead at every phase transition, feature completion, session-cycle boundary, and decision.
 >
