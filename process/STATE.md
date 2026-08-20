@@ -17,14 +17,14 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Session Cycle | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Require `seen` on POST /api/issue/<id> |
+| Issue | PT-6 (cairn) |
+| Milestone | 0.4 |
+| Session Cycle | SC2 |
+| Branch | `feature/pt-6-require-seen` |
+| Started | 2026-08-20 |
+| Goal | The lost-update window closes: omitting `seen` is a 400, overriding requires an explicit null, stale writes keep 409ing. |
+| Status | In Progress |
 
 ## Session Cycles
 
