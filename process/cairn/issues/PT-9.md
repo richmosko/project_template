@@ -1,13 +1,13 @@
 ---
 id: PT-9
 title: Accept --data-dir before the subcommand (top-level argparse option)
-status: in-progress
+status: done
 milestone: "0.4"
 parent: null
 assignee: null
 labels: []
 priority: P3
-pr: null
+pr: https://github.com/richmosko/project_template/pull/40
 created: 2026-08-20
 updated: 2026-08-20
 ---

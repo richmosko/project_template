@@ -1,13 +1,13 @@
 ---
 id: PT-8
 title: Validate --done-before as YYYY-MM-DD in cairn archive
-status: in-progress
+status: done
 milestone: "0.4"
 parent: null
 assignee: null
 labels: []
 priority: P3
-pr: null
+pr: https://github.com/richmosko/project_template/pull/40
 created: 2026-08-20
 updated: 2026-08-20
 ---
