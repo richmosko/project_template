@@ -19,6 +19,16 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 
 ---
 
+### 2026-08-20 — Template ships CLAUDE_CODE_ENABLE_TODO_TOOLS=1; degraded mode documented as fallback (#47)
+**Decision:** Add `CLAUDE_CODE_ENABLE_TODO_TOOLS: "1"` to `.claude/settings.json` → `env`, alongside the agent-teams flag. The shared Task tools (`TaskCreate`/`TaskGet`/`TaskList`/`TaskUpdate`) are session-gated by model — absent by default on Opus 4.8 / Sonnet 5 / Fable 5 and later — so without the opt-in the anchor-task pattern is dead-by-default on current models. WORKFLOW.md's new *Task-tool availability & the degraded mode* section (PT-18) documents the gating, the opt-in, and the SendMessage + `temp/` fallback as the pattern's degraded mode.
+**Why:** The template already commits to the agent-teams experiment; shipping a workflow whose primary coordination pattern silently cannot operate on current models is the worse state. Verified live: the flag took effect in the running session the moment it landed in settings (Claude Code reapplies settings `env` on save) and the Task tools appeared.
+**Alternatives considered:**
+- *Docs-only (document the opt-in, don't ship it):* leaves every derived project to rediscover the gap PT-17/PT-18 already paid for.
+**Approved by:** Mosko
+**Supersedes:** nothing — complements PT-18's documentation.
+
+---
+
 ### 2026-08-20 — 0.5 milestone scoped: deferrals plus small follow-ups, backlog cleared
 **Decision:** Cut the `0.5` milestone (major V1, `target_tag: v0.5.0`, name *polish*) with all six backlog issues: the three 0.4 deferrals — PT-2 (snapshot appendix), PT-3 (multi-root board), PT-4 (markdown drawer rendering) — plus the small follow-ups filed during the 0.4 cycle: PT-16 (board milestone names + swimlane expand/collapse), PT-18 (document the anchor-task degraded mode), PT-19 (check_repo title-shape lint). Suggested order: PT-18 → PT-19 → PT-16 → PT-4 → PT-2 → PT-3, saving the PT-3 design conversation for last as the largest item.
 **Why:** The backlog is exactly six items and all are already committed direction — deferring any would be tracker overhead, not a real cut. PT-3 is the only item with design weight; sequencing it last keeps the milestone shippable even if that conversation pushes it out.
