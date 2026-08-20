@@ -24,7 +24,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-5-priority-select-lint` |
 | Started | 2026-08-20 |
 | Goal | Priority becomes a constrained vocabulary end to end: the drawer offers only P0–P3/none, and the linter rejects anything else. |
-| Status | In Progress |
+| Status | In Review — [PR #36](https://github.com/richmosko/project_template/pull/36), Validate green |
 
 ## Session Cycles
 
