@@ -1,8 +1,8 @@
 ---
 id: PT-9
 title: Accept --data-dir before the subcommand (top-level argparse option)
-status: backlog
-milestone: null
+status: todo
+milestone: "0.4"
 parent: null
 assignee: null
 labels: []
