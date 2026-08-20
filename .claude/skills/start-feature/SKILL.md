@@ -1,119 +1,107 @@
 ---
 name: start-feature
-description: Kicks off a feature — creates a feature branch, claims a Linear issue (promoting from process/BACKLOG.md if needed), runs a Linear active-issue budget check, posts the feature plan, spawns the Implement team, and updates process/MILESTONES.md. Use at the start of each Implement→Validate loop. Takes a Linear issue ID or process/BACKLOG.md row reference; if omitted, asks the user which to start.
+description: Kicks off a feature — creates a feature branch, claims a cairn issue (status → in-progress), posts the feature plan, spawns the Implement team, and updates process/MILESTONES.md. Use at the start of each Implement→Validate loop. Takes a cairn issue ID (e.g. PT-14) or a title substring; if omitted, lists candidates from the tracker and asks the user which to start.
 ---
 
 # start-feature
 
-Bootstraps one feature = one Implement→Validate loop = one PR. Features are the innermost work unit; they live inside milestones (Linear projects), which live inside major lines (Linear initiatives). Session Cycles group the features you attempt in one working session — a heuristic, not a Linear layer.
+Bootstraps one feature = one Implement→Validate loop = one PR. Features are the innermost work unit; they live inside milestones (`process/cairn/milestones/`), which live inside majors (`process/cairn/majors/`). Session Cycles group the features you attempt in one working session — a heuristic, not a tracker layer.
+
+The tracker is **cairn** — files under `process/cairn/`, worked via the `scripts/cairn/cairn` CLI (spec: [`process/TRACKER.md`](../../../process/TRACKER.md)). There is no issue cap, no budget check, and no promotion tier — those were Linear-era scar tissue.
 
 ## Inputs
 
 - `$ARGUMENTS` — optional:
-  - **Linear issue ID** (e.g. `ABC-123`) → use that issue directly
-  - **Feature title** (or substring) → search both Linear and `process/BACKLOG.md`; promote from process/BACKLOG.md if found there
-  - **empty** → list candidates from Linear + process/BACKLOG.md and ask the user to pick
+  - **cairn issue ID** (matches `[A-Z]{2,5}-\d+`, e.g. `PT-14`) → use that issue directly
+  - **Title substring** → search the tracker for it
+  - **empty** → list candidates and ask the user to pick
 
 ## Steps
 
-### 1. Resolve the feature source (Linear or process/BACKLOG.md)
+### 1. Resolve the feature
 
-If `$ARGUMENTS` looks like a Linear issue ID (e.g. matches `[A-Z]+-\d+`):
-- Call `mcp__claude_ai_Linear__get_issue` to load it.
+If `$ARGUMENTS` is an issue ID:
 
-Otherwise:
-- Search **Linear** via `mcp__claude_ai_Linear__list_issues` filtered by team + status in `[Todo, Backlog, In Progress]`.
-- Search **`process/BACKLOG.md`** for matching rows (by title substring, FIFO across milestones).
-- If `$ARGUMENTS` is empty: present a unified candidate list — Linear issues first (already promoted, ready to start), then process/BACKLOG.md entries (would need promotion) — and ask the user to pick.
-- If the user picks a **process/BACKLOG.md entry**, go to **Step 1a (promote)** below.
+```bash
+scripts/cairn/cairn show <ID>
+```
 
-### 1a. Promote from process/BACKLOG.md (only when feature isn't yet in Linear)
+Otherwise list candidates (statuses that can start: `backlog`, `todo`, `in-progress` for resume):
 
-If the selected feature is in `process/BACKLOG.md` rather than Linear:
+```bash
+scripts/cairn/cairn ls --status todo
+scripts/cairn/cairn ls --status backlog
+```
 
-- Invoke `/sync-backlog 1` with the specific item to promote (or call its logic directly — same MCP path).
-- Pass through the budget check (see Step 2 below) — if Linear is at cap, hard-block and route the user to `/cleanup-linear`.
-- Once the promotion succeeds and a Linear issue ID exists, continue with Step 2 using that ID.
+Filter by the title substring if one was given; if `$ARGUMENTS` was empty, present the candidates (todo first — they're queued for this milestone) and ask the user to pick. Read the chosen issue in full with `cairn show <ID>` — the description body carries the acceptance criteria.
 
-### 2. Linear active-issue budget check
-
-Call `mcp__claude_ai_Linear__list_issues` filtered by `state != archived` for the team. Capture the count.
-
-| Active count | Behavior |
-|---|---|
-| `< 200` | Proceed silently. |
-| `200–249` | Warn the user: "Linear has N active issues (cap is 250 on free tier). Consider running `/cleanup-linear` after this feature to free space." |
-| `250` | **Hard block.** Stop. Tell the user: "Linear is at the active-issue cap. Run `/cleanup-linear` before starting a new feature." |
-
-The budget check applies whether the feature came from Linear or was just promoted from process/BACKLOG.md.
-
-### 3. Sanity-check phase
+### 2. Sanity-check phase
 
 Read `process/MILESTONES.md` → `## Current Phase`. If we're not in `Implement`, ask the user: "We're in <phase>. Confirm starting a feature anyway?" Don't proceed silently.
 
-### 4. Create the branch
+### 3. Create the branch
 
 ```bash
 git checkout main
 git pull --ff-only
-git checkout -b feature/<issue-id>-<kebab-slugified-title>
+git checkout -b feature/<id-lowercase>-<kebab-slugified-title>
 ```
 
-Slug rule: lowercase, ASCII, hyphens; max 50 chars total branch length.
+Slug rule: lowercase, ASCII, hyphens; max 50 chars total branch length. (`PT-14` → `feature/pt-14-google-oauth`.)
 
-### 5. Update Linear
+### 4. Claim the issue
 
-- Set the issue's status to "In Progress".
-- Add a comment: "Feature started. Branch: `feature/<issue-id>-<slug>`. Lead: <main-session-user>."
+```bash
+scripts/cairn/cairn set <ID> status=in-progress
+scripts/cairn/cairn comment <ID> --author team-lead --body - <<'EOF'
+Feature started. Branch: `feature/<id>-<slug>`.
+EOF
+```
 
-### 6. Post the feature plan
+These edits dirty the working tree on the feature branch and merge with the feature's PR — the tracker state change and the work that caused it land atomically.
+
+### 5. Post the feature plan
 
 Drop a markdown block in the conversation with:
-- Issue title and link
-- Parent milestone (Linear project) and major line (Linear initiative)
-- Acceptance criteria (parsed from the Linear issue description)
+- Issue ID + title
+- Parent milestone (from the issue's `milestone:` field) and major (via the milestone file's `major:` field)
+- Acceptance criteria (from the issue body)
 - Proposed approach (high-level — implementation leads detail it later)
 - Estimated I→V loop duration
-- Current Linear active-issue count (from Step 2) so the user sees budget context
 
 Ask the user: "Confirm this plan? Then we'll spawn the Implement team."
 
-### 7. Spawn the Implement team
+### 6. Spawn the Implement team
 
 After user confirmation:
 - "Create an agent team for the Implement phase" — roster comes from the project configuration in `process/WORKFLOW.md` (active implementation leads + `qa-engineer`).
-- Pass the issue ID and acceptance criteria to all teammates via `SendMessage`.
+- Pass the issue ID and acceptance criteria to all teammates via `SendMessage`. Teammates read the issue file directly (`process/cairn/issues/<ID>.md`) — no payload relay needed.
 - qa-engineer goes first — they write the failing acceptance test.
 
-### 8. Create the anchor task on the shared task list
+### 7. Create the anchor task on the shared task list
 
 Following the anchor-task pattern in `process/WORKFLOW.md` → Team coordination:
 
-- Create one **anchor task** mirroring the Linear issue:
-  - **Title:** feature title (same as the Linear issue)
-  - **Description:** the acceptance criteria, verbatim
-  - **Owner:** `qa-engineer` (TDD starts with the failing test)
-- Teammates then post subtasks underneath as work flows (e.g. `backend-lead` posts "implement endpoint" with `blockedBy: <anchor>`).
-- Don't pre-populate every subtask — let the team self-organize via `blockedBy` chains as they pick up work.
+- One **anchor task** mirroring the cairn issue: title = feature title, description = acceptance criteria verbatim, owner = `qa-engineer` (TDD starts with the failing test).
+- Teammates post subtasks underneath via `blockedBy` chains as work flows. Don't pre-populate.
 
-### 9. Update process/MILESTONES.md
+### 8. Update process/MILESTONES.md
 
 Set the `## Active Feature` block:
 - Feature: the issue title
-- Linear issue: ABC-123
-- Milestone: parent Linear project name
+- Issue: `<ID>` (cairn)
+- Milestone: the issue's milestone
 - Session Cycle: the current session's label (heuristic; e.g. `SC3`)
-- Branch: feature/abc-123-...
+- Branch: `feature/<id>-<slug>`
 - Started: today's date (absolute)
 - Goal: one sentence
 - Status: "In Progress"
 
 ## Failure modes
 
-- **Branch exists already**: ask the user if they want to switch to the existing branch (feature was interrupted) or pick a different feature.
-- **Linear MCP not configured**: prompt to run `/setup-linear-team` first.
-- **Uncommitted changes on main**: stop and ask the user to commit or stash first. Never auto-stash.
-- **No milestone for the feature**: warn the user — a feature should belong to a milestone (Linear project). Either attach it to the active milestone, or proceed and flag the orphan feature in process/MILESTONES.md. (There is no Linear cycle to check — Session Cycles are a heuristic, not a Linear artifact.)
-- **Linear at active-issue cap (250)**: hard-block; advise `/cleanup-linear` before retrying.
-- **Requested feature not found in Linear or process/BACKLOG.md**: report; suggest checking the PRD or refining the search term.
-- **Promotion from process/BACKLOG.md fails mid-flow**: report partial state (item was removed from process/BACKLOG.md but Linear issue creation failed); advise the user to manually restore the row to process/BACKLOG.md or retry.
+- **Branch exists already** — ask the user: switch to it (interrupted feature) or pick a different feature.
+- **cairn not set up** (`cairn` errors about a missing `config.yml`) — run `/setup-tracker` first.
+- **Uncommitted changes on main** — stop and ask the user to commit or stash. Never auto-stash.
+- **Issue has no milestone** — warn; either attach it (`cairn set <ID> milestone=<m>`) with the user's ok, or proceed and flag the orphan in the feature plan.
+- **Requested issue not found** — `cairn ls` the likely statuses and report; suggest checking the PRD or creating it (`cairn new "<title>" --status todo --milestone <m>`).
+- **Issue already `in-progress` with a different branch** — surface the mismatch; the tracker or the tree is stale, and the user decides which.
