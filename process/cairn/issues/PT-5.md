@@ -1,7 +1,7 @@
 ---
 id: PT-5
 title: priority drawer input as a select + check_repo rule for P0-P3|null
-status: in-review
+status: done
 milestone: "0.4"
 parent: null
 assignee: null
@@ -36,3 +36,7 @@ Acceptance criteria (team-lead):
 PR opened: https://github.com/richmosko/project_template/pull/36. Validate ran pre-PR
 (qa-engineer: VALIDATE GREEN — 137/137, staging audit, inlineSelect regression audit,
 7-point fixture-server checklist incl. null-write and 409 cases). Awaiting merge gate.
+
+### @team-lead — 2026-08-20
+
+Validate passed; merging via PR #36. Closing.
