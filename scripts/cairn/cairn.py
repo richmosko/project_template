@@ -316,8 +316,14 @@ def split_comments(body: str) -> Tuple[str, List[Dict[str, str]]]:
     {"author": str, "date": "YYYY-MM-DD", "body": str}, oldest first.
     No '## Comments' heading -> (body, []).
 
-    Fence-aware: a ```-fenced line that looks like a comment delimiter is
-    never treated as a real boundary.
+    Spec-literal, no fence exception: "a new comment starts at a line
+    matching exactly <COMMENT_DELIM_RE>; any other line is body content."
+    A line inside a ```-fenced block that happens to match the delimiter
+    shape IS a real boundary, full stop — fence-tracking was tried and
+    reverted (architect conformance review, finding 4): it silently
+    swallowed every comment after an *unclosed* fence for the rest of the
+    file, an unbounded and invisible failure far worse than the one
+    mis-split comment it was guarding against.
     """
     lines = body.split("\n")
     heading_idx = None
@@ -333,14 +339,8 @@ def split_comments(body: str) -> Tuple[str, List[Dict[str, str]]]:
     comments: List[Dict[str, str]] = []
     current: Optional[Dict[str, str]] = None
     acc: List[str] = []
-    in_fence = False
     for line in comment_lines:
-        if line.startswith("```"):
-            in_fence = not in_fence
-            if current is not None:
-                acc.append(line)
-            continue
-        m = None if in_fence else COMMENT_DELIM_RE.match(line)
+        m = COMMENT_DELIM_RE.match(line)
         if m:
             if current is not None:
                 current["body"] = "\n".join(acc).strip("\n")
@@ -409,8 +409,19 @@ def _dump_value(value: Any) -> str:
 
 
 def dump_frontmatter(fields: Dict[str, Any]) -> str:
-    """Render `fields` as a '---\\n...---\\n' block in ISSUE_FIELD_ORDER."""
-    lines = [f"{key}: {_dump_value(fields.get(key))}" for key in ISSUE_FIELD_ORDER]
+    """Render `fields` as a '---\\n...---\\n' block.
+
+    Emits keys actually present in `fields` — never synthesizes an absent
+    one — with ISSUE_FIELD_ORDER's keys leading in their canonical order,
+    then any remaining (non-issue-schema) keys in their original insertion
+    order. This is what lets a hand-added unknown field (or a milestone/
+    major file's entirely different schema, passed through apply_patch)
+    round-trip intact instead of being silently dropped or overwritten with
+    a null-filled issue schema (architect conformance review, finding 1).
+    """
+    canonical = [key for key in ISSUE_FIELD_ORDER if key in fields]
+    extra = [key for key in fields.keys() if key not in ISSUE_FIELD_ORDER]
+    lines = [f"{key}: {_dump_value(fields[key])}" for key in canonical + extra]
     return "---\n" + "\n".join(lines) + "\n---\n"
 
 
@@ -437,17 +448,32 @@ def get_seen(path: Path) -> str:
     return str(Path(path).stat().st_mtime_ns)
 
 
+NULLABLE_FIELDS = ("milestone", "assignee", "parent", "priority", "pr")
+
+
 def apply_patch(path: Path, patch: Dict[str, Any]) -> Dict[str, Any]:
     """Merge `patch` into `path`'s frontmatter and rewrite it in place.
 
     Sets `updated` to today unless `patch` supplies it explicitly. Body
     bytes after the closing fence are untouched. Returns the new
     frontmatter dict.
+
+    Coerces `""` -> `None` for the five nullable fields (milestone,
+    assignee, parent, priority, pr): clearing a field — via the CLI
+    (`cairn set PT-1 milestone=`) or the board's inline drawer editors —
+    must write `null`, not an empty string. This is the durable place for
+    the fix: both entry points funnel through here (architect conformance
+    review, finding 2), so an empty string never reaches disk regardless
+    of caller.
     """
     path = Path(path)
     text = path.read_text(encoding="utf-8")
     frontmatter, body = parse_frontmatter(text)
-    frontmatter.update(patch)
+    coerced_patch = dict(patch)
+    for field in NULLABLE_FIELDS:
+        if field in coerced_patch and coerced_patch[field] == "":
+            coerced_patch[field] = None
+    frontmatter.update(coerced_patch)
     if "updated" not in patch:
         frontmatter["updated"] = _today()
     new_text = dump_frontmatter(frontmatter) + body
@@ -869,15 +895,30 @@ def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: O
 # --------------------------------------------------------------------------
 
 def resolve_data_dir(args: argparse.Namespace) -> Path:
+    """Resolve the data dir for a CLI invocation, or fail loudly.
+
+    A missing or config-less data dir is an error, never an empty result
+    (process/TRACKER.md, "The layout is fixed at process/cairn/ in v1" —
+    architect conformance review, finding 3): "no tracker here" and "no
+    issues here" must never render identically. Applies uniformly whether
+    the path came from an explicit --data-dir or from find_data_dir()'s
+    walk-up, since every command downstream assumes a real tracker.
+    """
     explicit = getattr(args, "data_dir", None)
-    if explicit:
-        return Path(explicit)
-    return find_data_dir()
+    data_dir = Path(explicit) if explicit else find_data_dir()
+    if not (data_dir / "config.yml").exists():
+        raise CairnError(
+            f"no cairn tracker found at {data_dir} (missing config.yml) — "
+            "pass --data-dir to an existing tracker, or run /setup-tracker to create one"
+        )
+    return data_dir
 
 
 def _coerce_cli_value(key: str, value: str) -> Any:
     if key == "labels":
         return [v.strip() for v in value.split(",") if v.strip()]
+    if key in NULLABLE_FIELDS and value == "":
+        return None
     if value.lower() == "null":
         return None
     return value
