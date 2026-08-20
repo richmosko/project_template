@@ -323,8 +323,8 @@ class PT9DataDirTopLevelOptionTests(unittest.TestCase):
     """PT-9: --data-dir must be accepted as a top-level option (before the
     subcommand), in addition to its current per-subcommand position. The
     both-given precedence is the implementation's documented choice
-    (subcommand wins vs. an unambiguous error) -- not pinned here, see the
-    skipped test below and the QA hand-off note flagging it."""
+    (subcommand wins vs. an unambiguous error) -- pinned below in
+    test_both_positions_given_the_subcommand_position_wins."""
 
     def test_data_dir_before_subcommand_is_accepted(self):
         data_dir = helpers.make_tmp_data_dir(self)

@@ -77,6 +77,52 @@ def write_major(data_dir: Path, filename: str, major_id: str) -> None:
     (data_dir / "majors" / filename).write_text(text, encoding="utf-8")
 
 
+def write_issue_title_field_omitted(data_dir: Path, filename: str, issue_id: str) -> None:
+    """A hand-crafted issue whose frontmatter has no `title:` key at all.
+
+    PT-19: not reachable via cairn-owned write paths (allocate_and_create_issue
+    always supplies title; apply_patch never strips a key) -- only a manual
+    hand-edit produces this shape, per the issue's own reproduction.
+    """
+    text = (
+        "---\n"
+        f"id: {issue_id}\nstatus: todo\nmilestone: null\nparent: null\n"
+        "assignee: null\nlabels: []\npriority: null\npr: null\n"
+        "created: 2026-08-01\nupdated: 2026-08-01\n"
+        "---\n\nBody.\n"
+    )
+    (data_dir / "issues" / filename).write_text(text, encoding="utf-8")
+
+
+def write_milestone_with_stray_title(data_dir: Path, filename: str, **overrides) -> None:
+    """A milestone whose frontmatter carries a stray `title:` key.
+
+    PT-19: this is exactly the shape `_is_issue_shaped`'s `"title" in fields`
+    discriminator (PT-13) would misclassify as issue-shaped -- reproduced here
+    by hand-edit since no cairn-owned write path adds `title` to a milestone.
+    """
+    fields = dict(id='"1.0"', title="Stray Title", name="MVP", kind="product", major="V1",
+                  status="planned", target_tag="v1.0.0", ga="true")
+    fields.update(overrides)
+    text = (
+        "---\n"
+        "id: {id}\ntitle: {title}\nname: {name}\nkind: {kind}\nmajor: {major}\nstatus: {status}\n"
+        "target_tag: {target_tag}\nga: {ga}\n"
+        "---\n\nDoD.\n"
+    ).format(**fields)
+    (data_dir / "milestones" / filename).write_text(text, encoding="utf-8")
+
+
+def write_major_with_stray_title(data_dir: Path, filename: str, major_id: str) -> None:
+    """Mirror of write_milestone_with_stray_title for majors/ -- same gap,
+    same fix, same lint pass."""
+    text = (
+        f"---\nid: {major_id}\ntitle: Stray Title\nstatus: active\nowner: mosko\n"
+        "target_ship: null\nhealth: on-track\n---\n\nBody.\n"
+    )
+    (data_dir / "majors" / filename).write_text(text, encoding="utf-8")
+
+
 def write_issue(data_dir: Path, filename: str, **overrides) -> None:
     fields = dict(id="PT-1", status="todo", milestone="null", parent="null", priority="null")
     fields.update(overrides)
@@ -322,6 +368,62 @@ class CheckRepoMajorTests(unittest.TestCase):
         self.assertTrue(any("3.0" in e for e in errors), errors)
 
 
+class CheckRepoTitleShapeTests(unittest.TestCase):
+    """PT-19: `_is_issue_shaped` (PT-13) discriminates issue vs.
+    milestone/major patches by `"title" in fields` -- correct for every
+    well-formed file per TRACKER.md's schemas, but not schema-enforced.
+    A milestone/major hand-edited to carry a stray `title:` gets
+    miscategorized as issue-shaped on its next apply_patch; the mirror case
+    (an issue missing `title`) silently stops getting shape-appropriate
+    treatment. Neither is reachable via cairn-owned write paths -- manual
+    edits only. Fix: check_repo lints title as required-on-issues,
+    forbidden-on-milestones/majors, closing the gap at the lint layer.
+    """
+
+    def test_issue_missing_title_is_flagged(self):
+        data_dir = make_tree(self)
+        write_issue_title_field_omitted(data_dir, "PT-1.md", "PT-1")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(errors)
+        self.assertTrue(
+            any("PT-1" in e and "title" in e.lower() for e in errors), errors
+        )
+
+    def test_milestone_with_stray_title_is_flagged(self):
+        data_dir = make_tree(self)
+        write_milestone_with_stray_title(data_dir, "2.0.md", id='"2.0"')
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(errors)
+        self.assertTrue(
+            any("2.0" in e and "title" in e.lower() for e in errors), errors
+        )
+
+    def test_major_with_stray_title_is_flagged(self):
+        data_dir = make_tree(self)
+        write_major_with_stray_title(data_dir, "V9.md", major_id="V9")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(errors)
+        self.assertTrue(
+            any("V9" in e and "title" in e.lower() for e in errors), errors
+        )
+
+    def test_well_formed_tree_passes_clean(self):
+        # Issue carries title (required), milestone/major carry none
+        # (forbidden) -- the shape TRACKER.md's schemas actually describe.
+        data_dir = make_tree(self)
+        write_issue(data_dir, "PT-1.md", id="PT-1")
+        errors = cairn.check_repo(data_dir)
+        self.assertEqual(errors, [], errors)
+
+    def test_multiple_title_shape_violations_each_reported(self):
+        data_dir = make_tree(self)
+        write_issue_title_field_omitted(data_dir, "PT-1.md", "PT-1")
+        write_milestone_with_stray_title(data_dir, "2.0.md", id='"2.0"')
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(any("PT-1" in e for e in errors), errors)
+        self.assertTrue(any("2.0" in e for e in errors), errors)
+
+
 class CheckCliTests(unittest.TestCase):
     def test_clean_tree_exits_zero(self):
         data_dir = helpers.make_tmp_data_dir(self)
@@ -343,6 +445,21 @@ class CheckCliTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         combined = result.stdout + result.stderr
         self.assertIn("PT-1", combined)
+
+    def test_missing_title_exits_nonzero_with_pointed_message(self):
+        # PT-19 CLI coverage: an issue missing `title` must fail `cairn
+        # check` with the same pointedness as the other lint violations.
+        data_dir = make_tree(self)
+        write_issue_title_field_omitted(data_dir, "PT-1.md", "PT-1")
+        result = subprocess.run(
+            [str(helpers.CAIRN_BIN), "check", "--data-dir", str(data_dir)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        combined = result.stdout + result.stderr
+        self.assertIn("PT-1", combined)
+        self.assertIn("title", combined.lower())
 
     def test_bad_priority_exits_nonzero_with_id_and_value(self):
         # PT-5 criterion 2: `cairn check` exits non-zero on a priority
