@@ -17,14 +17,14 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Session Cycle | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Priority drawer select + check_repo P0–P3 lint |
+| Issue | PT-5 (cairn) |
+| Milestone | 0.4 |
+| Session Cycle | SC2 |
+| Branch | `feature/pt-5-priority-select-lint` |
+| Started | 2026-08-20 |
+| Goal | Priority becomes a constrained vocabulary end to end: the drawer offers only P0–P3/none, and the linter rejects anything else. |
+| Status | In Progress |
 
 ## Session Cycles
 
