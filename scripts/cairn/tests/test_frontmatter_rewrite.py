@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
+import stat
 import subprocess
 import threading
 import time
@@ -382,6 +384,122 @@ class AppendCommentTests(unittest.TestCase):
         _, body = cairn.parse_frontmatter(self.path.read_text(encoding="utf-8"))
         _, comments = cairn.split_comments(body)
         self.assertEqual(comments[-1]["date"], datetime.date.today().isoformat())
+
+
+class PT7FileModePreservationTests(unittest.TestCase):
+    """PT-7: a frontmatter rewrite must preserve the original file's mode.
+    `_atomic_write` writes through `tempfile.mkstemp` (mode 0600 by
+    default) then `os.replace`s it over the target -- `os.replace` is a
+    rename, so the final file's permission bits come from the *source*
+    (the 0600 temp file), silently flipping any other starting mode to
+    0600. Exercised across three distinct starting modes, on both
+    apply_patch and append_comment (both funnel through _atomic_write)."""
+
+    def setUp(self):
+        self.tmp = helpers.make_empty_tmp_dir(self)
+        self.path = self.tmp / "PT-1.md"
+        write_issue(
+            self.path,
+            "id: PT-1\ntitle: Thing\nstatus: todo\nmilestone: null\nparent: null\n"
+            "assignee: null\nlabels: []\npriority: null\npr: null\n"
+            "created: 2026-08-01\nupdated: 2026-08-01\n",
+            "Body.\n",
+        )
+
+    def _mode(self) -> int:
+        return stat.S_IMODE(self.path.stat().st_mode)
+
+    def test_mode_0644_survives_apply_patch(self):
+        os.chmod(self.path, 0o644)
+        cairn.apply_patch(self.path, {"status": "in-review"})
+        self.assertEqual(self._mode(), 0o644)
+
+    def test_mode_0664_survives_apply_patch(self):
+        os.chmod(self.path, 0o664)
+        cairn.apply_patch(self.path, {"status": "in-review"})
+        self.assertEqual(self._mode(), 0o664)
+
+    def test_mode_0600_survives_apply_patch(self):
+        # The "already matches mkstemp's default" case -- must still be
+        # provably preserved by an explicit chmod + assert, not just
+        # accidentally correct because it happens to equal the default.
+        os.chmod(self.path, 0o600)
+        cairn.apply_patch(self.path, {"status": "in-review"})
+        self.assertEqual(self._mode(), 0o600)
+
+    def test_mode_survives_append_comment_too(self):
+        # append_comment shares _atomic_write with apply_patch -- same bug,
+        # same fix should cover both call sites.
+        os.chmod(self.path, 0o644)
+        cairn.append_comment(self.path, "mosko", "A comment.")
+        self.assertEqual(self._mode(), 0o644)
+
+
+class PT13MilestoneFieldOrderAndNoUpdatedInjectionTests(unittest.TestCase):
+    """PT-13: apply_patch on a milestone-shaped file must preserve the
+    milestone schema's own field order and must NOT inject an `updated:`
+    key (that field belongs to the issue schema only). Today
+    dump_frontmatter unconditionally reorders every dict to lead with
+    whichever ISSUE_FIELD_ORDER keys are present -- for a milestone that
+    means `status` (present in both schemas) jumps ahead of `name`/`kind`/
+    `major`, and apply_patch unconditionally sets `frontmatter["updated"]`
+    regardless of schema. Issue-file behavior (own field order + updated
+    bump) must remain unchanged -- pinned here too as a regression guard.
+    """
+
+    def setUp(self):
+        self.tmp = helpers.make_empty_tmp_dir(self)
+        self.path = self.tmp / "1.0.md"
+        self.original_frontmatter_text = (
+            'id: "1.0"\nname: MVP\nkind: product\nmajor: V1\nstatus: planned\n'
+            "target_tag: v1.0.0\nga: true\n"
+        )
+        write_issue(self.path, self.original_frontmatter_text, "DoD.\n")
+        self.before_raw = self.path.read_text(encoding="utf-8")
+
+    def _frontmatter_keys_in_file(self) -> list:
+        raw = self.path.read_text(encoding="utf-8")
+        inner = raw.split("---\n", 2)[1]
+        return [line.split(":", 1)[0] for line in inner.splitlines() if ":" in line]
+
+    def test_field_order_is_unchanged_after_a_patch(self):
+        cairn.apply_patch(self.path, {"status": "in-progress"})
+        keys = self._frontmatter_keys_in_file()
+        self.assertEqual(keys, ["id", "name", "kind", "major", "status", "target_tag", "ga"])
+
+    def test_no_updated_key_is_injected(self):
+        cairn.apply_patch(self.path, {"status": "in-progress"})
+        frontmatter, _ = cairn.parse_frontmatter(self.path.read_text(encoding="utf-8"))
+        self.assertNotIn(
+            "updated", frontmatter,
+            "apply_patch injected an issue-only 'updated' key into a milestone-shaped file",
+        )
+
+    def test_round_trip_diff_only_touches_the_patched_line(self):
+        cairn.apply_patch(self.path, {"status": "in-progress"})
+        before_lines = self.before_raw.splitlines()
+        after_lines = self.path.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(before_lines), len(after_lines), "line count changed -- a key was added or dropped")
+        differing = [(b, a) for b, a in zip(before_lines, after_lines) if b != a]
+        self.assertEqual(differing, [("status: planned", "status: in-progress")])
+
+    def test_issue_field_order_and_updated_bump_are_unaffected(self):
+        # Regression guard -- PT-13 must not touch the issue-file path.
+        issue_path = self.tmp / "PT-1.md"
+        write_issue(
+            issue_path,
+            "id: PT-1\ntitle: Thing\nstatus: todo\nmilestone: null\nparent: null\n"
+            "assignee: null\nlabels: []\npriority: null\npr: null\n"
+            "created: 2026-08-01\nupdated: 2026-08-01\n",
+            "Body.\n",
+        )
+        cairn.apply_patch(issue_path, {"status": "in-review"})
+        raw = issue_path.read_text(encoding="utf-8")
+        inner = raw.split("---\n", 2)[1]
+        keys = [line.split(":", 1)[0] for line in inner.splitlines() if ":" in line]
+        self.assertEqual(keys, cairn.ISSUE_FIELD_ORDER)
+        frontmatter, _ = cairn.parse_frontmatter(raw)
+        self.assertEqual(frontmatter["updated"], datetime.date.today().isoformat())
 
 
 if __name__ == "__main__":

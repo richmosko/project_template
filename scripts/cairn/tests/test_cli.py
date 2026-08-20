@@ -266,6 +266,119 @@ class ArchiveCommandTests(unittest.TestCase):
         self.assertTrue((data_dir / "issues" / "PT-4.md").exists(), "not done should never be archived")
 
 
+class PT8DoneBeforeValidationTests(unittest.TestCase):
+    """PT-8: `cairn archive --done-before` must validate its value as a
+    real-calendar YYYY-MM-DD date before touching any file. Today it's
+    string-compared against each issue's `updated` with no validation at
+    all, so malformed input either silently skips issues it should have
+    archived, or -- worse -- archives issues it shouldn't have, depending
+    on how the garbage string happens to sort lexicographically against
+    real dates. Both are the opposite of "clear error, nothing touched"."""
+
+    def _data_dir_with_a_done_issue(self):
+        data_dir = helpers.make_tmp_data_dir(self)
+        (data_dir / "issues" / "PT-1.md").write_text(
+            "---\nid: PT-1\ntitle: Old and done\nstatus: done\nmilestone: null\nparent: null\n"
+            "assignee: null\nlabels: []\npriority: null\npr: null\n"
+            "created: 2026-01-01\nupdated: 2026-01-15\n---\n\nDone a while ago.\n",
+            encoding="utf-8",
+        )
+        return data_dir
+
+    def test_wrong_format_is_rejected_and_no_file_is_touched(self):
+        data_dir = self._data_dir_with_a_done_issue()
+        result = run_cairn(["archive", "--done-before", "02/01/2026", "--data-dir", str(data_dir)])
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((data_dir / "issues" / "PT-1.md").exists(), "file must not move when validation fails")
+        self.assertFalse((data_dir / "archive" / "PT-1.md").exists())
+
+    def test_out_of_range_calendar_date_is_rejected(self):
+        # Right shape (YYYY-MM-DD), not a real calendar date -- Feb 30
+        # doesn't exist. A naive regex-only check would let this through;
+        # this pins that the validation is a real calendar parse.
+        data_dir = self._data_dir_with_a_done_issue()
+        result = run_cairn(["archive", "--done-before", "2026-02-30", "--data-dir", str(data_dir)])
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((data_dir / "issues" / "PT-1.md").exists())
+        self.assertFalse((data_dir / "archive" / "PT-1.md").exists())
+
+    def test_garbage_string_is_rejected(self):
+        data_dir = self._data_dir_with_a_done_issue()
+        result = run_cairn(["archive", "--done-before", "not-a-date", "--data-dir", str(data_dir)])
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((data_dir / "issues" / "PT-1.md").exists())
+        self.assertFalse((data_dir / "archive" / "PT-1.md").exists())
+
+    def test_valid_date_is_unaffected(self):
+        # Regression guard -- a real date must keep behaving exactly as it
+        # does today (test_archive_moves_only_done_issues_before_cutoff
+        # pins the same shape against a different fixture tree).
+        data_dir = self._data_dir_with_a_done_issue()
+        result = run_cairn(["archive", "--done-before", "2026-02-01", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((data_dir / "archive" / "PT-1.md").exists())
+
+
+class PT9DataDirTopLevelOptionTests(unittest.TestCase):
+    """PT-9: --data-dir must be accepted as a top-level option (before the
+    subcommand), in addition to its current per-subcommand position. The
+    both-given precedence is the implementation's documented choice
+    (subcommand wins vs. an unambiguous error) -- not pinned here, see the
+    skipped test below and the QA hand-off note flagging it."""
+
+    def test_data_dir_before_subcommand_is_accepted(self):
+        data_dir = helpers.make_tmp_data_dir(self)
+        result = run_cairn(["--data-dir", str(data_dir), "ls"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PT-1", result.stdout)
+
+    def test_data_dir_after_subcommand_still_works(self):
+        # Regression guard -- the position that already works today.
+        data_dir = helpers.make_tmp_data_dir(self)
+        result = run_cairn(["ls", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PT-1", result.stdout)
+
+    def test_data_dir_before_subcommand_works_for_a_mutating_command_too(self):
+        # Not just `ls` (read-only) -- confirm it plumbs through to a
+        # command that writes, e.g. `set`.
+        data_dir = helpers.make_tmp_data_dir(self)
+        result = run_cairn(["--data-dir", str(data_dir), "set", "PT-1", "status=todo"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        frontmatter, _ = cairn.parse_frontmatter((data_dir / "issues" / "PT-1.md").read_text(encoding="utf-8"))
+        self.assertEqual(frontmatter["status"], "todo")
+
+    def test_help_text_documents_data_dir(self):
+        # AC: "implementation picks one and documents it in the --help
+        # text." Doesn't pin which choice -- just that top-level --help
+        # mentions --data-dir once it's a top-level option.
+        result = run_cairn(["--help"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("--data-dir", result.stdout)
+
+    def test_both_positions_given_the_subcommand_position_wins(self):
+        # PT-9: implementation's documented choice (see --help: "if given
+        # in both places, the value after the subcommand takes
+        # precedence") -- the more specific position overrides the less
+        # specific one. Two data dirs with distinguishable content: the
+        # top-level dir keeps the checked-in fixture's PT-1 title, the
+        # subcommand-position dir's PT-1 is overwritten with a marker
+        # title only it carries.
+        top_dir = helpers.make_tmp_data_dir(self)
+        sub_dir = helpers.make_tmp_data_dir(self)
+        (sub_dir / "issues" / "PT-1.md").write_text(
+            "---\nid: PT-1\ntitle: From the subcommand-position dir\nstatus: todo\n"
+            "milestone: null\nparent: null\nassignee: null\nlabels: []\npriority: null\npr: null\n"
+            "created: 2026-08-01\nupdated: 2026-08-01\n---\n\nBody.\n",
+            encoding="utf-8",
+        )
+
+        result = run_cairn(["--data-dir", str(top_dir), "ls", "--data-dir", str(sub_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("From the subcommand-position dir", result.stdout)
+        self.assertNotIn("Google OAuth login", result.stdout, "top-level dir's fixture data leaked through")
+
+
 class ArchiveGitMoveTests(unittest.TestCase):
     """The spec's CLI table is explicit: `cairn archive` is a "Bulk git mv",
     and later: "Archived issues remain in git, remain greppable". A plain
