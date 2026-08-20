@@ -1,0 +1,6 @@
+prefix: PT
+port: 8766
+data_dir: process/cairn
+board:
+  columns: [backlog, todo, in-progress, in-review, done]
+  swimlane: milestone
