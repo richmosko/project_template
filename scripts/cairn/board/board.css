@@ -1,0 +1,461 @@
+/* board.css — cairn board. Vanilla CSS, no framework, no CDN. */
+
+:root {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --border: #dfe1e6;
+  --text: #172b4d;
+  --text-dim: #5e6c84;
+  --accent: #0052cc;
+  --danger: #de350b;
+  --radius: 6px;
+  --col-gap: 12px;
+  --card-gap: 8px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+header.app-header {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.app-header-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.app-title {
+  font-weight: 700;
+  font-size: 16px;
+  margin-right: 8px;
+}
+
+.majors-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.majors-tabs button {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.majors-tabs button.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.view-tabs {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.view-tabs a {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-size: 13px;
+  text-decoration: none;
+  color: var(--text);
+}
+
+.view-tabs a.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.milestone-progress {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filters input, .filters select {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.filters label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.new-issue-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 4px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.new-issue-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.new-issue-form input, .new-issue-form select {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.new-issue-form input[type="text"] {
+  min-width: 240px;
+}
+
+.new-issue-form button {
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+#new-issue-submit {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+}
+
+#new-issue-cancel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+main {
+  padding: 16px;
+}
+
+/* Kanban */
+
+.board {
+  display: flex;
+  gap: var(--col-gap);
+  align-items: flex-start;
+  overflow-x: auto;
+}
+
+.column {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  flex: 1 1 0;
+  min-width: 220px;
+  padding: 8px;
+}
+
+.column-header {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  padding: 4px 4px 8px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.swimlane {
+  margin-bottom: 16px;
+}
+
+.swimlane-header {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-dim);
+  padding: 4px 0 8px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  margin-bottom: var(--card-gap);
+  cursor: grab;
+  font-size: 13px;
+}
+
+.card:active { cursor: grabbing; }
+
+.card.dragging { opacity: 0.4; }
+
+.card-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.card-title {
+  font-weight: 500;
+  margin: 2px 0 6px;
+}
+
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  display: inline-block;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 11px;
+  background: #ebecf0;
+  color: var(--text-dim);
+}
+
+.chip.assignee { background: #deebff; color: var(--accent); }
+.chip.milestone { background: #e3fcef; color: #006644; }
+.chip.subissues { background: #fffae6; color: #974f0c; }
+
+.column.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+}
+
+/* List view */
+
+table.issue-list {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+table.issue-list th, table.issue-list td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+table.issue-list th {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
+
+/* Drawer */
+
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(9, 30, 66, 0.35);
+  display: none;
+  z-index: 100;
+}
+
+.drawer-overlay.open { display: block; }
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(480px, 100vw);
+  background: var(--panel);
+  box-shadow: -4px 0 16px rgba(9, 30, 66, 0.15);
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.drawer h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+
+.drawer .drawer-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.drawer .close-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  border: none;
+  background: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: var(--text-dim);
+}
+
+.drawer-field {
+  margin: 12px 0;
+}
+
+.drawer-field label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.drawer-field select, .drawer-field input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.drawer pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 10px;
+  font-family: inherit;
+  font-size: 13px;
+  margin: 0;
+}
+
+.ac-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.ac-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.ac-list input[type="checkbox"] {
+  margin-top: 3px;
+}
+
+.comment-log {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 8px 0;
+}
+
+.comment {
+  border-left: 3px solid var(--border);
+  padding-left: 10px;
+}
+
+.comment-meta {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.add-comment textarea {
+  width: 100%;
+  min-height: 70px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.add-comment button, .drawer-actions button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  margin-top: 6px;
+}
+
+.section-heading {
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 18px 0 6px;
+  font-weight: 600;
+}
+
+.pr-link, .file-link {
+  font-size: 12px;
+}
+
+/* Toast */
+
+.toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 200;
+}
+
+.toast.visible { opacity: 1; }
+.toast.error { background: var(--danger); }
+
+.empty-state {
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 8px 4px;
+}

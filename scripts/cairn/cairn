@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#
+# cairn — wrapper that runs scripts/cairn/cairn.py.
+#
+# cairn (the file-based issue tracker) — a post-and-comment issue database
+# stored as markdown + YAML frontmatter under process/cairn/, with a thin
+# CLI for the operations a plain Read/Write/Edit can't do safely (atomic ID
+# allocation, frontmatter-only rewrites) and a local board server.
+#
+# Run from anywhere in the repo. See `cairn --help` for commands, or
+# process/TRACKER.md for the full spec.
+
+set -euo pipefail
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "Error: python3 is required but not found in PATH." >&2
+  echo "Install Python 3 and try again." >&2
+  exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$SCRIPT_DIR/cairn.py" "$@"
