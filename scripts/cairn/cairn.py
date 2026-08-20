@@ -635,8 +635,8 @@ def check_repo(data_dir: Path) -> List[str]:
     data_dir = Path(data_dir)
     errors: List[str] = []
 
-    known_milestones = set()
-    for p in _dir_glob(data_dir / "milestones"):
+    known_majors = set()
+    for p in _dir_glob(data_dir / "majors"):
         try:
             fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
         except CairnError as e:
@@ -645,7 +645,28 @@ def check_repo(data_dir: Path) -> List[str]:
         mid = fm.get("id")
         if mid is None or str(mid) != p.stem:
             errors.append(f"{p.stem}: id {mid!r} does not match filename {p.stem!r}")
+        known_majors.add(p.stem)
+
+    known_milestones = set()
+    parsed_milestones: List[Tuple[Path, Dict[str, Any]]] = []
+    for p in _dir_glob(data_dir / "milestones"):
+        try:
+            fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
+        except CairnError as e:
+            errors.append(f"{p.stem}: {e}")
+            continue
+        parsed_milestones.append((p, fm))
+        mid = fm.get("id")
+        if mid is None or str(mid) != p.stem:
+            errors.append(f"{p.stem}: id {mid!r} does not match filename {p.stem!r}")
         known_milestones.add(p.stem)
+
+    for p, fm in parsed_milestones:
+        major = fm.get("major")
+        if major is None:
+            errors.append(f"{p.stem}: missing major")
+        elif str(major) not in known_majors:
+            errors.append(f"{p.stem}: unknown major {major!r}")
 
     known_ids = set()
     parsed_issues: List[Tuple[Path, Dict[str, Any]]] = []

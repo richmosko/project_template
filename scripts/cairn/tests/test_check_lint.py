@@ -33,7 +33,48 @@ def make_tree(testcase) -> Path:
         "target_tag: v1.0.0\nga: true\n---\n\nDoD.\n",
         encoding="utf-8",
     )
+    # PT-12: milestones/1.0.md above names major: V1 -- without a matching
+    # majors/V1.md, the PT-12 missing/dangling-major check would flag every
+    # test built on this tree the moment it lands, even tests asserting
+    # `errors == []` for something unrelated (e.g. CheckRepoPriorityTests).
+    # Keep the base tree internally consistent the same way the real fixture
+    # under tests/fixtures/ already is.
+    (data_dir / "majors" / "V1.md").write_text(
+        "---\nid: V1\nstatus: active\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n",
+        encoding="utf-8",
+    )
     return data_dir
+
+
+def write_milestone(data_dir: Path, filename: str, **overrides) -> None:
+    fields = dict(id='"1.0"', name="MVP", kind="product", major="V1", status="planned",
+                  target_tag="v1.0.0", ga="true")
+    fields.update(overrides)
+    text = (
+        "---\n"
+        "id: {id}\nname: {name}\nkind: {kind}\nmajor: {major}\nstatus: {status}\n"
+        "target_tag: {target_tag}\nga: {ga}\n"
+        "---\n\nDoD.\n"
+    ).format(**fields)
+    (data_dir / "milestones" / filename).write_text(text, encoding="utf-8")
+
+
+def write_milestone_major_field_omitted(data_dir: Path, filename: str, milestone_id: str) -> None:
+    """A milestone whose frontmatter has no `major:` key at all -- distinct
+    from `major: null`, same distinction test_check_lint.py already draws
+    for `priority` via write_issue_priority_field_omitted above."""
+    text = (
+        "---\n"
+        f"id: {milestone_id}\nname: Omitted\nkind: product\nstatus: planned\n"
+        "target_tag: null\nga: false\n"
+        "---\n\nDoD.\n"
+    )
+    (data_dir / "milestones" / filename).write_text(text, encoding="utf-8")
+
+
+def write_major(data_dir: Path, filename: str, major_id: str) -> None:
+    text = f"---\nid: {major_id}\nstatus: active\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n"
+    (data_dir / "majors" / filename).write_text(text, encoding="utf-8")
 
 
 def write_issue(data_dir: Path, filename: str, **overrides) -> None:
@@ -197,6 +238,88 @@ class CheckRepoPriorityTests(unittest.TestCase):
         errors = cairn.check_repo(data_dir)
         self.assertTrue(any("PT-1" in e for e in errors), errors)
         self.assertTrue(any("PT-2" in e for e in errors), errors)
+
+
+class CheckRepoMajorTests(unittest.TestCase):
+    """PT-12: `cairn check` must flag any milestone whose `major` is
+    missing/None, or names a major that doesn't exist -- known_milestones
+    already gets this treatment (id/filename mismatch + dangling refs from
+    issues); known_majors gets none of it today, so a milestone with
+    `major: null` or `major: V9` passes silently. Mirrors the existing
+    known_milestones pass, including the id/filename mismatch rule.
+    """
+
+    def test_valid_major_passes(self):
+        # make_tree()'s milestones/1.0.md (major: V1) + majors/V1.md are
+        # already mutually consistent -- this is the base case, unmodified.
+        data_dir = make_tree(self)
+        errors = cairn.check_repo(data_dir)
+        self.assertEqual(errors, [], errors)
+
+    def test_null_major_is_flagged_as_missing(self):
+        data_dir = make_tree(self)
+        write_milestone(data_dir, "2.0.md", id='"2.0"', major="null")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(errors)
+        self.assertTrue(
+            any("2.0" in e and "major" in e.lower() and "missing" in e.lower() for e in errors),
+            errors,
+        )
+
+    def test_omitted_major_field_is_flagged_as_missing(self):
+        # No `major:` key in frontmatter at all, as opposed to an explicit
+        # `major: null` -- fm.get("major") must return None for both, and
+        # both count as "missing", not just the explicit-null case.
+        data_dir = make_tree(self)
+        write_milestone_major_field_omitted(data_dir, "2.0.md", '"2.0"')
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(errors)
+        self.assertTrue(
+            any("2.0" in e and "major" in e.lower() and "missing" in e.lower() for e in errors),
+            errors,
+        )
+
+    def test_dangling_major_is_flagged_with_the_offending_value(self):
+        data_dir = make_tree(self)
+        write_milestone(data_dir, "2.0.md", id='"2.0"', major="V9")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(errors)
+        self.assertTrue(
+            any("2.0" in e and "major" in e.lower() and "V9" in e for e in errors),
+            errors,
+        )
+
+    def test_major_id_filename_mismatch_is_flagged(self):
+        # Same rule known_milestones already enforces on itself: a
+        # majors/<stem>.md whose `id` doesn't match its filename stem is a
+        # lint error, independent of whether any milestone references it.
+        data_dir = make_tree(self)
+        write_major(data_dir, "V9.md", major_id="V1")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(errors)
+        self.assertTrue(any("V9" in e and "V1" in e for e in errors), errors)
+
+    def test_unsupported_yaml_in_major_is_reported_not_raised(self):
+        # Mirrors test_unsupported_yaml_is_reported_not_raised above, but
+        # for the majors/ loop -- per-file parse errors must be caught and
+        # reported per-file, not propagated, same as milestones/issues.
+        data_dir = make_tree(self)
+        (data_dir / "majors" / "V9.md").write_text(
+            "---\nid: V9\nstatus: active\nowner: &anchor mosko\ntarget_ship: null\nhealth: on-track\n"
+            "---\n\nBody.\n",
+            encoding="utf-8",
+        )
+        errors = cairn.check_repo(data_dir)  # must not raise
+        self.assertTrue(errors)
+        self.assertTrue(any("V9" in e for e in errors), errors)
+
+    def test_multiple_milestones_with_bad_major_each_reported(self):
+        data_dir = make_tree(self)
+        write_milestone(data_dir, "2.0.md", id='"2.0"', major="null")
+        write_milestone(data_dir, "3.0.md", id='"3.0"', major="V9")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(any("2.0" in e for e in errors), errors)
+        self.assertTrue(any("3.0" in e for e in errors), errors)
 
 
 class CheckCliTests(unittest.TestCase):
