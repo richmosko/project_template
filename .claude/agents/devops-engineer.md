@@ -1,7 +1,7 @@
 ---
 name: devops-engineer
 description: Owns CI/CD, infrastructure-as-code, deployment, observability, and release engineering. Joins Plan to design pipelines/topology, supports Implement with deploy targets, drives release cuts in Validate. Use for anything about CI, deploy, infra, environments, observability, or releases.
-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch
+tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, SendMessage, TaskCreate, TaskGet, TaskList, TaskUpdate
 model: sonnet
 permissionMode: default
 memory: project

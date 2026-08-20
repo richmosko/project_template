@@ -1,7 +1,7 @@
 ---
 name: architect
 description: Owns the Plan phase. Designs the system architecture, picks the stack, defines component boundaries, draws data-flow diagrams, and writes `docs/ARCH/index.html`. Consulted during Validate for architectural review. Use whenever the question is "how should this be built?" or "what stack/topology fits?"
-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch
+tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, SendMessage, TaskCreate, TaskGet, TaskList, TaskUpdate
 model: opus
 permissionMode: default
 memory: project

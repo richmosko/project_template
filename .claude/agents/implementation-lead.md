@@ -1,7 +1,7 @@
 ---
 name: implementation-lead
 description: Generalist implementation specialist for projects that don't cleanly split into frontend + backend — CLIs, libraries, ML/data pipelines, single-binary services, plugins, scripts, design tools, etc. Use as the Implement-phase driver when `frontend-lead` and `backend-lead` don't fit the project shape. Pairs with `qa-engineer` (TDD), the `architect` (peer review), and `devops-engineer` (deploy/release).
-tools: Read, Write, Edit, Bash, Grep, Glob, NotebookEdit, WebFetch, WebSearch
+tools: Read, Write, Edit, Bash, Grep, Glob, NotebookEdit, WebFetch, WebSearch, SendMessage, TaskCreate, TaskGet, TaskList, TaskUpdate
 model: sonnet
 permissionMode: default
 memory: project

@@ -1,7 +1,7 @@
 ---
 name: qa-engineer
 description: Owns testing and validation. Drives the Validate side of every I→V loop — writes failing acceptance tests first (TDD), maintains test infrastructure, runs regression, gates release. Pairs with frontend-lead and backend-lead during Implement, with devops during Validate. Use for anything about tests, acceptance criteria, regression, or release-readiness.
-tools: Read, Write, Edit, Bash, Grep, Glob
+tools: Read, Write, Edit, Bash, Grep, Glob, SendMessage, TaskCreate, TaskGet, TaskList, TaskUpdate
 model: sonnet
 permissionMode: default
 memory: project

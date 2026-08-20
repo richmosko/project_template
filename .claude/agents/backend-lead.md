@@ -1,7 +1,7 @@
 ---
 name: backend-lead
 description: Owns backend implementation — APIs, data models, business logic, background jobs, integrations. Pairs with frontend-lead on API contracts, with seceng on data handling, with devops on deployment targets. Use for server-side code, schema design, or anything below the API boundary.
-tools: Read, Write, Edit, Bash, Grep, Glob, NotebookEdit, WebFetch, WebSearch
+tools: Read, Write, Edit, Bash, Grep, Glob, NotebookEdit, WebFetch, WebSearch, SendMessage, TaskCreate, TaskGet, TaskList, TaskUpdate
 model: sonnet
 permissionMode: default
 memory: project

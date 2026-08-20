@@ -17,14 +17,14 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Session Cycle | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Teammate coordination toolset in agent allowlists |
+| Issue | PT-17 (cairn) |
+| Milestone | 0.4 |
+| Session Cycle | SC2 |
+| Branch | `feature/pt-17-coordination-tools` |
+| Started | 2026-08-20 |
+| Goal | Every teammate can message and share tasks (SendMessage + Task tools granted); mcp-broker can reach MCP; proven by a live round-trip, not by config alone. |
+| Status | In Progress |
 
 ## Session Cycles
 
