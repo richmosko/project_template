@@ -19,6 +19,16 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 
 ---
 
+### 2026-08-20 — 0.5 milestone scoped: deferrals plus small follow-ups, backlog cleared
+**Decision:** Cut the `0.5` milestone (major V1, `target_tag: v0.5.0`, name *polish*) with all six backlog issues: the three 0.4 deferrals — PT-2 (snapshot appendix), PT-3 (multi-root board), PT-4 (markdown drawer rendering) — plus the small follow-ups filed during the 0.4 cycle: PT-16 (board milestone names + swimlane expand/collapse), PT-18 (document the anchor-task degraded mode), PT-19 (check_repo title-shape lint). Suggested order: PT-18 → PT-19 → PT-16 → PT-4 → PT-2 → PT-3, saving the PT-3 design conversation for last as the largest item.
+**Why:** The backlog is exactly six items and all are already committed direction — deferring any would be tracker overhead, not a real cut. PT-3 is the only item with design weight; sequencing it last keeps the milestone shippable even if that conversation pushes it out.
+**Alternatives considered:**
+- *Defer PT-3 to 0.6:* honest about its design weight, but strands a one-item milestone; sequencing last achieves the same protection.
+**Approved by:** Mosko
+**Supersedes:** nothing.
+
+---
+
 ### 2026-08-20 — 0.4 milestone scoped: debt paid, engine hardened, board live
 **Decision:** Cut the `0.4` milestone (major V1, `target_tag: v0.4.0`, name *hardening*) with 12 of the 15 backlog issues: the two committed debts — PT-14 (remove deprecated Linear skills + BACKLOG.md stub, due "one release after v0.3.0") and PT-15 (rename `process/MILESTONES.md` → `STATE.md`, ruled 2026-08-20) — plus the board headliner PT-1 (SSE live push), the P2 hardening set PT-5/PT-6/PT-12, and the small P3 fixes PT-7/PT-8/PT-9/PT-13 (CLI/parser) and PT-10/PT-11 (board drawer). Deferred to 0.5: PT-2 (snapshot appendix — depends on what the post-rename state file is), PT-3 (multi-root board — a design conversation, not a fix), PT-4 (markdown drawer rendering). Suggested cycle order: PT-15 first (widest blast radius), then PT-14, then the hardening batches, PT-1 last.
 **Why:** The P3 items are each tiny — leaving them in backlog costs more tracker overhead than fixing them — while PT-2/3/4 are the only items with real design weight, so they are the honest cuts. Scope fits one session cycle.

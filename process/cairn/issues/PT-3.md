@@ -1,8 +1,8 @@
 ---
 id: PT-3
 title: Multi-root board: cairn serve --repos for a cross-project view
-status: backlog
-milestone: null
+status: todo
+milestone: "0.5"
 parent: null
 assignee: null
 labels: []
