@@ -17,14 +17,14 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Session Cycle | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Board phase 2: SSE live push |
+| Issue | PT-1 (cairn) |
+| Milestone | 0.4 (closer — last open issue) |
+| Session Cycle | SC2 |
+| Branch | `feature/pt-1-sse-live-push` |
+| Started | 2026-08-20 |
+| Goal | The board goes live: fs-scan watcher + SSE endpoint push changes to the browser within ~2s; polling remains the automatic fallback. |
+| Status | In Progress |
 
 ## Session Cycles
 
