@@ -1178,10 +1178,22 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
+    # default=SUPPRESS (PT-9): when --data-dir isn't given after the
+    # subcommand, this parser must not set the dest at all, so the
+    # subparsers dispatch (which parses into a *new* namespace and copies
+    # every key back onto the parent, per argparse's _SubParsersAction)
+    # doesn't stomp a value the top-level --data-dir already set. See
+    # build_arg_parser's top-level --data-dir for the precedence contract.
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--data-dir", dest="data_dir", default=None)
+    common.add_argument("--data-dir", dest="data_dir", default=argparse.SUPPRESS)
 
     parser = argparse.ArgumentParser(prog="cairn", description="cairn — the file-based issue tracker")
+    parser.add_argument(
+        "--data-dir", dest="data_dir", default=None,
+        help="path to the cairn data dir (default: walk up from cwd for process/cairn/). "
+             "May be given here (before the subcommand) or after it — if given in both "
+             "places, the value after the subcommand takes precedence.",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_new = sub.add_parser("new", parents=[common], help="create a new issue")
