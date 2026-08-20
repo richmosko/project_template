@@ -119,6 +119,53 @@ header.app-header {
   color: var(--text-dim);
 }
 
+.new-issue-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 4px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.new-issue-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.new-issue-form input, .new-issue-form select {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.new-issue-form input[type="text"] {
+  min-width: 240px;
+}
+
+.new-issue-form button {
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+#new-issue-submit {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+}
+
+#new-issue-cancel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
 main {
   padding: 16px;
 }

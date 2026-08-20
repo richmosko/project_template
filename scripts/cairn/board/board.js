@@ -166,6 +166,10 @@
     var labels = [];
     board.issues.forEach(function (i) { (i.labels || []).forEach(function (l) { labels.push(l); }); });
     populateSelect("filter-label", uniqueSorted(labels));
+    // All known milestones, not just ones already carrying an issue —
+    // a fresh milestone with zero issues yet should still be choosable
+    // when creating the first one for it.
+    populateSelect("new-issue-milestone", (board.milestones || []).map(function (m) { return m.id; }).sort());
   }
 
   function uniqueSorted(values) {
@@ -660,8 +664,55 @@
     });
   }
 
+  // Minimal create affordance (title + milestone only) — see
+  // process/TRACKER.md's board out-of-scope line ("issue creation from the
+  // board beyond title + milestone") and architect conformance review
+  // finding 5. Calls the existing apiCreateIssue via the existing
+  // POST /api/issue route; nothing new server-side.
+  function wireNewIssueForm() {
+    var btn = document.getElementById("new-issue-btn");
+    var form = document.getElementById("new-issue-form");
+    var titleInput = document.getElementById("new-issue-title");
+    var milestoneSelect = document.getElementById("new-issue-milestone");
+    var submitBtn = document.getElementById("new-issue-submit");
+    var cancelBtn = document.getElementById("new-issue-cancel");
+
+    function closeForm() {
+      form.hidden = true;
+      titleInput.value = "";
+      milestoneSelect.value = "";
+    }
+
+    btn.addEventListener("click", function () {
+      form.hidden = !form.hidden;
+      if (!form.hidden) titleInput.focus();
+    });
+    cancelBtn.addEventListener("click", closeForm);
+    submitBtn.addEventListener("click", submit);
+    titleInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") submit();
+      if (e.key === "Escape") closeForm();
+    });
+
+    function submit() {
+      var title = titleInput.value.trim();
+      if (!title) { titleInput.focus(); return; }
+      submitBtn.disabled = true;
+      apiCreateIssue({ title: title, milestone: milestoneSelect.value || null }).then(function (issue) {
+        submitBtn.disabled = false;
+        closeForm();
+        showToast((issue && issue.id ? issue.id : "Issue") + " created.");
+        refreshBoardSilently();
+      }).catch(function () {
+        submitBtn.disabled = false;
+        showToast("Failed to create issue.", true);
+      });
+    }
+  }
+
   function init() {
     wireFilters();
+    wireNewIssueForm();
     apiGetBoard().then(function (data) {
       state.board = data;
       render();

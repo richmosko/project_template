@@ -16,6 +16,7 @@
       <a href="/" id="tab-kanban">Kanban</a>
       <a href="/list" id="tab-list">List</a>
     </div>
+    <button id="new-issue-btn" class="new-issue-btn" type="button">+ New</button>
   </div>
   <div class="milestone-progress" id="milestone-progress"></div>
   <div class="filters">
@@ -25,6 +26,16 @@
     <select id="filter-label"><option value="">All labels</option></select>
     <label><input type="checkbox" id="filter-cancelled"> Show cancelled</label>
     <label><input type="checkbox" id="toggle-swimlanes" checked> Swimlanes</label>
+  </div>
+  <!-- Minimal create affordance: title + milestone only, per the spec's
+       "issue creation from the board beyond title + milestone" being the
+       out-of-phase-1-scope line (implying title+milestone IS in scope).
+       See process/TRACKER.md and architect conformance review finding 5. -->
+  <div class="new-issue-form" id="new-issue-form" hidden>
+    <input type="text" id="new-issue-title" placeholder="New issue title…">
+    <select id="new-issue-milestone"><option value="">No milestone</option></select>
+    <button id="new-issue-submit" type="button">Create</button>
+    <button id="new-issue-cancel" type="button">Cancel</button>
   </div>
 </header>
 
