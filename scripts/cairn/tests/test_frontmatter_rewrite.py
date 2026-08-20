@@ -8,7 +8,12 @@ bodies are all exercised explicitly).
 from __future__ import annotations
 
 import datetime
+import json
+import subprocess
+import threading
+import time
 import unittest
+import urllib.request
 from pathlib import Path
 
 import helpers  # noqa: F401
@@ -176,6 +181,155 @@ class ApplyPatchBehaviorTests(unittest.TestCase):
         cairn.apply_patch(self.path, {"status": "in-review"})
         leftovers = [p for p in self.tmp.iterdir() if p.name != "PT-1.md"]
         self.assertEqual(leftovers, [], f"unexpected leftover files: {leftovers}")
+
+
+class UnknownFrontmatterKeyPreservationTests(unittest.TestCase):
+    """MUST-FIX finding 1 (architect conformance review,
+    temp/2026-08-19-architect-cairn-conformance.md): dump_frontmatter today
+    emits exactly ISSUE_FIELD_ORDER and nothing else, so any key not on
+    that list is silently destroyed by the next frontmatter-only rewrite --
+    verified by the architect by hand-adding `epic: platform` to an issue
+    and watching it vanish after `cairn set`. Ruled fix: emit keys present
+    in the dict -- ISSUE_FIELD_ORDER keys first in canonical order, then
+    any remaining keys in insertion order. All tests here are RED against
+    current cairn.py."""
+
+    def setUp(self):
+        self.tmp = helpers.make_empty_tmp_dir(self)
+        self.path = self.tmp / "PT-1.md"
+
+    def _canonical_frontmatter_text(self):
+        return (
+            "id: PT-1\ntitle: Thing\nstatus: todo\nmilestone: null\nparent: null\n"
+            "assignee: null\nlabels: []\npriority: null\npr: null\n"
+            "created: 2026-08-01\nupdated: 2026-08-01\n"
+        )
+
+    def _frontmatter_keys_in_file(self) -> list:
+        raw = self.path.read_text(encoding="utf-8")
+        inner = raw.split("---\n", 2)[1]  # between the two fence lines
+        return [line.split(":", 1)[0] for line in inner.splitlines() if ":" in line]
+
+    def test_single_unknown_key_survives_a_patch(self):
+        write_issue(self.path, self._canonical_frontmatter_text() + "epic: platform\n", "Body.\n")
+        cairn.apply_patch(self.path, {"status": "in-review"})
+
+        raw = self.path.read_text(encoding="utf-8")
+        self.assertIn("epic: platform", raw, "unknown key 'epic' was dropped on rewrite")
+        frontmatter, _ = cairn.parse_frontmatter(raw)
+        self.assertEqual(frontmatter["status"], "in-review")  # the patch itself still applied
+
+    def test_canonical_keys_lead_in_order_then_unknown_keys_follow_in_insertion_order(self):
+        write_issue(
+            self.path,
+            self._canonical_frontmatter_text() + "epic: platform\nteam: growth\n",
+            "Body.\n",
+        )
+        cairn.apply_patch(self.path, {"status": "in-review"})
+
+        keys = self._frontmatter_keys_in_file()
+        self.assertEqual(
+            keys[: len(cairn.ISSUE_FIELD_ORDER)], cairn.ISSUE_FIELD_ORDER,
+            "canonical keys must still lead, in their documented order",
+        )
+        self.assertEqual(
+            keys[len(cairn.ISSUE_FIELD_ORDER):], ["epic", "team"],
+            "unknown keys must survive in their original insertion order",
+        )
+
+    def test_apply_patch_on_a_milestone_file_does_not_obliterate_it(self):
+        # The architect's sharper point: apply_patch is public and
+        # generically named, so calling it on a milestone/major file (which
+        # has a completely different schema) currently substitutes a
+        # null-filled *issue* schema over the real fields. This is the same
+        # root cause as the unknown-key-dropping bug, at higher stakes.
+        milestone_path = self.tmp / "1.0.md"
+        milestone_path.write_text(
+            '---\nid: "1.0"\nname: MVP\nkind: product\nmajor: V1\nstatus: planned\n'
+            "target_tag: v1.0.0\nga: true\n---\n\nDoD.\n",
+            encoding="utf-8",
+        )
+        cairn.apply_patch(milestone_path, {"status": "in-progress"})
+
+        frontmatter, _ = cairn.parse_frontmatter(milestone_path.read_text(encoding="utf-8"))
+        self.assertEqual(frontmatter["status"], "in-progress")
+        self.assertEqual(frontmatter["name"], "MVP", "milestone-only field 'name' was obliterated")
+        self.assertEqual(frontmatter["kind"], "product", "milestone-only field 'kind' was obliterated")
+        self.assertEqual(frontmatter["major"], "V1", "milestone-only field 'major' was obliterated")
+        self.assertEqual(frontmatter["target_tag"], "v1.0.0")
+        self.assertTrue(frontmatter["ga"])
+        self.assertNotIn("labels", frontmatter, "issue-only field 'labels' must not appear on a milestone")
+
+
+class ClearedNullableFieldTests(unittest.TestCase):
+    """MUST-FIX finding 2 (architect conformance review): `_coerce_cli_value`
+    only maps the literal string "null" to None; clearing a field to empty
+    (`cairn set PT-1 milestone=`, or a board drawer field cleared to "")
+    writes a bare `""` instead, and `cairn check` then rejects the repo's
+    own output (`unknown milestone ''`). Ruled fix: coerce "" -> None for
+    the nullable fields (milestone, assignee, parent, priority, pr), in
+    BOTH `_coerce_cli_value` (CLI) and `apply_patch` (server-side -- the
+    durable place, since it also catches the board). All tests here are RED
+    against current cairn.py."""
+
+    NULLABLE_FIELDS = ("milestone", "assignee", "parent", "priority", "pr")
+
+    def setUp(self):
+        self.data_dir = helpers.make_tmp_data_dir(self)
+        self.path = self.data_dir / "issues" / "PT-1.md"
+
+    def test_apply_patch_coerces_empty_string_to_null_for_each_nullable_field(self):
+        for field in self.NULLABLE_FIELDS:
+            with self.subTest(field=field):
+                cairn.apply_patch(self.path, {field: ""})
+                frontmatter, _ = cairn.parse_frontmatter(self.path.read_text(encoding="utf-8"))
+                self.assertIsNone(
+                    frontmatter[field],
+                    f"apply_patch wrote {field}='' instead of coercing to null",
+                )
+
+    def test_cleared_milestone_via_cli_set_is_null_and_check_stays_clean(self):
+        result = subprocess.run(
+            [str(helpers.CAIRN_BIN), "set", "PT-1", "milestone=", "--data-dir", str(self.data_dir)],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+        frontmatter, _ = cairn.parse_frontmatter(self.path.read_text(encoding="utf-8"))
+        self.assertIsNone(frontmatter["milestone"], "cairn set milestone= must clear to null, not ''")
+
+        check_errors = cairn.check_repo(self.data_dir)
+        self.assertEqual(
+            check_errors, [],
+            f"a repo cairn set just wrote must not be rejected by cairn check's own lint: {check_errors}",
+        )
+
+    def test_cleared_milestone_via_server_patch_is_null_and_check_stays_clean(self):
+        server = cairn.make_server(self.data_dir, port=0)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join(timeout=5)))
+        base_url = f"http://127.0.0.1:{port}"
+        for _ in range(50):
+            try:
+                urllib.request.urlopen(f"{base_url}/api/board", timeout=1).close()
+                break
+            except Exception:  # noqa: BLE001
+                time.sleep(0.05)
+
+        seen = json.loads(urllib.request.urlopen(f"{base_url}/api/issue/PT-1").read())["seen"]
+        data = json.dumps({"seen": seen, "patch": {"milestone": ""}}).encode()
+        req = urllib.request.Request(
+            f"{base_url}/api/issue/PT-1", data=data,
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        resp = urllib.request.urlopen(req)
+        payload = json.loads(resp.read())
+        self.assertIsNone(payload["milestone"], "server-side patch must coerce '' to null too, not just the CLI")
+
+        check_errors = cairn.check_repo(self.data_dir)
+        self.assertEqual(check_errors, [], f"post-patch repo must stay lint-clean: {check_errors}")
 
 
 class AppendCommentTests(unittest.TestCase):

@@ -161,11 +161,19 @@ class BoardEndpointTests(ServerTestCase):
 
 class IssueEndpointTests(ServerTestCase):
     def test_get_issue_includes_full_comments_and_seen(self):
+        # Comment count bumped 2 -> 3 (2026-08-19): PT-1.md's fenced fake
+        # delimiter now correctly splits as its own comment per architect
+        # conformance review finding 4 (fence-tracking removed from
+        # split_comments -- see test_issue_parsing.py and INTERFACE.md).
+        # RED against current cairn.py, which still fence-tracks and so
+        # still returns 2 here.
         resp = http_get(f"{self.base_url}/api/issue/PT-1")
         payload = json.loads(resp.read())
         self.assertEqual(payload["id"], "PT-1")
-        self.assertEqual(len(payload["comments"]), 2)
+        self.assertEqual(len(payload["comments"]), 3)
         self.assertEqual(payload["comments"][0]["author"], "qa-engineer")
+        self.assertEqual(payload["comments"][1]["author"], "not-a-real-author")
+        self.assertEqual(payload["comments"][2]["author"], "architect")
         self.assertIn("seen", payload)
         self.assertTrue(str(payload["seen"]).isdigit(), payload["seen"])
 
@@ -251,7 +259,9 @@ class PatchIssueTests(ServerTestCase):
 
         resp2 = http_get(f"{self.base_url}/api/issue/PT-1")
         payload = json.loads(resp2.read())
-        self.assertEqual(len(payload["comments"]), 3)
+        # 3 pre-existing (post finding-4 fix -- see
+        # test_get_issue_includes_full_comments_and_seen) + 1 appended here.
+        self.assertEqual(len(payload["comments"]), 4)
         self.assertEqual(payload["comments"][-1]["author"], "mosko")
         self.assertEqual(payload["comments"][-1]["body"].strip(), "Ship it behind a flag.")
 

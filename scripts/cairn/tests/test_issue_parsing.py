@@ -131,25 +131,76 @@ class SplitCommentsTests(unittest.TestCase):
         self.assertEqual(comments[0]["date"], "2026-08-17")
         self.assertIn("Ship it behind a flag", comments[0]["body"])
 
-    def test_fenced_delimiter_lookalike_is_not_a_boundary(self):
-        # PT-1.md's first comment body contains, inside a ``` fence, a line
-        # that matches COMMENT_DELIM_RE's shape exactly:
-        #     ### @not-a-real-author — 2026-01-01
-        # A naive whole-body regex scan finds it as a false third comment.
-        # It must not be treated as a boundary.
+    def test_fenced_delimiter_lookalike_now_splits_per_finding_4_ruling(self):
+        # INVERTED 2026-08-19 per architect conformance review finding 4
+        # (temp/2026-08-19-architect-cairn-conformance.md) and team-lead's
+        # ruling: fence-tracking in split_comments is spec-noncompliant
+        # cleverness and must be deleted. The spec's rule has no exception
+        # for code fences -- "a new comment starts at a line matching
+        # *exactly* <regex>; any other ### line is body content" -- so a
+        # ```-fenced line that happens to match the delimiter regex IS a
+        # real boundary now, full stop.
+        #
+        # This is a straight inversion of the old
+        # test_fenced_delimiter_lookalike_is_not_a_boundary (deleted): same
+        # input (PT-1.md's fixture body), opposite expected outcome. RED
+        # against current cairn.py (which still fence-tracks); GREEN once
+        # finding 4's fix lands.
         _, comments = cairn.split_comments(self.pt1_body)
-        self.assertEqual(len(comments), 2, "fenced delimiter-lookalike was incorrectly split as a comment")
+        self.assertEqual(
+            len(comments), 3,
+            "the fenced delimiter-lookalike must now split as its own comment (finding 4)",
+        )
         authors = [c["author"] for c in comments]
-        self.assertNotIn("not-a-real-author", authors)
-        self.assertIn("not-a-real-author", comments[0]["body"], "the fenced line should still be in comment 1's body")
+        self.assertEqual(authors, ["qa-engineer", "not-a-real-author", "architect"])
+        self.assertEqual(comments[1]["date"], "2026-01-01")
 
     def test_heading_without_em_dash_is_not_a_boundary(self):
-        # PT-1.md's second comment body contains "### Not a delimiter" --
-        # a real ### heading, but missing the required em dash + date, so
-        # it must stay attached to the preceding comment's body.
+        # PT-1.md's third comment body (was second, before finding 4's
+        # fence-tracking removal added a comment ahead of it -- see
+        # test_fenced_delimiter_lookalike_now_splits_per_finding_4_ruling)
+        # contains "### Not a delimiter" -- a real ### heading, but missing
+        # the required em dash + date, so it must stay attached to the
+        # preceding comment's body. This half of the trap case is
+        # unaffected by finding 4 -- only the index shifted.
         _, comments = cairn.split_comments(self.pt1_body)
-        self.assertEqual(len(comments), 2)
-        self.assertIn("Not a delimiter", comments[1]["body"])
+        self.assertEqual(len(comments), 3)
+        self.assertEqual(comments[2]["author"], "architect")
+        self.assertIn("Not a delimiter", comments[2]["body"])
+
+    def test_unbalanced_fence_does_not_swallow_later_comments(self):
+        # MUST-FIX finding 4 (architect conformance review): the current
+        # fence-tracking implementation toggles an `in_fence` flag on every
+        # ```-prefixed line and never resets it if the fence is never
+        # closed. A comment body that opens a fence and forgets to close it
+        # (a realistic authoring slip, unlike the vanishingly-unlikely
+        # exact-delimiter-inside-a-balanced-fence case fence-tracking was
+        # added to guard against) silently swallows every comment after it
+        # for the rest of the file -- an unbounded, invisible data loss.
+        # Ruled fix: delete fence-tracking. RED against current cairn.py.
+        body = (
+            "## Comments\n"
+            "\n"
+            "### @a — 2026-08-01\n"
+            "\n"
+            "Unclosed fence:\n"
+            "\n"
+            "```\n"
+            "some code that never closes the fence\n"
+            "\n"
+            "### @b — 2026-08-02\n"
+            "\n"
+            "Second comment body.\n"
+        )
+        _, comments = cairn.split_comments(body)
+        self.assertEqual(
+            len(comments), 2,
+            "an unclosed fence must not swallow later comments -- got fewer than 2 comments",
+        )
+        self.assertEqual(comments[0]["author"], "a")
+        self.assertEqual(comments[1]["author"], "b")
+        self.assertEqual(comments[1]["date"], "2026-08-02")
+        self.assertEqual(comments[1]["body"].strip(), "Second comment body.")
 
     def test_hyphen_instead_of_em_dash_does_not_match(self):
         body = "## Comments\n\n### @someone - 2026-01-01\n\nBody text.\n"

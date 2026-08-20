@@ -6,6 +6,7 @@ cairn.main() in-process.
 from __future__ import annotations
 
 import datetime
+import os
 import subprocess
 import unittest
 from pathlib import Path
@@ -166,7 +167,10 @@ class CommentCommandTests(unittest.TestCase):
         text = path.read_text(encoding="utf-8")
         _, body = cairn.parse_frontmatter(text)
         _, comments = cairn.split_comments(body)
-        self.assertEqual(len(comments), 3)  # PT-1 fixture already has 2
+        # PT-1 fixture now has 3 real comments post finding-4's
+        # fence-tracking removal (see test_server.py's
+        # test_get_issue_includes_full_comments_and_seen) + 1 appended here.
+        self.assertEqual(len(comments), 4)
         self.assertEqual(comments[-1]["author"], "qa-engineer")
         self.assertEqual(comments[-1]["date"], datetime.date.today().isoformat())
         self.assertIn("Looks good, ship it.", comments[-1]["body"])
@@ -316,6 +320,61 @@ class ArchiveGitMoveTests(unittest.TestCase):
         result = run_cairn(["archive", "--done-before", "2026-02-01", "--data-dir", str(data_dir)])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue((data_dir / "archive" / "PT-1.md").exists())
+
+
+class DiscoveryErrorTests(unittest.TestCase):
+    """MUST-FIX finding 3 (architect conformance review): when no
+    `--data-dir` is given, `find_data_dir` walks up from cwd looking for
+    `process/cairn/config.yml`; if it never finds one it falls back to
+    `cwd / "process" / "cairn"` regardless, and every command downstream
+    (`_dir_glob` etc.) treats a nonexistent/empty directory exactly like a
+    real, empty tracker -- silent 0-exit, no output, no hint that discovery
+    failed. Ruled: `data_dir` in config.yml stays inert (spec being
+    amended), discovery stays hardcoded to `process/cairn/`, but a
+    resolution with no `config.yml` at the end of it must be a LOUD error
+    (nonzero exit, pointed message), never an empty list. Both tests here
+    deliberately omit `--data-dir` to exercise the real discovery path, and
+    are RED against current cairn.py (which exits 0 with empty stdout in
+    both cases)."""
+
+    def _env_without_override(self) -> dict:
+        env = os.environ.copy()
+        env.pop("CAIRN_DATA_DIR", None)
+        return env
+
+    def test_ls_with_no_process_cairn_anywhere_up_the_tree_errors_loudly(self):
+        # A bare tmp dir under the system temp root -- walking up from here
+        # never reaches this repo's real process/cairn/config.yml.
+        tmp_root = helpers.make_empty_tmp_dir(self)
+        result = subprocess.run(
+            [str(helpers.CAIRN_BIN), "ls"],
+            cwd=str(tmp_root), capture_output=True, text=True, env=self._env_without_override(),
+        )
+        self.assertNotEqual(
+            result.returncode, 0,
+            "an undiscoverable data dir must be a loud error, not a silent empty result "
+            f"(stdout={result.stdout!r} stderr={result.stderr!r})",
+        )
+        self.assertEqual(result.stdout.strip(), "", "no issue lines should print on a discovery failure")
+
+    def test_ls_with_data_dir_present_but_config_yml_missing_errors_loudly(self):
+        tmp_root = helpers.make_empty_tmp_dir(self)
+        cairn_dir = tmp_root / "process" / "cairn"
+        (cairn_dir / "issues").mkdir(parents=True)
+        (cairn_dir / "archive").mkdir(parents=True)
+        (cairn_dir / "milestones").mkdir(parents=True)
+        (cairn_dir / "majors").mkdir(parents=True)
+        # Deliberately no config.yml -- the directory shape is right but the
+        # thing that would confirm "this is really a tracker" is absent.
+        result = subprocess.run(
+            [str(helpers.CAIRN_BIN), "ls"],
+            cwd=str(tmp_root), capture_output=True, text=True, env=self._env_without_override(),
+        )
+        self.assertNotEqual(
+            result.returncode, 0,
+            "a data dir with no config.yml must error, not silently proceed as if it were empty "
+            f"(stdout={result.stdout!r} stderr={result.stderr!r})",
+        )
 
 
 class ErrorHandlingTests(unittest.TestCase):
