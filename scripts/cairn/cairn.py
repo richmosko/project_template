@@ -806,6 +806,119 @@ def compute_etag(data_dir: Path) -> str:
 
 
 # --------------------------------------------------------------------------
+# Live push (PT-1): a periodic fs-scan watcher + SSE broadcaster.
+#
+# Stdlib only, per the boring-stack principle -- no watchdog/inotify dep.
+# A background thread os.scandirs the four tracked subdirs on a fixed
+# cadence and diffs (relative path, mtime_ns) against the previous scan;
+# any difference is one coarse "something changed" event broadcast to
+# every subscribed SSE client (never a per-id targeted diff -- deferred,
+# see the PT-1 issue file). Purely in-memory: no durable state, killing
+# the server drops every subscriber and the watcher with it (stateless
+# lens, unchanged).
+# --------------------------------------------------------------------------
+
+_WATCHED_SUBDIRS = ("majors", "milestones", "issues", "archive")
+
+
+def scan_data_dir(data_dir: Path) -> Dict[str, int]:
+    """{"<subdir>/<file>.md": mtime_ns} across majors/milestones/issues/
+    archive -- the same directory set check_repo and build_board_payload
+    already walk, via the same _dir_glob (so mkstemp's hidden ".*.tmp"
+    temp files, which don't match "*.md", never show up as a false
+    "change" mid-write). Missing subdirs are tolerated, mirroring
+    _dir_glob's "if d.exists() else []".
+    """
+    data_dir = Path(data_dir)
+    snapshot: Dict[str, int] = {}
+    for sub in _WATCHED_SUBDIRS:
+        for p in _dir_glob(data_dir / sub):
+            try:
+                snapshot[f"{sub}/{p.name}"] = p.stat().st_mtime_ns
+            except FileNotFoundError:
+                continue  # raced with a delete between the glob and the stat
+    return snapshot
+
+
+def diff_scans(previous: Dict[str, int], current: Dict[str, int]) -> Dict[str, List[str]]:
+    """{"created": [...], "changed": [...], "removed": [...]} of relative
+    path strings, sorted. `any(diff.values())` is the watcher's cheap
+    "did anything happen at all" signal before it bothers broadcasting.
+    """
+    created = sorted(k for k in current if k not in previous)
+    removed = sorted(k for k in previous if k not in current)
+    changed = sorted(k for k in current if k in previous and current[k] != previous[k])
+    return {"created": created, "changed": changed, "removed": removed}
+
+
+class _SSEBroadcaster:
+    """In-memory registry of connected SSE clients' queues -- no durable
+    state, exactly the stateless-lens contract: killing the server drops
+    every subscriber with it.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._subscribers: List["queue.Queue[Dict[str, Any]]"] = []
+
+    def subscribe(self) -> "queue.Queue[Dict[str, Any]]":
+        q: "queue.Queue[Dict[str, Any]]" = queue.Queue()
+        with self._lock:
+            self._subscribers.append(q)
+        return q
+
+    def unsubscribe(self, q: "queue.Queue[Dict[str, Any]]") -> None:
+        with self._lock:
+            if q in self._subscribers:
+                self._subscribers.remove(q)
+
+    def broadcast(self, event: Dict[str, Any]) -> None:
+        with self._lock:
+            subscribers = list(self._subscribers)
+        for q in subscribers:
+            q.put(event)
+
+
+class DataDirWatcher:
+    """Periodic fs-scan watcher (PT-1). Every `interval` seconds, rescans
+    `data_dir` and diffs against the previous scan; any change gets
+    broadcast as one coarse event to every subscribed SSE client (the
+    COARSE event contract, per team-lead's ruling -- clients refetch the
+    whole board on any event, no per-id targeted diff).
+
+    Lifecycle is bound to the caller that constructs it (make_server),
+    not to `cmd_serve`: the baseline snapshot is taken synchronously in
+    __init__, before `start()` -- so a client that connects to the SSE
+    endpoint immediately after the server object exists never sees the
+    data dir's pre-existing files misreported as freshly "created".
+    `stop()` is idempotent and returns promptly (Event.wait, not a sleep
+    loop) so server teardown in tests isn't slowed down by it.
+    """
+
+    def __init__(self, data_dir: Path, broadcaster: _SSEBroadcaster, interval: float = 1.0) -> None:
+        self._data_dir = data_dir
+        self._broadcaster = broadcaster
+        self._interval = interval
+        self._stop_event = threading.Event()
+        self._snapshot = scan_data_dir(data_dir)
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+
+    def _run(self) -> None:
+        while not self._stop_event.wait(self._interval):
+            current = scan_data_dir(self._data_dir)
+            diff = diff_scans(self._snapshot, current)
+            self._snapshot = current
+            if any(diff.values()):
+                self._broadcaster.broadcast(diff)
+
+
+# --------------------------------------------------------------------------
 # HTTP server — a lens, not a source of truth. No state held here.
 # --------------------------------------------------------------------------
 
