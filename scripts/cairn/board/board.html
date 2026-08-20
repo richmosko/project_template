@@ -50,6 +50,11 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- PT-4: vendored (checked-in, no CDN) -- see vendor/NOTICE.md for
+     version/license/provenance. Loaded before board.js so renderMarkdown's
+     window.marked / window.DOMPurify feature-check sees them. -->
+<script src="/board/vendor/marked.js"></script>
+<script src="/board/vendor/purify.min.js"></script>
 <script src="/board/board.js"></script>
 </body>
 </html>

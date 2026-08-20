@@ -563,6 +563,47 @@ class StaticRouteTests(ServerTestCase):
         self.assertEqual(resp.status, 200)
 
 
+class MarkdownVendorAssetTests(ServerTestCase):
+    """PT-4: marked + DOMPurify are vendored (not CDN-fetched) under
+    scripts/cairn/board/vendor/ and must be servable at runtime with zero
+    server-side change -- _send_static already serves any file under
+    BOARD_DIR generically, with .js already mapped to
+    "application/javascript" in its content-type table. If these fail, the
+    files either aren't vendored yet or the path/filename implementation
+    picked doesn't match what got documented back to QA.
+    """
+
+    def test_marked_vendor_asset_served(self):
+        resp = http_get(f"{self.base_url}/board/vendor/marked.js")
+        self.assertEqual(resp.status, 200)
+        self.assertIn("javascript", resp.headers.get("Content-Type", ""))
+
+    def test_dompurify_vendor_asset_served(self):
+        resp = http_get(f"{self.base_url}/board/vendor/purify.min.js")
+        self.assertEqual(resp.status, 200)
+        self.assertIn("javascript", resp.headers.get("Content-Type", ""))
+
+
+class MarkdownVendorAssetHygieneTests(unittest.TestCase):
+    """PT-4: "no CDN, no network fetch" must hold at runtime, not just at
+    vendor-time -- even a devtools-only sourcemap fetch attempt (Chrome
+    auto-requests a `//# sourceMappingURL` target when devtools is open)
+    would violate that. Reads the checked-in files directly off disk, not
+    through the HTTP server -- this is a repo-hygiene guard, independent of
+    the static route working at all.
+    """
+
+    def test_vendored_assets_carry_no_sourcemap_reference(self):
+        vendor_dir = helpers.CAIRN_DIR / "board" / "vendor"
+        for name in ("marked.js", "purify.min.js"):
+            path = vendor_dir / name
+            self.assertTrue(path.is_file(), f"missing vendored asset: {path}")
+            text = path.read_text(encoding="utf-8", errors="replace")
+            self.assertNotIn(
+                "sourceMappingURL", text, f"{name} still carries a sourcemap reference"
+            )
+
+
 class SSEEventsTests(ServerTestCase):
     """PT-1: GET /api/events is an SSE stream (text/event-stream) that
     emits a frame after any data-dir mutation, driven by the periodic
