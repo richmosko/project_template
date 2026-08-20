@@ -24,7 +24,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-14-remove-linear-skills` |
 | Started | 2026-08-20 |
 | Goal | The Linear era ends: deprecated skills and the backlog stub deleted, zero living references remain, history intact in the decision logs. |
-| Status | In Progress |
+| Status | In Review — [PR #35](https://github.com/richmosko/project_template/pull/35), Validate green |
 
 ## Session Cycles
 
