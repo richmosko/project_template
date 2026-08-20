@@ -1,8 +1,8 @@
 ---
 id: PT-7
 title: Preserve file mode on frontmatter rewrite (mkstemp 0600 flip)
-status: backlog
-milestone: null
+status: todo
+milestone: "0.4"
 parent: null
 assignee: null
 labels: []

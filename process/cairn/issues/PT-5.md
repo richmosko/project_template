@@ -1,8 +1,8 @@
 ---
 id: PT-5
 title: priority drawer input as a select + check_repo rule for P0-P3|null
-status: backlog
-milestone: null
+status: todo
+milestone: "0.4"
 parent: null
 assignee: null
 labels: []

@@ -19,6 +19,17 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 
 ---
 
+### 2026-08-20 — 0.4 milestone scoped: debt paid, engine hardened, board live
+**Decision:** Cut the `0.4` milestone (major V1, `target_tag: v0.4.0`, name *hardening*) with 12 of the 15 backlog issues: the two committed debts — PT-14 (remove deprecated Linear skills + BACKLOG.md stub, due "one release after v0.3.0") and PT-15 (rename `process/MILESTONES.md` → `STATE.md`, ruled 2026-08-20) — plus the board headliner PT-1 (SSE live push), the P2 hardening set PT-5/PT-6/PT-12, and the small P3 fixes PT-7/PT-8/PT-9/PT-13 (CLI/parser) and PT-10/PT-11 (board drawer). Deferred to 0.5: PT-2 (snapshot appendix — depends on what the post-rename state file is), PT-3 (multi-root board — a design conversation, not a fix), PT-4 (markdown drawer rendering). Suggested cycle order: PT-15 first (widest blast radius), then PT-14, then the hardening batches, PT-1 last.
+**Why:** The P3 items are each tiny — leaving them in backlog costs more tracker overhead than fixing them — while PT-2/3/4 are the only items with real design weight, so they are the honest cuts. Scope fits one session cycle.
+**Alternatives considered:**
+- *Lean (6 issues, P1/P2 only):* comfortable fit but strands a tail of trivial P3 fixes in backlog.
+- *Everything (15 issues):* clears the backlog but spills past one session cycle and forces the PT-3 design conversation prematurely.
+**Approved by:** Mosko
+**Supersedes:** nothing.
+
+---
+
 ### 2026-08-19 — In-template file-based issue tracker replaces Linear as the default backend (#28)
 **Decision:** Build a file-based issue tracker — named **cairn** — as template infrastructure: one markdown file per issue (YAML frontmatter + appended attributed comments) living in each project's own repo, supporting the **major → milestone → issue → sub-issue** hierarchy per the 2026-07-23 version-driven model (the top level is named `major`, after the semver digit it is bound to; "initiative" retires with Linear, and "line" was rejected as too generic). Agents interact with it purely via file reads/writes — no server, no MCP. A small stateless local server (serve-docs pattern) provides a live Kanban/list board for the human, parsing the issue directory at request time, with drag-to-edit write-back that rewrites frontmatter; board edits dirty the working tree, never auto-commit. The engine ships inside the template (every instantiated project carries a copy), kept self-contained so `/spin-off-component` can extract it later if cross-project drift justifies it. Linear is replaced as the *default* backend — Linear skills remain one release, marked deprecated; no dual-backend abstraction. Delivery is staged as four PRs: design spec (`process/TRACKER.md`), engine, skills migration, dogfood.
 **Why:** Linear's free tier caps active issues at 250 (a real bottleneck), forces 1-month auto-archive, allows one user (agent-hostile), and its MCP server is so verbose it required the `mcp-broker` firewall agent. Files-in-git keep what Linear did well (post-and-comment issue database, four-level hierarchy, Kanban visualization) while deleting the context-bloat problem outright: agents already have file tools, git supplies history/audit/undo for free, and the write volume (a handful of events per session) makes git-as-database genuinely correct.

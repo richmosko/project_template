@@ -32,7 +32,8 @@ Session Cycles are **context-bounded working sessions**, not calendar sprints an
 
 | Session | Milestone | Planned work (features + directives) | Status | Notes |
 |---|---|---|---|---|
-| SC1 (2026-08-19/20) | 0.3 | cairn end-to-end: design ruling → TRACKER.md spec (#28) → engine + 128-test suite (#29) → skills migration (#30) → dogfood scaffold + v0.3.0 (#31) | Current | Teammate SendMessage outage all session — coordination ran through the temp/ buffer, which held. PT-1…PT-15 seeded as the 0.4-candidate backlog. |
+| SC2 (2026-08-20) | 0.4 | 0.4 scoped (12 issues; PT-2/3/4 deferred to 0.5). Order: PT-15 (STATE.md rename) → PT-14 (Linear removal) → hardening batches (PT-5/6/12, PT-7/8/9/13, PT-10/11) → PT-1 (SSE live push). | Current | Scope decision logged in TEMPLATE_DECISIONS.md (2026-08-20). |
+| SC1 (2026-08-19/20) | 0.3 | cairn end-to-end: design ruling → TRACKER.md spec (#28) → engine + 128-test suite (#29) → skills migration (#30) → dogfood scaffold + v0.3.0 (#31) | Previous | Teammate SendMessage outage all session — coordination ran through the temp/ buffer, which held. PT-1…PT-15 seeded as the 0.4-candidate backlog. |
 
 ## Releases
 
