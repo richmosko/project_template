@@ -41,7 +41,7 @@ Match the doc being edited to the phase:
 | `docs/PRD/index.html` | `phase/research-<slug>` |
 | `docs/ARCH/index.html`, `docs/SECURITY/index.html` | `phase/plan-<slug>` |
 | `docs/DESIGN/*` (index.html, tokens.css, screen.css, spec, wireframes/flows/styled-screens) | `phase/research-<slug>` — UX starts late-Research. **Cross-phase**: if the design-system edit is happening during Plan/Implement, use `phase/plan-<slug>` or fold it into the relevant feature instead. |
-| `process/STATE.md`, `process/DECISIONS.md`, `process/BACKLOG.md` | `phase/state-<slug>` |
+| `process/STATE.md`, `process/DECISIONS.md` | `phase/state-<slug>` |
 | `process/WORKFLOW.md`, `CLAUDE.md`, `README.md` | `phase/meta-<slug>` |
 | Other (e.g. `.claude/agents/*.md`, `.claude/skills/*/SKILL.md`) | `phase/meta-<slug>` |
 | Ambiguous / multi-doc | ask the user which phase the change belongs to |

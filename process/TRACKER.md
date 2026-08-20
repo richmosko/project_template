@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Linear works, but its free tier imposes limits the template cannot design around: a **250 active-issue cap** across the workspace, a **1-month minimum auto-archive**, **one user** (so nine agents share a single identity), and an **MCP server verbose enough that we shipped a firewall agent** (`mcp-broker`) to keep its payloads out of the team-lead's context. Three of the template's moving parts — `process/BACKLOG.md`, `/sync-backlog`, `/cleanup-linear` — exist *only* to work around the cap and the archive policy. They are scar tissue.
+Linear works, but its free tier imposes limits the template cannot design around: a **250 active-issue cap** across the workspace, a **1-month minimum auto-archive**, **one user** (so nine agents share a single identity), and an **MCP server verbose enough that we shipped a firewall agent** (`mcp-broker`) to keep its payloads out of the team-lead's context. Three of the template's moving parts existed *only* to work around the cap and the archive policy — scar tissue that cairn's arrival let the template shed.
 
 What Linear got right and this design keeps: a **post-and-comment issue database**, a **major → milestone → issue → sub-issue hierarchy**, and **Kanban + list** visualisation.
 
@@ -72,7 +72,7 @@ scripts/cairn/            THE ENGINE — self-contained, spin-off-ready
     └── board.css
 ```
 
-**Data under `process/`** because it *is* process state — sibling to `STATE.md`, `DECISIONS.md`, `BACKLOG.md`. Cohesion beats a shorter path; `process/cairn/` is still a distinctive grep root.
+**Data under `process/`** because it *is* process state — sibling to `STATE.md`, `DECISIONS.md`. Cohesion beats a shorter path; `process/cairn/` is still a distinctive grep root.
 
 **The layout is fixed at `process/cairn/` in v1.** An earlier draft offered a `data_dir` key in `config.yml` for projects preferring a top-level `cairn/`; it is removed, because the key is circular — `config.yml` lives *inside* the directory it would declare, so the engine must already have found the directory before it can read where the directory is. Relocation, if it is ever wanted, belongs to an env var or a flag, not to the config file.
 
@@ -479,40 +479,13 @@ Ship it when the 4-second poll visibly lags during a live pairing session. Not b
 
 ---
 
-## Skills migration outline
-
-Stage 3 preview. Linear skills stay in place for **one release**, marked deprecated, then are removed.
-
-| Skill / file | Change |
-|---|---|
-| `/setup-linear-team` | → **`/setup-tracker`**. Scaffolds `process/cairn/`, writes `config.yml` — **deriving the ID prefix from the repo name and asking the user to confirm or override it once** — then seeds `majors/V1.md` + `milestones/M0.md` + `milestones/M1.md` and sets delivery autonomy. **No MCP, no network, no team resolution, no label seeding** — the nine `agent:<role>` labels become the `assignee` field. Roughly a third the length. |
-| `/start-feature` | Resolve the issue with `cairn ls` / `cairn show` instead of `list_issues`/`get_issue`. **Delete step 1a (backlog promotion) and step 2 (budget check) entirely** — both existed only for the 250 cap. `cairn set <id> status=in-progress` + `cairn comment`. Anchor-task and team-spawn steps unchanged. |
-| `/finish-feature` | `cairn set <id> status=in-review pr=<url>`; comment with the PR link. |
-| `/merge-pr` | `cairn set <id> status=done`; merge comment. The Linear-archive step becomes an optional `cairn archive` at milestone close. Release-tagging logic unchanged. |
-| `/drive` | Re-point work resolution to cairn (`cairn ls --status todo --milestone <m>`). Goal-condition strings unchanged. |
-| `/sync-backlog` | **Retire.** Its reason to exist was the cap. `/setup-tracker` step 5 converts existing `process/BACKLOG.md` rows into `status: backlog` issues via `cairn new` (ruled during stage 3: a one-shot engine subcommand wasn't worth the permanent surface). |
-| `/cleanup-linear` | **Retire.** Replaced by `cairn archive`, reframed as hygiene rather than quota relief. |
-| `process/BACKLOG.md` | **Dissolves into the tracker** as `status: backlog`, ordered by `priority` then ID. Kept one release as a deprecated stub pointing at the board. Jotting a rough item is `cairn new "…" --status backlog` — cheaper than editing a markdown table. |
-| `.claude/linear-team.json` | → `process/cairn/config.yml`, and **committed** rather than gitignored: it holds no credentials, and every clone should agree on the ID prefix. |
-| `mcp-broker` | Scope reduced — Linear drops off its server list; Drive/Gmail/Calendar/Spotify remain. It still earns its keep, but the traffic that motivated it is gone. |
-| `/serve-docs`, `/refine-doc`, `/export-doc`, `/open-doc` | Unchanged. New sibling skill **`/cairn`** backgrounds the board server. |
-| `WORKFLOW.md` | *Version control & Linear* → *Version control & the tracker*; the Team-coordination table's "Linear" row becomes "cairn (files in git)"; the free-tier-cap subsection and its ASCII overflow diagram are deleted; MCP-broker section loses its Linear emphasis. |
-| `CLAUDE.md` | Artifacts table gains cairn; the first-run checklist swaps `/setup-linear-team` → `/setup-tracker`; the "Linear binding" bullet points at `config.yml`. |
-| `STATE.md` | **Four tables removed** — *Major line / Initiative*, *Roadmap*, and *Features → Completed / In Flight / Backlog* — since cairn represents all of them natively. Keeps *Current Phase*, *Active Feature*, *Session Cycles*, *Releases*, plus a pointer to the board and an optional `cairn snapshot` appended at milestone close. See [Relationship to STATE.md](#relationship-to-statemd). |
-| `WORKFLOW.md` → Completed-table rolloff | **Section deleted.** It existed only to bound the hand-maintained duplicate that is now gone. |
-| Agent briefs (`.claude/agents/*.md`) | The **MCP routing** block in each shrinks; a one-line "the tracker is files under `process/cairn/` — read them directly" replaces the Linear-via-broker guidance. |
-
-Branch naming (`feature/pt-14-<slug>`), commit trailers (`feat(PT-14): …`), and the PR flow are unaffected.
-
----
-
 ## Resolutions log
 
 Every question this spec opened has been ruled. Each resolution is folded into the body section it governs; this log is the index, not a second source of truth.
 
 | # | Question | Ruling (2026-08-19) | Where it lives |
 |---|---|---|---|
-| 1 | Does `STATE.md` keep its *Major line*, *Roadmap*, and *Features* tables, or do they dissolve into cairn? | **Dissolve.** Stage 3 removes all four overlapping tables; `STATE.md` keeps Current Phase, Active Feature, Session Cycles, Releases, plus a board pointer and an optional `cairn snapshot`. The Completed-table rolloff ritual retires with them. | [Relationship to `STATE.md`](#relationship-to-statemd) · [Skills migration](#skills-migration-outline) |
+| 1 | Does `STATE.md` keep its *Major line*, *Roadmap*, and *Features* tables, or do they dissolve into cairn? | **Dissolve.** Stage 3 removes all four overlapping tables; `STATE.md` keeps Current Phase, Active Feature, Session Cycles, Releases, plus a board pointer and an optional `cairn snapshot`. The Completed-table rolloff ritual retires with them. | [Relationship to `STATE.md`](#relationship-to-statemd) |
 | 2 | Is losing Linear's cross-project board acceptable at v1? | **Accepted as a v1 regression.** Multi-root (`cairn serve --repos …`) is recorded as a possible phase 3, explicitly not committed. | [Non-goals](#non-goals) · [Candidate follow-ups](#candidate-follow-ups-designed-for-not-committed) |
 | 3 | How is the ID prefix chosen? | **Repo-derived default with a one-time confirm prompt** at `/setup-tracker`. | [ID scheme](#id-scheme-and-collision-free-allocation) · [`config.yml`](#configyml) |
 | 4 | Render markdown in the detail drawer, or ship `<pre>`? | **`<pre>` ships in phase 1.** Vendoring a JS renderer (the `vendor-mermaid.sh` path) is deferred until it demonstrably annoys. | [Board — phase 1 scope](#board--phase-1-scope) |
