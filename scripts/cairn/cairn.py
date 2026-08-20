@@ -38,10 +38,13 @@ import hashlib
 import http.server
 import json
 import os
+import queue
 import re
+import socketserver
 import stat
 import sys
 import tempfile
+import threading
 import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -820,6 +823,24 @@ def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: O
         port = int(os.environ.get("CAIRN_PORT", config.get("port", DEFAULT_PORT)))
     host = "127.0.0.1"
 
+    # PT-1: Server is per-connection threaded (ThreadingMixIn below) so a
+    # held-open SSE connection can't starve the accept loop for every
+    # other client. That's a real behavior change from the old
+    # single-threaded HTTPServer, where request handling was inherently
+    # serialized -- two concurrent POST /api/issue/<id> on the *same*
+    # issue could never race, because the server processed one full
+    # request/response cycle at a time. Once concurrent request threads
+    # are possible, that serialization has to be re-created explicitly:
+    # write_lock below serializes only the mutate path (the
+    # seen-check-then-write critical section), so two concurrent writers
+    # to the same issue can't both pass the staleness check against the
+    # same pre-write state and silently lose one of their patches. Reads
+    # (GET /api/board, GET /api/issue/<id>, the SSE stream) stay fully
+    # concurrent -- only writes serialize. allocate_and_create_issue's own
+    # O_EXCL retry loop already makes concurrent *creates* safe without
+    # this lock (each gets a distinct ID), so _create_issue isn't wrapped.
+    write_lock = threading.Lock()
+
     class Handler(http.server.BaseHTTPRequestHandler):
         server_version = "cairn/1.0"
 
@@ -944,28 +965,38 @@ def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: O
                 })
                 return
 
-            seen = payload["seen"]
-            current_seen = get_seen(issue_path)
-            if seen is not None and str(seen) != current_seen:
-                current = build_issue_payload(data_dir, issue_id)
-                self._send_json(409, {
-                    "error": "stale",
-                    "message": f"{issue_id} changed on disk since you loaded it",
-                    "current": current,
-                })
-                return
+            # PT-1: serializes the seen-check-then-write critical section
+            # across request threads -- see write_lock's docstring above
+            # for why this became necessary once Server went threaded.
+            with write_lock:
+                seen = payload["seen"]
+                current_seen = get_seen(issue_path)
+                if seen is not None and str(seen) != current_seen:
+                    current = build_issue_payload(data_dir, issue_id)
+                    self._send_json(409, {
+                        "error": "stale",
+                        "message": f"{issue_id} changed on disk since you loaded it",
+                        "current": current,
+                    })
+                    return
 
-            patch = payload.get("patch")
-            if patch:
-                apply_patch(issue_path, patch)
-            comment = payload.get("comment")
-            if comment:
-                append_comment(issue_path, comment.get("author", "board"), comment.get("body", ""))
+                patch = payload.get("patch")
+                if patch:
+                    apply_patch(issue_path, patch)
+                comment = payload.get("comment")
+                if comment:
+                    append_comment(issue_path, comment.get("author", "board"), comment.get("body", ""))
 
-            self._send_json(200, build_issue_payload(data_dir, issue_id))
+                self._send_json(200, build_issue_payload(data_dir, issue_id))
 
-    class Server(http.server.HTTPServer):
+    # PT-1: ThreadingMixIn -- one thread per connection, so a long-held
+    # SSE stream can't block the accept loop for every other client
+    # (see write_lock above for the write-safety half of this change).
+    # daemon_threads=True so a request thread (notably an open SSE
+    # connection) never blocks process/test-suite shutdown.
+    class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
         allow_reuse_address = True
+        daemon_threads = True
 
     return Server((host, port), Handler)
 
