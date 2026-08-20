@@ -17,14 +17,14 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Session Cycle | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | CLI/parser hardening batch (file mode, date validation, --data-dir placement, milestone patch fidelity) |
+| Issue | PT-7 + PT-8 + PT-9 + PT-13 (cairn; ratified batch PR) |
+| Milestone | 0.4 |
+| Session Cycle | SC2 |
+| Branch | `feature/pt-7-8-9-13-cli-hardening` |
+| Started | 2026-08-20 |
+| Goal | Four small engine fixes land as one PR: writes preserve file mode, archive validates its date, --data-dir works top-level, milestone patches stay schema-faithful. |
+| Status | In Progress |
 
 ## Session Cycles
 
