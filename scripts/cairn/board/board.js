@@ -492,7 +492,10 @@
     }
     var fileP = document.createElement("div");
     fileP.className = "file-link";
-    fileP.textContent = "File: process/cairn/issues/" + issue.id + ".md";
+    // PT-10: the server now serves the issue's real on-disk path (correct
+    // for both process/cairn/... and any other --data-dir setup, and for
+    // an archived issue's archive/ location) -- no longer hardcoded here.
+    fileP.textContent = "File: " + issue.path;
     drawer.appendChild(fileP);
 
     var split = splitAcceptanceCriteria(issue.description);
