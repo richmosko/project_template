@@ -17,14 +17,14 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | WORKFLOW.md anchor-task pattern: document the degraded mode |
-| Issue | PT-18 (cairn) |
-| Milestone | 0.5 |
-| Session Cycle | SC3 |
-| Branch | `feature/pt-18-anchor-task-degraded-mode` |
-| Started | 2026-08-20 |
-| Goal | WORKFLOW.md states the Task-tool session requirement and codifies the SendMessage + temp/ fallback as the anchor-task pattern's degraded mode. |
-| Status | In Review — [PR #47](https://github.com/richmosko/project_template/pull/47) |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Session Cycle | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Session Cycles
 
@@ -32,7 +32,7 @@ Session Cycles are **context-bounded working sessions**, not calendar sprints an
 
 | Session | Milestone | Planned work (features + directives) | Status | Notes |
 |---|---|---|---|---|
-| SC3 (2026-08-20) | 0.5 | 0.5 scoped (all 6 backlog issues; backlog cleared). Order: PT-18 (anchor-task degraded-mode docs) → PT-19 (title-shape lint) → PT-16 (board names + collapse) → PT-4 (drawer markdown) → PT-2 (snapshot appendix) → PT-3 (multi-root board, design conversation last). | Current | v0.3.0 + v0.4.0 GitHub releases published (#45). 0.5 scope decision logged in TEMPLATE_DECISIONS.md (2026-08-20). |
+| SC3 (2026-08-20) | 0.5 | 0.5 scoped (all 6 backlog issues; backlog cleared). Order: PT-18 (anchor-task degraded-mode docs) → PT-19 (title-shape lint) → PT-16 (board names + collapse) → PT-4 (drawer markdown) → PT-2 (snapshot appendix) → PT-3 (multi-root board, design conversation last). | Current | v0.3.0 + v0.4.0 GitHub releases published (#45). 0.5 scope decision logged in TEMPLATE_DECISIONS.md (2026-08-20). PT-18 shipped (#47) — 0.5 at 1/6; scope add: template now ships CLAUDE_CODE_ENABLE_TODO_TOOLS=1 (decision logged; verified live — Task tools appeared in the running session on save). QA (fresh spawn) validated by live SendMessage; two coordination lessons banked in team-lead memory: claude-code-guide has no SendMessage (spawn unnamed or WebFetch docs directly), and teammates reply to "team-lead", not "main". /doctor run: figma plugin disabled user-scope (~2k est. tokens/session reclaimed); setup otherwise healthy. Next: PT-19 (title-shape lint) — first feature to exercise the restored anchor-task pattern. |
 | SC2 (2026-08-20) | 0.4 | 0.4 scoped (12 issues; PT-2/3/4 deferred to 0.5). Order: PT-15 (STATE.md rename) → PT-14 (Linear removal) → hardening batches (PT-5/6/12, PT-7/8/9/13, PT-10/11) → PT-1 (SSE live push). | Previous | Scope decision logged in TEMPLATE_DECISIONS.md (2026-08-20). PT-15 (#34), PT-14 (#35), PT-5 (#36), PT-17 (#37), PT-6 (#38), PT-12 (#39), batch PT-7/8/9/13 (#40), batch PT-10/11 (#41), PT-1 (#42) shipped — 0.4 COMPLETE at 13/13; milestone flipped completed on the closing branch. Team-lead closed QA's browser-verification gap with a real Chrome pass (SSE live/polling/reconnect all visually confirmed). PT-19 filed (title-lint gap, from batch Validate). Standing order (Mosko, 2026-08-20): self-merge authorized for the remaining 0.4 issues; stop only for real decisions (v0.4.0 tag at milestone close is a planned stop). Fresh post-PT-17 teammates coordinate by live SendMessage. PT-17 closed the SendMessage outage (fresh spawns); Task tools session-gated → PT-18 filed. PT-16 scope grew via a board-UI comment (swimlane expand/collapse) — first dogfood round-trip through the board. PT-16 filed (board name display). Teammate SendMessage down all session (allowlist omission found, but docs say auto-add — session-level cause suspected; PT-17 tests it); temp/ fallback held. QA corrected its PDF-check method (byte-grep → pdftotext, on PT-15) and caught an orphaned live-data cairn serve on :18766 (killed). |
 | SC1 (2026-08-19/20) | 0.3 | cairn end-to-end: design ruling → TRACKER.md spec (#28) → engine + 128-test suite (#29) → skills migration (#30) → dogfood scaffold + v0.3.0 (#31) | Previous | Teammate SendMessage outage all session — coordination ran through the temp/ buffer, which held. PT-1…PT-15 seeded as the 0.4-candidate backlog. |
 
