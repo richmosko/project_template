@@ -48,6 +48,17 @@ header.app-header {
   margin-right: 8px;
 }
 
+/* PT-1: minimal live/polling connection indicator, driven by board.js's
+   connectLive() toggling the "live"/"polling" class + text. */
+.connection-state {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.connection-state.live {
+  color: #00875a;
+}
+
 .majors-tabs {
   display: flex;
   gap: 4px;

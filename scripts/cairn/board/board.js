@@ -675,6 +675,61 @@
     }).catch(function () {});
   }
 
+  // ------------------------------------------------------------------
+  // PT-1: live push (SSE) with a polling fallback.
+  //
+  // The 4s poll (below) is the byte-identical fallback path this always
+  // had -- connectLive() only decides *when* it runs: continuously in
+  // any browser without EventSource, or as coverage during the
+  // connecting/reconnecting phase in one that has it. It's never torn
+  // out or altered, only started/stopped.
+  // ------------------------------------------------------------------
+
+  var pollTimer = null;
+
+  function startPolling() {
+    if (pollTimer) return; // already running -- idempotent
+    pollTimer = setInterval(refreshBoardSilently, 4000);
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function setConnectionState(newState) {
+    var el = document.getElementById("connection-state");
+    if (!el) return;
+    el.textContent = newState === "live" ? "● live" : "○ polling";
+    el.className = "connection-state " + newState;
+  }
+
+  function connectLive() {
+    if (typeof window.EventSource === "undefined") {
+      // No behavior change for browsers/environments where EventSource
+      // isn't available -- straight back to the untouched polling path.
+      setConnectionState("polling");
+      startPolling();
+      return;
+    }
+    // Poll runs as coverage until SSE actually opens, and resumes
+    // whenever it errors -- EventSource retries the connection natively
+    // (with its own backoff) without any code here re-creating it.
+    setConnectionState("polling");
+    startPolling();
+    var source = new EventSource("/api/events");
+    source.onopen = function () {
+      setConnectionState("live");
+      stopPolling();
+    };
+    source.onmessage = function () {
+      refreshBoardSilently();
+    };
+    source.onerror = function () {
+      setConnectionState("polling");
+      startPolling();
+    };
+  }
+
   function wireFilters() {
     document.getElementById("filter-text").addEventListener("input", function (e) {
       state.filters.text = e.target.value; render();
@@ -749,7 +804,7 @@
       state.board = data;
       render();
     });
-    setInterval(refreshBoardSilently, 4000);
+    connectLive();
     document.addEventListener("visibilitychange", function () {
       if (document.visibilityState === "visible") refreshBoardSilently();
     });

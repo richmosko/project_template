@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import socket
 import threading
 import time
 import unittest
@@ -30,6 +31,69 @@ def http_post(url: str, payload: dict):
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
     return urllib.request.urlopen(req, timeout=5)
+
+
+def _sse_connect(port: int, path: str = "/api/events", timeout: float = 5.0) -> socket.socket:
+    """Open a raw GET to `path` and return the connected socket, read
+    timeout already set.
+
+    SSE keeps the connection open indefinitely -- urllib's high-level API
+    isn't built for incrementally reading an open-ended stream with a hard
+    per-read timeout, so these tests talk HTTP/1.0 directly over a socket
+    instead. `Connection: close` in the request is just our preference;
+    the server holding the response open past that is exactly the
+    behavior under test.
+    """
+    sock = socket.create_connection(("127.0.0.1", port), timeout=timeout)
+    sock.settimeout(timeout)
+    request = f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+    sock.sendall(request.encode("ascii"))
+    return sock
+
+
+def _sse_read_headers(sock: socket.socket) -> tuple:
+    """Read off `sock` up through the blank line ending the HTTP headers.
+    Returns (status_line, headers dict, leftover body bytes already read).
+    """
+    buf = b""
+    while b"\r\n\r\n" not in buf:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        buf += chunk
+    head, _, rest = buf.partition(b"\r\n\r\n")
+    lines = head.decode("utf-8", errors="replace").split("\r\n")
+    status_line = lines[0] if lines else ""
+    headers = {}
+    for line in lines[1:]:
+        if ":" in line:
+            k, v = line.split(":", 1)
+            headers[k.strip().lower()] = v.strip()
+    return status_line, headers, rest
+
+
+def _sse_read_one_frame(sock: socket.socket, leftover: bytes, timeout: float):
+    """Read until one SSE frame (terminated by a blank line) has arrived,
+    or `timeout` elapses -- returns the frame text, or None on timeout.
+    Never blocks past `timeout` regardless of what the server does, so a
+    broken/hanging implementation can't hang the suite."""
+    sock.settimeout(timeout)
+    buf = leftover
+    deadline = time.time() + timeout
+    while b"\n\n" not in buf:
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            return None
+        sock.settimeout(remaining)
+        try:
+            chunk = sock.recv(4096)
+        except socket.timeout:
+            return None
+        if not chunk:
+            return None
+        buf += chunk
+    frame, _, _ = buf.partition(b"\n\n")
+    return frame.decode("utf-8", errors="replace")
 
 
 class ServerTestCase(unittest.TestCase):
@@ -486,6 +550,101 @@ class StaticRouteTests(ServerTestCase):
     def test_board_js_asset_served(self):
         resp = http_get(f"{self.base_url}/board/board.js")
         self.assertEqual(resp.status, 200)
+
+
+class SSEEventsTests(ServerTestCase):
+    """PT-1: GET /api/events is an SSE stream (text/event-stream) that
+    emits a frame after any data-dir mutation, driven by the periodic
+    fs-scan watcher (AC's documented cadence: <=2s). HTTP-level, using
+    ServerTestCase's existing make_server(...) + serve_forever-in-a-thread
+    setup exactly like every other test in this file -- QA is assuming the
+    watcher is live as soon as the server object exists (same lifecycle as
+    the HTTP serving loop itself), not gated behind a second explicit
+    start call `cmd_serve` alone would make. If implementation instead
+    ties watcher-start to `cmd_serve` only, these tests will time out
+    rather than erroring cleanly -- flagged in the hand-off report as a
+    design fork QA guessed at, not a contract handed down.
+
+    Every read here has a hard timeout (via _sse_read_one_frame's
+    deadline), and every socket is closed via addCleanup -- a broken or
+    hanging implementation fails/times out this test, it cannot hang the
+    suite.
+    """
+
+    def test_content_type_is_event_stream(self):
+        sock = _sse_connect(self.port, timeout=5)
+        self.addCleanup(sock.close)
+        status_line, headers, _ = _sse_read_headers(sock)
+        self.assertIn("200", status_line)
+        self.assertIn("text/event-stream", headers.get("content-type", ""))
+
+    def test_event_arrives_after_a_mutation(self):
+        sock = _sse_connect(self.port, timeout=5)
+        self.addCleanup(sock.close)
+        _status_line, headers, leftover = _sse_read_headers(sock)
+        self.assertIn("text/event-stream", headers.get("content-type", ""))
+
+        # Mutate a tracked file after connecting -- the watcher's next
+        # scan should notice and push a frame within the documented <=2s
+        # cadence. Generous 5s budget to absorb scheduling jitter without
+        # ever hanging the suite.
+        cairn.apply_patch(self.data_dir / "issues" / "PT-1.md", {"status": "in-review"})
+
+        frame = _sse_read_one_frame(sock, leftover, timeout=5.0)
+        self.assertIsNotNone(frame, "no SSE frame arrived within 5s of a mutation")
+        self.assertTrue(frame.startswith("data:"), frame)
+
+    def test_no_event_when_nothing_changes(self):
+        # Quiet case, HTTP-level companion to test_watcher.py's pure-diff
+        # unit tests. Also catches a specific real bug shape: a watcher
+        # that diffs its first scan against an empty baseline would treat
+        # every pre-existing fixture file as newly "created" and fire
+        # immediately on connect with zero mutations -- this test fails
+        # loudly if that happens instead of timing out clean.
+        sock = _sse_connect(self.port, timeout=3)
+        self.addCleanup(sock.close)
+        _status_line, headers, leftover = _sse_read_headers(sock)
+        self.assertIn("text/event-stream", headers.get("content-type", ""))
+
+        frame = _sse_read_one_frame(sock, leftover, timeout=2.5)
+        self.assertIsNone(frame, f"got an unexpected frame with no mutation: {frame!r}")
+
+    def test_two_concurrent_clients_both_receive_the_event(self):
+        # AC #2: "concurrent SSE clients ... must not block each other."
+        sock_a = _sse_connect(self.port, timeout=5)
+        self.addCleanup(sock_a.close)
+        sock_b = _sse_connect(self.port, timeout=5)
+        self.addCleanup(sock_b.close)
+        _sl_a, headers_a, leftover_a = _sse_read_headers(sock_a)
+        _sl_b, headers_b, leftover_b = _sse_read_headers(sock_b)
+        self.assertIn("text/event-stream", headers_a.get("content-type", ""))
+        self.assertIn("text/event-stream", headers_b.get("content-type", ""))
+
+        cairn.apply_patch(self.data_dir / "issues" / "PT-1.md", {"status": "in-review"})
+
+        frame_a = _sse_read_one_frame(sock_a, leftover_a, timeout=5.0)
+        frame_b = _sse_read_one_frame(sock_b, leftover_b, timeout=5.0)
+        self.assertIsNotNone(frame_a, "client A never received the event")
+        self.assertIsNotNone(frame_b, "client B never received the event")
+
+    def test_normal_api_requests_are_not_blocked_while_sse_is_open(self):
+        # AC #2's other half: "normal API requests must not block" while
+        # an SSE connection sits open. The current `Server` class is a
+        # plain http.server.HTTPServer (no ThreadingMixIn) -- serving a
+        # long-lived SSE GET on a single-threaded accept loop would starve
+        # every other connection until the SSE client disconnects. This
+        # test is the direct proof; if it hangs/fails, the fix likely
+        # needs Server to inherit socketserver.ThreadingMixIn (or become
+        # an http.server.ThreadingHTTPServer), not just a watcher thread.
+        sse_sock = _sse_connect(self.port, timeout=5)
+        self.addCleanup(sse_sock.close)
+        _sse_read_headers(sse_sock)  # connected, held open, deliberately not closed
+
+        start = time.time()
+        resp = http_get(f"{self.base_url}/api/board")
+        elapsed = time.time() - start
+        self.assertEqual(resp.status, 200)
+        self.assertLess(elapsed, 2.0, "a normal API request was blocked by an open SSE connection")
 
 
 if __name__ == "__main__":

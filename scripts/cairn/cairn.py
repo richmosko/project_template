@@ -38,10 +38,13 @@ import hashlib
 import http.server
 import json
 import os
+import queue
 import re
+import socketserver
 import stat
 import sys
 import tempfile
+import threading
 import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -803,6 +806,119 @@ def compute_etag(data_dir: Path) -> str:
 
 
 # --------------------------------------------------------------------------
+# Live push (PT-1): a periodic fs-scan watcher + SSE broadcaster.
+#
+# Stdlib only, per the boring-stack principle -- no watchdog/inotify dep.
+# A background thread os.scandirs the four tracked subdirs on a fixed
+# cadence and diffs (relative path, mtime_ns) against the previous scan;
+# any difference is one coarse "something changed" event broadcast to
+# every subscribed SSE client (never a per-id targeted diff -- deferred,
+# see the PT-1 issue file). Purely in-memory: no durable state, killing
+# the server drops every subscriber and the watcher with it (stateless
+# lens, unchanged).
+# --------------------------------------------------------------------------
+
+_WATCHED_SUBDIRS = ("majors", "milestones", "issues", "archive")
+
+
+def scan_data_dir(data_dir: Path) -> Dict[str, int]:
+    """{"<subdir>/<file>.md": mtime_ns} across majors/milestones/issues/
+    archive -- the same directory set check_repo and build_board_payload
+    already walk, via the same _dir_glob (so mkstemp's hidden ".*.tmp"
+    temp files, which don't match "*.md", never show up as a false
+    "change" mid-write). Missing subdirs are tolerated, mirroring
+    _dir_glob's "if d.exists() else []".
+    """
+    data_dir = Path(data_dir)
+    snapshot: Dict[str, int] = {}
+    for sub in _WATCHED_SUBDIRS:
+        for p in _dir_glob(data_dir / sub):
+            try:
+                snapshot[f"{sub}/{p.name}"] = p.stat().st_mtime_ns
+            except FileNotFoundError:
+                continue  # raced with a delete between the glob and the stat
+    return snapshot
+
+
+def diff_scans(previous: Dict[str, int], current: Dict[str, int]) -> Dict[str, List[str]]:
+    """{"created": [...], "changed": [...], "removed": [...]} of relative
+    path strings, sorted. `any(diff.values())` is the watcher's cheap
+    "did anything happen at all" signal before it bothers broadcasting.
+    """
+    created = sorted(k for k in current if k not in previous)
+    removed = sorted(k for k in previous if k not in current)
+    changed = sorted(k for k in current if k in previous and current[k] != previous[k])
+    return {"created": created, "changed": changed, "removed": removed}
+
+
+class _SSEBroadcaster:
+    """In-memory registry of connected SSE clients' queues -- no durable
+    state, exactly the stateless-lens contract: killing the server drops
+    every subscriber with it.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._subscribers: List["queue.Queue[Dict[str, Any]]"] = []
+
+    def subscribe(self) -> "queue.Queue[Dict[str, Any]]":
+        q: "queue.Queue[Dict[str, Any]]" = queue.Queue()
+        with self._lock:
+            self._subscribers.append(q)
+        return q
+
+    def unsubscribe(self, q: "queue.Queue[Dict[str, Any]]") -> None:
+        with self._lock:
+            if q in self._subscribers:
+                self._subscribers.remove(q)
+
+    def broadcast(self, event: Dict[str, Any]) -> None:
+        with self._lock:
+            subscribers = list(self._subscribers)
+        for q in subscribers:
+            q.put(event)
+
+
+class DataDirWatcher:
+    """Periodic fs-scan watcher (PT-1). Every `interval` seconds, rescans
+    `data_dir` and diffs against the previous scan; any change gets
+    broadcast as one coarse event to every subscribed SSE client (the
+    COARSE event contract, per team-lead's ruling -- clients refetch the
+    whole board on any event, no per-id targeted diff).
+
+    Lifecycle is bound to the caller that constructs it (make_server),
+    not to `cmd_serve`: the baseline snapshot is taken synchronously in
+    __init__, before `start()` -- so a client that connects to the SSE
+    endpoint immediately after the server object exists never sees the
+    data dir's pre-existing files misreported as freshly "created".
+    `stop()` is idempotent and returns promptly (Event.wait, not a sleep
+    loop) so server teardown in tests isn't slowed down by it.
+    """
+
+    def __init__(self, data_dir: Path, broadcaster: _SSEBroadcaster, interval: float = 1.0) -> None:
+        self._data_dir = data_dir
+        self._broadcaster = broadcaster
+        self._interval = interval
+        self._stop_event = threading.Event()
+        self._snapshot = scan_data_dir(data_dir)
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+
+    def _run(self) -> None:
+        while not self._stop_event.wait(self._interval):
+            current = scan_data_dir(self._data_dir)
+            diff = diff_scans(self._snapshot, current)
+            self._snapshot = current
+            if any(diff.values()):
+                self._broadcaster.broadcast(diff)
+
+
+# --------------------------------------------------------------------------
 # HTTP server — a lens, not a source of truth. No state held here.
 # --------------------------------------------------------------------------
 
@@ -819,6 +935,32 @@ def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: O
     if port is None:
         port = int(os.environ.get("CAIRN_PORT", config.get("port", DEFAULT_PORT)))
     host = "127.0.0.1"
+
+    # PT-1: Server is per-connection threaded (ThreadingMixIn below) so a
+    # held-open SSE connection can't starve the accept loop for every
+    # other client. That's a real behavior change from the old
+    # single-threaded HTTPServer, where request handling was inherently
+    # serialized -- two concurrent POST /api/issue/<id> on the *same*
+    # issue could never race, because the server processed one full
+    # request/response cycle at a time. Once concurrent request threads
+    # are possible, that serialization has to be re-created explicitly:
+    # write_lock below serializes only the mutate path (the
+    # seen-check-then-write critical section), so two concurrent writers
+    # to the same issue can't both pass the staleness check against the
+    # same pre-write state and silently lose one of their patches. Reads
+    # (GET /api/board, GET /api/issue/<id>, the SSE stream) stay fully
+    # concurrent -- only writes serialize. allocate_and_create_issue's own
+    # O_EXCL retry loop already makes concurrent *creates* safe without
+    # this lock (each gets a distinct ID), so _create_issue isn't wrapped.
+    write_lock = threading.Lock()
+
+    # PT-1: watcher lifecycle is bound to make_server itself (server
+    # object exists => watching), not to cmd_serve -- so every test (and
+    # every other caller) that builds a server via make_server gets a
+    # live watcher for free. Baseline snapshot happens synchronously
+    # inside DataDirWatcher.__init__, below, before .start() is called.
+    broadcaster = _SSEBroadcaster()
+    watcher = DataDirWatcher(data_dir, broadcaster)
 
     class Handler(http.server.BaseHTTPRequestHandler):
         server_version = "cairn/1.0"
@@ -857,6 +999,47 @@ def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: O
             self.end_headers()
             self.wfile.write(data)
 
+        def _handle_sse(self) -> None:
+            """GET /api/events -- an SSE stream. Holds the connection
+            open (no Content-Length, no keep-alive) and pushes one
+            `data: <json>\\n\\n` frame per broadcaster event -- coarse
+            per team-lead's ruling: the frame's contents (created/
+            changed/removed path lists) are informational only, the
+            client refetches the whole board on any event, never a
+            per-id targeted diff.
+
+            A 30s heartbeat comment (standard SSE keep-alive cadence)
+            bounds how long a dead connection's thread can sit blocked
+            on q.get() with nothing to detect the disconnect -- 30s is
+            comfortably above every test's read-timeout budget (this is
+            a localhost single-user tool, not proxied through anything
+            with its own idle-connection timeout, so nothing here is
+            tuned to the test suite's timing). A write failure on either
+            a heartbeat or a real event (client gone) ends the loop and
+            unsubscribes.
+            """
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            q = broadcaster.subscribe()
+            try:
+                while True:
+                    try:
+                        event = q.get(timeout=30.0)
+                    except queue.Empty:
+                        self.wfile.write(b": keep-alive\n\n")
+                        self.wfile.flush()
+                        continue
+                    body = json.dumps(event).encode("utf-8")
+                    self.wfile.write(b"data: " + body + b"\n\n")
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+            finally:
+                broadcaster.unsubscribe(q)
+
         def do_GET(self):  # noqa: N802
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
@@ -884,6 +1067,9 @@ def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: O
                     self._send_json(404, {"error": "not_found", "message": f"no such issue: {issue_id}"})
                     return
                 self._send_json(200, payload)
+                return
+            if path == "/api/events":
+                self._handle_sse()
                 return
             if path in ("/", "/list"):
                 self._send_static("board.html")
@@ -944,30 +1130,47 @@ def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: O
                 })
                 return
 
-            seen = payload["seen"]
-            current_seen = get_seen(issue_path)
-            if seen is not None and str(seen) != current_seen:
-                current = build_issue_payload(data_dir, issue_id)
-                self._send_json(409, {
-                    "error": "stale",
-                    "message": f"{issue_id} changed on disk since you loaded it",
-                    "current": current,
-                })
-                return
+            # PT-1: serializes the seen-check-then-write critical section
+            # across request threads -- see write_lock's docstring above
+            # for why this became necessary once Server went threaded.
+            with write_lock:
+                seen = payload["seen"]
+                current_seen = get_seen(issue_path)
+                if seen is not None and str(seen) != current_seen:
+                    current = build_issue_payload(data_dir, issue_id)
+                    self._send_json(409, {
+                        "error": "stale",
+                        "message": f"{issue_id} changed on disk since you loaded it",
+                        "current": current,
+                    })
+                    return
 
-            patch = payload.get("patch")
-            if patch:
-                apply_patch(issue_path, patch)
-            comment = payload.get("comment")
-            if comment:
-                append_comment(issue_path, comment.get("author", "board"), comment.get("body", ""))
+                patch = payload.get("patch")
+                if patch:
+                    apply_patch(issue_path, patch)
+                comment = payload.get("comment")
+                if comment:
+                    append_comment(issue_path, comment.get("author", "board"), comment.get("body", ""))
 
-            self._send_json(200, build_issue_payload(data_dir, issue_id))
+                self._send_json(200, build_issue_payload(data_dir, issue_id))
 
-    class Server(http.server.HTTPServer):
+    # PT-1: ThreadingMixIn -- one thread per connection, so a long-held
+    # SSE stream can't block the accept loop for every other client
+    # (see write_lock above for the write-safety half of this change).
+    # daemon_threads=True so a request thread (notably an open SSE
+    # connection) never blocks process/test-suite shutdown.
+    class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
         allow_reuse_address = True
+        daemon_threads = True
 
-    return Server((host, port), Handler)
+        def server_close(self) -> None:
+            # PT-1 lifecycle ruling: server close => watcher stopped.
+            watcher.stop()
+            super().server_close()
+
+    server = Server((host, port), Handler)
+    watcher.start()  # PT-1 lifecycle ruling: server object exists => watcher running
+    return server
 
 
 # --------------------------------------------------------------------------
