@@ -32,7 +32,7 @@ Session Cycles are **context-bounded working sessions**, not calendar sprints an
 
 | Session | Milestone | Planned work (features + directives) | Status | Notes |
 |---|---|---|---|---|
-| _e.g. SC1_ | _1.0_ | _—_ | _—_ | _—_ |
+| SC1 (2026-08-19/20) | 0.3 | cairn end-to-end: design ruling → TRACKER.md spec (#28) → engine + 128-test suite (#29) → skills migration (#30) → dogfood scaffold + v0.3.0 (#31) | Current | Teammate SendMessage outage all session — coordination ran through the temp/ buffer, which held. PT-1…PT-15 seeded as the 0.4-candidate backlog. |
 
 ## Releases
 
@@ -40,8 +40,7 @@ Tagged releases across all major lines. Cut via `/merge-pr` when a product miles
 
 | Version | Date | Major line | Milestone shipped | Branch | Notes |
 |---|---|---|---|---|---|
-| _e.g. v0.1.0_ | _—_ | _V1_ | _1.0 (MVP)_ | _main_ | _—_ |
-| _e.g. v1.1.1_ | _—_ | _V1_ | _1.1 hotfix_ | _release/1.x_ | _maintenance while main carries V2_ |
+| v0.3.0 | 2026-08-20 | V1 | 0.3 (cairn) | main | Draft — [release](https://github.com/richmosko/project_template/releases) pending Mosko's curation/publish. cairn replaces Linear: spec #28, engine #29, skills migration #30, dogfood #31. |
 
 ## Decisions
 
