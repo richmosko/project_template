@@ -136,8 +136,13 @@ class SetCommandTests(unittest.TestCase):
         self.assertEqual(frontmatter["pr"], "https://example.com/pr/1")
         self.assertEqual(frontmatter["updated"], datetime.date.today().isoformat())
 
-        before_tail = before_raw.split(b"---\n", 2)[2].split(b"---\n", 1)[1]
-        after_tail = after_raw.split(b"---\n", 2)[2].split(b"---\n", 1)[1]
+        # Tail = everything after the closing frontmatter fence. Not a
+        # second `.split(b"---\n", 1)[1]` on top of that: PT-1's fixture
+        # body contains no further literal "---\n" (only ``` fences and
+        # ### headings), so that extra split raised IndexError on [1] for
+        # every run of this test regardless of implementation correctness.
+        before_tail = before_raw.split(b"---\n", 2)[2]
+        after_tail = after_raw.split(b"---\n", 2)[2]
         self.assertEqual(before_tail, after_tail)
 
     def test_set_on_unknown_id_fails_loudly(self):
