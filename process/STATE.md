@@ -17,14 +17,14 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Rename the live state ledger to `process/STATE.md` |
-| Issue | PT-15 (cairn) |
-| Milestone | 0.4 |
-| Session Cycle | SC2 |
-| Branch | `feature/pt-15-rename-milestones-to-state` |
-| Started | 2026-08-20 |
-| Goal | The ledger file's name matches its post-dissolution content; every living reference (hook, docs, briefs, skills) follows; history preserved. |
-| Status | In Review — [PR #34](https://github.com/richmosko/project_template/pull/34), Validate green |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Session Cycle | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Session Cycles
 
@@ -32,7 +32,7 @@ Session Cycles are **context-bounded working sessions**, not calendar sprints an
 
 | Session | Milestone | Planned work (features + directives) | Status | Notes |
 |---|---|---|---|---|
-| SC2 (2026-08-20) | 0.4 | 0.4 scoped (12 issues; PT-2/3/4 deferred to 0.5). Order: PT-15 (STATE.md rename) → PT-14 (Linear removal) → hardening batches (PT-5/6/12, PT-7/8/9/13, PT-10/11) → PT-1 (SSE live push). | Current | Scope decision logged in TEMPLATE_DECISIONS.md (2026-08-20). |
+| SC2 (2026-08-20) | 0.4 | 0.4 scoped (12 issues; PT-2/3/4 deferred to 0.5). Order: PT-15 (STATE.md rename) → PT-14 (Linear removal) → hardening batches (PT-5/6/12, PT-7/8/9/13, PT-10/11) → PT-1 (SSE live push). | Current | Scope decision logged in TEMPLATE_DECISIONS.md (2026-08-20). PT-15 shipped (#34) — 0.4 at 1/12. Teammate SendMessage still down; temp/ fallback held. |
 | SC1 (2026-08-19/20) | 0.3 | cairn end-to-end: design ruling → TRACKER.md spec (#28) → engine + 128-test suite (#29) → skills migration (#30) → dogfood scaffold + v0.3.0 (#31) | Previous | Teammate SendMessage outage all session — coordination ran through the temp/ buffer, which held. PT-1…PT-15 seeded as the 0.4-candidate backlog. |
 
 ## Releases
