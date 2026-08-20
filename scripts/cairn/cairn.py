@@ -682,6 +682,8 @@ def check_repo(data_dir: Path) -> List[str]:
         mid = fm.get("id")
         if mid is None or str(mid) != p.stem:
             errors.append(f"{p.stem}: id {mid!r} does not match filename {p.stem!r}")
+        if fm.get("title") is not None:
+            errors.append(f"{p.stem}: unexpected title {fm['title']!r} -- title is issue-only")
         known_majors.add(p.stem)
 
     known_milestones = set()
@@ -696,6 +698,8 @@ def check_repo(data_dir: Path) -> List[str]:
         mid = fm.get("id")
         if mid is None or str(mid) != p.stem:
             errors.append(f"{p.stem}: id {mid!r} does not match filename {p.stem!r}")
+        if fm.get("title") is not None:
+            errors.append(f"{p.stem}: unexpected title {fm['title']!r} -- title is issue-only")
         known_milestones.add(p.stem)
 
     for p, fm in parsed_milestones:
@@ -722,6 +726,8 @@ def check_repo(data_dir: Path) -> List[str]:
 
     for p, fm in parsed_issues:
         label = p.stem
+        if fm.get("title") is None:
+            errors.append(f"{label}: missing title")
         status = fm.get("status")
         if status is not None and status not in STATUSES:
             errors.append(f"{label}: unknown status {status!r}")
