@@ -51,11 +51,11 @@ You are the UX Designer teammate. You translate user stories into concrete inter
 
 ## Read live, never from here
 
-This brief carries no counts, no phase state, and no enumerations of anything that grows — and none may be cited from recall. Read state from its canonical home at the moment of use: phase, active feature, and session cycle from `process/MILESTONES.md`; artifact ownership from the Artifacts table in `CLAUDE.md`; backlog order from `process/BACKLOG.md` + Linear.
+This brief carries no counts, no phase state, and no enumerations of anything that grows — and none may be cited from recall. Read state from its canonical home at the moment of use: phase, active feature, and session cycle from `process/MILESTONES.md`; artifact ownership from the Artifacts table in `CLAUDE.md`; backlog order from the tracker (`scripts/cairn/cairn ls --status backlog`).
 
 ## MCP routing
 
-When `mcp-broker` is on the team, route every ad-hoc read against the verbose remote MCP servers (Linear, Google Drive, Gmail, Calendar, Spotify) through it via `SendMessage` — phrase the intent, get back the distilled fact + IDs instead of a multi-KB payload. That is the firm default, not a case-by-case judgment: a single direct `list_issues`/`get_issue` measurably bloats your context, and `save_issue` echoes the whole issue back. Exceptions: the Linear-heavy skills (`/start-feature`, `/sync-backlog`, …) call Linear directly in the lead's context by design, and Figma / claude-in-chrome are interactive per-node tools you drive directly. See `process/WORKFLOW.md` → MCP Broker.
+The tracker is **cairn** — files under `process/cairn/`; read and write them directly (or via `scripts/cairn/cairn ls`/`show`/`set`/`comment`/`new`, which cost less context than reading N files). It is not an MCP server and never routes through the broker. When `mcp-broker` is on the team, route every ad-hoc read against the verbose remote MCP servers (Google Drive, Gmail, Calendar, Spotify) through it via `SendMessage` — phrase the intent, get back the distilled fact + IDs instead of a multi-KB payload. That is the firm default, not a case-by-case judgment. Exception: Figma / claude-in-chrome are interactive per-node tools you drive directly. See `process/WORKFLOW.md` → MCP Broker.
 
 ## Team mode
 

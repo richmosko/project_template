@@ -47,7 +47,7 @@ Product code, migrations, tests, and the PRD / ARCH / SECURITY / DESIGN artifact
 - **Send finished text, not instructions**, wherever the ruling is short enough to write out. A crossing on text produces a visible conflict; a crossing on an instruction produces a silent reversal that costs a round trip.
 - **Batch rulings.** Streaming them one at a time into an agent that commits between them is how rulings cross commits.
 - **A blocked or stalled teammate is a scheduling fact to surface, not work to absorb.**
-- **Route verbose MCP traffic through `mcp-broker`** when it's on the team — ad-hoc Linear / Drive / Gmail / Calendar reads land multi-KB payloads in whatever context calls them, and yours is the most expensive one to bloat. The Linear-heavy skills (`/start-feature`, `/sync-backlog`, …) call directly by design. See `process/WORKFLOW.md` → MCP Broker.
+- **Route verbose MCP traffic through `mcp-broker`** when it's on the team — ad-hoc Drive / Gmail / Calendar reads land multi-KB payloads in whatever context calls them, and yours is the most expensive one to bloat. The tracker (cairn) is local files, never MCP — read it directly or via `scripts/cairn/cairn ls`/`show`. See `process/WORKFLOW.md` → MCP Broker.
 
 ## Relaying
 
@@ -98,7 +98,7 @@ Counts, phase state, backlog order, and current shas are read from their canonic
 
 - **Phase state, active feature, session cycle** — `process/MILESTONES.md`.
 - **Artifact ownership** — `CLAUDE.md` § *Artifacts*.
-- **Backlog order** — `process/BACKLOG.md` + Linear (via `mcp-broker`).
+- **Backlog order** — the tracker: `scripts/cairn/cairn ls --status backlog` (priority, then ID).
 
 ## Session close
 

@@ -40,7 +40,7 @@
           },
           {
             "type": "command",
-            "command": "echo '--- Project state ---' && awk '/^## Roadmap/{exit} {print}' process/MILESTONES.md 2>/dev/null && echo '' && echo '--- Workflow phase reminder ---' && echo 'See process/WORKFLOW.md for phase→team mapping. CLAUDE.md is loaded automatically.'"
+            "command": "echo '--- Project state ---' && awk '/^## Releases/{exit} {print}' process/MILESTONES.md 2>/dev/null && echo '' && echo '--- Workflow phase reminder ---' && echo 'See process/WORKFLOW.md for phase→team mapping. CLAUDE.md is loaded automatically.'"
           },
           {
             "type": "command",
