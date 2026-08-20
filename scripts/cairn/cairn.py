@@ -1100,7 +1100,32 @@ def _git_mv_or_rename(src: Path, dest: Path) -> None:
     os.replace(str(src), str(dest))
 
 
+_DONE_BEFORE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _validate_done_before(value: str) -> str:
+    """Validate `value` as a real YYYY-MM-DD calendar date; returns it unchanged.
+
+    PT-8: `cmd_archive` string-compares this against each issue's `updated`
+    with no validation at all — malformed input either silently skips
+    issues it should archive, or (worse) archives issues it shouldn't,
+    depending on how the garbage string happens to sort lexicographically.
+    Called before any file is touched. `date.fromisoformat` alone is too
+    lenient (accepts "20260201", ISO week dates, etc.) — the regex pins
+    the exact YYYY-MM-DD shape the CLI documents; fromisoformat then
+    proves it's a real calendar date, not just the right shape.
+    """
+    if not _DONE_BEFORE_RE.match(value):
+        raise CairnError(f"--done-before must be a YYYY-MM-DD date, got {value!r}")
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError as e:
+        raise CairnError(f"--done-before is not a real calendar date: {value!r} ({e})")
+    return value
+
+
 def cmd_archive(args: argparse.Namespace) -> int:
+    _validate_done_before(args.done_before)
     data_dir = resolve_data_dir(args)
     archive_dir = Path(data_dir) / "archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
