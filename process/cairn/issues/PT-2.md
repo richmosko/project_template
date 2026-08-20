@@ -1,8 +1,8 @@
 ---
 id: PT-2
 title: cairn snapshot — generated STATE.md appendix at milestone close
-status: backlog
-milestone: null
+status: todo
+milestone: "0.5"
 parent: null
 assignee: null
 labels: []

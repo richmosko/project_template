@@ -1,8 +1,8 @@
 ---
 id: PT-4
 title: Markdown rendering in the detail drawer (vendored JS renderer)
-status: backlog
-milestone: null
+status: todo
+milestone: "0.5"
 parent: null
 assignee: null
 labels: []
