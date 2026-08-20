@@ -50,6 +50,6 @@ List each generated PDF with its path and size. Offer to open one with `/open-do
 
 ## Notes
 
-- **Committing PDFs is optional and a judgment call.** They're binary and re-generate on demand, so many projects gitignore them and attach to Linear/PRs instead. Commit them only when in-repo GitHub-inline viewing is the goal. Ask the user before `git add`-ing them.
+- **Committing PDFs is optional and a judgment call.** They're binary and re-generate on demand, so many projects gitignore them and attach to PRs instead. Commit them only when in-repo GitHub-inline viewing is the goal. Ask the user before `git add`-ing them.
 - If Chrome isn't found, tell the user to install Google Chrome or pass `CHROME=/path/to/chrome`.
 - Override the temp server port with `DOCS_PORT=8080 ./scripts/export-pdf.sh`.

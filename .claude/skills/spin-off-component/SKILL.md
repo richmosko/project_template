@@ -5,7 +5,7 @@ description: Extracts a substantial, reusable component out of this monorepo int
 
 # spin-off-component
 
-Graduates a component from "directory in this repo" to "its own repo + Linear Initiative + release cadence." The hard part is extracting the code **with its history** and wiring the dependency back without breaking either repo — that's what this skill mechanizes. It deliberately **hands off** the judgment-heavy parts (the child's PRD/ARCH bootstrap, the parent-side refactor) to the normal template flows.
+Graduates a component from "directory in this repo" to "its own repo + its own tracker + release cadence." The hard part is extracting the code **with its history** and wiring the dependency back without breaking either repo — that's what this skill mechanizes. It deliberately **hands off** the judgment-heavy parts (the child's PRD/ARCH bootstrap, the parent-side refactor) to the normal template flows.
 
 ## When NOT to run
 
@@ -27,7 +27,7 @@ Run in parallel; **bail** on any failure with a clear message:
 
 ## Decisions to confirm with the user
 
-1. **New repo name** — default a kebab-case name from the component dir (`src/auth` → `auth`); confirm. This is also the GitHub repo name and the basis for the child's Linear Initiative.
+1. **New repo name** — default a kebab-case name from the component dir (`src/auth` → `auth`); confirm. This is also the GitHub repo name and the basis for the child's issue-ID prefix.
 2. **History strategy:**
    - **`git subtree split` (default)** — built-in, no extra deps. Captures history **only for the time the files lived at the current path.** Good enough for most components.
    - **`git filter-repo`** — use when the component's files **moved** over time (renames/relocations) and you want their full history. Requires `git-filter-repo` (`brew install git-filter-repo` / `pip install git-filter-repo`).
@@ -97,7 +97,7 @@ Leave the release as a **draft** for the user to curate + publish (per `process/
 
 Print these clearly — the skill does **not** do them:
 
-1. **Bootstrap the child as a full template instance.** `cd` into the new repo and run the [first-run checklist](../../../CLAUDE.md) — at minimum `/setup-linear-team` (creates the child's Initiative in your shared team), then `/generate-prd` + `/generate-archdoc` **scoped to the component** (what it does, its public API surface, who consumes it). Replace the template placeholders in its `CLAUDE.md`.
+1. **Bootstrap the child as a full template instance.** `cd` into the new repo and run the [first-run checklist](../../../CLAUDE.md) — at minimum `/setup-tracker` (scaffolds the child's own cairn tracker), then `/generate-prd` + `/generate-archdoc` **scoped to the component** (what it does, its public API surface, who consumes it). Replace the template placeholders in its `CLAUDE.md`.
 2. **Swap the parent over to the dependency.** Back in the parent, run [`/start-feature`](../start-feature/SKILL.md) for "consume `<name>@v0.1.0` instead of in-tree `<component-path>`": delete the in-tree directory, add the pinned dependency (ecosystem syntax per `process/WORKFLOW.md` table), update imports, and let the acceptance tests prove the swap is behavior-preserving. This is a normal tested I→V loop, **not** part of this skill.
 
 ## Caveats & failure modes

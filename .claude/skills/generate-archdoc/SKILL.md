@@ -35,7 +35,7 @@ When a legacy architecture doc exists, your job shifts from "design from scratch
 - **Port directly** — content fits the framework as-is
 - **Port with refinement** — fits but needs adjustment (e.g. add a Mermaid diagram; surface missing trade-offs)
 - **Decompose** — too coarse (e.g. a single "Architecture" section that contains components + data flow + deployment all mashed together)
-- **Relocate** — belongs in PRD, SECURITY, process/MILESTONES.md, or Linear instead of ARCH
+- **Relocate** — belongs in PRD, SECURITY, process/MILESTONES.md, or the tracker instead of ARCH
 - **Archive** — historical context; goes to Appendix or `docs/archive/`
 
 **c. Surface the mapping for confirmation.** Show the user a table:
@@ -43,7 +43,7 @@ When a legacy architecture doc exists, your job shifts from "design from scratch
 | Source section | Content type | Proposed action |
 |---|---|---|
 | §1 "System Overview" | System context | Port directly → ARCH §1 + add Mermaid |
-| §3 "Acceptance Criteria" | Feature specs | **Relocate** → PRD + Linear |
+| §3 "Acceptance Criteria" | Feature specs | **Relocate** → PRD + tracker issues |
 | §6 "Threat Model" | Security architecture | **Relocate** → SECURITY |
 | ... | ... | ... |
 
@@ -57,7 +57,7 @@ Ask: "Any overrides before I refactor?" Honor user preferences for ambiguous cas
 - → PRD: feed to `/generate-prd` or queue for the PM agent
 - → SECURITY: feed to `/generate-secdoc` or queue for the seceng agent
 - → `process/DECISIONS.md`: queue as Decision Log entry
-- → Linear: queue as backlog issues
+- → tracker: queue as backlog issues (`cairn new … --status backlog`)
 
 Present each queued item for one-shot batch confirmation before writing.
 

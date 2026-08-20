@@ -1,4 +1,6 @@
 # Opening Prompt
+
+_Historical — the original prompt that produced this template, frozen as written. References to Linear and sprints predate cairn and Session Cycles; do not read as live guidance._
 I would like to come up with a template for new projects such that each new project I start has a consistent process and starter skills and team roles. I want to run each project with an AGILE mindest, and break down the overall project phases as follows:
 Research --> Plan --> Implement --> Validate
 
