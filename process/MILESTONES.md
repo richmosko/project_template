@@ -6,9 +6,9 @@
 
 ## Current Phase
 
-**Phase:** _not started — run `/setup-tracker` and begin Research_  
-**Started:** _—_  
-**Driver agent:** _—_  
+**Phase:** Template maintenance — this is the template repo itself; Research/Plan predate the ledger. Meta-work runs as Implement⇄Validate loops on the `0.3` milestone (see the board).  
+**Started:** 2026-08-19 (cairn line of work)  
+**Driver agent:** team-lead  
 **Gate criteria:** _see [`WORKFLOW.md`](WORKFLOW.md)_
 
 ## Active Feature

@@ -1,0 +1,5 @@
+prefix: PT              # issue ID prefix; confirmed at setup (project_template)
+port: 8766              # board server port
+board:
+  columns: [backlog, todo, in-progress, in-review, done]
+  swimlane: milestone   # milestone | none
