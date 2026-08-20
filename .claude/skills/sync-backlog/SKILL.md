@@ -1,9 +1,11 @@
 ---
 name: sync-backlog
-description: Promotes the next batch of items from process/BACKLOG.md to Linear issues, in milestone FIFO order. Called at session-planning time, on demand by the user, or automatically by /start-feature when the requested feature is queued in process/BACKLOG.md. Honors the active-issue budget (won't create new issues past the 250-issue cap).
+description: DEPRECATED — Linear-era skill kept one release for unmigrated projects; see banner. Promotes the next batch of items from process/BACKLOG.md to Linear issues, in milestone FIFO order. Called at session-planning time, on demand by the user, or automatically by /start-feature when the requested feature is queued in process/BACKLOG.md. Honors the active-issue budget (won't create new issues past the 250-issue cap).
 ---
 
 # sync-backlog
+
+> ⚠️ **DEPRECATED (Linear era — removed next release).** Retired with no successor: its reason to exist was Linear's 250-issue cap, and cairn has no cap — every scoped item is simply an issue with `status: backlog`. Legacy `process/BACKLOG.md` rows are imported once by `/setup-tracker` step 5.
 
 Promotes items from `process/BACKLOG.md` (overflow queue) into Linear issues. Default batch: "all items in the top milestone that fit under the active-issue budget."
 
