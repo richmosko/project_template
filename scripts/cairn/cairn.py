@@ -868,7 +868,14 @@ def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: O
                 self._send_json(404, {"error": "not_found", "message": f"no such issue: {issue_id}"})
                 return
 
-            seen = payload.get("seen")
+            if "seen" not in payload:
+                self._send_json(400, {
+                    "error": "bad_request",
+                    "message": "seen is required (send the loaded token, or explicit null to override)",
+                })
+                return
+
+            seen = payload["seen"]
             current_seen = get_seen(issue_path)
             if seen is not None and str(seen) != current_seen:
                 current = build_issue_payload(data_dir, issue_id)

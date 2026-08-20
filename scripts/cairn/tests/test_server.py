@@ -289,6 +289,101 @@ class PatchIssueTests(ServerTestCase):
         self.assertEqual(path.read_bytes(), mutated_raw)
 
 
+class RequireSeenTests(ServerTestCase):
+    """PT-6: `seen` becomes a required key on the POST /api/issue/<id>
+    path, not just a required *value*. Before this, an absent key and an
+    explicit `null` were indistinguishable server-side -- both read back as
+    None via `payload.get("seen")` -- so a client that simply forgot to
+    send the token silently bypassed the staleness check (the lost-update
+    window). An explicit `null` remains a deliberate override.
+
+    These tests build the raw payload dict by hand and assert on Python
+    `in` / `is None` against the *dict*, not the JSON string, so the
+    absent-key vs. present-with-null distinction is pinned before it ever
+    reaches the wire.
+    """
+
+    def _seen(self, issue_id: str) -> str:
+        resp = http_get(f"{self.base_url}/api/issue/{issue_id}")
+        return json.loads(resp.read())["seen"]
+
+    def test_missing_seen_key_is_400_and_names_the_missing_key(self):
+        path = self.data_dir / "issues" / "PT-1.md"
+        raw_before = path.read_bytes()
+
+        payload = {"patch": {"status": "in-review"}}  # no "seen" key at all
+        self.assertNotIn("seen", payload)
+
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            http_post(f"{self.base_url}/api/issue/PT-1", payload)
+        self.assertEqual(ctx.exception.code, 400)
+        error_payload = json.loads(ctx.exception.read())
+        self.assertEqual(error_payload.get("error"), "bad_request")
+        self.assertIn("seen", error_payload.get("message", ""))
+
+        self.assertEqual(path.read_bytes(), raw_before, "write must not be applied when seen is absent")
+
+    def test_missing_seen_key_rejects_comment_only_mutation_too(self):
+        # Same "seen required" check has to fire on the comment-only body,
+        # not just the patch body -- mirrors test_comment_only_mutation_
+        # with_stale_seen_also_returns_409 above, which pins the same
+        # split for the stale case.
+        path = self.data_dir / "issues" / "PT-1.md"
+        raw_before = path.read_bytes()
+
+        payload = {"comment": {"author": "mosko", "body": "Should be rejected."}}
+        self.assertNotIn("seen", payload)
+
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            http_post(f"{self.base_url}/api/issue/PT-1", payload)
+        self.assertEqual(ctx.exception.code, 400)
+
+        self.assertEqual(path.read_bytes(), raw_before, "comment must not be appended when seen is absent")
+
+    def test_explicit_null_seen_bypasses_staleness_check(self):
+        # Simulate a concurrent write landing after this browser tab loaded
+        # PT-1, then override with an explicit null -- the deliberate "I
+        # know it's stale, write anyway" escape hatch. Must NOT 409.
+        self._seen("PT-1")  # loads the (soon-to-be-stale) token; unused on purpose
+        path = self.data_dir / "issues" / "PT-1.md"
+        cairn.apply_patch(path, {"status": "done"})
+
+        payload = {"seen": None, "patch": {"status": "in-review"}}
+        self.assertIn("seen", payload)
+        self.assertIsNone(payload["seen"])
+
+        resp = http_post(f"{self.base_url}/api/issue/PT-1", payload)
+        self.assertEqual(resp.status, 200)
+        result = json.loads(resp.read())
+        self.assertEqual(result["status"], "in-review")
+
+    def test_seen_present_and_matching_proceeds(self):
+        # Regression guard -- unchanged behavior, restated under the PT-6
+        # suite so the four-way absent/null/match/stale matrix lives
+        # together in one place.
+        seen = self._seen("PT-1")
+        resp = http_post(f"{self.base_url}/api/issue/PT-1", {"seen": seen, "patch": {"status": "in-review"}})
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(json.loads(resp.read())["status"], "in-review")
+
+    def test_seen_present_and_stale_returns_409_and_no_write(self):
+        # Regression guard -- unchanged behavior, restated under the PT-6
+        # suite for the same reason as test_seen_present_and_matching_
+        # proceeds above.
+        seen = self._seen("PT-1")
+        path = self.data_dir / "issues" / "PT-1.md"
+        cairn.apply_patch(path, {"status": "done"})
+        mutated_raw = path.read_bytes()
+
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            http_post(f"{self.base_url}/api/issue/PT-1", {"seen": seen, "patch": {"status": "in-review"}})
+        self.assertEqual(ctx.exception.code, 409)
+        error_payload = json.loads(ctx.exception.read())
+        self.assertEqual(error_payload["error"], "stale")
+
+        self.assertEqual(path.read_bytes(), mutated_raw)
+
+
 class StaticRouteTests(ServerTestCase):
     """Smoke tests for the board's static asset routes. These assume
     scripts/cairn/board/{board.html,board.js,board.css} exist per the
