@@ -1,6 +1,6 @@
 ---
 name: finish-feature
-description: Closes a feature — commits, pushes, opens a PR linked to the active cairn issue, updates the issue (status → in-review, pr → URL), and prepares the Validate handoff. Use when the implementation is complete, tests are green, and the feature is ready to merge. No arguments needed; reads feature state from process/MILESTONES.md and the issue file.
+description: Closes a feature — commits, pushes, opens a PR linked to the active cairn issue, updates the issue (status → in-review, pr → URL), and prepares the Validate handoff. Use when the implementation is complete, tests are green, and the feature is ready to merge. No arguments needed; reads feature state from process/STATE.md and the issue file.
 ---
 
 # finish-feature
@@ -58,9 +58,9 @@ EOF
 
 Commit this tracker edit as a final chore commit on the branch (`chore(PT-14): tracker → in-review`) and push — the PR then carries its own status change.
 
-### 4. Update process/MILESTONES.md
+### 4. Update process/STATE.md
 
-Update the `## Active Feature` block: Status → "In Review", add the PR URL. (The board's in-review column shows the same fact — MILESTONES.md keeps only the active-feature pointer, per the table dissolution ruled in `process/TRACKER.md`.)
+Update the `## Active Feature` block: Status → "In Review", add the PR URL. (The board's in-review column shows the same fact — STATE.md keeps only the active-feature pointer, per the table dissolution ruled in `process/TRACKER.md`.)
 
 ### 5. Run validation handshake
 

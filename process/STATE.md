@@ -2,7 +2,7 @@
 
 > Live ledger of where the project is. Updated by the team-lead at every phase transition, feature completion, session-cycle boundary, and decision.
 >
-> **Durable work state lives in the tracker, not here.** Majors, milestones (the roadmap), and features are cairn artifacts under [`process/cairn/`](cairn/) — view them on the board (`/cairn`, `http://localhost:8766/`) or list them with `scripts/cairn/cairn ls`. This file keeps only what the tracker deliberately doesn't model: the current phase, the active feature pointer, Session Cycles, and shipped releases. (The old Major-line / Roadmap / Features tables dissolved into cairn — ruled 2026-08-19, see [`TRACKER.md`](TRACKER.md) → Relationship to MILESTONES.md.)
+> **Durable work state lives in the tracker, not here.** Majors, milestones (the roadmap), and features are cairn artifacts under [`process/cairn/`](cairn/) — view them on the board (`/cairn`, `http://localhost:8766/`) or list them with `scripts/cairn/cairn ls`. This file keeps only what the tracker deliberately doesn't model: the current phase, the active feature pointer, Session Cycles, and shipped releases. (The old Major-line / Roadmap / Features tables dissolved into cairn — ruled 2026-08-19, see [`TRACKER.md`](TRACKER.md) → Relationship to STATE.md.)
 
 ## Current Phase
 
@@ -17,14 +17,14 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Session Cycle | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Rename the live state ledger to `process/STATE.md` |
+| Issue | PT-15 (cairn) |
+| Milestone | 0.4 |
+| Session Cycle | SC2 |
+| Branch | `feature/pt-15-rename-milestones-to-state` |
+| Started | 2026-08-20 |
+| Goal | The ledger file's name matches its post-dissolution content; every living reference (hook, docs, briefs, skills) follows; history preserved. |
+| Status | In Progress |
 
 ## Session Cycles
 

@@ -11,7 +11,7 @@ This repo is a **meta-template**, not a product. Clone it (or use it as a GitHub
 - doc-generation skills for PRD / Architecture / Security / Design,
 - workflow skills for branching, PR + tracker integration, releases,
 - HTML doc templates with embedded Mermaid diagrams,
-- a state ledger (`process/MILESTONES.md`) and a separate append-only decision log (`process/DECISIONS.md`),
+- a state ledger (`process/STATE.md`) and a separate append-only decision log (`process/DECISIONS.md`),
 - **AGILE issue / milestone tracking via cairn** — a file-based tracker that ships inside the template (`process/TRACKER.md`): majors / milestones / issues as markdown-in-git, a local Kanban board, no caps, no accounts, zero MCP (semver `MAJOR.MINOR.PATCH` binds to those layers; Session Cycles are a heuristic with no tracker footprint),
 - session-management heuristics tuned for asynchronous solo development.
 
@@ -85,7 +85,7 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 
 - `CLAUDE.md` — session-bootstrap context (loaded automatically)
 - `process/WORKFLOW.md` — phases, roles, gates, team coordination
-- `process/MILESTONES.md` — live state ledger (compact; auto-loaded)
+- `process/STATE.md` — live state ledger (compact; auto-loaded)
 - `process/DECISIONS.md` — append-only decision log (not auto-loaded; pulled in when historical context is needed)
 - `process/cairn/` — the tracker's data: majors, milestones, issues, archive (`process/TRACKER.md` is the spec)
 - `docs/PRD/index.html` — Product Requirements (HTML + Mermaid)
@@ -152,7 +152,7 @@ claude
 
 ## Session startup
 
-Every session starts minimal. Only the files needed to re-orient are auto-loaded; everything else is read lazily as the work demands. Three `SessionStart` hooks in `.claude/settings.json` do the injection: the first loads the team-lead role definition (`.claude/roles/team-lead.md` — main-session identity; spawned teammates keep their own agent-file identity), the second runs an `awk` extractor over `process/MILESTONES.md` so the auto-loaded state slice stays compact even as the Session Cycles and Releases tables grow, and the third reports the `temp/` hand-off buffer's pending count whenever it's non-empty (silent when clean).
+Every session starts minimal. Only the files needed to re-orient are auto-loaded; everything else is read lazily as the work demands. Three `SessionStart` hooks in `.claude/settings.json` do the injection: the first loads the team-lead role definition (`.claude/roles/team-lead.md` — main-session identity; spawned teammates keep their own agent-file identity), the second runs an `awk` extractor over `process/STATE.md` so the auto-loaded state slice stays compact even as the Session Cycles and Releases tables grow, and the third reports the `temp/` hand-off buffer's pending count whenever it's non-empty (silent when clean).
 
 ```mermaid
 flowchart TD
@@ -162,7 +162,7 @@ flowchart TD
 
   A --> A1["<b>CLAUDE.md</b> — full<br/><i>session bootstrap + first-run checklist</i>"]
   A --> A2["<b>memory/MEMORY.md</b> — full<br/><i>auto-memory index only;<br/>individual memory files load lazily</i>"]
-  A --> A3["<b>process/MILESTONES.md</b> — partial<br/><i>SessionStart hook runs awk;<br/>top → just before</i> <code>## Releases</code>"]
+  A --> A3["<b>process/STATE.md</b> — partial<br/><i>SessionStart hook runs awk;<br/>top → just before</i> <code>## Releases</code>"]
   A --> A4["<b>.claude/roles/team-lead.md</b> — full<br/><i>SessionStart hook; main-session<br/>identity + operating directives</i>"]
   A --> A5["<b>System reminders</b><br/><i>date · skills list · MCP instructions ·<br/>deferred tool names (no schemas)</i>"]
 
@@ -174,7 +174,7 @@ flowchart TD
 
   Q -->|resume — continue work| RB["Resume runbook<br/><i>CLAUDE.md → Session management</i>"]
 
-  RB --> R1["<b>process/MILESTONES.md</b> — full re-read<br/><i>past the auto-loaded head</i>"]
+  RB --> R1["<b>process/STATE.md</b> — full re-read<br/><i>past the auto-loaded head</i>"]
   RB --> R2["<code>git status · branch · log --oneline -10</code>"]
   RB --> R3["<code>gh pr list --state open</code>"]
   RB --> BR{"Branch type?"}
@@ -228,7 +228,7 @@ A **reusable component** that graduates to its own repo (via `/spin-off-componen
 ├── LICENSE
 ├── process/                     workflow definition + live project state
 │   ├── WORKFLOW.md              phases, roles, gates, coordination
-│   ├── MILESTONES.md            live state + decision ledger
+│   ├── STATE.md            live state + decision ledger
 │   ├── DECISIONS.md             append-only project decisions (seed; you keep this)
 │   ├── TRACKER.md               cairn spec — the file-based issue tracker
 │   ├── cairn/                   tracker data: majors, milestones, issues, archive
@@ -284,7 +284,7 @@ The template **pre-sets** project-level config in `.claude/settings.json`:
 |---|---|---|
 | `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | `"1"` | Enables team-agents (mailbox, shared task list, peer SendMessage). |
 | `teammateMode` | `"tmux"` | Split-pane teammates; survives `/resume` (see [`CLAUDE.md`](CLAUDE.md) for mode trade-offs). |
-| `hooks.SessionStart` | injects `.claude/roles/team-lead.md` + reads `process/MILESTONES.md` + reports `temp/` | Loads the team-lead role (main-session identity), auto-surfaces current project state, and nags on unplaced `temp/` hand-off files at session start. |
+| `hooks.SessionStart` | injects `.claude/roles/team-lead.md` + reads `process/STATE.md` + reports `temp/` | Loads the team-lead role (main-session identity), auto-surfaces current project state, and nags on unplaced `temp/` hand-off files at session start. |
 | `permissions.allow` | common read/git commands | Reduces permission prompts for routine ops. |
 
 **Verify in your user-level config (`~/.claude/settings.json`):**
@@ -329,7 +329,7 @@ Revert to CDN at any time: `git checkout docs/_assets/mermaid-init.js && rm -rf 
 
 - [`CLAUDE.md`](CLAUDE.md) — session bootstrap, first-run checklist, session-management heuristics.
 - [`process/WORKFLOW.md`](process/WORKFLOW.md) — phases, roles, tracker mapping, team coordination, decision logging, release process, deployment topology.
-- [`process/MILESTONES.md`](process/MILESTONES.md) — live state-ledger structure.
+- [`process/STATE.md`](process/STATE.md) — live state-ledger structure.
 - [`process/DECISIONS.md`](process/DECISIONS.md) — append-only decision log; conventions in process/WORKFLOW.md → Decision logging.
 - [`process/TRACKER.md`](process/TRACKER.md) — cairn: data model, board server, CLI, and the skills that ride on it.
 - [`docs/starting-prompt.md`](docs/starting-prompt.md) — the original design brief that shaped this template.
