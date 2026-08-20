@@ -485,6 +485,40 @@
     return { description: descText, items: items };
   }
 
+  // PT-4: markdown rendering, display-only (edit surfaces -- the comment
+  // textarea, inline fields -- always show/submit raw markdown source;
+  // this only touches how description/comment bodies are *displayed*).
+  //
+  // Vendored marked (parses markdown -> HTML, does not sanitize by design)
+  // + DOMPurify (sanitizes) -- see vendor/NOTICE.md. Order matters:
+  // sanitize marked's *output*, never the raw markdown source (seceng
+  // PT-4 pre-clear) -- sanitizing pre-parse is bypassable via markdown
+  // reconstruction. USE_PROFILES: {html: true} restricts DOMPurify's
+  // parser to the HTML grammar only (no SVG/MathML surface -- issue
+  // bodies have no legitimate use for either, and SVG is the source of
+  // most historical DOMPurify mXSS bypass classes) -- seceng's
+  // recommended hardening on top of otherwise-default config.
+  //
+  // Defense in depth: if either library failed to load for any reason,
+  // falls back to the pre-PT-4 plain-text <pre> (a textContent assignment
+  // -- never innerHTML) rather than ever rendering unsanitized HTML.
+  function renderMarkdown(container, text) {
+    if (window.marked && window.DOMPurify) {
+      var html = window.DOMPurify.sanitize(
+        window.marked.parse(text || ""),
+        { USE_PROFILES: { html: true } }
+      );
+      var wrap = document.createElement("div");
+      wrap.className = "markdown-body";
+      wrap.innerHTML = html;
+      container.appendChild(wrap);
+      return;
+    }
+    var pre = document.createElement("pre");
+    pre.textContent = text || "";
+    container.appendChild(pre);
+  }
+
   function closeDrawer() {
     state.openIssueId = null;
     document.getElementById("drawer-overlay").classList.remove("open");
@@ -547,9 +581,7 @@
     descHeading.className = "section-heading";
     descHeading.textContent = "Description";
     drawer.appendChild(descHeading);
-    var pre = document.createElement("pre");
-    pre.textContent = split.description;
-    drawer.appendChild(pre);
+    renderMarkdown(drawer, split.description);
 
     if (split.items.length) {
       var acHeading = document.createElement("div");
@@ -586,9 +618,7 @@
       meta.className = "comment-meta";
       meta.textContent = "@" + c.author + " — " + c.date;
       div.appendChild(meta);
-      var body = document.createElement("pre");
-      body.textContent = c.body;
-      div.appendChild(body);
+      renderMarkdown(div, c.body);
       log.appendChild(div);
     });
     if (!issue.comments || !issue.comments.length) {
