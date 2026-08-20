@@ -72,7 +72,7 @@ scripts/cairn/            THE ENGINE — self-contained, spin-off-ready
     └── board.css
 ```
 
-**Data under `process/`** because it *is* process state — sibling to `MILESTONES.md`, `DECISIONS.md`, `BACKLOG.md`. Cohesion beats a shorter path; `process/cairn/` is still a distinctive grep root.
+**Data under `process/`** because it *is* process state — sibling to `STATE.md`, `DECISIONS.md`, `BACKLOG.md`. Cohesion beats a shorter path; `process/cairn/` is still a distinctive grep root.
 
 **The layout is fixed at `process/cairn/` in v1.** An earlier draft offered a `data_dir` key in `config.yml` for projects preferring a top-level `cairn/`; it is removed, because the key is circular — `config.yml` lives *inside* the directory it would declare, so the engine must already have found the directory before it can read where the directory is. Relocation, if it is ever wanted, belongs to an env var or a flag, not to the config file.
 
@@ -195,11 +195,11 @@ health: on-track       # on-track | at-risk | off-track
 Founding major line. Starts at MAJOR 0; `1.0` is the GA-designated milestone.
 ```
 
-These two file types carry exactly the columns that `MILESTONES.md` → *Roadmap* and *Major line / Initiative* carry today. See [Relationship to MILESTONES.md](#relationship-to-milestonesmd).
+These two file types carry exactly the columns that `STATE.md` → *Roadmap* and *Major line / Initiative* carry today. See [Relationship to STATE.md](#relationship-to-statemd).
 
 ### Status vocabulary
 
-Identical to the Linear statuses the skills and `MILESTONES.md` already name, so migration is mechanical and no skill has to learn a new word.
+Identical to the Linear statuses the skills and `STATE.md` already name, so migration is mechanical and no skill has to learn a new word.
 
 | Slug | Meaning | Kanban column |
 |---|---|---|
@@ -282,7 +282,7 @@ flowchart TD
   M1 --> I1["Issue — PT-14<br/><code>issues/PT-14.md</code><br/>1 issue = 1 PR = 1 I→V loop"]
   M1 --> I2["Issue — PT-15"]
   I1 --> S1["Sub-issue — PT-21<br/><code>parent: PT-14</code>"]
-  SC["Session Cycle<br/><i>heuristic only — no tracker artifact;<br/>lives as a note in MILESTONES.md</i>"]
+  SC["Session Cycle<br/><i>heuristic only — no tracker artifact;<br/>lives as a note in STATE.md</i>"]
   style SC stroke-dasharray: 4 4
 ```
 
@@ -300,24 +300,24 @@ Concurrent majors fall out for free: `majors/V1.md` and `majors/V2.md` both `sta
 
 ---
 
-## Relationship to `MILESTONES.md`
+## Relationship to `STATE.md`
 
 This is the one place cairn overlaps an existing artifact. **Ruled 2026-08-19: the overlap dissolves.**
 
-`MILESTONES.md` currently hand-maintains four tables that cairn represents natively — **Major line / Initiative**, **Roadmap**, and **Features → Completed / In Flight / Backlog** (the names as they stand in that file today). It also holds four things cairn deliberately does *not* model: **Current Phase**, **Active Feature**, **Session Cycles**, and **Releases**.
+`STATE.md` currently hand-maintains four tables that cairn represents natively — **Major line / Initiative**, **Roadmap**, and **Features → Completed / In Flight / Backlog** (the names as they stand in that file today). It also holds four things cairn deliberately does *not* model: **Current Phase**, **Active Feature**, **Session Cycles**, and **Releases**.
 
-**In stage 3, the four overlapping tables are removed from `MILESTONES.md`.** It keeps what it uniquely holds — Current Phase, Active Feature, Session Cycles, Releases — plus a pointer to the board and, optionally, a generated snapshot appended at milestone close:
+**In stage 3, the four overlapping tables are removed from `STATE.md`.** It keeps what it uniquely holds — Current Phase, Active Feature, Session Cycles, Releases — plus a pointer to the board and, optionally, a generated snapshot appended at milestone close:
 
 ```
-scripts/cairn/cairn snapshot >> process/MILESTONES.md
+scripts/cairn/cairn snapshot >> process/STATE.md
 ```
 
 The snapshot exists for offline reading (a plane, a phone, a cold session before the board is up); it is a rendering, never an input.
 
 Two consequences:
 
-- **The [Completed-table rolloff](WORKFLOW.md) ritual retires.** Its entire purpose was bounding a hand-maintained duplicate so a full read of `MILESTONES.md` stayed cheap on resume. With the duplicate gone, there is nothing to roll off.
-- **`MILESTONES.md` shrinks to the live-state ledger it was always described as** — phase, active feature, session rhythm, shipped versions. Durable work state moves to `process/cairn/`.
+- **The [Completed-table rolloff](WORKFLOW.md) ritual retires.** Its entire purpose was bounding a hand-maintained duplicate so a full read of `STATE.md` stayed cheap on resume. With the duplicate gone, there is nothing to roll off.
+- **`STATE.md` shrinks to the live-state ledger it was always described as** — phase, active feature, session rhythm, shipped versions. Durable work state moves to `process/cairn/`.
 
 ---
 
@@ -498,7 +498,7 @@ Stage 3 preview. Linear skills stay in place for **one release**, marked depreca
 | `/serve-docs`, `/refine-doc`, `/export-doc`, `/open-doc` | Unchanged. New sibling skill **`/cairn`** backgrounds the board server. |
 | `WORKFLOW.md` | *Version control & Linear* → *Version control & the tracker*; the Team-coordination table's "Linear" row becomes "cairn (files in git)"; the free-tier-cap subsection and its ASCII overflow diagram are deleted; MCP-broker section loses its Linear emphasis. |
 | `CLAUDE.md` | Artifacts table gains cairn; the first-run checklist swaps `/setup-linear-team` → `/setup-tracker`; the "Linear binding" bullet points at `config.yml`. |
-| `MILESTONES.md` | **Four tables removed** — *Major line / Initiative*, *Roadmap*, and *Features → Completed / In Flight / Backlog* — since cairn represents all of them natively. Keeps *Current Phase*, *Active Feature*, *Session Cycles*, *Releases*, plus a pointer to the board and an optional `cairn snapshot` appended at milestone close. See [Relationship to MILESTONES.md](#relationship-to-milestonesmd). |
+| `STATE.md` | **Four tables removed** — *Major line / Initiative*, *Roadmap*, and *Features → Completed / In Flight / Backlog* — since cairn represents all of them natively. Keeps *Current Phase*, *Active Feature*, *Session Cycles*, *Releases*, plus a pointer to the board and an optional `cairn snapshot` appended at milestone close. See [Relationship to STATE.md](#relationship-to-statemd). |
 | `WORKFLOW.md` → Completed-table rolloff | **Section deleted.** It existed only to bound the hand-maintained duplicate that is now gone. |
 | Agent briefs (`.claude/agents/*.md`) | The **MCP routing** block in each shrinks; a one-line "the tracker is files under `process/cairn/` — read them directly" replaces the Linear-via-broker guidance. |
 
@@ -512,7 +512,7 @@ Every question this spec opened has been ruled. Each resolution is folded into t
 
 | # | Question | Ruling (2026-08-19) | Where it lives |
 |---|---|---|---|
-| 1 | Does `MILESTONES.md` keep its *Major line*, *Roadmap*, and *Features* tables, or do they dissolve into cairn? | **Dissolve.** Stage 3 removes all four overlapping tables; `MILESTONES.md` keeps Current Phase, Active Feature, Session Cycles, Releases, plus a board pointer and an optional `cairn snapshot`. The Completed-table rolloff ritual retires with them. | [Relationship to `MILESTONES.md`](#relationship-to-milestonesmd) · [Skills migration](#skills-migration-outline) |
+| 1 | Does `STATE.md` keep its *Major line*, *Roadmap*, and *Features* tables, or do they dissolve into cairn? | **Dissolve.** Stage 3 removes all four overlapping tables; `STATE.md` keeps Current Phase, Active Feature, Session Cycles, Releases, plus a board pointer and an optional `cairn snapshot`. The Completed-table rolloff ritual retires with them. | [Relationship to `STATE.md`](#relationship-to-statemd) · [Skills migration](#skills-migration-outline) |
 | 2 | Is losing Linear's cross-project board acceptable at v1? | **Accepted as a v1 regression.** Multi-root (`cairn serve --repos …`) is recorded as a possible phase 3, explicitly not committed. | [Non-goals](#non-goals) · [Candidate follow-ups](#candidate-follow-ups-designed-for-not-committed) |
 | 3 | How is the ID prefix chosen? | **Repo-derived default with a one-time confirm prompt** at `/setup-tracker`. | [ID scheme](#id-scheme-and-collision-free-allocation) · [`config.yml`](#configyml) |
 | 4 | Render markdown in the detail drawer, or ship `<pre>`? | **`<pre>` ships in phase 1.** Vendoring a JS renderer (the `vendor-mermaid.sh` path) is deferred until it demonstrably annoys. | [Board — phase 1 scope](#board--phase-1-scope) |

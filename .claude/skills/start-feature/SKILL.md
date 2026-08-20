@@ -1,6 +1,6 @@
 ---
 name: start-feature
-description: Kicks off a feature — creates a feature branch, claims a cairn issue (status → in-progress), posts the feature plan, spawns the Implement team, and updates process/MILESTONES.md. Use at the start of each Implement→Validate loop. Takes a cairn issue ID (e.g. PT-14) or a title substring; if omitted, lists candidates from the tracker and asks the user which to start.
+description: Kicks off a feature — creates a feature branch, claims a cairn issue (status → in-progress), posts the feature plan, spawns the Implement team, and updates process/STATE.md. Use at the start of each Implement→Validate loop. Takes a cairn issue ID (e.g. PT-14) or a title substring; if omitted, lists candidates from the tracker and asks the user which to start.
 ---
 
 # start-feature
@@ -37,7 +37,7 @@ Filter by the title substring if one was given; if `$ARGUMENTS` was empty, prese
 
 ### 2. Sanity-check phase
 
-Read `process/MILESTONES.md` → `## Current Phase`. If we're not in `Implement`, ask the user: "We're in <phase>. Confirm starting a feature anyway?" Don't proceed silently.
+Read `process/STATE.md` → `## Current Phase`. If we're not in `Implement`, ask the user: "We're in <phase>. Confirm starting a feature anyway?" Don't proceed silently.
 
 ### 3. Create the branch
 
@@ -85,7 +85,7 @@ Following the anchor-task pattern in `process/WORKFLOW.md` → Team coordination
 - One **anchor task** mirroring the cairn issue: title = feature title, description = acceptance criteria verbatim, owner = `qa-engineer` (TDD starts with the failing test).
 - Teammates post subtasks underneath via `blockedBy` chains as work flows. Don't pre-populate.
 
-### 8. Update process/MILESTONES.md
+### 8. Update process/STATE.md
 
 Set the `## Active Feature` block:
 - Feature: the issue title

@@ -77,7 +77,7 @@ How far a `/drive`-aimed [goal-driven loop](#goal-driven-loop-drive) runs before
   - QA proposes a test strategy (unit, integration, E2E split; coverage targets; acceptance-test framework)
   - Lead breaks the roadmap into **milestones (`process/cairn/milestones/`) → features (cairn issues)**; Session Cycles are a session-time planning heuristic, not a roadmap layer
   - Architect **designates the GA milestone** for the major line — the one that tags `N.0.0` — and sets each product milestone file's `target_tag` (see [Versioning scheme](#versioning-scheme))
-- **Artifacts:** `docs/ARCH/index.html`, `docs/SECURITY/index.html`, populated `process/cairn/` (milestones + issues), updated `MILESTONES.md`
+- **Artifacts:** `docs/ARCH/index.html`, `docs/SECURITY/index.html`, populated `process/cairn/` (milestones + issues), updated `STATE.md`
 - **Gate:** ARCH + SECURITY approved; tracker issues populated for the first milestone.
 
 ### Implement
@@ -105,7 +105,7 @@ How far a `/drive`-aimed [goal-driven loop](#goal-driven-loop-drive) runs before
   - DevOps deploys to staging (or prod if release-ready)
   - Architect reviews for arch drift / debt accumulation
   - SecEng re-engaged if any security control was touched
-- **Gate:** Acceptance criteria met → `/merge-pr` → update `MILESTONES.md`. **Tag a release only if this PR completes a release milestone** — the `/merge-pr` skill prompts; tagging is never automatic.
+- **Gate:** Acceptance criteria met → `/merge-pr` → update `STATE.md`. **Tag a release only if this PR completes a release milestone** — the `/merge-pr` skill prompts; tagging is never automatic.
 
 After a Validate cycle, we either return to Implement (next feature in this Session Cycle) or escalate to a new Research mini-loop (if findings invalidate the PRD).
 
@@ -140,7 +140,7 @@ Chosen per project at `/setup-tracker`, stored in [Delivery autonomy](#delivery-
 
 A **Session Cycle** is this workflow's AI-native replacement for a sprint. A human sprint is bounded by *calendar* (1–2 weeks); a Session Cycle is bounded by *context budget* — one continuous Claude session, from a fresh start (or post-`/compact`) until context crosses ~80% or a natural boundary (feature merge, phase transition). It is the unit that actually governs throughput in an AI-driven project, because the real WIP limit here is the context window, not the calendar.
 
-**Heuristic only — zero tracker footprint.** A Session Cycle has no cairn artifact, by design (ruled in the 2026-07-23 version-hierarchy decision, carried forward into `process/TRACKER.md` → Non-goals): a cadence wrapper that exists only to be queried would be dead weight. Session Cycles live in the [Session Cycles table](MILESTONES.md#session-cycles) as lightweight notes and nowhere else. Features still belong to **milestones** (`process/cairn/milestones/`) and **majors** (`process/cairn/majors/`) — those are the durable layers.
+**Heuristic only — zero tracker footprint.** A Session Cycle has no cairn artifact, by design (ruled in the 2026-07-23 version-hierarchy decision, carried forward into `process/TRACKER.md` → Non-goals): a cadence wrapper that exists only to be queried would be dead weight. Session Cycles live in the [Session Cycles table](STATE.md#session-cycles) as lightweight notes and nowhere else. Features still belong to **milestones** (`process/cairn/milestones/`) and **majors** (`process/cairn/majors/`) — those are the durable layers.
 
 **The ritual: session planning at the start of each session.** Before doing tactical work, pick the small set of features + user directives you'll attempt this session — the set that plausibly fits under ~80% context. Defaults:
 
@@ -155,11 +155,11 @@ A **Session Cycle** is this workflow's AI-native replacement for a sprint. A hum
 ### Principal (you)
 - Sets vision, makes gate decisions, owns final approval.
 - Authorizes the Agents (specialist teammates) to act on your behalf — hence "Principal" in the Principal/Agent sense.
-- Asynchronous — picks up where MILESTONES.md says we left off.
+- Asynchronous — picks up where STATE.md says we left off.
 
 ### Team Lead (the main Claude session)
-- Coordinates phases, spawns/tears down teammate teams, owns `WORKFLOW.md` and `MILESTONES.md`.
-- **Delegate substantial domain work** to Agents via `SendMessage`; don't bypass them just to save a round-trip. (The lead still handles small operational tasks directly — running git commands, editing `MILESTONES.md`, opening files for review, etc.)
+- Coordinates phases, spawns/tears down teammate teams, owns `WORKFLOW.md` and `STATE.md`.
+- **Delegate substantial domain work** to Agents via `SendMessage`; don't bypass them just to save a round-trip. (The lead still handles small operational tasks directly — running git commands, editing `STATE.md`, opening files for review, etc.)
 - **Translates and summarizes for the Principal.** Agents communicate in their domain's idiom (architecture trade-offs, threat-model entries, test pyramids, deploy topologies). The lead distills their output into **executive summaries** — what changed, what it means, what decision the Principal needs to make next. If an agent's reply is dense or jargon-heavy, restate it in plain language before relaying it.
 
 ### Agents (`.claude/agents/*.md`)
@@ -220,17 +220,17 @@ Teammates claim and complete tasks; dependencies auto-unblock; the lead watches 
 ### Lead's promotion duty
 
 Because the shared task list and mailbox are transient, the **lead promotes durable state outward** at feature/session/milestone boundaries:
-- Shared task list → MILESTONES.md Session Cycle notes + cairn issue comments (so a future session can reconstruct what happened)
+- Shared task list → STATE.md Session Cycle notes + cairn issue comments (so a future session can reconstruct what happened)
 - Mailbox exchanges containing decisions → `DECISIONS.md`
 - Anything ephemeral (status pings, intermediate WIP) stays transient — that's the point.
 
 ### Milestone-close hygiene (formerly: Completed-table rolloff)
 
-`MILESTONES.md` no longer carries Completed / In-Flight / Backlog feature tables — they dissolved into the tracker when cairn replaced Linear (ruled 2026-08-19; see `process/TRACKER.md` → Relationship to MILESTONES.md). Done issues *are* the completed table; the board renders them; git history and the [Releases](MILESTONES.md#releases) table carry the summary that outlives everything.
+`STATE.md` no longer carries Completed / In-Flight / Backlog feature tables — they dissolved into the tracker when cairn replaced Linear (ruled 2026-08-19; see `process/TRACKER.md` → Relationship to STATE.md). Done issues *are* the completed table; the board renders them; git history and the [Releases](STATE.md#releases) table carry the summary that outlives everything.
 
 What remains at milestone close is a small lead duty:
 1. Set the closing milestone file's `status: completed` (`process/cairn/milestones/<name>.md`) — folded into the closing PR's final commit by `/merge-pr` step 2, so it lands atomically with the merge (never as a direct edit on `main`).
-2. If it shipped a release, ensure a [Releases](MILESTONES.md#releases) row exists.
+2. If it shipped a release, ensure a [Releases](STATE.md#releases) row exists.
 3. Optionally run `scripts/cairn/cairn archive --done-before <date>` so the board stays readable — hygiene, never a quota.
 
 ### Async notification mechanics (the "sync-mismatch echo")
@@ -349,7 +349,7 @@ To tear down: _"Clean up the team."_
 .
 ├── CLAUDE.md                    auto-loaded session context
 ├── WORKFLOW.md                  this file
-├── MILESTONES.md                live state + decision ledger
+├── STATE.md                live state + decision ledger
 ├── docs/
 │   ├── PRD/index.html           product requirements (Research)
 │   ├── ARCH/index.html          architecture (Plan)
@@ -710,7 +710,7 @@ Every non-trivial decision (stack pick, architecture pivot, scope cut, deferred 
 
 The log is **append-only**. Mistakes get a new entry that supersedes the old one — don't edit history.
 
-`DECISIONS.md` is **not auto-loaded** into session context (unlike `MILESTONES.md`). Pull it in explicitly when you need to recall historical context — e.g. "why did we pick Postgres?" This split keeps the live-state ledger lean and lets the decision log scale as the project ages without bloating every session.
+`DECISIONS.md` is **not auto-loaded** into session context (unlike `STATE.md`). Pull it in explicitly when you need to recall historical context — e.g. "why did we pick Postgres?" This split keeps the live-state ledger lean and lets the decision log scale as the project ages without bloating every session.
 
 ### What goes where — log-shape conventions
 
@@ -720,7 +720,7 @@ Don't accumulate per-PR narrative inside this file or `WORKFLOW.md`. Each log sh
 |---|---|---|
 | **"Why did we choose X?"** (architectural decision, ADR) | [`DECISIONS.md`](DECISIONS.md) | Evergreen reference; survives long after the decision was made |
 | **"When did X happen?"** (per-PR execution narrative) | Git commit messages + the issue file's `pr:` field and comment log (`process/cairn/issues/`) | Git log is comprehensive and free; the board gives at-a-glance scanning |
-| **"Where are we right now?"** (current state, active feature, session cycle, phase) | [`MILESTONES.md`](MILESTONES.md) | Live, mutable, auto-loaded |
+| **"Where are we right now?"** (current state, active feature, session cycle, phase) | [`STATE.md`](STATE.md) | Live, mutable, auto-loaded |
 | **"What changed in vX.Y.Z?"** (per-release notes for end-users) | **GitHub Releases** (see [Release process](#release-process) below) | Auto-drafted from PRs; published with its own URL/RSS/API; no extra file to maintain |
 
 The template intentionally **does not ship a `CHANGELOG.md`**. Git log + GitHub Releases cover the same need with no upkeep cost. If a downstream project wants an in-repo file (e.g. for editor-local grepping), add one — but it's not a default.
@@ -743,7 +743,7 @@ Releases are **human decisions**, never automatic. The `/merge-pr` skill prompts
    The `--generate-notes` flag auto-populates from PR titles merged since the previous tag. The `--draft` flag holds it unpublished so you can curate for end-user framing (turn engineering subject lines into user-facing prose) before publishing.
 5. Edit the draft at `https://github.com/<owner>/<repo>/releases` — re-group by user impact, soften jargon, add migration notes if applicable.
 6. **Publish** when curated. The release is then immutable, has its own URL, RSS feed, and API endpoint — no extra file in the repo to maintain.
-7. Append a row to `MILESTONES.md` → Releases with the version, date, milestone shipped, and link to the published release.
+7. Append a row to `STATE.md` → Releases with the version, date, milestone shipped, and link to the published release.
 
 **Why GitHub Releases instead of `CHANGELOG.md`:** publishing happens once per release (low overhead), the auto-draft from PR titles is a real time-saver, and the artifact lives where downstream users naturally look (the repo's Releases page). If a project later wants both surfaces, they can add `CHANGELOG.md` and sync it manually — but it's not a default.
 

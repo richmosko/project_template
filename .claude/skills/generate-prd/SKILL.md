@@ -24,7 +24,7 @@ You are running an interview to populate `docs/PRD/index.html`. This is the Rese
 ### 1. Pre-flight
 
 - Read `docs/PRD/index.html` if it exists. If sections already have content, treat this as a refinement pass, not a fresh start.
-- Read `CLAUDE.md` and `process/MILESTONES.md` to confirm we're in the Research phase.
+- Read `CLAUDE.md` and `process/STATE.md` to confirm we're in the Research phase.
 - **If `$ARGUMENTS` is a path or URL to an existing PRD artifact:** run **Section 1a. Import mode** below before continuing. Otherwise, skip directly to Section 2.
 
 ### 1a. Import mode (only when `$ARGUMENTS` is a source path/URL)
@@ -43,7 +43,7 @@ When a legacy PRD exists, your job shifts from "interview from scratch" to "anal
 - **Port directly** — content fits the framework as-is
 - **Port with refinement** — fits but needs adjustment (e.g. quantify a qualitative goal)
 - **Decompose** — too coarse; needs breaking down (e.g. mega-feature → multiple user stories)
-- **Relocate** — belongs in ARCH, process/MILESTONES.md, or the tracker instead of PRD
+- **Relocate** — belongs in ARCH, process/STATE.md, or the tracker instead of PRD
 - **Archive** — historical context; goes to Appendix or `docs/archive/`
 
 **c. Surface the mapping for confirmation.** Show the user a table summarizing what you found and how you'd handle each section:
@@ -63,7 +63,7 @@ Ask: "Any overrides before I refactor?" Honor the user's preferences (e.g. they 
 
 **f. Queue the spillover.** For content marked "Relocate":
 - → ARCH: queue as draft content for a later `/generate-archdoc` run (or feed directly if architect agent is active)
-- → `process/DECISIONS.md`: queue as a Decision Log entry; or → `process/MILESTONES.md`: queue as a Milestone row
+- → `process/DECISIONS.md`: queue as a Decision Log entry; or → `process/STATE.md`: queue as a Milestone row
 - → tracker: queue as backlog issues (`scripts/cairn/cairn new "<story>" --status backlog`)
 
 Present each queued item to the user for one-shot batch confirmation before writing.
@@ -160,4 +160,4 @@ flowchart TD
 
 1. Show the user a summary of what's filled vs. still stubbed.
 2. Open the doc with `/open-doc docs/PRD/index.html` so they can review.
-3. Ask: "Approve PRD v1 to move to Plan phase?" If yes, add an entry to [`process/DECISIONS.md`](../../../process/DECISIONS.md) and update `process/MILESTONES.md` → `## Current Phase` to "Plan".
+3. Ask: "Approve PRD v1 to move to Plan phase?" If yes, add an entry to [`process/DECISIONS.md`](../../../process/DECISIONS.md) and update `process/STATE.md` → `## Current Phase` to "Plan".

@@ -15,7 +15,7 @@ You are populating `docs/ARCH/index.html`. This is the Plan-phase driver activit
 ## Pre-flight
 
 - Read `docs/PRD/index.html` — the architecture must be traceable to user stories and non-functional requirements.
-- Read `CLAUDE.md` and `process/MILESTONES.md`. Confirm we're in the Plan phase. If not, ask the user whether to switch phases or run this as a draft.
+- Read `CLAUDE.md` and `process/STATE.md`. Confirm we're in the Plan phase. If not, ask the user whether to switch phases or run this as a draft.
 - If `docs/ARCH/index.html` exists with content, treat this as a refinement pass.
 - **If `$ARGUMENTS` is a path or URL to an existing ARCH artifact:** run **Import mode** below before walking the standard sections.
 
@@ -35,7 +35,7 @@ When a legacy architecture doc exists, your job shifts from "design from scratch
 - **Port directly** — content fits the framework as-is
 - **Port with refinement** — fits but needs adjustment (e.g. add a Mermaid diagram; surface missing trade-offs)
 - **Decompose** — too coarse (e.g. a single "Architecture" section that contains components + data flow + deployment all mashed together)
-- **Relocate** — belongs in PRD, SECURITY, process/MILESTONES.md, or the tracker instead of ARCH
+- **Relocate** — belongs in PRD, SECURITY, process/STATE.md, or the tracker instead of ARCH
 - **Archive** — historical context; goes to Appendix or `docs/archive/`
 
 **c. Surface the mapping for confirmation.** Show the user a table:
@@ -151,4 +151,4 @@ Update `docs/ARCH/index.html` in place. Preserve the head, stylesheet link, and 
 1. Cross-check: does every PRD user story have a corresponding data-flow diagram or component responsibility? Flag gaps in Open Questions.
 2. Run `SendMessage` to the `seceng` teammate: "ARCH v1 is ready for joint threat-model review." SecEng will produce SECURITY.
 3. `/open-doc docs/ARCH/index.html` for user review.
-4. After both ARCH and SECURITY are approved, log the Plan→Implement transition in `process/MILESTONES.md`.
+4. After both ARCH and SECURITY are approved, log the Plan→Implement transition in `process/STATE.md`.

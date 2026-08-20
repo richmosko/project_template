@@ -50,7 +50,7 @@ Pick up tasks where `[backend-lead]` is the owner or where `blockedBy` points at
 
 ## Read live, never from here
 
-This brief carries no counts, no phase state, and no enumerations of anything that grows — and none may be cited from recall. Read state from its canonical home at the moment of use: phase, active feature, and session cycle from `process/MILESTONES.md`; artifact ownership from the Artifacts table in `CLAUDE.md`; backlog order from the tracker (`scripts/cairn/cairn ls --status backlog`).
+This brief carries no counts, no phase state, and no enumerations of anything that grows — and none may be cited from recall. Read state from its canonical home at the moment of use: phase, active feature, and session cycle from `process/STATE.md`; artifact ownership from the Artifacts table in `CLAUDE.md`; backlog order from the tracker (`scripts/cairn/cairn ls --status backlog`).
 
 ## MCP routing
 

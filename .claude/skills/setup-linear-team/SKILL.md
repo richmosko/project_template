@@ -91,7 +91,7 @@ Create `.claude/linear-team.json`:
 
 The file is gitignored — each clone resolves its own cache.
 
-### 5. Update process/MILESTONES.md → Major line / Initiative
+### 5. Update process/STATE.md → Major line / Initiative
 
 Fill the founding row of the `## Major line / Initiative` table (the founding line is `V1`, starting at MAJOR `0`):
 - Major line (`V1`)
@@ -103,7 +103,7 @@ Fill the founding row of the `## Major line / Initiative` table (the founding li
 
 ### 6. Seed M0 + M1 process milestones as Linear projects
 
-The template ships process/MILESTONES.md with two **process milestones** in the Roadmap: M0 (Bootstrap & Research) and M1 (Plan). These give Research/Plan work the same Linear-tracked visibility that product milestones get. Create both as Linear projects under the Initiative so Research/Plan sub-tasks can flow as Linear issues.
+The template ships process/STATE.md with two **process milestones** in the Roadmap: M0 (Bootstrap & Research) and M1 (Plan). These give Research/Plan work the same Linear-tracked visibility that product milestones get. Create both as Linear projects under the Initiative so Research/Plan sub-tasks can flow as Linear issues.
 
 For each, call `mcp__claude_ai_Linear__save_project`:
 
@@ -124,7 +124,7 @@ Capture both `projectId` values; cache them in `.claude/linear-team.json` under 
 }
 ```
 
-Then update the M0 + M1 rows in `process/MILESTONES.md` → Roadmap with the actual Linear project IDs (replacing the `LIN-XXX` placeholders).
+Then update the M0 + M1 rows in `process/STATE.md` → Roadmap with the actual Linear project IDs (replacing the `LIN-XXX` placeholders).
 
 If the user subdivides M0 or M1 later (e.g. `M0a`/`M0b`), they'll create additional Linear projects manually and add rows to the Roadmap — the template's two seeded rows are the floor, not a cap.
 

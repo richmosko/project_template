@@ -50,11 +50,11 @@ The intent is to **preserve hard-won signal from the legacy artifact** while bri
 
 ## When you finish Research
 
-Post a gate summary in `process/MILESTONES.md` under "Current Phase" and ask the lead to record approval in [`process/DECISIONS.md`](../../../process/DECISIONS.md). Then the lead tears down the Research team and spawns the Plan team.
+Post a gate summary in `process/STATE.md` under "Current Phase" and ask the lead to record approval in [`process/DECISIONS.md`](../../../process/DECISIONS.md). Then the lead tears down the Research team and spawns the Plan team.
 
 ## Read live, never from here
 
-This brief carries no counts, no phase state, and no enumerations of anything that grows — and none may be cited from recall. Read state from its canonical home at the moment of use: phase, active feature, and session cycle from `process/MILESTONES.md`; artifact ownership from the Artifacts table in `CLAUDE.md`; backlog order from the tracker (`scripts/cairn/cairn ls --status backlog`).
+This brief carries no counts, no phase state, and no enumerations of anything that grows — and none may be cited from recall. Read state from its canonical home at the moment of use: phase, active feature, and session cycle from `process/STATE.md`; artifact ownership from the Artifacts table in `CLAUDE.md`; backlog order from the tracker (`scripts/cairn/cairn ls --status backlog`).
 
 ## MCP routing
 

@@ -1,6 +1,6 @@
 ---
 id: PT-2
-title: cairn snapshot — generated MILESTONES.md appendix at milestone close
+title: cairn snapshot — generated STATE.md appendix at milestone close
 status: backlog
 milestone: null
 parent: null

@@ -1,6 +1,6 @@
 ---
 name: merge-pr
-description: Merges the active feature's PR back to main after Validate has passed. Updates the cairn issue (status → done), cleans up the branch, updates process/MILESTONES.md, and prepares the next feature slot. Use only after qa-engineer signs off. Optional argument: PR number (defaults to the PR for the current branch).
+description: Merges the active feature's PR back to main after Validate has passed. Updates the cairn issue (status → done), cleans up the branch, updates process/STATE.md, and prepares the next feature slot. Use only after qa-engineer signs off. Optional argument: PR number (defaults to the PR for the current branch).
 ---
 
 # merge-pr
@@ -60,13 +60,13 @@ git branch -d feature/<id>-<slug>
 
 Major-line completion isn't auto-tracked: when a line EOLs, the lead sets `majors/<id>.md` → `status: completed` on a doc-update branch.
 
-### 4. Update process/MILESTONES.md
+### 4. Update process/STATE.md
 
 - Clear `## Active Feature`.
 - Update the `## Session Cycles` note for the active session.
 - **If this feature completed a milestone**: the milestone flip already rode the final branch commit (step 2). Consider `scripts/cairn/cairn archive --done-before <date>` as hygiene — never a quota, there is no cap.
 
-(There is no Completed/In-Flight table to move rows between — those tables dissolved into the board; see `process/TRACKER.md` → Relationship to MILESTONES.md.)
+(There is no Completed/In-Flight table to move rows between — those tables dissolved into the board; see `process/TRACKER.md` → Relationship to STATE.md.)
 
 ### 5. Tag and draft GitHub Release if appropriate
 
@@ -92,7 +92,7 @@ gh release create vX.Y.Z --generate-notes --draft --title "vX.Y.Z — <milestone
 
 The lead does *not* publish on the user's behalf — release notes are a Principal decision.
 
-**d. Add a row to `## Releases` in process/MILESTONES.md** with version, date, major, milestone shipped, branch, and the release URL (mark `Draft` until the user publishes).
+**d. Add a row to `## Releases` in process/STATE.md** with version, date, major, milestone shipped, branch, and the release URL (mark `Draft` until the user publishes).
 
 Do **not** tag automatically. Releases are human decisions. **Process milestones (`kind: process`) never tag.**
 
@@ -100,8 +100,8 @@ Do **not** tag automatically. Releases are human decisions. **Process milestones
 
 Report: "Feature <ID> merged. Pick next feature or transition phase."
 
-The lead reads process/MILESTONES.md + `scripts/cairn/cairn ls --status todo` and decides: another feature in the current session cycle, plan a fresh session, or phase escalation.
+The lead reads process/STATE.md + `scripts/cairn/cairn ls --status todo` and decides: another feature in the current session cycle, plan a fresh session, or phase escalation.
 
 ### 7. Tear down the team
 
-Once the next move is decided: "Clean up the team." The shared task list disappears with it — any state that mattered should already be in the issue file / MILESTONES.md per `/finish-feature` step 6. The next feature spawns a fresh team.
+Once the next move is decided: "Clean up the team." The shared task list disappears with it — any state that mattered should already be in the issue file / STATE.md per `/finish-feature` step 6. The next feature spawns a fresh team.

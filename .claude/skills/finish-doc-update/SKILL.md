@@ -84,7 +84,7 @@ The team-lead reviews the diff, confirms it reads correctly, and either:
 ## After-merge follow-up
 
 If the merged change was tied to a phase transition (e.g. "PRD v1 approved → move to Plan"), the lead should still:
-- Update `process/MILESTONES.md` → Current Phase
+- Update `process/STATE.md` → Current Phase
 - Add an entry to `process/DECISIONS.md` for the phase-gate approval
 
 These updates may need their own subsequent `/start-doc-update` cycle since the merge of *this* PR doesn't automatically trigger them.

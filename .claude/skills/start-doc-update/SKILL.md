@@ -1,11 +1,11 @@
 ---
 name: start-doc-update
-description: Kicks off a doc-only update on a `phase/<phase>-<slug>` branch — for changes to PRD, ARCH, SECURITY (in docs/), process/MILESTONES.md, process/DECISIONS.md, process/WORKFLOW.md, etc. that aren't tied to a tracker feature. Mirrors /start-feature but lighter: no cairn issue, no implementation team, no anchor task. Use during Research/Plan phases when an agent (PM, architect, seceng) needs to revise docs without a feature ticket, or for cross-cutting workflow/meta updates anytime.
+description: Kicks off a doc-only update on a `phase/<phase>-<slug>` branch — for changes to PRD, ARCH, SECURITY (in docs/), process/STATE.md, process/DECISIONS.md, process/WORKFLOW.md, etc. that aren't tied to a tracker feature. Mirrors /start-feature but lighter: no cairn issue, no implementation team, no anchor task. Use during Research/Plan phases when an agent (PM, architect, seceng) needs to revise docs without a feature ticket, or for cross-cutting workflow/meta updates anytime.
 ---
 
 # start-doc-update
 
-Bootstraps a phase-scoped doc-update branch. Use when you need to revise PRD/ARCH/SECURITY/MILESTONES/DECISIONS/WORKFLOW/CLAUDE and the change isn't tied to a tracker feature.
+Bootstraps a phase-scoped doc-update branch. Use when you need to revise PRD/ARCH/SECURITY/STATE/DECISIONS/WORKFLOW/CLAUDE and the change isn't tied to a tracker feature.
 
 ## When to use vs `/start-feature`
 
@@ -41,7 +41,7 @@ Match the doc being edited to the phase:
 | `docs/PRD/index.html` | `phase/research-<slug>` |
 | `docs/ARCH/index.html`, `docs/SECURITY/index.html` | `phase/plan-<slug>` |
 | `docs/DESIGN/*` (index.html, tokens.css, screen.css, spec, wireframes/flows/styled-screens) | `phase/research-<slug>` — UX starts late-Research. **Cross-phase**: if the design-system edit is happening during Plan/Implement, use `phase/plan-<slug>` or fold it into the relevant feature instead. |
-| `process/MILESTONES.md`, `process/DECISIONS.md`, `process/BACKLOG.md` | `phase/state-<slug>` |
+| `process/STATE.md`, `process/DECISIONS.md`, `process/BACKLOG.md` | `phase/state-<slug>` |
 | `process/WORKFLOW.md`, `CLAUDE.md`, `README.md` | `phase/meta-<slug>` |
 | Other (e.g. `.claude/agents/*.md`, `.claude/skills/*/SKILL.md`) | `phase/meta-<slug>` |
 | Ambiguous / multi-doc | ask the user which phase the change belongs to |

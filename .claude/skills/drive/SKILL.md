@@ -1,6 +1,6 @@
 ---
 name: drive
-description: Prepares a goal-driven development loop. Reads the project's delivery-autonomy methodology, resolves the next unit of work (a feature for stop-at-merge, a milestone for self-merge), runs pre-flight checks, constructs the matching `/goal` condition, and surfaces the exact `/goal …` line for you to paste. Use when you want to hand the next chunk of work to a `/goal` loop instead of driving it turn-by-turn. Optional argument: a cairn issue ID (stop-at-merge) or milestone name (self-merge); if omitted, the skill infers the next unit from process/MILESTONES.md + the tracker (cairn ls).
+description: Prepares a goal-driven development loop. Reads the project's delivery-autonomy methodology, resolves the next unit of work (a feature for stop-at-merge, a milestone for self-merge), runs pre-flight checks, constructs the matching `/goal` condition, and surfaces the exact `/goal …` line for you to paste. Use when you want to hand the next chunk of work to a `/goal` loop instead of driving it turn-by-turn. Optional argument: a cairn issue ID (stop-at-merge) or milestone name (self-merge); if omitted, the skill infers the next unit from process/STATE.md + the tracker (cairn ls).
 ---
 
 # drive
@@ -35,7 +35,7 @@ A skill argument can override for this one invocation: if the user passed `self-
 
 **For `stop-at-merge` → one feature:**
 - If an issue ID was passed as the argument, use it.
-- Otherwise infer the next feature: check `process/MILESTONES.md` → *Active Feature* first (resume it); if none, take the next issue in the current milestone — `scripts/cairn/cairn ls --status todo --milestone <m>` (fall back to `--status backlog` if todo is empty).
+- Otherwise infer the next feature: check `process/STATE.md` → *Active Feature* first (resume it); if none, take the next issue in the current milestone — `scripts/cairn/cairn ls --status todo --milestone <m>` (fall back to `--status backlog` if todo is empty).
 - You need the feature's **issue ID, title, and acceptance criteria** to build a good condition. Read them from the issue file (`cairn show <ID>`) if not already in context.
 
 **For `self-merge-within-milestone` → one milestone:**
@@ -80,4 +80,4 @@ Then **stop.** The user pastes the line; the loop takes over from there.
 - **One goal per session.** Setting a new goal replaces any active one. `/goal clear` cancels; `/clear` (new conversation) also clears it. A goal active at session end is restored on `--resume`/`--continue` (counters reset).
 - **The evaluator can't run tools.** A fast model (Haiku by default) judges the condition only against what the session surfaced in the transcript. Write conditions whose proof lands in the transcript — "tests green" works because the loop runs the tests and the output is visible. `/finish-feature` and `/merge-pr` already echo PR/issue state, so those conditions are checkable.
 - **Methodology is per-project, not per-feature.** It's set once at `/setup-tracker` and stored in `process/WORKFLOW.md`. Change it by editing that line and logging a `process/DECISIONS.md` entry. The skill argument is the per-invocation escape hatch.
-- **Record the live condition** in `process/MILESTONES.md` → Active Feature → *Goal* once `/start-feature` has claimed the feature, so a fresh session can see what the loop is chasing.
+- **Record the live condition** in `process/STATE.md` → Active Feature → *Goal* once `/start-feature` has claimed the feature, so a fresh session can see what the loop is chasing.
