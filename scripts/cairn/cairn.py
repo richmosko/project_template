@@ -954,6 +954,14 @@ def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: O
     # this lock (each gets a distinct ID), so _create_issue isn't wrapped.
     write_lock = threading.Lock()
 
+    # PT-1: watcher lifecycle is bound to make_server itself (server
+    # object exists => watching), not to cmd_serve -- so every test (and
+    # every other caller) that builds a server via make_server gets a
+    # live watcher for free. Baseline snapshot happens synchronously
+    # inside DataDirWatcher.__init__, below, before .start() is called.
+    broadcaster = _SSEBroadcaster()
+    watcher = DataDirWatcher(data_dir, broadcaster)
+
     class Handler(http.server.BaseHTTPRequestHandler):
         server_version = "cairn/1.0"
 
@@ -991,6 +999,47 @@ def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: O
             self.end_headers()
             self.wfile.write(data)
 
+        def _handle_sse(self) -> None:
+            """GET /api/events -- an SSE stream. Holds the connection
+            open (no Content-Length, no keep-alive) and pushes one
+            `data: <json>\\n\\n` frame per broadcaster event -- coarse
+            per team-lead's ruling: the frame's contents (created/
+            changed/removed path lists) are informational only, the
+            client refetches the whole board on any event, never a
+            per-id targeted diff.
+
+            A 30s heartbeat comment (standard SSE keep-alive cadence)
+            bounds how long a dead connection's thread can sit blocked
+            on q.get() with nothing to detect the disconnect -- 30s is
+            comfortably above every test's read-timeout budget (this is
+            a localhost single-user tool, not proxied through anything
+            with its own idle-connection timeout, so nothing here is
+            tuned to the test suite's timing). A write failure on either
+            a heartbeat or a real event (client gone) ends the loop and
+            unsubscribes.
+            """
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            q = broadcaster.subscribe()
+            try:
+                while True:
+                    try:
+                        event = q.get(timeout=30.0)
+                    except queue.Empty:
+                        self.wfile.write(b": keep-alive\n\n")
+                        self.wfile.flush()
+                        continue
+                    body = json.dumps(event).encode("utf-8")
+                    self.wfile.write(b"data: " + body + b"\n\n")
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+            finally:
+                broadcaster.unsubscribe(q)
+
         def do_GET(self):  # noqa: N802
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
@@ -1018,6 +1067,9 @@ def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: O
                     self._send_json(404, {"error": "not_found", "message": f"no such issue: {issue_id}"})
                     return
                 self._send_json(200, payload)
+                return
+            if path == "/api/events":
+                self._handle_sse()
                 return
             if path in ("/", "/list"):
                 self._send_static("board.html")
@@ -1111,7 +1163,14 @@ def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: O
         allow_reuse_address = True
         daemon_threads = True
 
-    return Server((host, port), Handler)
+        def server_close(self) -> None:
+            # PT-1 lifecycle ruling: server close => watcher stopped.
+            watcher.stop()
+            super().server_close()
+
+    server = Server((host, port), Handler)
+    watcher.start()  # PT-1 lifecycle ruling: server object exists => watcher running
+    return server
 
 
 # --------------------------------------------------------------------------
