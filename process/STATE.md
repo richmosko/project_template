@@ -17,14 +17,14 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Session Cycle | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Drawer fixes batch (served file path, immediate title update) |
+| Issue | PT-10 + PT-11 (cairn; ratified batch PR) |
+| Milestone | 0.4 |
+| Session Cycle | SC2 |
+| Branch | `feature/pt-10-11-drawer-fixes` |
+| Started | 2026-08-20 |
+| Goal | The drawer stops guessing: file path comes from the server (archive-aware), title edits render from the POST response, not the next poll. |
+| Status | In Progress |
 
 ## Session Cycles
 
