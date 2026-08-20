@@ -53,6 +53,7 @@ DEFAULT_PORT = 8766
 DEFAULT_COLUMNS = ["backlog", "todo", "in-progress", "in-review", "done"]
 STATUSES = {"backlog", "todo", "in-progress", "in-review", "done", "cancelled"}
 DEFAULT_STATUS = "backlog"
+PRIORITIES = {"P0", "P1", "P2", "P3"}
 
 ISSUE_FIELD_ORDER = [
     "id", "title", "status", "milestone", "parent", "assignee",
@@ -672,6 +673,9 @@ def check_repo(data_dir: Path) -> List[str]:
         parent = fm.get("parent")
         if parent is not None and parent not in known_ids:
             errors.append(f"{label}: dangling parent {parent!r}")
+        priority = fm.get("priority")
+        if priority is not None and priority not in PRIORITIES:
+            errors.append(f"{label}: unknown priority {priority!r}")
 
     return errors
 

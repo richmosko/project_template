@@ -15,7 +15,7 @@ import cairn
 
 GOOD_FRONTMATTER = (
     "id: {id}\ntitle: Thing\nstatus: {status}\nmilestone: {milestone}\nparent: {parent}\n"
-    "assignee: null\nlabels: []\npriority: null\npr: null\n"
+    "assignee: null\nlabels: []\npriority: {priority}\npr: null\n"
     "created: 2026-08-01\nupdated: 2026-08-01\n"
 )
 
@@ -37,9 +37,27 @@ def make_tree(testcase) -> Path:
 
 
 def write_issue(data_dir: Path, filename: str, **overrides) -> None:
-    fields = dict(id="PT-1", status="todo", milestone="null", parent="null")
+    fields = dict(id="PT-1", status="todo", milestone="null", parent="null", priority="null")
     fields.update(overrides)
     text = "---\n" + GOOD_FRONTMATTER.format(**fields) + "---\n\nBody.\n"
+    (data_dir / "issues" / filename).write_text(text, encoding="utf-8")
+
+
+def write_issue_priority_field_omitted(data_dir: Path, filename: str, issue_id: str) -> None:
+    """Write an issue whose frontmatter has no `priority:` key at all.
+
+    Distinct from `priority: null` (an explicit null value) — this exercises
+    fm.get("priority") returning None because the key is simply absent,
+    matching how `milestone`/`parent`/`status` are already handled elsewhere
+    in this file.
+    """
+    text = (
+        "---\n"
+        f"id: {issue_id}\ntitle: Thing\nstatus: todo\nmilestone: null\nparent: null\n"
+        "assignee: null\nlabels: []\npr: null\n"
+        "created: 2026-08-01\nupdated: 2026-08-01\n"
+        "---\n\nBody.\n"
+    )
     (data_dir / "issues" / filename).write_text(text, encoding="utf-8")
 
 
@@ -98,6 +116,89 @@ class CheckRepoTests(unittest.TestCase):
         self.assertTrue(any("PT-2" in e for e in errors))
 
 
+class CheckRepoPriorityTests(unittest.TestCase):
+    """PT-5: `cairn check` must flag any issue whose priority is neither
+    null nor exactly one of P0-P3, reporting the issue ID and the offending
+    value, and exit non-zero on violation (CLI coverage in
+    CheckCliPriorityTests below).
+    """
+
+    def test_valid_priorities_pass(self):
+        for value in ("P0", "P1", "P2", "P3"):
+            with self.subTest(priority=value):
+                data_dir = make_tree(self)
+                write_issue(data_dir, "PT-1.md", id="PT-1", priority=value)
+                errors = cairn.check_repo(data_dir)
+                self.assertEqual(errors, [], errors)
+
+    def test_null_priority_passes(self):
+        data_dir = make_tree(self)
+        write_issue(data_dir, "PT-1.md", id="PT-1", priority="null")
+        errors = cairn.check_repo(data_dir)
+        self.assertEqual(errors, [], errors)
+
+    def test_missing_priority_field_passes(self):
+        # No `priority:` key in frontmatter at all, as opposed to an
+        # explicit `priority: null` — fm.get("priority") must return None
+        # for both, not raise or be treated as a violation.
+        data_dir = make_tree(self)
+        write_issue_priority_field_omitted(data_dir, "PT-1.md", "PT-1")
+        errors = cairn.check_repo(data_dir)
+        self.assertEqual(errors, [], errors)
+
+    def test_invalid_priority_string_is_rejected(self):
+        data_dir = make_tree(self)
+        write_issue(data_dir, "PT-1.md", id="PT-1", priority="High")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(errors)
+        self.assertTrue(
+            any("PT-1" in e and "priority" in e.lower() and "High" in e for e in errors),
+            errors,
+        )
+
+    def test_invalid_priority_lowercase_is_rejected(self):
+        # Exact-case match required — "p1" is not "P1".
+        data_dir = make_tree(self)
+        write_issue(data_dir, "PT-1.md", id="PT-1", priority="p1")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(errors)
+        self.assertTrue(
+            any("PT-1" in e and "priority" in e.lower() and "p1" in e for e in errors),
+            errors,
+        )
+
+    def test_invalid_priority_numeric_is_rejected(self):
+        # Bare `1` parses as an int via parse_yaml_subset, not the string
+        # "P1" — must still be flagged, not silently coerced or ignored.
+        data_dir = make_tree(self)
+        write_issue(data_dir, "PT-1.md", id="PT-1", priority="1")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(errors)
+        self.assertTrue(
+            any("PT-1" in e and "priority" in e.lower() for e in errors),
+            errors,
+        )
+
+    def test_invalid_priority_out_of_range_letter_is_rejected(self):
+        # P4 has the right shape (P + digit) but is outside P0-P3.
+        data_dir = make_tree(self)
+        write_issue(data_dir, "PT-1.md", id="PT-1", priority="P4")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(errors)
+        self.assertTrue(
+            any("PT-1" in e and "priority" in e.lower() and "P4" in e for e in errors),
+            errors,
+        )
+
+    def test_multiple_issues_with_bad_priority_each_reported(self):
+        data_dir = make_tree(self)
+        write_issue(data_dir, "PT-1.md", id="PT-1", priority="urgent")
+        write_issue(data_dir, "PT-2.md", id="PT-2", priority="p2")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(any("PT-1" in e for e in errors), errors)
+        self.assertTrue(any("PT-2" in e for e in errors), errors)
+
+
 class CheckCliTests(unittest.TestCase):
     def test_clean_tree_exits_zero(self):
         data_dir = helpers.make_tmp_data_dir(self)
@@ -119,6 +220,22 @@ class CheckCliTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         combined = result.stdout + result.stderr
         self.assertIn("PT-1", combined)
+
+    def test_bad_priority_exits_nonzero_with_id_and_value(self):
+        # PT-5 criterion 2: `cairn check` exits non-zero on a priority
+        # violation and its report names both the issue ID and the
+        # offending value.
+        data_dir = make_tree(self)
+        write_issue(data_dir, "PT-1.md", id="PT-1", priority="urgent")
+        result = subprocess.run(
+            [str(helpers.CAIRN_BIN), "check", "--data-dir", str(data_dir)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        combined = result.stdout + result.stderr
+        self.assertIn("PT-1", combined)
+        self.assertIn("urgent", combined)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,16 @@
     "cancelled": "Cancelled",
   };
 
+  // PT-5: "" is the sentinel option value for a null priority — inlineSelect
+  // translates it to/from JSON null at the DOM boundary (see inlineSelect).
+  var PRIORITY_LABELS = {
+    "": "(none)",
+    "P0": "P0",
+    "P1": "P1",
+    "P2": "P2",
+    "P3": "P3",
+  };
+
   var isListView = window.location.pathname === "/list";
 
   var state = {
@@ -468,11 +478,11 @@
     drawer.appendChild(h2);
 
     drawer.appendChild(inlineField("title", "text", issue.title, issue));
-    drawer.appendChild(inlineSelect("status", Object.keys(STATUS_LABELS), issue.status, issue));
+    drawer.appendChild(inlineSelect("status", Object.keys(STATUS_LABELS), issue.status, issue, STATUS_LABELS));
     drawer.appendChild(inlineField("assignee", "text", issue.assignee || "", issue));
     drawer.appendChild(inlineField("milestone", "text", issue.milestone || "", issue));
     drawer.appendChild(inlineField("labels", "text", (issue.labels || []).join(", "), issue, true));
-    drawer.appendChild(inlineField("priority", "text", issue.priority || "", issue));
+    drawer.appendChild(inlineSelect("priority", ["", "P0", "P1", "P2", "P3"], issue.priority, issue, PRIORITY_LABELS));
 
     if (issue.pr) {
       var prP = document.createElement("div");
@@ -587,7 +597,11 @@
     return wrap;
   }
 
-  function inlineSelect(field, options, value, issue) {
+  function inlineSelect(field, options, value, issue, labels) {
+    // "" is the sentinel option value for a null field (e.g. priority's
+    // none option) — translated to/from JSON null here at the DOM boundary,
+    // since <select>.value is always a string and JS null stringifies to
+    // the literal "null" if assigned directly, matching no real option.
     var wrap = document.createElement("div");
     wrap.className = "drawer-field";
     var label = document.createElement("label");
@@ -597,12 +611,14 @@
     options.forEach(function (opt) {
       var o = document.createElement("option");
       o.value = opt;
-      o.textContent = STATUS_LABELS[opt] || opt;
+      o.textContent = (labels && labels[opt]) || opt || "(none)";
       select.appendChild(o);
     });
-    select.value = value;
+    var initialSelectValue = (value === null || value === undefined) ? "" : value;
+    select.value = initialSelectValue;
     select.addEventListener("change", function () {
-      submitPatch(issue, field, select.value, select, value);
+      var newValue = select.value === "" ? null : select.value;
+      submitPatch(issue, field, newValue, select, initialSelectValue);
     });
     wrap.appendChild(select);
     return wrap;
