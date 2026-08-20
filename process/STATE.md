@@ -24,7 +24,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-15-rename-milestones-to-state` |
 | Started | 2026-08-20 |
 | Goal | The ledger file's name matches its post-dissolution content; every living reference (hook, docs, briefs, skills) follows; history preserved. |
-| Status | In Progress |
+| Status | In Review — [PR #34](https://github.com/richmosko/project_template/pull/34), Validate green |
 
 ## Session Cycles
 
