@@ -410,17 +410,35 @@ def _dump_value(value: Any) -> str:
     return _quote(s) if _needs_quoting(s) else s
 
 
+def _is_issue_shaped(fields: Dict[str, Any]) -> bool:
+    """True if `fields` matches the issue schema.
+
+    `title` is required on every issue (TRACKER.md) and absent from both
+    the milestone and major schemas — the cheapest reliable signal to tell
+    "this is an issue frontmatter dict" from "this is some other schema
+    dump_frontmatter/apply_patch got called on" (PT-13). Non-issue-shaped
+    dicts keep their own field order untouched and never get an `updated`
+    key injected — that field belongs to the issue schema only.
+    """
+    return "title" in fields
+
+
 def dump_frontmatter(fields: Dict[str, Any]) -> str:
     """Render `fields` as a '---\\n...---\\n' block.
 
     Emits keys actually present in `fields` — never synthesizes an absent
-    one — with ISSUE_FIELD_ORDER's keys leading in their canonical order,
-    then any remaining (non-issue-schema) keys in their original insertion
-    order. This is what lets a hand-added unknown field (or a milestone/
-    major file's entirely different schema, passed through apply_patch)
-    round-trip intact instead of being silently dropped or overwritten with
-    a null-filled issue schema (architect conformance review, finding 1).
+    one. For issue-shaped `fields` (has a `title` key): ISSUE_FIELD_ORDER's
+    keys lead in their canonical order, then any remaining (non-issue-
+    schema) keys in their original insertion order — this is what lets a
+    hand-added unknown field round-trip intact instead of being silently
+    dropped (architect conformance review, finding 1). For a milestone/
+    major file's entirely different schema (no `title` key), field order
+    is left exactly as given — the reordering above is an issue-schema-only
+    convention, not something to impose on a different schema (PT-13).
     """
+    if not _is_issue_shaped(fields):
+        lines = [f"{key}: {_dump_value(fields[key])}" for key in fields]
+        return "---\n" + "\n".join(lines) + "\n---\n"
     canonical = [key for key in ISSUE_FIELD_ORDER if key in fields]
     extra = [key for key in fields.keys() if key not in ISSUE_FIELD_ORDER]
     lines = [f"{key}: {_dump_value(fields[key])}" for key in canonical + extra]
@@ -468,8 +486,10 @@ NULLABLE_FIELDS = ("milestone", "assignee", "parent", "priority", "pr")
 def apply_patch(path: Path, patch: Dict[str, Any]) -> Dict[str, Any]:
     """Merge `patch` into `path`'s frontmatter and rewrite it in place.
 
-    Sets `updated` to today unless `patch` supplies it explicitly. Body
-    bytes after the closing fence are untouched. Returns the new
+    On issue-shaped files (has a `title` key), sets `updated` to today
+    unless `patch` supplies it explicitly. `updated` belongs to the issue
+    schema only — a milestone/major file never gets it injected (PT-13).
+    Body bytes after the closing fence are untouched. Returns the new
     frontmatter dict.
 
     Coerces `""` -> `None` for the five nullable fields (milestone,
@@ -487,8 +507,9 @@ def apply_patch(path: Path, patch: Dict[str, Any]) -> Dict[str, Any]:
     for field in NULLABLE_FIELDS:
         if field in coerced_patch and coerced_patch[field] == "":
             coerced_patch[field] = None
+    is_issue = _is_issue_shaped(frontmatter)
     frontmatter.update(coerced_patch)
-    if "updated" not in patch:
+    if is_issue and "updated" not in patch:
         frontmatter["updated"] = _today()
     new_text = dump_frontmatter(frontmatter) + body
     _atomic_write(path, new_text)
