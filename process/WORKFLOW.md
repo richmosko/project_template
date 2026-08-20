@@ -194,7 +194,7 @@ Three distinct mechanisms, each with a different scope. Use the right one for th
 | Mechanism | Scope | Use for |
 |---|---|---|
 | **cairn** (files in git, `process/cairn/`) | durable, cross-session | Canonical work store — features (issues), milestones, majors. Survives session restart because it *is* the repo. **Session Cycles have no tracker artifact — heuristic only.** |
-| **Shared task list** | session-scoped (transient) | In-session execution coordination — hand-offs, dependencies, "I'm working on X now," parallel scheduling. **Does not survive `/resume` or session end.** |
+| **Shared task list** | session-scoped (transient) | In-session execution coordination — hand-offs, dependencies, "I'm working on X now," parallel scheduling. **Does not survive `/resume` or session end.** **Requires the session to have the Task tools** — see [Task-tool availability & the degraded mode](#task-tool-availability--the-degraded-mode). |
 | **SendMessage / mailbox** | point-to-point | Direct questions, opinions, peer-review pings, "look at this" nudges. Lands in the recipient's mailbox automatically; no broadcast. |
 
 ### Boundary rule
@@ -216,6 +216,20 @@ When a feature starts (`/start-feature`), the implementation lead creates an **a
 ```
 
 Teammates claim and complete tasks; dependencies auto-unblock; the lead watches without polling. When the feature merges, the team is torn down and the shared task list naturally goes with it.
+
+### Task-tool availability & the degraded mode
+
+The anchor-task pattern requires the shared Task tools (`TaskCreate`/`TaskGet`/`TaskList`/`TaskUpdate`), and those are **session-gated, not agent-gated**: on current models (Opus 4.8, Sonnet 5, Fable 5, and later) the tools are absent by default, and a session that lacks them spawns teammates without them — **even when the agent definition's `tools:` frontmatter lists them explicitly** ("Claude Code gives a subagent the tools only when your session has them"). Permission allowlists cannot grant them either; availability is decided by model plus session flags only. (Verified against the Claude Code docs — *Task tool availability*, *Orchestrate teams of Claude Code sessions* — 2026-08-20; observed live during PT-17 acceptance.)
+
+**Restoring the full pattern:** opt the session in with `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` — launch-time environment or the `env` block of a settings file. Background sessions and Claude Code on the web always have the tools regardless of model.
+
+**Degraded mode (session without Task tools).** The documented substitute is coordination "through messages instead of the shared task list"; this template's proven shape for that — it carried the entire 0.3 and most of the 0.4 cycle — is:
+
+- **No anchor task; the lead is the scheduler.** The dependency chain the anchor task would encode lives in the lead's dispatch order: the lead `SendMessage`s each teammate its work item when the upstream item completes, instead of teammates claiming auto-unblocked tasks.
+- **Delivery is a message, not a task update.** A teammate reports completion via `SendMessage` to the lead; long findings go to `temp/` per the [hand-off protocol](#hand-off-protocol--the-temp-buffer), the message carrying the conclusion plus the file path.
+- **The lead's promotion duty is unchanged** — it promotes durable state from messages and `temp/` instead of from the task list.
+
+Detection is a spawn-time check, not a mid-flight surprise: the lead confirms whether the Task tools are in its own tool set when assembling a team and announces the mode in the spawn prompts; a teammate that finds them missing says so in its first report rather than silently skipping coordination. `/start-feature`'s anchor-task step is skipped in degraded mode.
 
 ### Lead's promotion duty
 
