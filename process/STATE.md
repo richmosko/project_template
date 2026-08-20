@@ -24,7 +24,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-17-coordination-tools` |
 | Started | 2026-08-20 |
 | Goal | Every teammate can message and share tasks (SendMessage + Task tools granted); mcp-broker can reach MCP; proven by a live round-trip, not by config alone. |
-| Status | In Progress |
+| Status | In Review — [PR #37](https://github.com/richmosko/project_template/pull/37), Validate green |
 
 ## Session Cycles
 
