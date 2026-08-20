@@ -17,14 +17,14 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Session Cycle | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | check_repo lint: missing/dangling major on milestones |
+| Issue | PT-12 (cairn) |
+| Milestone | 0.4 |
+| Session Cycle | SC2 |
+| Branch | `feature/pt-12-milestone-major-lint` |
+| Started | 2026-08-20 |
+| Goal | The hierarchy is lint-complete: every milestone must name a real major, majors get the same id↔filename rule milestones have. |
+| Status | In Progress |
 
 ## Session Cycles
 
