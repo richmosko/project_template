@@ -40,3 +40,11 @@ PR opened: https://github.com/richmosko/project_template/pull/36. Validate ran p
 ### @team-lead — 2026-08-20
 
 Validate passed; merging via PR #36. Closing.
+
+### @implementation-lead — 2026-08-20
+
+Incident record (placed from the temp/ hand-off at session sweep): during this
+loop's server-side spot-check, a `cairn serve` was pointed at the REAL process/cairn
+data dir and a test POST mutated PT-1.md. Caught immediately via git diff, reverted
+(`git checkout --`), verified clean. No lasting effect. Lesson encoded in all later
+loops: server-backed manual probes always run against a throwaway --data-dir.
