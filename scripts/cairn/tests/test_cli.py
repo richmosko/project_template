@@ -181,6 +181,51 @@ class ShowCommandTests(unittest.TestCase):
         self.assertIn("Google OAuth login", result.stdout)
         self.assertIn("qa-engineer", result.stdout)
 
+    def test_show_renders_full_frontmatter_not_just_title(self):
+        # `show` is meant to be a complete single-issue rendering an agent
+        # can read without opening the file -- not just id/title/comments.
+        data_dir = helpers.make_tmp_data_dir(self)
+        result = run_cairn(["show", "PT-1", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("in-progress", result.stdout)  # status
+        self.assertIn("1.0", result.stdout)  # milestone
+        self.assertIn("backend-lead", result.stdout)  # assignee
+        self.assertIn("auth", result.stdout)  # labels
+        self.assertIn("P1", result.stdout)  # priority
+
+
+class NonDefaultPrefixTests(unittest.TestCase):
+    """The fixture tree hard-codes prefix: PT everywhere else in this file --
+    exercise a distinct prefix end-to-end through the CLI to confirm it's
+    actually config-driven and not accidentally hard-coded to "PT"."""
+
+    def _tree(self, tmp_root: Path) -> Path:
+        data_dir = tmp_root / "cairn"
+        (data_dir / "issues").mkdir(parents=True)
+        (data_dir / "archive").mkdir(parents=True)
+        (data_dir / "milestones").mkdir(parents=True)
+        (data_dir / "majors").mkdir(parents=True)
+        (data_dir / "config.yml").write_text("prefix: ZZ\nport: 8766\ndata_dir: process/cairn\n", encoding="utf-8")
+        return data_dir
+
+    def test_new_ls_set_honor_a_non_default_prefix(self):
+        tmp_root = helpers.make_empty_tmp_dir(self)
+        data_dir = self._tree(tmp_root)
+
+        result = run_cairn(["new", "Prefix-honoring issue", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("ZZ-1", result.stdout)
+        self.assertTrue((data_dir / "issues" / "ZZ-1.md").exists())
+        self.assertFalse((data_dir / "issues" / "PT-1.md").exists())
+
+        ls_result = run_cairn(["ls", "--data-dir", str(data_dir)])
+        self.assertIn("ZZ-1", ls_result.stdout)
+
+        set_result = run_cairn(["set", "ZZ-1", "status=todo", "--data-dir", str(data_dir)])
+        self.assertEqual(set_result.returncode, 0, set_result.stdout + set_result.stderr)
+        frontmatter, _ = cairn.parse_frontmatter((data_dir / "issues" / "ZZ-1.md").read_text(encoding="utf-8"))
+        self.assertEqual(frontmatter["status"], "todo")
+
 
 class ArchiveCommandTests(unittest.TestCase):
     def _tree(self):
@@ -215,6 +260,62 @@ class ArchiveCommandTests(unittest.TestCase):
 
         self.assertTrue((data_dir / "issues" / "PT-3.md").exists(), "done but updated after cutoff should stay")
         self.assertTrue((data_dir / "issues" / "PT-4.md").exists(), "not done should never be archived")
+
+
+class ArchiveGitMoveTests(unittest.TestCase):
+    """The spec's CLI table is explicit: `cairn archive` is a "Bulk git mv",
+    and later: "Archived issues remain in git, remain greppable". A plain
+    filesystem move inside a git worktree does NOT preserve that on its
+    own -- git only sees a delete + an untracked add until something stages
+    it as a rename. This is the gap the (unrecoverable) test_cairn.py draft
+    may have covered and mine didn't: verify the move is actually staged as
+    a git rename, not just a filesystem move that happens to sit in a repo."""
+
+    def test_archive_stages_a_git_rename_inside_a_repo(self):
+        tmp_root = helpers.make_empty_tmp_dir(self)
+        subprocess.run(["git", "init", "-q"], cwd=tmp_root, check=True)
+        subprocess.run(["git", "config", "user.email", "qa@example.com"], cwd=tmp_root, check=True)
+        subprocess.run(["git", "config", "user.name", "qa"], cwd=tmp_root, check=True)
+
+        data_dir = helpers.copy_fixture_data_dir(tmp_root)
+        (data_dir / "issues" / "PT-1.md").write_text(
+            "---\nid: PT-1\ntitle: Old and done\nstatus: done\nmilestone: null\nparent: null\n"
+            "assignee: null\nlabels: []\npriority: null\npr: null\n"
+            "created: 2026-01-01\nupdated: 2026-01-15\n---\n\nDone a while ago.\n",
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "add", "-A"], cwd=tmp_root, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=tmp_root, check=True)
+
+        result = run_cairn(["archive", "--done-before", "2026-02-01", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((data_dir / "issues" / "PT-1.md").exists())
+        self.assertTrue((data_dir / "archive" / "PT-1.md").exists())
+
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=tmp_root, capture_output=True, text=True, check=True
+        ).stdout
+        # A staged rename shows as "R  <old> -> <new>". A plain filesystem
+        # move that git hasn't been told about shows as a deleted line and
+        # a separate untracked ("??") line instead -- that's the failure
+        # mode this test exists to catch.
+        self.assertIn("R  ", status, f"archive did not stage a git rename; git status was:\n{status}")
+        self.assertNotIn("??", status, f"archived file is untracked, not staged as a rename:\n{status}")
+
+    def test_archive_falls_back_to_plain_move_outside_a_repo(self):
+        # Not every data_dir lives inside a git worktree in every test setup
+        # -- confirm archive still works (doesn't crash on a missing git)
+        # when there's no repo to stage a rename into.
+        data_dir = helpers.make_tmp_data_dir(self)
+        (data_dir / "issues" / "PT-1.md").write_text(
+            "---\nid: PT-1\ntitle: Old and done\nstatus: done\nmilestone: null\nparent: null\n"
+            "assignee: null\nlabels: []\npriority: null\npr: null\n"
+            "created: 2026-01-01\nupdated: 2026-01-15\n---\n\nDone a while ago.\n",
+            encoding="utf-8",
+        )
+        result = run_cairn(["archive", "--done-before", "2026-02-01", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((data_dir / "archive" / "PT-1.md").exists())
 
 
 class ErrorHandlingTests(unittest.TestCase):

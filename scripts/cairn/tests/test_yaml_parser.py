@@ -47,6 +47,30 @@ class ScalarsTests(unittest.TestCase):
         self.assertEqual(list(cairn.parse_yaml_subset(text).keys()), ["id", "title", "status"])
 
 
+class InlineCommentTests(unittest.TestCase):
+    """Regression tests for a gap identified when reconciling against
+    implementation-lead's superseded scratch suite (see
+    temp/2026-08-19-implementation-lead-cairn-engine-report.md): trailing
+    `# comment` support is implemented (`_strip_inline_comment`) and
+    correct, but had no committed regression test -- none of the fixtures
+    happen to use inline comments, so a regression here wouldn't have been
+    caught by anything else in the suite."""
+
+    def test_trailing_comment_is_stripped(self):
+        self.assertEqual(cairn.parse_yaml_subset("status: todo  # was backlog\n"), {"status": "todo"})
+
+    def test_full_line_comment_is_ignored(self):
+        text = "# this whole line is a comment\nstatus: todo\n"
+        self.assertEqual(cairn.parse_yaml_subset(text), {"status": "todo"})
+
+    def test_hash_inside_a_quoted_string_is_not_stripped(self):
+        # The critical case: a bare `#` is a comment marker, but one that's
+        # part of an actual quoted value (e.g. a hex color, a URL fragment)
+        # must survive. A naive `line.split('#')[0]` would corrupt this.
+        self.assertEqual(cairn.parse_yaml_subset('title: "Fix #42"\n'), {"title": "Fix #42"})
+        self.assertEqual(cairn.parse_yaml_subset("title: 'Fix #42'\n"), {"title": "Fix #42"})
+
+
 class FlowListTests(unittest.TestCase):
     def test_flow_list_of_bare_strings(self):
         self.assertEqual(cairn.parse_yaml_subset("labels: [auth, api]\n"), {"labels": ["auth", "api"]})
@@ -74,6 +98,18 @@ class BlockListTests(unittest.TestCase):
         self.assertEqual(result["labels"], ["only"])
         self.assertEqual(result["a"], 1)
         self.assertEqual(result["b"], 2)
+
+    def test_block_list_item_shaped_like_a_mapping_is_rejected(self):
+        # Regression test for a gap identified when reconciling against
+        # implementation-lead's superseded scratch suite (see
+        # temp/2026-08-19-implementation-lead-cairn-engine-report.md):
+        # `- key: value` as a list item looks like it could be a one-entry
+        # mapping, which is outside the documented subset (list items are
+        # scalars only). Must raise, not silently produce a dict-shaped
+        # list item or misparse as a plain string.
+        text = "items:\n  - key: value\n"
+        with self.assertRaises(cairn.YamlError):
+            cairn.parse_yaml_subset(text)
 
 
 class NestedMappingTests(unittest.TestCase):
@@ -127,6 +163,18 @@ class LoudErrorTests(unittest.TestCase):
     def test_block_scalar_folded_is_rejected(self):
         with self.assertRaises(cairn.YamlError):
             cairn.parse_yaml_subset("body: >\n  line one\n  line two\n")
+
+    def test_sibling_key_at_inconsistent_indentation_is_rejected(self):
+        # Regression test for a gap identified when reconciling against
+        # implementation-lead's superseded scratch suite. `b` here isn't
+        # nested under `a` (no trailing-colon-then-indent parent) -- it's a
+        # second top-level key that's merely mis-indented. One level of
+        # *intentional* nesting is in-subset (NestedMappingTests), but
+        # accidental/inconsistent indentation between true siblings is a
+        # different failure mode and must still be a loud YamlError, not a
+        # silent misparse into a nested value under `a`.
+        with self.assertRaises(cairn.YamlError):
+            cairn.parse_yaml_subset("a: 1\n   b: 2\n")
 
     def test_deeply_nested_mapping_is_rejected(self):
         # One level (config.yml's `board:`) is in-subset; two is not --
