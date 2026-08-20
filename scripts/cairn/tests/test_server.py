@@ -192,6 +192,17 @@ class BoardEndpointTests(ServerTestCase):
         self.assertEqual(major_v1["status"], "active")
         self.assertEqual(major_v1["health"], "on-track")
 
+    def test_milestone_payload_carries_name_for_id_dot_name_rendering(self):
+        # PT-16: swimlane headers and both milestone <select> dropdowns
+        # render "id · name" (already true of the progress strip). board.js
+        # is purely a lens over this payload -- pin the field it depends on
+        # so a future frontmatter/payload refactor can't silently drop
+        # `name` out from under the UI without a server-side test noticing.
+        resp = http_get(f"{self.base_url}/api/board")
+        payload = json.loads(resp.read())
+        milestone_10 = next(m for m in payload["milestones"] if m["id"] == "1.0")
+        self.assertEqual(milestone_10["name"], "MVP")
+
     def test_sub_issue_count_supports_the_2_of_3_badge(self):
         # PT-1 has one sub-issue (PT-3, parent: PT-1) in the fixture. The
         # board's parent-card badge needs this count from somewhere; if the
