@@ -11,6 +11,9 @@
 <header class="app-header">
   <div class="app-header-row">
     <span class="app-title">cairn</span>
+    <!-- PT-1: minimal live/polling indicator -- board.js's connectLive()
+         drives the text/class; starts "polling" until SSE confirms open. -->
+    <span class="connection-state polling" id="connection-state">○ polling</span>
     <div class="majors-tabs" id="majors-tabs"></div>
     <div class="view-tabs">
       <a href="/" id="tab-kanban">Kanban</a>
