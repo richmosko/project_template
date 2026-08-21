@@ -158,7 +158,13 @@ flowchart LR
   <p class="section-hint">Risks we live with — for now. Each needs an owner, compensating controls, and a re-evaluation date.</p>
   <table>
     <thead><tr><th>Risk</th><th>Why acceptable</th><th>Compensating control</th><th>Re-evaluate by</th><th>Approved by</th></tr></thead>
-    <tbody><tr><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td><td class="tbd">—</td></tr></tbody>
+    <tbody><tr>
+      <td>Cross-root read access (PT-3): <code>cairn serve</code> reads directories named in a committed <code>roots:</code> config (or <code>--repos</code>), i.e. outside the repo. A malicious <code>roots:</code> entry in a PR could point a reviewer's local board at a sibling directory (e.g. <code>../../.ssh</code>).</td>
+      <td>Read-only and localhost-only — no write path to a secondary root, and the <code>/api/board</code> payload carries only parsed cairn frontmatter, so there is no exfiltration channel. A directory without a <code>config.yml</code> is skipped before anything is read. Whoever can commit a <code>roots:</code> entry already has a stronger vector (editing <code>cairn.py</code>/<code>board.js</code> directly), so a runtime path-jail would be theater against the real threat.</td>
+      <td>Startup stderr banner logs each resolved absolute root path when &gt;1 root loads (human tripwire against a stale/fat-fingered <code>roots:</code> silently serving the wrong tracker). Re-evaluate if cairn ever gains a write path to non-primary roots.</td>
+      <td>2027-02-21</td>
+      <td>Rich Mosko</td>
+    </tr></tbody>
   </table>
 </section>
 
