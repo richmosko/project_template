@@ -129,6 +129,25 @@ var CairnLogic = (function () {
   // must call this SAME function, not two independently hand-written
   // expressions that happen to agree today and can silently drift
   // tomorrow. Converts a hand-maintained invariant into a structural one.
+  //
+  // DEVIATION FROM VERBATIM (named explicitly, per architect's review,
+  // 2026-08-21): the two pre-extraction inline expressions this replaces
+  // (`issue.repo + "::" + (issue.milestone || "")` in filteredIssues,
+  // `i.repo + "::" + i.milestone` in the msPairs builder) did NOT guard
+  // `issue.repo` -- on a roots-less payload (issue.repo undefined) both
+  // produced the literal string "undefined::0.5". This version guards it
+  // (`issue.repo || ""`), producing "::0.5" instead. Verified safe: the
+  // change is symmetric (both the producer and the sole consumer of this
+  // key go through this same function now, so producer/consumer
+  // agreement holds either way), and the key is never displayed -- only
+  // used as a <select> option `value`, with the visible label coming from
+  // milestoneLabel -- so nothing user-visible moves. Kept because
+  // "undefined::0.5" landing in a DOM attribute is worse than "::0.5" for
+  // no offsetting benefit, but flagged explicitly rather than folded
+  // silently into a commit whose contract is "moved verbatim" -- an
+  // extraction that quietly normalises a comparison is exactly the
+  // failure mode a mechanical body-diff exists to catch, and this is the
+  // one real instance of it in this pass.
   function issueMilestoneKey(issue) {
     return (issue.repo || "") + "::" + (issue.milestone || "");
   }
@@ -200,6 +219,19 @@ var CairnLogic = (function () {
   // collapse another's" property as issueMilestoneKey, for swimlane
   // collapse state instead of the filter-milestone select. Second-tier,
   // same reasoning as orderRoots.
+  //
+  // DELIBERATELY does NOT guard `repoId` the way issueMilestoneKey guards
+  // `issue.repo` (architect review, 2026-08-21) -- moved verbatim from
+  // the original `root.id + "::" + key` / `soleRootId + "::" + key`
+  // construction, so `laneStateKey(null, "0.5")` still yields
+  // "null::0.5", unchanged from pre-extraction behavior. This key is
+  // purely in-memory (state.collapsedLanes), never a DOM attribute value
+  // and never displayed, so there was no "undefined"-in-a-user-visible-
+  // place motivation to normalise it the way issueMilestoneKey's guard
+  // was added. Two key builders now have different conventions for an
+  // absent repo id -- that's intentional, not an oversight; do not
+  // "harmonise" this one to match issueMilestoneKey without re-checking
+  // this reasoning first.
   function laneStateKey(repoId, milestoneKey) {
     return repoId + "::" + milestoneKey;
   }
