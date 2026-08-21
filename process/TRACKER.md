@@ -25,7 +25,7 @@ What Linear got right and this design keeps: a **post-and-comment issue database
 
 - **Not a backend abstraction.** Cairn is *the* backend. There is no pluggable-provider layer and no dual-write to Linear.
 - **Not multi-user or networked.** Binds `127.0.0.1`. Collaboration is git.
-- **Not cross-project.** Cairn is per-repo by construction, so Linear's one-board-across-every-project view has no equivalent. **Ruled 2026-08-19: accepted as a v1 regression.** A multi-root mode (`cairn serve --repos ~/Projects/*`) is recorded as a possible phase 3 and is explicitly **not committed** — build it only if the missing cross-project view actually bites.
+- **Not cross-project by default.** Cairn is per-repo by construction, so Linear's one-board-across-every-project view has no equivalent without opting in. **Ruled 2026-08-19 as a v1 regression, then built as PT-3 (2026-08-21):** `cairn serve` gained an optional, read-only multi-root mode — a `roots:` list in `config.yml` (or `--repos`, which replaces it for that invocation) aggregates sibling repos' trackers into one board. Cross-root **writes stay out of scope**: `POST` endpoints are structurally scoped to the primary root only, and a foreign-root mutation attempt is refused with `403 read_only_root`. See [API surface](#api-surface) and `config.yml`'s `roots:` key below.
 - **Not a Session-Cycle tracker.** Session Cycles are a session-planning heuristic with deliberately no tracker artifact — the same call the [2026-07-23 version-hierarchy decision](TEMPLATE_DECISIONS.md) made when it dropped the Linear Cycle. Nothing here re-opens it.
 
 ---
@@ -89,6 +89,20 @@ port: 8766              # board server port
 board:
   columns: [backlog, todo, in-progress, in-review, done]
   swimlane: milestone   # milestone | none
+roots:                  # optional (PT-3) -- sibling repos to aggregate into a
+                        # read-only cross-project board. Flat list of paths
+                        # relative to the repo root (the parser rejects
+                        # mapping entries -- no {path:, label:} shape; a
+                        # root's display id/label are derived, not
+                        # configured, see API surface below). `cairn serve
+                        # --repos a,b` REPLACES this list for that
+                        # invocation (primary always still included);
+                        # absent or [] -> single-root, today's behaviour.
+                        # A missing/unreachable entry warns and is skipped,
+                        # never crashes -- `cairn check` validates shape
+                        # only (list of non-empty relative-path strings),
+                        # never reachability.
+  - ../cairn-ui
 ```
 
 Status vocabulary is deliberately **not** configurable in v1 — the skills hard-code the transitions, and a per-project vocabulary would fork them.
@@ -355,12 +369,35 @@ Four endpoints. All bind `127.0.0.1`, no auth — same posture as `serve-docs.py
 |---|---|---|
 | `GET` | `/api/board` | Full parsed state: majors, milestones, all non-archived issues (without comment bodies). Supports `ETag`/`If-None-Match`. |
 | `GET` | `/api/issue/<id>` | One issue: frontmatter, description, acceptance criteria, full comment list, `seen` token. |
-| `POST` | `/api/issue` | Create. Body `{title, …}`. Allocates an ID via the same `O_EXCL` path as `cairn new`. |
-| `POST` | `/api/issue/<id>` | Mutate. Body `{seen, patch?, comment?}`. Handles the drag-to-column case (`patch: {status: …}`), inline field edits, and comment append through one code path. |
+| `POST` | `/api/issue` | Create. Body `{title, …}`. Allocates an ID via the same `O_EXCL` path as `cairn new`. **Primary root only** — there is no way to create an issue in a secondary root through the board. |
+| `POST` | `/api/issue/<id>` | Mutate. Body `{seen, patch?, comment?}`. Handles the drag-to-column case (`patch: {status: …}`), inline field edits, and comment append through one code path. **Primary root only** — an id that resolves to a secondary root is refused with `403 {"error": "read_only_root", "message": "…"}`, file left untouched. |
 
 Plus static routes: `/` (Kanban), `/list` (list view), `/board/*` (assets).
 
 There is deliberately **no** dedicated status endpoint — a drag is just a patch, and a second write path is a second place for the frontmatter rewriter to be subtly different.
+
+#### Multi-root (PT-3, 2026-08-21)
+
+`cairn serve` optionally aggregates read-only data from sibling repos — `roots:` in `config.yml`, or `--repos a,b` (replaces the config list for that invocation; the primary root is always included). A missing/unreachable root warns and is skipped, never crashes.
+
+`/api/board`'s payload gains two top-level keys and one field on every record:
+
+```jsonc
+{
+  "roots": [
+    {"id": "PT", "label": "project_template", "primary": true},
+    {"id": "CU", "label": "cairn-ui",         "primary": false}
+  ],
+  "warnings": [{"root": "../design-system", "reason": "not_found", "detail": "…"}],
+  "majors":     [{"id": "V1", "repo": "PT", "…": "…"}],
+  "milestones": [{"id": "0.5", "repo": "PT", "…": "…"}],
+  "issues":     [{"id": "PT-3", "repo": "PT", "…": "…"}]
+}
+```
+
+Single-root back-compat: `roots` has exactly one entry, `warnings` is `[]`, every record still carries `repo` — there is no conditional payload shape; the client branches on `roots.length > 1` for presentation only. `roots[]` deliberately never carries filesystem paths (keeps a localhost HTTP surface from leaking directory layout); `GET /api/issue/<id>` additionally stamps `"repo"` and `"read_only": not <that root's primary flag>` on the returned issue.
+
+Write endpoints are unaffected by any of this — see the table above.
 
 #### Example exchange — drag a card from *In Progress* to *In Review*
 
@@ -425,8 +462,8 @@ The ratified decision allows last-write-wins and makes the mtime check optional.
 | `cairn comment PT-14 --author qa-engineer --body -` | Correct delimiter + date, from stdin. |
 | `cairn show PT-14` | Rendered single issue. |
 | `cairn archive --done-before <date>` | Bulk `git mv`. |
-| `cairn check` | Lint: id/filename mismatch, dangling `parent`, unknown `milestone`, bad `status`, unsupported YAML. |
-| `cairn serve` | The board. |
+| `cairn check` | Lint: id/filename mismatch, dangling `parent`, unknown `milestone`, bad `status`, unsupported YAML, `config.yml`'s `roots:` shape (list of non-empty relative-path strings — reachability is a runtime concern, not lint, see [Multi-root](#multi-root-pt-3-2026-08-21)). |
+| `cairn serve [--repos a,b]` | The board. `--repos` (PT-3) replaces `config.yml`'s `roots:` for that invocation — read-only cross-project aggregation, see [Multi-root](#multi-root-pt-3-2026-08-21). |
 
 **Ruled 2026-08-19: the CLI is legitimate under "agents never need a server."** The constraint is read as *no MCP, no HTTP, no JSON payloads in context*; a local script that prints one line satisfies it, and atomic ID allocation cannot be done safely any other way.
 
@@ -474,7 +511,7 @@ Ship it when the 4-second poll visibly lags during a live pairing session. Not b
 | Candidate | Status | Note |
 |---|---|---|
 | **Acceptance-criteria checkbox write-back** — board renders live checkboxes that rewrite `- [ ]` → `- [x]` | **Deferred (ruled 2026-08-19)** | Phase 1 keeps **zero body-touching write paths** — the sole exception is comment append, which is tail-only and cannot disturb what precedes it. Checkbox write-back would be the first path that rewrites the *middle* of a file, which is exactly what the byte-preserving guarantee in [Write-back](#write-back-and-conflict-handling) exists to avoid. If ever built, it needs its own anchored-rewrite design and its own conflict story. |
-| **Multi-root board** — `cairn serve --repos ~/Projects/*` | **Possible phase 3, not committed** | Restores Linear's cross-project view, accepted as a v1 regression (see [Non-goals](#non-goals)). Build only if the absence actually bites. |
+| ~~**Multi-root board** — `cairn serve --repos ~/Projects/*`~~ | **Shipped (PT-3, 2026-08-21)** | Read-only cross-project aggregation. See [Non-goals](#non-goals) and [API surface](#api-surface). |
 | **Markdown rendering in the drawer** — vendored JS renderer | **Deferred (ruled 2026-08-19)** | `<pre>` ships in phase 1; vendor along the `vendor-mermaid.sh` path only when it demonstrably annoys. |
 
 ---
@@ -486,7 +523,7 @@ Every question this spec opened has been ruled. Each resolution is folded into t
 | # | Question | Ruling (2026-08-19) | Where it lives |
 |---|---|---|---|
 | 1 | Does `STATE.md` keep its *Major line*, *Roadmap*, and *Features* tables, or do they dissolve into cairn? | **Dissolve.** Stage 3 removes all four overlapping tables; `STATE.md` keeps Current Phase, Active Feature, Session Cycles, Releases, plus a board pointer and an optional `cairn snapshot`. The Completed-table rolloff ritual retires with them. | [Relationship to `STATE.md`](#relationship-to-statemd) |
-| 2 | Is losing Linear's cross-project board acceptable at v1? | **Accepted as a v1 regression.** Multi-root (`cairn serve --repos …`) is recorded as a possible phase 3, explicitly not committed. | [Non-goals](#non-goals) · [Candidate follow-ups](#candidate-follow-ups-designed-for-not-committed) |
+| 2 | Is losing Linear's cross-project board acceptable at v1? | **Accepted as a v1 regression at first (2026-08-19), then built read-only as PT-3 (2026-08-21)** — `roots:` in `config.yml` / `--repos`, warn-and-skip on unreachable roots, cross-root writes structurally refused (`403 read_only_root`). | [Non-goals](#non-goals) · [API surface](#api-surface) |
 | 3 | How is the ID prefix chosen? | **Repo-derived default with a one-time confirm prompt** at `/setup-tracker`. | [ID scheme](#id-scheme-and-collision-free-allocation) · [`config.yml`](#configyml) |
 | 4 | Render markdown in the detail drawer, or ship `<pre>`? | **`<pre>` ships in phase 1.** Vendoring a JS renderer (the `vendor-mermaid.sh` path) is deferred until it demonstrably annoys. | [Board — phase 1 scope](#board--phase-1-scope) |
 | 5 | Should `/start-feature` reserve IDs on `main` to avoid cross-branch collisions? | **No — the git add/add conflict stays the detector.** A rare loud conflict beats an extra `main` commit per feature, forever. | [ID scheme](#id-scheme-and-collision-free-allocation) |

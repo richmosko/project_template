@@ -47,7 +47,7 @@ import tempfile
 import threading
 import urllib.parse
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 # --------------------------------------------------------------------------
 # Constants
@@ -672,6 +672,32 @@ def check_repo(data_dir: Path) -> List[str]:
     data_dir = Path(data_dir)
     errors: List[str] = []
 
+    # PT-3 (team-lead ruling C): `roots:` shape only, never reachability --
+    # `cairn check` runs in CI and on any clone lacking a sibling repo, so
+    # a missing/unreachable secondary root is a runtime warn-and-skip
+    # concern (resolve_roots), not a lint error. A missing config.yml
+    # isn't itself flagged here -- that's out of this function's existing
+    # scope, unrelated to PT-3.
+    config_path = data_dir / "config.yml"
+    if config_path.exists():
+        try:
+            cfg = parse_yaml_subset(config_path.read_text(encoding="utf-8"))
+        except CairnError as e:
+            errors.append(f"config.yml: {e}")
+            cfg = {}
+        roots_val = cfg.get("roots")
+        if roots_val is not None:
+            if not isinstance(roots_val, list):
+                errors.append(f"config.yml: roots must be a list of paths, got {type(roots_val).__name__}")
+            else:
+                for idx, entry in enumerate(roots_val):
+                    if not isinstance(entry, str):
+                        errors.append(f"config.yml: roots[{idx}] must be a path string, not {type(entry).__name__}")
+                    elif not entry:
+                        errors.append(f"config.yml: roots[{idx}] must be a non-empty relative path")
+                    elif Path(entry).is_absolute():
+                        errors.append(f"config.yml: roots[{idx}] {entry!r} must be relative to the repo root")
+
     known_majors = set()
     for p in _dir_glob(data_dir / "majors"):
         try:
@@ -970,6 +996,204 @@ def compute_etag(data_dir: Path) -> str:
 
 
 # --------------------------------------------------------------------------
+# Multi-root (PT-3): read-only cross-project aggregation for `cairn serve`.
+#
+# Every single-root function above stays byte-identical. This layer adds a
+# thin aggregation on top: `resolve_roots` turns config + an optional CLI
+# override into an ordered list of `Root`s (primary always element 0,
+# unconditionally trusted; secondaries warn-and-skip on any problem rather
+# than raising), `build_multi_board_payload` calls the existing
+# `build_board_payload` once per root and stamps `repo` on every record,
+# and `compute_multi_etag`/`find_issue_in_roots` are the multi-root
+# counterparts of `compute_etag`/`find_issue_path`.
+#
+# The read-only guarantee is structural, not a check someone has to
+# remember: `find_issue_in_roots` is deliberately a separate function from
+# `find_issue_path`, and the write handlers (`_create_issue`,
+# `_mutate_issue` in `make_server`) close over `data_dir` -- the primary
+# root -- only. Nothing in this section is ever reachable from a POST
+# handler except the explicit, truthful 403 guard in `_mutate_issue`.
+# --------------------------------------------------------------------------
+
+Root = NamedTuple("Root", [("id", str), ("label", str), ("path", Path), ("primary", bool)])
+
+
+def resolve_roots(
+    data_dir: Path,
+    config: Dict[str, Any],
+    cli_repos: Optional[List[str]] = None,
+) -> Tuple[List[Root], List[Dict[str, str]]]:
+    """Resolve the primary root plus any configured/CLI secondary roots.
+
+    Returns `(roots, warnings)`. The primary (`data_dir`, already resolved
+    and validated upstream by `resolve_data_dir`) is always `roots[0]` and
+    is never skipped or warned about -- a broken primary is a hard
+    `CairnError` raised before this function is ever called, not a
+    warn-and-skip candidate.
+
+    `cli_repos`, when given (not `None`), REPLACES `config["roots"]`
+    entirely rather than extending it (team-lead ruling, PT-3 §7-B) --
+    "what I typed is what I get". The primary root is included either way.
+    `cli_repos=[]` (an explicit empty override) means "no secondaries",
+    distinct from `cli_repos=None` (defer to `config["roots"]`).
+
+    Each secondary entry must be a non-empty string. `config["roots"]`
+    entries must additionally be relative (not absolute) -- committed,
+    portable across clones/machines (§4.1); `cli_repos` entries may be
+    absolute (§4.3) -- ad-hoc and uncommitted, so portability doesn't
+    apply. It resolves against the repo root (`data_dir.parent.parent`)
+    two ways, tried in order: `<entry>/config.yml` (points directly at a
+    data dir) or `<entry>/process/cairn/config.yml` (points at a repo
+    root, the normal case). Anything else -- missing, unreadable,
+    malformed config.yml, or a prefix colliding with an already-loaded
+    root -- is skipped with a warning (reason codes: not_found,
+    unreadable, bad_config, duplicate, bad_entry), never raised.
+    """
+    data_dir = Path(data_dir)
+    repo_root = data_dir.parent.parent
+    primary = Root(
+        id=str(config.get("prefix") or "ISS"),
+        label=repo_root.name,
+        path=data_dir,
+        primary=True,
+    )
+    roots: List[Root] = [primary]
+    warnings: List[Dict[str, str]] = []
+    seen_ids = {primary.id}
+
+    from_cli = cli_repos is not None
+    if from_cli:
+        entries: List[Any] = list(cli_repos)
+    else:
+        raw = config.get("roots")
+        entries = raw if isinstance(raw, list) else []
+
+    for entry in entries:
+        if not isinstance(entry, str) or not entry:
+            warnings.append({
+                "root": str(entry), "reason": "bad_entry",
+                "detail": "roots entries must be non-empty relative path strings",
+            })
+            continue
+        # §4.3: config.yml's roots: must be relative (committed, portable
+        # across clones/machines) -- --repos is ad-hoc/uncommitted, so an
+        # absolute path there is fine and deliberately allowed.
+        if Path(entry).is_absolute() and not from_cli:
+            warnings.append({
+                "root": entry, "reason": "bad_entry",
+                "detail": "roots entries must be relative to the repo root",
+            })
+            continue
+
+        candidate = (repo_root / entry).resolve()
+        if (candidate / "config.yml").is_file():
+            secondary_data_dir = candidate
+        elif (candidate / "process" / "cairn" / "config.yml").is_file():
+            secondary_data_dir = candidate / "process" / "cairn"
+        else:
+            warnings.append({"root": entry, "reason": "not_found", "detail": str(candidate)})
+            continue
+
+        cfg_path = secondary_data_dir / "config.yml"
+        try:
+            cfg_text = cfg_path.read_text(encoding="utf-8")
+        except OSError as e:
+            warnings.append({"root": entry, "reason": "unreadable", "detail": str(e)})
+            continue
+        try:
+            parsed_cfg = parse_yaml_subset(cfg_text)
+        except CairnError as e:
+            warnings.append({"root": entry, "reason": "bad_config", "detail": str(e)})
+            continue
+
+        secondary_id = str(parsed_cfg.get("prefix") or "")
+        if not secondary_id or secondary_id in seen_ids:
+            warnings.append({"root": entry, "reason": "duplicate", "detail": secondary_id})
+            continue
+
+        label = secondary_data_dir.parent.parent.name
+        roots.append(Root(id=secondary_id, label=label, path=secondary_data_dir, primary=False))
+        seen_ids.add(secondary_id)
+
+    return roots, warnings
+
+
+def build_multi_board_payload(roots: List[Root], warnings: List[Dict[str, str]]) -> Dict[str, Any]:
+    """Aggregate `build_board_payload` across every root, stamping
+    `record["repo"] = root.id` on every major/milestone/issue.
+
+    A per-root `CairnError` (any file in that root fails to parse) is
+    caught here and converted into a `parse_error` warning -- that root
+    contributes nothing to the payload, the same warn-and-skip contract
+    `resolve_roots` applies one level up, applied to file-level breakage
+    inside an otherwise-reachable root.
+
+    `warnings` is the caller's existing list (typically `resolve_roots`'s
+    second return value); this function returns a **new** list that
+    includes it plus any parse_error entries discovered here -- callers
+    must use the returned `payload["warnings"]`, not assume their input
+    list was mutated in place.
+    """
+    all_warnings = list(warnings)
+    majors: List[Dict[str, Any]] = []
+    milestones: List[Dict[str, Any]] = []
+    issues: List[Dict[str, Any]] = []
+
+    for root in roots:
+        try:
+            payload = build_board_payload(root.path)
+        except CairnError as e:
+            all_warnings.append({"root": root.id, "reason": "parse_error", "detail": str(e)})
+            continue
+        for m in payload["majors"]:
+            m = dict(m)
+            m["repo"] = root.id
+            majors.append(m)
+        for m in payload["milestones"]:
+            m = dict(m)
+            m["repo"] = root.id
+            milestones.append(m)
+        for i in payload["issues"]:
+            i = dict(i)
+            i["repo"] = root.id
+            issues.append(i)
+
+    return {
+        "roots": [{"id": r.id, "label": r.label, "primary": r.primary} for r in roots],
+        "warnings": all_warnings,
+        "majors": majors,
+        "milestones": milestones,
+        "issues": issues,
+    }
+
+
+def compute_multi_etag(roots: List[Root]) -> str:
+    """Fold `compute_etag` over every root -- correct with no key-collision
+    risk, since `compute_etag` already hashes each file's full path (which
+    differs across roots) plus its mtime."""
+    hasher = hashlib.sha256()
+    for root in roots:
+        hasher.update(compute_etag(root.path).encode("utf-8"))
+        hasher.update(b"\n")
+    return hasher.hexdigest()[:16]
+
+
+def find_issue_in_roots(roots: List[Root], issue_id: str) -> Optional[Root]:
+    """The root `issue_id` lives in, or `None`.
+
+    Deliberately a *separate* function from `find_issue_path` -- never
+    called from `do_POST` -- so there is no code path from a mutation
+    handler to a secondary root's filesystem. That separation is what
+    makes read-only structural rather than a check someone has to
+    remember (design note §5.1).
+    """
+    for root in roots:
+        if find_issue_path(root.path, issue_id) is not None:
+            return root
+    return None
+
+
+# --------------------------------------------------------------------------
 # Live push (PT-1): a periodic fs-scan watcher + SSE broadcaster.
 #
 # Stdlib only, per the boring-stack principle -- no watchdog/inotify dep.
@@ -1045,10 +1269,18 @@ class _SSEBroadcaster:
 
 class DataDirWatcher:
     """Periodic fs-scan watcher (PT-1). Every `interval` seconds, rescans
-    `data_dir` and diffs against the previous scan; any change gets
-    broadcast as one coarse event to every subscribed SSE client (the
-    COARSE event contract, per team-lead's ruling -- clients refetch the
-    whole board on any event, no per-id targeted diff).
+    every root in `roots` and diffs the merged scan against the previous
+    one; any change gets broadcast as one coarse event to every subscribed
+    SSE client (the COARSE event contract, per team-lead's ruling --
+    clients refetch the whole board on any event, no per-id targeted
+    diff).
+
+    PT-3: takes `roots` (a `List[Root]`), not a bare `data_dir` --
+    `scan_data_dir`'s keys ("<sub>/<file>.md") collide across roots (two
+    repos can each have a milestones/0.5.md), so each root's scan is
+    merged under a `"<root.id>:<sub>/<file>.md"` prefix before diffing.
+    Single-root callers pass a one-element `roots` list; the merged-key
+    format costs them nothing since there's nothing to collide with.
 
     Lifecycle is bound to the caller that constructs it (make_server),
     not to `cmd_serve`: the baseline snapshot is taken synchronously in
@@ -1059,13 +1291,20 @@ class DataDirWatcher:
     loop) so server teardown in tests isn't slowed down by it.
     """
 
-    def __init__(self, data_dir: Path, broadcaster: _SSEBroadcaster, interval: float = 1.0) -> None:
-        self._data_dir = data_dir
+    def __init__(self, roots: List[Root], broadcaster: _SSEBroadcaster, interval: float = 1.0) -> None:
+        self._roots = roots
         self._broadcaster = broadcaster
         self._interval = interval
         self._stop_event = threading.Event()
-        self._snapshot = scan_data_dir(data_dir)
+        self._snapshot = self._scan_all()
         self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def _scan_all(self) -> Dict[str, int]:
+        merged: Dict[str, int] = {}
+        for root in self._roots:
+            for key, mtime in scan_data_dir(root.path).items():
+                merged[f"{root.id}:{key}"] = mtime
+        return merged
 
     def start(self) -> None:
         self._thread.start()
@@ -1075,7 +1314,7 @@ class DataDirWatcher:
 
     def _run(self) -> None:
         while not self._stop_event.wait(self._interval):
-            current = scan_data_dir(self._data_dir)
+            current = self._scan_all()
             diff = diff_scans(self._snapshot, current)
             self._snapshot = current
             if any(diff.values()):
@@ -1086,18 +1325,35 @@ class DataDirWatcher:
 # HTTP server — a lens, not a source of truth. No state held here.
 # --------------------------------------------------------------------------
 
-def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: Optional[int] = None):
+def make_server(
+    data_dir: Path,
+    config: Optional[Dict[str, Any]] = None,
+    port: Optional[int] = None,
+    roots: Optional[List[Root]] = None,
+):
     """Build (but do not start) the board's HTTPServer, bound to 127.0.0.1.
 
     port=0 -> ephemeral (read back via server.server_address[1]).
     port=None -> load_config(data_dir)["port"].
     Caller owns serve_forever() so tests can run it in a thread.
+
+    PT-3: `roots`, when omitted (`None`), is synthesised by calling
+    `resolve_roots(data_dir, config)` -- the exact same function multi-root
+    callers use -- so single-root behaviour (the overwhelming majority of
+    callers: every existing test, `cmd_serve` without `--repos`) is
+    exercised by the *same* code path multi-root uses, not a separate one
+    that could silently drift. `cmd_serve` resolves roots itself (for its
+    startup banner) and passes the result in explicitly.
     """
     data_dir = Path(data_dir)
     if config is None:
         config = load_config(data_dir)
     if port is None:
         port = int(os.environ.get("CAIRN_PORT", config.get("port", DEFAULT_PORT)))
+    if roots is None:
+        roots, root_warnings = resolve_roots(data_dir, config)
+    else:
+        root_warnings = []
     host = "127.0.0.1"
 
     # PT-1: Server is per-connection threaded (ThreadingMixIn below) so a
@@ -1124,7 +1380,7 @@ def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: O
     # live watcher for free. Baseline snapshot happens synchronously
     # inside DataDirWatcher.__init__, below, before .start() is called.
     broadcaster = _SSEBroadcaster()
-    watcher = DataDirWatcher(data_dir, broadcaster)
+    watcher = DataDirWatcher(roots, broadcaster)
 
     class Handler(http.server.BaseHTTPRequestHandler):
         server_version = "cairn/1.0"
@@ -1208,13 +1464,13 @@ def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: O
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
             if path == "/api/board":
-                etag = compute_etag(data_dir)
+                etag = compute_multi_etag(roots)
                 if self.headers.get("If-None-Match") == etag:
                     self.send_response(304)
                     self.send_header("ETag", etag)
                     self.end_headers()
                     return
-                payload = build_board_payload(data_dir)
+                payload = build_multi_board_payload(roots, root_warnings)
                 body = json.dumps(payload).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -1226,10 +1482,18 @@ def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: O
                 return
             if path.startswith("/api/issue/"):
                 issue_id = urllib.parse.unquote(path[len("/api/issue/"):])
-                payload = build_issue_payload(data_dir, issue_id)
-                if payload is None:
+                # PT-3: read side is roots-aware -- an issue from ANY
+                # loaded root is readable, stamped with which root it came
+                # from and whether that root is writable. The write side
+                # (_mutate_issue below) is deliberately NOT roots-aware in
+                # the same way -- that asymmetry is the read-only guarantee.
+                owning_root = find_issue_in_roots(roots, issue_id)
+                if owning_root is None:
                     self._send_json(404, {"error": "not_found", "message": f"no such issue: {issue_id}"})
                     return
+                payload = build_issue_payload(owning_root.path, issue_id)
+                payload["repo"] = owning_root.id
+                payload["read_only"] = not owning_root.primary
                 self._send_json(200, payload)
                 return
             if path == "/api/events":
@@ -1282,8 +1546,23 @@ def make_server(data_dir: Path, config: Optional[Dict[str, Any]] = None, port: O
             self._send_json(200, build_issue_payload(data_dir, new_path.stem))
 
         def _mutate_issue(self, issue_id: str, payload: Dict[str, Any]) -> None:
+            # PT-3: find_issue_path is scoped to `data_dir` (the primary
+            # root) only -- structurally, not by a check that could be
+            # forgotten (design note §5.1). A foreign id is truthfully
+            # refused with 403 read_only_root; an id no root recognizes at
+            # all is a genuine 404. find_issue_in_roots is only ever
+            # called here to produce that distinction -- never to locate a
+            # file to write to.
             issue_path = find_issue_path(data_dir, issue_id)
             if issue_path is None:
+                foreign_root = find_issue_in_roots(roots, issue_id)
+                if foreign_root is not None and not foreign_root.primary:
+                    self._send_json(403, {
+                        "error": "read_only_root",
+                        "message": f"{issue_id} lives in root {foreign_root.id} — "
+                                   "the board is read-only across roots",
+                    })
+                    return
                 self._send_json(404, {"error": "not_found", "message": f"no such issue: {issue_id}"})
                 return
 
@@ -1551,7 +1830,39 @@ def cmd_serve(args: argparse.Namespace) -> int:
     data_dir = resolve_data_dir(args)
     config = load_config(data_dir)
     port = args.port if args.port is not None else None
-    server = make_server(data_dir, config, port)
+
+    # PT-3: --repos REPLACES config.yml's roots: list (team-lead ruling B)
+    # -- primary root is always included regardless, by resolve_roots
+    # itself. Comma-split, same convention as `cairn new --labels`.
+    cli_repos = None
+    if args.repos is not None:
+        cli_repos = [r.strip() for r in args.repos.split(",") if r.strip()]
+
+    roots, warnings = resolve_roots(data_dir, config, cli_repos)
+    for w in warnings:
+        detail = f" ({w['detail']})" if w.get("detail") else ""
+        print(f"cairn: warning: skipping root {w['root']!r} — {w['reason']}{detail}", file=sys.stderr)
+
+    # seceng D: multi-root widens cairn serve's read surface to whatever
+    # roots: (or --repos) names -- a human tripwire so a fat-fingered or
+    # stale entry that silently serves the wrong project's tracker becomes
+    # visible instead of silent, printed as a RESOLVED ABSOLUTE path. This
+    # is the CLI operator's own terminal, not a network-exposed surface --
+    # unlike the /api/board payload's `roots[]` array, which deliberately
+    # withholds every root's filesystem path (design note §3.1: keeps a
+    # localhost HTTP surface from leaking the user's directory layout).
+    # That withholding is scoped to `roots[]` specifically, not the whole
+    # payload -- GET /api/issue/<id>'s `path` field (PT-10, unchanged by
+    # PT-3) already carries a real on-disk path for any root, primary or
+    # secondary; seceng's nit (2026-08-21) was this comment overclaiming
+    # "the payload" withholds path info in general, which it doesn't.
+    if len(roots) > 1:
+        print("Serving across multiple roots:", file=sys.stderr)
+        for root in roots:
+            marker = " (primary)" if root.primary else ""
+            print(f"  {root.id}: {root.path.resolve()}{marker}", file=sys.stderr)
+
+    server = make_server(data_dir, config, port, roots=roots)
     bound_port = server.server_address[1]
     print(f"Serving cairn board at http://127.0.0.1:{bound_port}/")
     print(f"  Kanban: http://127.0.0.1:{bound_port}/")
@@ -1629,6 +1940,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     p_serve = sub.add_parser("serve", parents=[common], help="run the board server")
     p_serve.add_argument("--port", type=int, default=None)
+    p_serve.add_argument(
+        "--repos", default=None,
+        help="comma-separated root paths (relative to the repo root, or absolute) -- "
+             "REPLACES config.yml's roots: list entirely; the primary root is always included",
+    )
     p_serve.set_defaults(func=cmd_serve)
 
     return parser
