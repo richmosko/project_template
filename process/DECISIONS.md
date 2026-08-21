@@ -19,6 +19,15 @@ The log is **append-only**. Don't edit historical entries. If a past decision is
 
 ---
 
+### 2026-08-20 — board.js test harness: zero-dependency node:test, no jsdom (PT-22)
+**Decision:** board.js's pure-logic functions are extracted into `scripts/cairn/board/board-logic.js` (a `CairnLogic` global loaded before board.js — no module system, no build step) and unit-tested with Node's built-in `node:test`/`node:assert`/`node:vm` under `scripts/cairn/tests/js/`. No jsdom, no npm, no `package.json`. Node is a soft prerequisite for the JS test suite only (board.js still runs framework-free in any browser); the JS suite skips-with-notice when Node is absent, and the Python suite stays the hard gate.
+**Why:** The bug class that motivated this (PT-3's six id-collision lookups + the twice-written draggable predicate) is pure logic — it needs no DOM to test once the functions are extracted. Adding jsdom+npm to a *template* is the deciding cost: every instantiated project and every `/spin-off-component` inherits the toolchain whether or not it has any JS, and jsdom's transitive tree can't be byte-verified the way seceng's vendored deps (PT-4/PT-20) are. The extraction also converts two hand-maintained invariants into shared functions (`issueMilestoneKey`, `isDraggable`), removing the duplication class outright — the payoff independent of any test.
+**Alternatives considered:**
+- *jsdom + a test runner* — rejected: npm toolchain in a template, unverifiable transitive deps, contradicts the vendored-dependency posture.
+- *Hand-rolled harness on Node stdlib* — rejected: `node:test` already is the minimal harness, maintained by the Node team; rolling our own only adds maintenance.
+**Approved by:** Rich Mosko
+**Supersedes:** _none — closes the coverage gap PT-3 exposed (board.js had zero automated tests). Bundled with PT-24 (the `/finish-feature` gate that never actually ran)._
+
 ### 2026-08-20 — Multi-root board layout: repo-grouped, read-only (PT-3)
 **Decision:** The multi-root board (`cairn serve` aggregating a `roots:` config list, or `--repos` which replaces it) is **read-only** and renders **repo-grouped** — a top-level section per repo, milestone lanes nested inside, each card repo-tagged. Single-root renders byte-identically to before (no repo wrapper). Because milestone/major ids are version-named and therefore **not** distinct across roots (every repo has a `0.5`, a `V1`), every id-keyed lookup is repo-scoped via a `repo::id` identity; the major-tab bar dedupes by bare id with union filtering while the lookup stays repo-scoped. `--repos` replaces the config list (`B`); `cairn check` validates `roots:` shape only, not reachability (`C`).
 **Why:** Milestones only share a version string by coincidence across independently-versioned spun-off components, so fusing lanes on bare id would merge unrelated roadmaps — repo-grouping keeps each project legible, which is the point of a cross-project view. Read-only keeps writes structurally scoped to the primary root (no code path from a POST handler to a secondary root), sidestepping cross-root write-routing entirely for v1.

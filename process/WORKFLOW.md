@@ -203,6 +203,10 @@ Three distinct mechanisms, each with a different scope. Use the right one for th
 - Just happening in this session → **shared task list**
 - Direct question or hand-off note → **SendMessage**
 
+### Sha-leading convention (build/review hand-offs)
+
+When two agents commit and review against the same branch in a tight loop, their messages cross — the reviewer reports on commit X while the builder has already pushed Y, and every crossing costs a round trip to establish who saw what. **Lead any build→review or review→build hand-off message with the sha you acted against:** `built @ <sha>`, `reviewed @ <sha>`, `chrome-passed @ <sha>`. It's a one-line habit, not a workflow change, and it makes a crossing self-resolving — the recipient sees at a glance whether the message predates their latest push. (Adopted 2026-08-20 after four crossings on PT-3; applies to any tightly-coupled pair, most often an implementation lead ↔ architect/qa.)
+
 ### Anchor-task pattern
 
 When a feature starts (`/start-feature`), the implementation lead creates an **anchor task** on the shared task list mirroring the cairn issue (title = feature title, description = acceptance criteria). Subtasks hang under it via `blockedBy` chains:

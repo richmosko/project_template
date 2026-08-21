@@ -58,6 +58,12 @@
      window.marked / window.DOMPurify feature-check sees them. -->
 <script src="/board/vendor/marked.js"></script>
 <script src="/board/vendor/purify.min.js"></script>
+<!-- PT-22: pure-logic functions, unit-tested independently of the DOM
+     (scripts/cairn/tests/js/). Must load before board.js -- board.js
+     destructures the CairnLogic global at the top of its own IIFE, so a
+     load-order mistake here throws at parse time instead of silently
+     producing `undefined` deep inside a render. -->
+<script src="/board/board-logic.js"></script>
 <script src="/board/board.js"></script>
 </body>
 </html>

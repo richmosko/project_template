@@ -11,6 +11,25 @@
 (function () {
   "use strict";
 
+  // PT-22: pure logic lives in board-logic.js (loaded before this file --
+  // see board.html), reached as the CairnLogic global. Destructuring at
+  // the top rather than calling CairnLogic.xxx() at every use site means
+  // (a) call sites stay exactly as short as they were pre-extraction, and
+  // (b) a load-order mistake (board-logic.js missing, or loaded after
+  // this file) throws a ReferenceError right here, at parse/init time,
+  // instead of silently producing `undefined` deep inside a render pass.
+  var primaryRootId = CairnLogic.primaryRootId;
+  var milestoneLabel = CairnLogic.milestoneLabel;
+  var milestoneMajor = CairnLogic.milestoneMajor;
+  var dedupeMajorIds = CairnLogic.dedupeMajorIds;
+  var milestoneProgress = CairnLogic.milestoneProgress;
+  var issueMilestoneKey = CairnLogic.issueMilestoneKey;
+  var uniqueMilestoneKeys = CairnLogic.uniqueMilestoneKeys;
+  var primaryMilestones = CairnLogic.primaryMilestones;
+  var isDraggable = CairnLogic.isDraggable;
+  var orderRoots = CairnLogic.orderRoots;
+  var laneStateKey = CairnLogic.laneStateKey;
+
   var STATUS_LABELS = {
     "backlog": "Backlog",
     "todo": "Todo",
@@ -115,20 +134,6 @@
   // Filtering
   // ------------------------------------------------------------------
 
-  // PT-3: milestone ids are NOT unique across roots (a milestone "0.5"
-  // in repo A is unrelated to a milestone "0.5" in repo B) -- the lookup
-  // must be repo-scoped, or an issue can silently inherit a different
-  // repo's same-id milestone's major. `repoId` is optional only for
-  // single-root callers where there's nothing to disambiguate; every
-  // multi-root call site below passes it. (architect + team-lead review,
-  // 2026-08-21: "the union changes only the final id comparison, the
-  // lookup stays repo-qualified".)
-  function milestoneMajor(milestoneId, repoId) {
-    var candidates = (state.board.milestones || []).filter(function (m) { return m.id === milestoneId; });
-    var ms = repoId != null ? candidates.filter(function (m) { return m.repo === repoId; })[0] : candidates[0];
-    return ms ? ms.major : null;
-  }
-
   function filteredIssues() {
     if (!state.board) return [];
     var f = state.filters;
@@ -136,19 +141,20 @@
     return state.board.issues.filter(function (issue) {
       if (!state.showCancelled && issue.status === "cancelled") return false;
       if (state.currentMajor !== "all") {
-        // Lookup repo-scoped (see milestoneMajor's docstring); the
-        // comparison against the selected tab is a bare-id union across
-        // repos (team-lead ruling -- majors are a portfolio-wide concept
-        // in this template's versioning convention, unlike milestones).
-        var major = milestoneMajor(issue.milestone, issue.repo);
+        // PT-22: milestoneMajor (board-logic.js) does the repo-scoped
+        // lookup; the comparison against the selected tab is a bare-id
+        // union across repos (team-lead ruling -- majors are a
+        // portfolio-wide concept in this template's versioning
+        // convention, unlike milestones). "The union changes only the
+        // final id comparison, the lookup stays repo-qualified."
+        var major = milestoneMajor(state.board, issue.milestone, issue.repo);
         if (major !== state.currentMajor) return false;
       }
-      // PT-3: milestone ids collide across roots (unlike issue ids), so
-      // the filter-milestone select's value is always a repo-qualified
-      // composite "<repo>::<milestone>" -- see its populateSelect call in
-      // renderHeader. Comparing bare issue.milestone here would match an
-      // unrelated same-id milestone in another repo.
-      if (f.milestone && (issue.repo + "::" + (issue.milestone || "")) !== f.milestone) return false;
+      // PT-22: issueMilestoneKey (board-logic.js) is the SAME function
+      // the filter-milestone select's option builder calls (see
+      // renderHeader) -- one shared "repo::milestone" key, not two
+      // independently hand-written expressions that must happen to agree.
+      if (f.milestone && issueMilestoneKey(issue) !== f.milestone) return false;
       if (f.assignee && issue.assignee !== f.assignee) return false;
       if (f.label && (issue.labels || []).indexOf(f.label) === -1) return false;
       if (f.repo && issue.repo !== f.repo) return false;
@@ -185,15 +191,12 @@
     // every repo (union); issues still render inside their own repo
     // section. Internal lookups (milestoneMajor, filteredIssues) stay
     // repo-scoped -- only this dedupe/comparison is at the bare-id level
-    // (team-lead ruling, 2026-08-21).
-    var seenMajorIds = {};
-    (board.majors || []).forEach(function (major) {
-      if (seenMajorIds[major.id]) return;
-      seenMajorIds[major.id] = true;
+    // (team-lead ruling, 2026-08-21). PT-22: dedupeMajorIds (board-logic.js).
+    dedupeMajorIds(board.majors).forEach(function (majorId) {
       var btn = document.createElement("button");
-      btn.textContent = major.id;
-      btn.className = state.currentMajor === major.id ? "active" : "";
-      btn.onclick = function () { state.currentMajor = major.id; render(); };
+      btn.textContent = majorId;
+      btn.className = state.currentMajor === majorId ? "active" : "";
+      btn.onclick = function () { state.currentMajor = majorId; render(); };
       majorsTabs.appendChild(btn);
     });
 
@@ -203,37 +206,26 @@
     var progressEl = document.getElementById("milestone-progress");
     progressEl.innerHTML = "";
     (board.milestones || []).forEach(function (ms) {
-      // PT-3: scope the issue count to THIS record's own repo -- matching
-      // on bare milestone id alone would fuse two repos' done/total into
-      // one number, shown identically on both repos' same-id entries.
-      var msIssues = board.issues.filter(function (i) { return i.milestone === ms.id && i.repo === ms.repo; });
-      if (msIssues.length === 0 && ms.kind !== "product") return;
-      var done = msIssues.filter(function (i) { return i.status === "done"; }).length;
+      // PT-22: milestoneProgress (board-logic.js) scopes the issue count
+      // to THIS record's own repo -- matching on bare milestone id alone
+      // would fuse two repos' done/total into one number, shown
+      // identically on both repos' same-id entries.
+      var progress = milestoneProgress(board.issues, ms);
+      if (progress.total === 0 && ms.kind !== "product") return;
       var span = document.createElement("span");
       var tag = ms.ga ? " · GA" : "";
       var target = ms.target_tag ? " · " + ms.target_tag : "";
       var repoPrefix = multiRoot ? ms.repo + " · " : "";
-      span.textContent = repoPrefix + ms.id + " · " + (ms.name || "") + tag + target + " · " + done + "/" + msIssues.length + " done";
+      span.textContent = repoPrefix + ms.id + " · " + (ms.name || "") + tag + target + " · " + progress.done + "/" + progress.total + " done";
       progressEl.appendChild(span);
     });
 
-    // PT-3: milestone ids collide across roots -- the filter value is
-    // always a repo-qualified composite "<repo>::<milestone>" (mirrors
-    // filteredIssues' comparison), built from the (repo, milestone) pairs
-    // actually present among issues, not board.milestones (an unused
-    // milestone in a filter dropdown would be dead weight here, unlike
-    // new-issue-milestone below where an *empty* milestone must still be
-    // choosable).
-    var msPairs = [];
-    var seenMsKeys = {};
-    board.issues.forEach(function (i) {
-      if (!i.milestone) return;
-      var k = i.repo + "::" + i.milestone;
-      if (seenMsKeys[k]) return;
-      seenMsKeys[k] = true;
-      msPairs.push({ key: k, repo: i.repo, milestone: i.milestone });
-    });
-    msPairs.sort(function (a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; });
+    // PT-22: milestone ids collide across roots -- the filter value is
+    // always a repo-qualified composite "<repo>::<milestone>" built by
+    // uniqueMilestoneKeys (board-logic.js), the same function
+    // filteredIssues' comparison calls via issueMilestoneKey -- one
+    // shared invariant, not two hand-written expressions that must agree.
+    var msPairs = uniqueMilestoneKeys(board.issues);
     populateSelect(
       "filter-milestone",
       msPairs.map(function (p) { return p.key; }),
@@ -275,17 +267,15 @@
     // lint error. All known primary milestones, not just ones already
     // carrying an issue -- a fresh milestone with zero issues yet should
     // still be choosable when creating the first one for it.
-    // Null-guard (architect review, 2026-08-21): mirrors cardEl/handleDrop
-    // -- a payload with no `roots`/`repo` dimension at all (stale cached
-    // board.js against an older cairn serve) must not filter every
-    // milestone out via `undefined === null`; treat "no repo dimension"
-    // as "everything is the primary" rather than an empty, broken select.
+    // PT-22: primaryMilestones (board-logic.js) has the null-guard built
+    // in (architect review, 2026-08-21) -- a payload with no `roots`/
+    // `repo` dimension at all (stale cached board.js against an older
+    // cairn serve) must not filter every milestone out via
+    // `undefined === null`; treat "no repo dimension" as "everything is
+    // the primary" rather than an empty, broken select.
     populateSelect(
       "new-issue-milestone",
-      (board.milestones || [])
-        .filter(function (m) { return primaryId == null || m.repo === primaryId; })
-        .map(function (m) { return m.id; })
-        .sort(),
+      primaryMilestones(board.milestones, primaryId).map(function (m) { return m.id; }).sort(),
       function (v) { return milestoneLabel(board, v, primaryId); }
     );
   }
@@ -294,21 +284,6 @@
     var set = {};
     values.forEach(function (v) { if (v) set[v] = true; });
     return Object.keys(set).sort();
-  }
-
-  // PT-16: "id · name", falling back to the bare id when the milestone has
-  // no `name` or `id` names no milestone file at all (e.g. the "(none)"
-  // swimlane key, or a dangling milestone reference) -- mirrors the
-  // progress-strip's existing id·name rendering (renderHeader, above).
-  //
-  // PT-3: `repoId`, when given, scopes the lookup so repo B's "0.5"
-  // never renders repo A's milestone name (the collision architect
-  // caught: this exact bug would have shown up in the first repo-grouped
-  // screenshot). Every multi-root call site passes it.
-  function milestoneLabel(board, id, repoId) {
-    var candidates = (board.milestones || []).filter(function (m) { return m.id === id; });
-    var ms = repoId != null ? candidates.filter(function (m) { return m.repo === repoId; })[0] : candidates[0];
-    return ms && ms.name ? id + " · " + ms.name : id;
   }
 
   function populateSelect(id, values, labelFor) {
@@ -330,35 +305,17 @@
   // Kanban rendering
   // ------------------------------------------------------------------
 
-  // PT-3: the id of the one root with primary:true in the current board
-  // payload. Single-root payloads carry exactly one root (always
-  // primary), so this is safe to call unconditionally.
-  function primaryRootId(board) {
-    var roots = (board && board.roots) || [];
-    for (var i = 0; i < roots.length; i++) {
-      if (roots[i].primary) return roots[i].id;
-    }
-    return null;
-  }
-
   function cardEl(issue) {
     var card = document.createElement("div");
     card.className = "card";
     // PT-3: a foreign-root card is not draggable -- UI courtesy only
     // (§3.3.2: "not the security boundary"), the server's 403
-    // read_only_root is what actually enforces this.
-    //
-    // Null-guard (architect review, 2026-08-21): a payload with no
-    // `roots` dimension at all -- e.g. stale board.js cached against an
-    // older cairn serve process, since _send_static sets no
-    // Cache-Control -- makes primaryRootId return null and issue.repo
-    // undefined. `undefined === null` is false, which would make every
-    // card undraggable and every drop refuse itself with a misleading
-    // "read-only" toast. Treat "no repo dimension at all" as "everything
-    // is the primary" (the true pre-PT-3 behavior) rather than degrading
-    // into a board where nothing drags for the wrong reason.
-    var cardPrimaryId = primaryRootId(state.board);
-    card.draggable = cardPrimaryId == null || issue.repo === cardPrimaryId;
+    // read_only_root is what actually enforces this. PT-22: isDraggable
+    // (board-logic.js) is the SAME shared predicate handleDrop's refusal
+    // guard calls below -- including its null-guard (architect review,
+    // 2026-08-21: a payload with no `roots` dimension at all must read as
+    // "everything is the primary", not "nothing is draggable").
+    card.draggable = isDraggable(issue, primaryRootId(state.board));
     card.dataset.id = issue.id;
     card.addEventListener("dragstart", function (e) {
       card.classList.add("dragging");
@@ -550,7 +507,7 @@
         });
         order.sort();
         order.forEach(function (key) {
-          section.appendChild(milestoneLaneEl(board, key, byMilestone[key], root.id + "::" + key, root.id));
+          section.appendChild(milestoneLaneEl(board, key, byMilestone[key], laneStateKey(root.id, key), root.id));
         });
       } else {
         section.appendChild(columnsFor(issues));
@@ -590,7 +547,7 @@
       order.sort();
       var soleRootId = primaryRootId(board);
       order.forEach(function (key) {
-        main.appendChild(milestoneLaneEl(board, key, byMilestone[key], soleRootId + "::" + key, soleRootId));
+        main.appendChild(milestoneLaneEl(board, key, byMilestone[key], laneStateKey(soleRootId, key), soleRootId));
       });
       return;
     }
@@ -601,10 +558,7 @@
       main.innerHTML = '<div class="empty-state">No issues match the current filters.</div>';
       return;
     }
-    var orderedRoots = roots.slice().sort(function (a, b) {
-      if (a.primary !== b.primary) return a.primary ? -1 : 1;
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    });
+    var orderedRoots = orderRoots(roots);
     orderedRoots.forEach(function (root) {
       var repoIssues = issues.filter(function (issue) { return issue.repo === root.id; });
       if (repoIssues.length === 0) return; // no empty shells -- a repo with nothing to show renders nothing
@@ -622,12 +576,13 @@
     // than relying on the server's 403 read_only_root round-trip to be
     // the only thing that catches it (architect review, 2026-08-21).
     //
-    // Null-guard (architect review, 2026-08-21): mirrors cardEl's --
-    // a payload with no `roots` dimension makes primaryRootId return
-    // null; treat that as "everything is the primary" rather than
-    // refusing every drop with a toast that blames the wrong thing.
-    var dropPrimaryId = primaryRootId(state.board);
-    if (dropPrimaryId != null && issue.repo !== dropPrimaryId) {
+    // PT-22: !isDraggable(...) -- the SAME shared predicate cardEl calls
+    // above (board-logic.js), inverted for a refusal rather than a
+    // permission. Not a separately-maintained comparison: isDraggable IS
+    // the permission function; this call site is the one place that
+    // negates it, so the two can never silently drift out of agreement
+    // the way the pre-PT-22 inline comparisons did.
+    if (!isDraggable(issue, primaryRootId(state.board))) {
       showToast(id + " is read-only (lives in a different root)", true);
       return;
     }

@@ -12,7 +12,7 @@ temp/
 .claude/linear-team.json
 
 # Agent memory: session-derived working memory, per-machine — not ratified project state
-.claude/agent-memory/
+**/.claude/agent-memory/
 
 # OS noise
 .DS_Store
