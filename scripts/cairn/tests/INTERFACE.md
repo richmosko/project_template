@@ -68,8 +68,10 @@ Full design: `temp/2026-08-21-architect-pt3-design.md` (architect) — that note
 - `make_server(data_dir, config=None, port=None, roots=None)` — `roots=None` synthesises the single primary root (back-compat: every existing `test_server.py` call/test keeps working unmodified).
 - `DataDirWatcher(roots, broadcaster, interval=1.0)` — takes `roots` (not `data_dir`); per-root scan keys are namespaced (e.g. `"<root.id>:<sub>/<file>.md"`) so identical relative paths across roots (two repos both having `milestones/0.5.md`) can't mask each other's changes.
 - Read-only enforcement: `POST /api/issue/<id>` for an id that resolves to a secondary root → `403 {"error": "read_only_root", "message": "..."}`, and the secondary file is untouched. `GET /api/issue/<id>` stamps `"read_only": not root.primary` in addition to `"repo"`.
+- `--repos` (team-lead ruling B, 2026-08-21): **REPLACES** `config["roots"]` entirely (not a union) — `resolve_roots(data_dir, config, cli_repos=[...])`. The primary root is always included regardless. `cli_repos=None` defers to `config["roots"]`; `cli_repos=[]` is an explicit "no secondaries" override, distinct from `None`. Unlike `config["roots"]` entries (must be relative, §4.1), `cli_repos` entries **may be absolute** (§4.3, ad-hoc/uncommitted so portability doesn't apply) — `resolve_roots` only rejects an absolute entry when it came from `config["roots"]`.
+- `check_repo` (team-lead ruling C, 2026-08-21): validates `config.yml`'s `roots:` **shape only** — must be a list; each entry a non-empty, relative path string. Never checks reachability (that's `resolve_roots`'s runtime warn-and-skip job) — a sibling repo absent on a given clone/CI machine is not a lint error.
 
-Explicitly out of scope for tests until team-lead rules (design note §7): swimlane/major-tab grouping when milestone ids collide across roots (§7-A), `cairn check` validation of `roots:` (§7-C), `--repos` CLI semantics (§7-B).
+Swimlane/major-tab grouping when milestone ids collide across roots (§7-A) is ruled (repo-grouped, nested) but not yet server-testable — it's a `board.js`-only concern, out of this file's scope by construction.
 
 ## CLI
 
@@ -80,7 +82,7 @@ Explicitly out of scope for tests until team-lead rules (design note §7): swiml
 
 - `build_board_payload(data_dir: Path) -> dict` — `{"majors": [...], "milestones": [...], "issues": [...]}`. Board issues have **no `"comments"` key** (spec: "without comment bodies").
 - `build_issue_payload(data_dir: Path, issue_id: str) -> dict` — frontmatter + `"description"` + full `"comments"` + `"seen"` (string form of `st_mtime_ns`).
-- `make_server(data_dir: Path, config: dict | None = None, port: int | None = None) -> http.server.HTTPServer` — binds `127.0.0.1`, does **not** call `serve_forever()` (caller's job, so tests can thread it). `port=0` → ephemeral, read back via `server.server_address[1]`. `port=None` → `load_config(data_dir)["port"]`. Routes: `GET /api/board` (ETag/If-None-Match → 304), `GET /api/issue/<id>`, `POST /api/issue`, `POST /api/issue/<id>` (409 on stale `seen`, per spec's example body shape), plus static `GET /`, `/list`, `/board/*`.
+- `make_server(data_dir: Path, config: dict | None = None, port: int | None = None, roots: list[Root] | None = None) -> http.server.HTTPServer` — binds `127.0.0.1`, does **not** call `serve_forever()` (caller's job, so tests can thread it). `port=0` → ephemeral, read back via `server.server_address[1]`. `port=None` → `load_config(data_dir)["port"]`. `roots=None` (PT-3) synthesises the single primary root via `resolve_roots(data_dir, config)` — every pre-PT-3 caller (including every `test_server.py` test) is therefore exercised by the same code path multi-root uses, unmodified. Routes: `GET /api/board` (ETag/If-None-Match → 304, now roots-aware via `compute_multi_etag`/`build_multi_board_payload`), `GET /api/issue/<id>` (roots-aware via `find_issue_in_roots`, stamps `repo`/`read_only`), `POST /api/issue`, `POST /api/issue/<id>` (409 on stale `seen`; 403 `read_only_root` for a secondary-root id — see Multi-root section), plus static `GET /`, `/list`, `/board/*`.
 
 ## Running the suite
 
