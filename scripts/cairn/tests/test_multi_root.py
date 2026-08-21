@@ -282,6 +282,125 @@ class ResolveRootsPrimaryExemptTests(unittest.TestCase):
         self.assertEqual(primaries[0].path, primary)
 
 
+class ResolveRootsCliReposTests(unittest.TestCase):
+    """Team-lead's ruling B (2026-08-21): `--repos` REPLACES config.yml's
+    `roots:` list, not unions with it; the primary root is always included
+    regardless. Tested at `resolve_roots`'s `cli_repos` parameter directly
+    -- `cmd_serve --repos` is a thin argparse-to-comma-split wrapper over
+    the same call, not re-tested at the CLI/subprocess level here (`serve`
+    is long-running; there's nothing left to prove once this layer is
+    pinned).
+    """
+
+    def test_cli_repos_replaces_config_roots_entirely(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        primary = make_repo(tmp, "repo_a", "AA")
+        make_repo(tmp, "repo_b", "BB")  # named in config.yml's roots:
+        make_repo(tmp, "repo_c", "CC")  # named only via cli_repos
+        roots, warnings = cairn.resolve_roots(
+            primary,
+            {"prefix": "AA", "port": 8766, "roots": ["../repo_b"]},
+            cli_repos=["../repo_c"],
+        )
+        self.assertEqual(warnings, [])
+        ids = {r.id for r in roots}
+        self.assertEqual(ids, {"AA", "CC"})  # BB replaced away, not unioned in
+
+    def test_cli_repos_none_falls_back_to_config_roots(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        primary = make_repo(tmp, "repo_a", "AA")
+        make_repo(tmp, "repo_b", "BB")
+        roots, _warnings = cairn.resolve_roots(
+            primary, {"prefix": "AA", "port": 8766, "roots": ["../repo_b"]}, cli_repos=None
+        )
+        self.assertEqual({r.id for r in roots}, {"AA", "BB"})
+
+    def test_cli_repos_empty_list_means_primary_only_even_with_config_roots_set(self):
+        # Explicit "no secondaries" override -- distinct from cli_repos=None
+        # (which defers to config). An empty --repos must not be silently
+        # reinterpreted as "no override given."
+        tmp = helpers.make_empty_tmp_dir(self)
+        primary = make_repo(tmp, "repo_a", "AA")
+        make_repo(tmp, "repo_b", "BB")
+        roots, _warnings = cairn.resolve_roots(
+            primary, {"prefix": "AA", "port": 8766, "roots": ["../repo_b"]}, cli_repos=[]
+        )
+        self.assertEqual({r.id for r in roots}, {"AA"})
+
+    def test_primary_always_included_regardless_of_cli_repos(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        primary = make_repo(tmp, "repo_a", "AA")
+        make_repo(tmp, "repo_c", "CC")
+        roots, _warnings = cairn.resolve_roots(
+            primary, {"prefix": "AA", "port": 8766}, cli_repos=["../repo_c"]
+        )
+        self.assertTrue(any(r.primary and r.id == "AA" for r in roots), roots)
+
+
+# --------------------------------------------------------------------------
+# check_repo: `roots:` shape validation (team-lead's ruling C, 2026-08-21 --
+# shape only, never reachability; a sibling repo absent on this clone/CI
+# machine must not fail lint).
+# --------------------------------------------------------------------------
+
+class CheckRepoRootsShapeTests(unittest.TestCase):
+    def _data_dir_with_config(self, config_text: str) -> Path:
+        tmp = helpers.make_empty_tmp_dir(self)
+        data_dir = tmp / "cairn"
+        (data_dir / "issues").mkdir(parents=True)
+        (data_dir / "archive").mkdir(parents=True)
+        (data_dir / "milestones").mkdir(parents=True)
+        (data_dir / "majors").mkdir(parents=True)
+        (data_dir / "config.yml").write_text(config_text, encoding="utf-8")
+        return data_dir
+
+    def test_no_roots_key_is_clean(self):
+        data_dir = self._data_dir_with_config("prefix: AA\nport: 8766\n")
+        self.assertEqual(cairn.check_repo(data_dir), [])
+
+    def test_roots_as_a_flat_list_of_relative_paths_is_clean(self):
+        data_dir = self._data_dir_with_config(
+            "prefix: AA\nport: 8766\nroots:\n  - ../repo-b\n  - ../repo-c\n"
+        )
+        self.assertEqual(cairn.check_repo(data_dir), [])
+
+    def test_roots_not_a_list_is_an_error(self):
+        # A bare scalar under `roots:` -- parse_yaml_subset gives a plain
+        # string here, not a list.
+        data_dir = self._data_dir_with_config("prefix: AA\nport: 8766\nroots: nope\n")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(any("roots" in e and "list" in e.lower() for e in errors), errors)
+
+    def test_non_string_entry_is_an_error(self):
+        data_dir = self._data_dir_with_config("prefix: AA\nport: 8766\nroots:\n  - 123\n")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(any("roots" in e for e in errors), errors)
+
+    def test_absolute_path_entry_is_an_error(self):
+        data_dir = self._data_dir_with_config(
+            "prefix: AA\nport: 8766\nroots:\n  - /etc/nope\n"
+        )
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(
+            any("roots" in e and "relative" in e.lower() for e in errors), errors
+        )
+
+    def test_empty_string_entry_is_an_error(self):
+        data_dir = self._data_dir_with_config("prefix: AA\nport: 8766\nroots:\n  - \"\"\n")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(any("roots" in e for e in errors), errors)
+
+    def test_a_root_path_that_does_not_exist_on_disk_is_not_flagged(self):
+        # The load-bearing negative case: reachability is a runtime/warn-
+        # and-skip concern (resolve_roots), never a lint error -- `cairn
+        # check` must stay green in CI and on any clone lacking the
+        # sibling repo.
+        data_dir = self._data_dir_with_config(
+            "prefix: AA\nport: 8766\nroots:\n  - ../this-repo-does-not-exist-anywhere\n"
+        )
+        self.assertEqual(cairn.check_repo(data_dir), [])
+
+
 # --------------------------------------------------------------------------
 # build_multi_board_payload
 # --------------------------------------------------------------------------
