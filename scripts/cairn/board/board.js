@@ -115,8 +115,17 @@
   // Filtering
   // ------------------------------------------------------------------
 
-  function milestoneMajor(milestoneId) {
-    var ms = (state.board.milestones || []).filter(function (m) { return m.id === milestoneId; })[0];
+  // PT-3: milestone ids are NOT unique across roots (a milestone "0.5"
+  // in repo A is unrelated to a milestone "0.5" in repo B) -- the lookup
+  // must be repo-scoped, or an issue can silently inherit a different
+  // repo's same-id milestone's major. `repoId` is optional only for
+  // single-root callers where there's nothing to disambiguate; every
+  // multi-root call site below passes it. (architect + team-lead review,
+  // 2026-08-21: "the union changes only the final id comparison, the
+  // lookup stays repo-qualified".)
+  function milestoneMajor(milestoneId, repoId) {
+    var candidates = (state.board.milestones || []).filter(function (m) { return m.id === milestoneId; });
+    var ms = repoId != null ? candidates.filter(function (m) { return m.repo === repoId; })[0] : candidates[0];
     return ms ? ms.major : null;
   }
 
@@ -127,10 +136,19 @@
     return state.board.issues.filter(function (issue) {
       if (!state.showCancelled && issue.status === "cancelled") return false;
       if (state.currentMajor !== "all") {
-        var major = milestoneMajor(issue.milestone);
+        // Lookup repo-scoped (see milestoneMajor's docstring); the
+        // comparison against the selected tab is a bare-id union across
+        // repos (team-lead ruling -- majors are a portfolio-wide concept
+        // in this template's versioning convention, unlike milestones).
+        var major = milestoneMajor(issue.milestone, issue.repo);
         if (major !== state.currentMajor) return false;
       }
-      if (f.milestone && issue.milestone !== f.milestone) return false;
+      // PT-3: milestone ids collide across roots (unlike issue ids), so
+      // the filter-milestone select's value is always a repo-qualified
+      // composite "<repo>::<milestone>" -- see its populateSelect call in
+      // renderHeader. Comparing bare issue.milestone here would match an
+      // unrelated same-id milestone in another repo.
+      if (f.milestone && (issue.repo + "::" + (issue.milestone || "")) !== f.milestone) return false;
       if (f.assignee && issue.assignee !== f.assignee) return false;
       if (f.label && (issue.labels || []).indexOf(f.label) === -1) return false;
       if (f.repo && issue.repo !== f.repo) return false;
@@ -150,6 +168,9 @@
     var board = state.board;
     if (!board) return;
 
+    var multiRoot = (board.roots || []).length > 1;
+    var primaryId = primaryRootId(board);
+
     var majorsTabs = document.getElementById("majors-tabs");
     majorsTabs.innerHTML = "";
     var allBtn = document.createElement("button");
@@ -157,7 +178,18 @@
     allBtn.className = state.currentMajor === "all" ? "active" : "";
     allBtn.onclick = function () { state.currentMajor = "all"; render(); };
     majorsTabs.appendChild(allBtn);
+    // PT-3: majors aren't repo-qualified in this template's versioning
+    // convention (every repo's founding major is typically V1, per
+    // TRACKER.md), so the VISIBLE tab bar dedupes by bare id -- one "V1"
+    // button, first-seen order, not one per repo. A tab filters across
+    // every repo (union); issues still render inside their own repo
+    // section. Internal lookups (milestoneMajor, filteredIssues) stay
+    // repo-scoped -- only this dedupe/comparison is at the bare-id level
+    // (team-lead ruling, 2026-08-21).
+    var seenMajorIds = {};
     (board.majors || []).forEach(function (major) {
+      if (seenMajorIds[major.id]) return;
+      seenMajorIds[major.id] = true;
       var btn = document.createElement("button");
       btn.textContent = major.id;
       btn.className = state.currentMajor === major.id ? "active" : "";
@@ -171,18 +203,47 @@
     var progressEl = document.getElementById("milestone-progress");
     progressEl.innerHTML = "";
     (board.milestones || []).forEach(function (ms) {
-      var msIssues = board.issues.filter(function (i) { return i.milestone === ms.id; });
+      // PT-3: scope the issue count to THIS record's own repo -- matching
+      // on bare milestone id alone would fuse two repos' done/total into
+      // one number, shown identically on both repos' same-id entries.
+      var msIssues = board.issues.filter(function (i) { return i.milestone === ms.id && i.repo === ms.repo; });
       if (msIssues.length === 0 && ms.kind !== "product") return;
       var done = msIssues.filter(function (i) { return i.status === "done"; }).length;
       var span = document.createElement("span");
       var tag = ms.ga ? " · GA" : "";
       var target = ms.target_tag ? " · " + ms.target_tag : "";
-      span.textContent = ms.id + " · " + (ms.name || "") + tag + target + " · " + done + "/" + msIssues.length + " done";
+      var repoPrefix = multiRoot ? ms.repo + " · " : "";
+      span.textContent = repoPrefix + ms.id + " · " + (ms.name || "") + tag + target + " · " + done + "/" + msIssues.length + " done";
       progressEl.appendChild(span);
     });
 
-    var milestoneLabelFor = function (v) { return milestoneLabel(board, v); };
-    populateSelect("filter-milestone", uniqueSorted(board.issues.map(function (i) { return i.milestone; })), milestoneLabelFor);
+    // PT-3: milestone ids collide across roots -- the filter value is
+    // always a repo-qualified composite "<repo>::<milestone>" (mirrors
+    // filteredIssues' comparison), built from the (repo, milestone) pairs
+    // actually present among issues, not board.milestones (an unused
+    // milestone in a filter dropdown would be dead weight here, unlike
+    // new-issue-milestone below where an *empty* milestone must still be
+    // choosable).
+    var msPairs = [];
+    var seenMsKeys = {};
+    board.issues.forEach(function (i) {
+      if (!i.milestone) return;
+      var k = i.repo + "::" + i.milestone;
+      if (seenMsKeys[k]) return;
+      seenMsKeys[k] = true;
+      msPairs.push({ key: k, repo: i.repo, milestone: i.milestone });
+    });
+    msPairs.sort(function (a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; });
+    populateSelect(
+      "filter-milestone",
+      msPairs.map(function (p) { return p.key; }),
+      function (k) {
+        var p = msPairs.filter(function (x) { return x.key === k; })[0];
+        if (!p) return k;
+        var label = milestoneLabel(board, p.milestone, p.repo);
+        return multiRoot ? p.repo + " · " + label : label;
+      }
+    );
     populateSelect("filter-assignee", uniqueSorted(board.issues.map(function (i) { return i.assignee; })));
     var labels = [];
     board.issues.forEach(function (i) { (i.labels || []).forEach(function (l) { labels.push(l); }); });
@@ -193,7 +254,7 @@
     // so nothing changes visually for the overwhelming majority of setups.
     var repoFilterEl = document.getElementById("filter-repo");
     var roots = board.roots || [];
-    if (roots.length > 1) {
+    if (multiRoot) {
       repoFilterEl.hidden = false;
       var repoLabelFor = function (v) {
         var root = roots.filter(function (r) { return r.id === v; })[0];
@@ -204,10 +265,24 @@
       repoFilterEl.hidden = true;
       if (state.filters.repo) { state.filters.repo = ""; repoFilterEl.value = ""; }
     }
-    // All known milestones, not just ones already carrying an issue —
-    // a fresh milestone with zero issues yet should still be choosable
-    // when creating the first one for it.
-    populateSelect("new-issue-milestone", (board.milestones || []).map(function (m) { return m.id; }).sort(), milestoneLabelFor);
+
+    // PT-3 (team-lead ruling, NON-NEGOTIABLE -- data integrity, not
+    // cosmetics): creation always writes to the PRIMARY root only, so
+    // this select must offer PRIMARY-root milestones exclusively. Ever
+    // listing a foreign milestone id here would let a user create a
+    // primary-root issue referencing a milestone that doesn't exist
+    // there, which `cairn check` then reports as an unknown-milestone
+    // lint error. All known primary milestones, not just ones already
+    // carrying an issue -- a fresh milestone with zero issues yet should
+    // still be choosable when creating the first one for it.
+    populateSelect(
+      "new-issue-milestone",
+      (board.milestones || [])
+        .filter(function (m) { return m.repo === primaryId; })
+        .map(function (m) { return m.id; })
+        .sort(),
+      function (v) { return milestoneLabel(board, v, primaryId); }
+    );
   }
 
   function uniqueSorted(values) {
@@ -220,8 +295,14 @@
   // no `name` or `id` names no milestone file at all (e.g. the "(none)"
   // swimlane key, or a dangling milestone reference) -- mirrors the
   // progress-strip's existing id·name rendering (renderHeader, above).
-  function milestoneLabel(board, id) {
-    var ms = (board.milestones || []).filter(function (m) { return m.id === id; })[0];
+  //
+  // PT-3: `repoId`, when given, scopes the lookup so repo B's "0.5"
+  // never renders repo A's milestone name (the collision architect
+  // caught: this exact bug would have shown up in the first repo-grouped
+  // screenshot). Every multi-root call site passes it.
+  function milestoneLabel(board, id, repoId) {
+    var candidates = (board.milestones || []).filter(function (m) { return m.id === id; });
+    var ms = repoId != null ? candidates.filter(function (m) { return m.repo === repoId; })[0] : candidates[0];
     return ms && ms.name ? id + " · " + ms.name : id;
   }
 
@@ -357,18 +438,17 @@
   // special-casing needed) + a per-lane collapse toggle. Collapse state
   // lives only in state.collapsedLanes (in-memory) -- never written to
   // disk, no network call fires on toggle.
-  function milestoneLaneEl(board, key, issues, stateKey) {
+  function milestoneLaneEl(board, key, issues, stateKey, repoId) {
     var lane = document.createElement("div");
     lane.className = "swimlane";
 
-    // PT-3: under repo grouping, `stateKey` is a repo-qualified composite
-    // ("<root.id>::<milestone key>") so collapsing "0.5" in one repo
-    // doesn't collapse "0.5" in another -- milestone ids are NOT
-    // prefix-distinct across roots (design note §7-A), only issue ids
-    // are. Single-root callers omit stateKey, so state.collapsedLanes
-    // keeps its pre-PT-3 bare-milestone-id keying exactly.
-    var collapseKey = stateKey || key;
-    var collapsed = !!state.collapsedLanes[collapseKey];
+    // PT-3 (architect amendment b): `stateKey` is always an explicit,
+    // repo-qualified composite ("<root.id>::<milestone key>") -- every
+    // caller passes one, single-root included. There are no JS tests and
+    // collapse keys never appear in the DOM, so there was nothing to gain
+    // from keeping the old bare-id shape as a conditional special case:
+    // one read/write path beats two that have to stay in sync.
+    var collapsed = !!state.collapsedLanes[stateKey];
     var laneHeader = document.createElement("div");
     laneHeader.className = "swimlane-header";
 
@@ -378,14 +458,14 @@
     toggleBtn.textContent = collapsed ? "▸" : "▾";
     toggleBtn.setAttribute("aria-label", (collapsed ? "Expand " : "Collapse ") + key);
     toggleBtn.addEventListener("click", function () {
-      state.collapsedLanes[collapseKey] = !collapsed;
+      state.collapsedLanes[stateKey] = !collapsed;
       render();
     });
     laneHeader.appendChild(toggleBtn);
 
     var labelSpan = document.createElement("span");
     labelSpan.className = "swimlane-label";
-    labelSpan.textContent = milestoneLabel(board, key);
+    labelSpan.textContent = milestoneLabel(board, key, repoId);
     laneHeader.appendChild(labelSpan);
 
     var countSpan = document.createElement("span");
@@ -454,7 +534,7 @@
         });
         order.sort();
         order.forEach(function (key) {
-          section.appendChild(milestoneLaneEl(board, key, byMilestone[key], root.id + "::" + key));
+          section.appendChild(milestoneLaneEl(board, key, byMilestone[key], root.id + "::" + key, root.id));
         });
       } else {
         section.appendChild(columnsFor(issues));
@@ -492,8 +572,9 @@
         return;
       }
       order.sort();
+      var soleRootId = primaryRootId(board);
       order.forEach(function (key) {
-        main.appendChild(milestoneLaneEl(board, key, byMilestone[key]));
+        main.appendChild(milestoneLaneEl(board, key, byMilestone[key], soleRootId + "::" + key, soleRootId));
       });
       return;
     }
@@ -518,6 +599,16 @@
   function handleDrop(id, newStatus) {
     var issue = state.board.issues.filter(function (i) { return i.id === id; })[0];
     if (!issue || issue.status === newStatus) return;
+    // PT-3: card.draggable=false already keeps a foreign-root card from
+    // starting a real drag, but a drop can still be dispatched (a stale
+    // drag started before a refresh, a programmatic dispatch) -- refuse
+    // before any optimistic state change or network round trip, rather
+    // than relying on the server's 403 read_only_root round-trip to be
+    // the only thing that catches it (architect review, 2026-08-21).
+    if (issue.repo !== primaryRootId(state.board)) {
+      showToast(id + " is read-only (lives in a different root)", true);
+      return;
+    }
     var previousStatus = issue.status;
     issue.status = newStatus; // optimistic
     render();
