@@ -27,6 +27,9 @@
     <select id="filter-milestone"><option value="">All milestones</option></select>
     <select id="filter-assignee"><option value="">All assignees</option></select>
     <select id="filter-label"><option value="">All labels</option></select>
+    <!-- PT-3: hidden by default, shown only when the board payload carries
+         more than one root (renderHeader toggles the hidden attribute). -->
+    <select id="filter-repo" hidden><option value="">All repos</option></select>
     <label><input type="checkbox" id="filter-cancelled"> Show cancelled</label>
     <label><input type="checkbox" id="toggle-swimlanes" checked> Swimlanes</label>
   </div>

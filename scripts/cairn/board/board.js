@@ -36,7 +36,7 @@
     board: null,       // last-known-good /api/board payload
     etag: null,
     currentMajor: "all",
-    filters: { text: "", milestone: "", assignee: "", label: "" },
+    filters: { text: "", milestone: "", assignee: "", label: "", repo: "" },
     showCancelled: false,
     swimlanesOn: true,
     sortKey: "id",
@@ -44,8 +44,13 @@
     openIssueId: null,
     // PT-16: per-swimlane collapse, view-local only -- keyed by the same
     // lane key renderKanban groups on (a milestone id, or the literal
-    // string "(none)"). Never persisted -- the board is a stateless lens.
+    // string "(none)"), or (PT-3, multi-root) a "<root.id>::<milestone
+    // key>" composite -- see milestoneLaneEl. Never persisted -- the
+    // board is a stateless lens.
     collapsedLanes: {},
+    // PT-3: per-repo-section collapse under repo grouping, keyed by
+    // root.id. Same in-memory-only contract as collapsedLanes.
+    collapsedRepos: {},
   };
 
   // ------------------------------------------------------------------
@@ -128,6 +133,7 @@
       if (f.milestone && issue.milestone !== f.milestone) return false;
       if (f.assignee && issue.assignee !== f.assignee) return false;
       if (f.label && (issue.labels || []).indexOf(f.label) === -1) return false;
+      if (f.repo && issue.repo !== f.repo) return false;
       if (text) {
         var hay = (issue.id + " " + issue.title).toLowerCase();
         if (hay.indexOf(text) === -1) return false;
@@ -181,6 +187,23 @@
     var labels = [];
     board.issues.forEach(function (i) { (i.labels || []).forEach(function (l) { labels.push(l); }); });
     populateSelect("filter-label", uniqueSorted(labels));
+
+    // PT-3: repo filter -- client-side like every other filter (the API
+    // stays at one read endpoint). Hidden entirely on a single-root board
+    // so nothing changes visually for the overwhelming majority of setups.
+    var repoFilterEl = document.getElementById("filter-repo");
+    var roots = board.roots || [];
+    if (roots.length > 1) {
+      repoFilterEl.hidden = false;
+      var repoLabelFor = function (v) {
+        var root = roots.filter(function (r) { return r.id === v; })[0];
+        return root ? root.id + " · " + root.label : v;
+      };
+      populateSelect("filter-repo", roots.map(function (r) { return r.id; }), repoLabelFor);
+    } else {
+      repoFilterEl.hidden = true;
+      if (state.filters.repo) { state.filters.repo = ""; repoFilterEl.value = ""; }
+    }
     // All known milestones, not just ones already carrying an issue —
     // a fresh milestone with zero issues yet should still be choosable
     // when creating the first one for it.
@@ -221,10 +244,24 @@
   // Kanban rendering
   // ------------------------------------------------------------------
 
+  // PT-3: the id of the one root with primary:true in the current board
+  // payload. Single-root payloads carry exactly one root (always
+  // primary), so this is safe to call unconditionally.
+  function primaryRootId(board) {
+    var roots = (board && board.roots) || [];
+    for (var i = 0; i < roots.length; i++) {
+      if (roots[i].primary) return roots[i].id;
+    }
+    return null;
+  }
+
   function cardEl(issue) {
     var card = document.createElement("div");
     card.className = "card";
-    card.draggable = true;
+    // PT-3: a foreign-root card is not draggable -- UI courtesy only
+    // (§3.3.2: "not the security boundary"), the server's 403
+    // read_only_root is what actually enforces this.
+    card.draggable = issue.repo === primaryRootId(state.board);
     card.dataset.id = issue.id;
     card.addEventListener("dragstart", function (e) {
       card.classList.add("dragging");
@@ -245,6 +282,12 @@
 
     var meta = document.createElement("div");
     meta.className = "card-meta";
+    // PT-3: repo tag -- redundant with the repo-grouped section header
+    // when roots.length > 1, but harmless, and it survives if a card is
+    // ever shown outside its section (design note §3.3.1).
+    if (state.board && state.board.roots && state.board.roots.length > 1) {
+      meta.appendChild(chip("repo", issue.repo));
+    }
     if (issue.assignee) meta.appendChild(chip("assignee", issue.assignee));
     if (issue.milestone) meta.appendChild(chip("milestone", issue.milestone));
     (issue.labels || []).forEach(function (l) { meta.appendChild(chip("", l)); });
@@ -314,11 +357,18 @@
   // special-casing needed) + a per-lane collapse toggle. Collapse state
   // lives only in state.collapsedLanes (in-memory) -- never written to
   // disk, no network call fires on toggle.
-  function milestoneLaneEl(board, key, issues) {
+  function milestoneLaneEl(board, key, issues, stateKey) {
     var lane = document.createElement("div");
     lane.className = "swimlane";
 
-    var collapsed = !!state.collapsedLanes[key];
+    // PT-3: under repo grouping, `stateKey` is a repo-qualified composite
+    // ("<root.id>::<milestone key>") so collapsing "0.5" in one repo
+    // doesn't collapse "0.5" in another -- milestone ids are NOT
+    // prefix-distinct across roots (design note §7-A), only issue ids
+    // are. Single-root callers omit stateKey, so state.collapsedLanes
+    // keeps its pre-PT-3 bare-milestone-id keying exactly.
+    var collapseKey = stateKey || key;
+    var collapsed = !!state.collapsedLanes[collapseKey];
     var laneHeader = document.createElement("div");
     laneHeader.className = "swimlane-header";
 
@@ -328,7 +378,7 @@
     toggleBtn.textContent = collapsed ? "▸" : "▾";
     toggleBtn.setAttribute("aria-label", (collapsed ? "Expand " : "Collapse ") + key);
     toggleBtn.addEventListener("click", function () {
-      state.collapsedLanes[key] = !collapsed;
+      state.collapsedLanes[collapseKey] = !collapsed;
       render();
     });
     laneHeader.appendChild(toggleBtn);
@@ -348,31 +398,120 @@
     return lane;
   }
 
+  // PT-3: one repo section under repo-grouped multi-root view -- a
+  // top-level collapse toggle (state.collapsedRepos, in-memory only, same
+  // contract as collapsedLanes) around either milestone lanes (Swimlanes
+  // checkbox on -- reuses milestoneLaneEl unchanged, composite state key)
+  // or a flat column board (Swimlanes checkbox off). Repo grouping itself
+  // is NOT governed by the Swimlanes checkbox -- team-lead's ruling:
+  // repo separation is the entire point of this view, so it stays on
+  // regardless; the checkbox only decides whether milestone lanes
+  // subdivide *within* a section.
+  function repoSectionEl(board, root, issues) {
+    var section = document.createElement("div");
+    section.className = "repo-group";
+
+    var collapsed = !!state.collapsedRepos[root.id];
+    var header = document.createElement("div");
+    header.className = "repo-group-header";
+
+    var toggleBtn = document.createElement("button");
+    toggleBtn.type = "button";
+    toggleBtn.className = "repo-group-toggle";
+    toggleBtn.textContent = collapsed ? "▸" : "▾";
+    toggleBtn.setAttribute("aria-label", (collapsed ? "Expand " : "Collapse ") + root.label);
+    toggleBtn.addEventListener("click", function () {
+      state.collapsedRepos[root.id] = !collapsed;
+      render();
+    });
+    header.appendChild(toggleBtn);
+
+    var labelSpan = document.createElement("span");
+    labelSpan.className = "repo-group-label";
+    labelSpan.textContent = root.label;
+    header.appendChild(labelSpan);
+
+    var idSpan = document.createElement("span");
+    idSpan.className = "repo-group-id";
+    idSpan.textContent = root.id;
+    header.appendChild(idSpan);
+
+    var countSpan = document.createElement("span");
+    countSpan.className = "repo-group-count";
+    countSpan.textContent = issues.length;
+    header.appendChild(countSpan);
+
+    section.appendChild(header);
+
+    if (!collapsed) {
+      if (state.swimlanesOn) {
+        var byMilestone = {};
+        var order = [];
+        issues.forEach(function (issue) {
+          var key = issue.milestone || "(none)";
+          if (!byMilestone[key]) { byMilestone[key] = []; order.push(key); }
+          byMilestone[key].push(issue);
+        });
+        order.sort();
+        order.forEach(function (key) {
+          section.appendChild(milestoneLaneEl(board, key, byMilestone[key], root.id + "::" + key));
+        });
+      } else {
+        section.appendChild(columnsFor(issues));
+      }
+    }
+
+    return section;
+  }
+
   function renderKanban() {
     var board = state.board;
     var main = document.getElementById("main");
     main.innerHTML = "";
     var issues = filteredIssues();
 
-    if (!state.swimlanesOn) {
-      main.appendChild(columnsFor(issues));
+    var roots = (board && board.roots) || [];
+
+    // Single-root: byte-identical to the pre-PT-3 code path -- no
+    // .repo-group wrapper anywhere in the DOM (architect's PT-3 review
+    // criterion 2: the multi-root branch is strictly additive).
+    if (roots.length <= 1) {
+      if (!state.swimlanesOn) {
+        main.appendChild(columnsFor(issues));
+        return;
+      }
+      var byMilestone = {};
+      var order = [];
+      issues.forEach(function (issue) {
+        var key = issue.milestone || "(none)";
+        if (!byMilestone[key]) { byMilestone[key] = []; order.push(key); }
+        byMilestone[key].push(issue);
+      });
+      if (order.length === 0) {
+        main.innerHTML = '<div class="empty-state">No issues match the current filters.</div>';
+        return;
+      }
+      order.sort();
+      order.forEach(function (key) {
+        main.appendChild(milestoneLaneEl(board, key, byMilestone[key]));
+      });
       return;
     }
 
-    var byMilestone = {};
-    var order = [];
-    issues.forEach(function (issue) {
-      var key = issue.milestone || "(none)";
-      if (!byMilestone[key]) { byMilestone[key] = []; order.push(key); }
-      byMilestone[key].push(issue);
-    });
-    if (order.length === 0) {
+    // Multi-root: repo-grouped (ruling A, 2026-08-21) -- top-level
+    // section per root, primary first then remaining roots by id.
+    if (issues.length === 0) {
       main.innerHTML = '<div class="empty-state">No issues match the current filters.</div>';
       return;
     }
-    order.sort();
-    order.forEach(function (key) {
-      main.appendChild(milestoneLaneEl(board, key, byMilestone[key]));
+    var orderedRoots = roots.slice().sort(function (a, b) {
+      if (a.primary !== b.primary) return a.primary ? -1 : 1;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+    orderedRoots.forEach(function (root) {
+      var repoIssues = issues.filter(function (issue) { return issue.repo === root.id; });
+      if (repoIssues.length === 0) return; // no empty shells -- a repo with nothing to show renders nothing
+      main.appendChild(repoSectionEl(board, root, repoIssues));
     });
   }
 
@@ -559,12 +698,16 @@
     h2.textContent = issue.title;
     drawer.appendChild(h2);
 
-    drawer.appendChild(inlineField("title", "text", issue.title, issue));
-    drawer.appendChild(inlineSelect("status", Object.keys(STATUS_LABELS), issue.status, issue, STATUS_LABELS));
-    drawer.appendChild(inlineField("assignee", "text", issue.assignee || "", issue));
-    drawer.appendChild(inlineField("milestone", "text", issue.milestone || "", issue));
-    drawer.appendChild(inlineField("labels", "text", (issue.labels || []).join(", "), issue, true));
-    drawer.appendChild(inlineSelect("priority", ["", "P0", "P1", "P2", "P3"], issue.priority, issue, PRIORITY_LABELS));
+    // PT-3: a secondary-root issue is read-only -- suppress the inline
+    // edit controls (courtesy only, see inlineField's note; the real
+    // boundary is the server's 403 read_only_root).
+    var readOnly = !!issue.read_only;
+    drawer.appendChild(inlineField("title", "text", issue.title, issue, false, readOnly));
+    drawer.appendChild(inlineSelect("status", Object.keys(STATUS_LABELS), issue.status, issue, STATUS_LABELS, readOnly));
+    drawer.appendChild(inlineField("assignee", "text", issue.assignee || "", issue, false, readOnly));
+    drawer.appendChild(inlineField("milestone", "text", issue.milestone || "", issue, false, readOnly));
+    drawer.appendChild(inlineField("labels", "text", (issue.labels || []).join(", "), issue, true, readOnly));
+    drawer.appendChild(inlineSelect("priority", ["", "P0", "P1", "P2", "P3"], issue.priority, issue, PRIORITY_LABELS, readOnly));
 
     if (issue.pr) {
       // PT-20: DOM-built, not innerHTML string concat -- `pr` is free-text
@@ -659,32 +802,34 @@
     }
     drawer.appendChild(log);
 
-    var addComment = document.createElement("div");
-    addComment.className = "add-comment";
-    var textarea = document.createElement("textarea");
-    textarea.placeholder = "Add a comment…";
-    addComment.appendChild(textarea);
-    var postBtn = document.createElement("button");
-    postBtn.textContent = "Comment";
-    postBtn.onclick = function () {
-      var body = textarea.value.trim();
-      if (!body) return;
-      apiMutateIssue(issue.id, { seen: issue.seen, comment: { author: "board", body: body } }).then(function (result) {
-        if (result.status === 409) {
-          showToast(issue.id + " changed on disk — refreshed.", true);
+    if (!readOnly) {
+      var addComment = document.createElement("div");
+      addComment.className = "add-comment";
+      var textarea = document.createElement("textarea");
+      textarea.placeholder = "Add a comment…";
+      addComment.appendChild(textarea);
+      var postBtn = document.createElement("button");
+      postBtn.textContent = "Comment";
+      postBtn.onclick = function () {
+        var body = textarea.value.trim();
+        if (!body) return;
+        apiMutateIssue(issue.id, { seen: issue.seen, comment: { author: "board", body: body } }).then(function (result) {
+          if (result.status === 409) {
+            showToast(issue.id + " changed on disk — refreshed.", true);
+            openDrawer(issue.id);
+            return;
+          }
+          if (!result.ok) { showToast("Failed to add comment", true); return; }
           openDrawer(issue.id);
-          return;
-        }
-        if (!result.ok) { showToast("Failed to add comment", true); return; }
-        openDrawer(issue.id);
-        refreshBoardSilently();
-      });
-    };
-    addComment.appendChild(postBtn);
-    drawer.appendChild(addComment);
+          refreshBoardSilently();
+        });
+      };
+      addComment.appendChild(postBtn);
+      drawer.appendChild(addComment);
+    }
   }
 
-  function inlineField(field, type, value, issue, isLabelsList) {
+  function inlineField(field, type, value, issue, isLabelsList, readOnly) {
     var wrap = document.createElement("div");
     wrap.className = "drawer-field";
     var label = document.createElement("label");
@@ -693,17 +838,26 @@
     var input = document.createElement("input");
     input.type = type;
     input.value = value;
-    input.addEventListener("change", function () {
-      var newValue = isLabelsList
-        ? input.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean)
-        : input.value;
-      submitPatch(issue, field, newValue, input, value);
-    });
+    if (readOnly) {
+      // PT-3: UI courtesy only, not the security boundary -- the board
+      // is read-only across roots because _mutate_issue refuses a
+      // foreign-root id server-side (403 read_only_root) regardless of
+      // what the DOM allows; disabling the control here just keeps
+      // someone from submitting an edit that's guaranteed to be rejected.
+      input.disabled = true;
+    } else {
+      input.addEventListener("change", function () {
+        var newValue = isLabelsList
+          ? input.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean)
+          : input.value;
+        submitPatch(issue, field, newValue, input, value);
+      });
+    }
     wrap.appendChild(input);
     return wrap;
   }
 
-  function inlineSelect(field, options, value, issue, labels) {
+  function inlineSelect(field, options, value, issue, labels, readOnly) {
     // "" is the sentinel option value for a null field (e.g. priority's
     // none option) — translated to/from JSON null here at the DOM boundary,
     // since <select>.value is always a string and JS null stringifies to
@@ -722,10 +876,14 @@
     });
     var initialSelectValue = (value === null || value === undefined) ? "" : value;
     select.value = initialSelectValue;
-    select.addEventListener("change", function () {
-      var newValue = select.value === "" ? null : select.value;
-      submitPatch(issue, field, newValue, select, initialSelectValue);
-    });
+    if (readOnly) {
+      select.disabled = true; // PT-3: UI courtesy only -- see inlineField's note
+    } else {
+      select.addEventListener("change", function () {
+        var newValue = select.value === "" ? null : select.value;
+        submitPatch(issue, field, newValue, select, initialSelectValue);
+      });
+    }
     wrap.appendChild(select);
     return wrap;
   }
@@ -845,6 +1003,9 @@
     });
     document.getElementById("filter-label").addEventListener("change", function (e) {
       state.filters.label = e.target.value; render();
+    });
+    document.getElementById("filter-repo").addEventListener("change", function (e) {
+      state.filters.repo = e.target.value; render();
     });
     document.getElementById("filter-cancelled").addEventListener("change", function (e) {
       state.showCancelled = e.target.checked; render();
