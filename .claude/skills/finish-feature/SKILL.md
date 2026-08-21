@@ -15,8 +15,19 @@ Run these in parallel; abort with a clear message if any fails:
 # 1. We're on a feature branch
 git rev-parse --abbrev-ref HEAD | grep -q '^feature/' || echo "ERROR: not on a feature branch"
 
-# 2. Tests are green (heuristic: project should have a test script)
-npm test 2>/dev/null || yarn test 2>/dev/null || pytest 2>/dev/null || echo "WARNING: no test runner detected"
+# 2. Tests are green — HARD GATE (PT-24: the old npm/yarn/pytest||echo chain never
+#    ran the suite and never blocked). The cairn Python suite must be invoked from
+#    scripts/cairn with unittest; the board.js JS suite (PT-22) chains when Node is
+#    present. Do NOT reintroduce an `npm test`-first chain — a stray package.json
+#    would silently become THE gate and skip Python.
+( cd scripts/cairn && python3 -m unittest discover -s tests ) \
+  || { echo "GATE FAIL: cairn Python suite is red — do not proceed"; exit 1; }
+if command -v node >/dev/null 2>&1 && ls scripts/cairn/tests/js/*.test.js >/dev/null 2>&1; then
+  node --test scripts/cairn/tests/js/*.test.js \
+    || { echo "GATE FAIL: board.js JS suite is red — do not proceed"; exit 1; }
+else
+  echo "NOTE: board.js JS suite skipped (Node absent or no *.test.js files) — Python suite is the hard gate."
+fi
 
 # 3. No uncommitted changes beyond the tracker's own status edits
 git status --porcelain

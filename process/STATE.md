@@ -17,14 +17,14 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Session Cycle | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | board.js JS test harness — cover pure-logic functions |
+| Issue | PT-22 |
+| Milestone | 0.5.1 |
+| Session Cycle | SC5 |
+| Branch | `feature/pt-22-boardjs-test-harness` |
+| Started | 2026-08-20 |
+| Goal | Give board.js's pure-logic functions (milestoneLabel, milestoneMajor, filteredIssues, id-lookup/dedupe/sort helpers) a JS unit-test layer so the id-collision class of bug is caught by a red test, not only a human Chrome pass. |
+| Status | In Progress (design: harness approach) |
 
 ## Session Cycles
 
