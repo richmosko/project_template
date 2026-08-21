@@ -12,30 +12,44 @@ word choice.
 
 ## Loading contract (how tests get at this file — read this first)
 
+**Settled by architect's ruling, 2026-08-21** (an architecture call, not a testing
+preference — this was a two-way contract question that had qa-engineer and
+implementation-lead each waiting on the other; architect broke the deadlock).
+
 `board-logic.js` is a plain `<script>` (no module system, no build step — same
 "vanilla JS, no framework, no CDN, works offline" contract as `board.js` itself).
-It must expose its functions as a single global:
+It exposes its functions as a **top-level `var`**, not a `window.` property:
 
 ```js
-window.CairnLogic = {
-  milestoneLabel, milestoneMajor, dedupeMajors, milestoneProgress,
-  issueMilestoneKey, uniqueMilestoneKeys, primaryMilestones,
-  isDraggable, primaryRootId,
-};
+var CairnLogic = (function () {
+  // ... function definitions ...
+  return {
+    milestoneLabel, milestoneMajor, dedupeMajorIds, milestoneProgress,
+    issueMilestoneKey, uniqueMilestoneKeys, primaryMilestones,
+    isDraggable, primaryRootId, orderRoots, laneStateKey,
+  };
+})();
 ```
 
+A top-level `var` lands on the global object in both environments this file runs
+in — `window` in a real browser (no `window.` prefix needed, `var` at script scope
+already does this), and the `node:vm` sandbox's context object here — so one file
+serves both with zero dual-mode branching. **No `window.CairnLogic = …` assignment,
+no `module.exports`, no ES `import`/`export`.**
+
 Tests load it via `node:vm` (`scripts/cairn/tests/js/helpers.js`'s `loadCairnLogic()`):
-a fresh sandbox context with `sandbox.window = sandbox` (so `window.CairnLogic = …`
-lands as a readable property of the context object), then
-`vm.runInContext(source, sandbox)`. No `require`/`module.exports`, no ES `import` —
-the file must be loadable as a flat, non-strict-mode-incompatible-with-`vm` browser
-script, exactly as `board.html` loads it today for `board.js`.
+`vm.runInNewContext(source, sandbox)` against a fresh `{}` sandbox per call — the
+top-level `var CairnLogic = …` becomes a property of that sandbox object, read back
+as `sandbox.CairnLogic`. Fresh context per call is deliberate, not incidental: every
+bug this suite exists to catch was about stale or accidentally-shared lookup state,
+so the harness itself doesn't introduce a shared-state footgun of its own.
 
 `board.html` must load `board-logic.js` via `<script src="/board/board-logic.js">`
-**before** `board.js`, so `board.js`'s own functions can call into `window.CairnLogic`
-(or the file can be structured so `board.js`'s IIFE reads `CairnLogic.xxx` directly —
-implementation-lead's call how `board.js` consumes it, as long as the exposed global
-shape above doesn't change).
+**before** `board.js`. `board.js`'s own IIFE reads the global `CairnLogic` by normal
+scope lookup (no `window.` prefix needed there either) — architect's suggested
+pattern is destructuring at the top of `board.js` (e.g. `var isDraggable =
+CairnLogic.isDraggable;`), so a load-order mistake throws immediately at parse/init
+time instead of silently yielding `undefined` deep inside a render call.
 
 **Convention board-logic.js's own header comment must state** (per architect's
 review): every exported function is called from a synchronous render pass only,
@@ -63,13 +77,17 @@ the function itself is correct, only a hypothetical bad call site wouldn't be.
   the "params over closure" fix the extraction requires; the caller in `board.js`
   now passes `state.board` explicitly.
 
-- `dedupeMajors(majors) -> Array` — `majors` in first-seen order, one entry per
-  distinct `id` (later duplicates dropped). Existing PT-3 behavior (the inline
+- `dedupeMajorIds(majors) -> string[]` — the distinct `id`s among `majors`, in
+  first-seen order (later duplicates dropped). Existing PT-3 behavior (the inline
   `seenMajorIds` loop in `renderHeader`) as a named, testable function — majors
   aren't repo-qualified in this template's versioning convention (every repo's
   founding major is typically `V1`), so the **visible tab bar** dedupes by bare id
-  (team-lead's ruling, PT-3 §"major tabs"). This function does the dedup; it does
-  NOT decide filtering semantics (that's `board.js`'s union-comparison logic,
+  (team-lead's ruling, PT-3 §"major tabs"). Returns bare ids, not the full major
+  records: the tab-button loop only ever reads `major.id` (button label + the
+  onclick's `state.currentMajor` assignment), so which of two identical-id major
+  records "won" isn't observable in the rendered board — returning ids keeps the
+  contract from over-specifying an internal detail nothing consumes. Does NOT
+  decide filtering semantics (that's `board.js`'s union-comparison logic,
   unchanged, not part of this extraction).
 
 - `milestoneProgress(issues, milestone) -> {done: number, total: number}` — counts
@@ -115,11 +133,22 @@ the function itself is correct, only a hypothetical bad call site wouldn't be.
   the null-return bug class: every function above that takes `primaryId` treats a
   `null` value as "no repo dimension known" rather than "no root is ever primary".
 
+- `orderRoots(roots) -> Array` — `roots` sorted primary-first, then remaining
+  roots by `id` ascending. Extracted from `renderKanban`'s `orderedRoots.sort(...)`
+  comparator (PT-3). Second-tier: same "id comparison across roots" shape as the
+  functions above, no specific escaped defect, but implementation-lead is moving
+  it as part of the same refactor pass, so it gets coverage now rather than
+  becoming a gap.
+
+- `laneStateKey(repoId, milestoneKey) -> string` — `repoId + "::" + milestoneKey`.
+  Extracted from `milestoneLaneEl`'s composite collapse-state key construction
+  (PT-3, `root.id + "::" + key`) — the same "must produce distinct keys per repo
+  so collapsing one repo's lane doesn't collapse another's" property as
+  `issueMilestoneKey`, just for swimlane collapse state instead of the
+  filter-milestone select. Second-tier, same reasoning as `orderRoots`.
+
 ## Not extracted in this pass (stretch / out of scope)
 
-- The repo-ordering comparator in `renderKanban`'s `orderedRoots.sort(...)` and the
-  lane/collapse-state key builder (`root.id + "::" + key`) — same bug shape, no
-  specific escaped defect, second-tier per the PT-22 anchor task.
 - `filteredIssues`'s full predicate chain — the richest target (and
   `issueMilestoneKey`'s actual consumer), but reads four pieces of closure state
   (`state.board`, `state.filters`, `state.currentMajor`, `state.showCancelled`);

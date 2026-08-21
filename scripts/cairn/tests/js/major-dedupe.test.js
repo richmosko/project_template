@@ -1,9 +1,17 @@
 "use strict";
 
-// PT-22: dedupeMajors(majors) -- the major-tabs bar's dedup. PT-3's
+// PT-22: dedupeMajorIds(majors) -- the major-tabs bar's dedup. PT-3's
 // escape: two repos both having a founding major "V1" rendered "All |
 // V1 | V1" (two buttons) instead of one deduped, union-filtering tab --
 // caught only by team-lead's Chrome pass.
+//
+// Returns bare ids (a string[]), not the full major records: the actual
+// call site (renderHeader's tab-button loop) only ever reads `major.id`
+// for the button label and the onclick's state.currentMajor assignment
+// -- which of two identical-id major records "won" the dedup is not
+// observable in the rendered board, so testing for a specific survivor
+// object would be over-specifying the contract. implementation-lead's
+// naming/shape, matches the actual consumer.
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -16,18 +24,7 @@ test("PT-3 regression: two repos sharing a major id collapse to one tab", () => 
     { id: "V1", repo: "PT" },
     { id: "V1", repo: "SB" },
   ];
-  var deduped = CairnLogic.dedupeMajors(majors);
-  assert.equal(deduped.length, 1);
-  assert.equal(deduped[0].id, "V1");
-});
-
-test("keeps the first-seen entry when ids collide", () => {
-  var majors = [
-    { id: "V1", repo: "PT", label: "first" },
-    { id: "V1", repo: "SB", label: "second" },
-  ];
-  var deduped = CairnLogic.dedupeMajors(majors);
-  assert.equal(deduped[0].repo, "PT");
+  assert.deepEqual(CairnLogic.dedupeMajorIds(majors), ["V1"]);
 });
 
 test("distinct ids each survive, in first-seen order", () => {
@@ -36,15 +33,14 @@ test("distinct ids each survive, in first-seen order", () => {
     { id: "V1", repo: "PT" },
     { id: "V2", repo: "SB" },
   ];
-  var deduped = CairnLogic.dedupeMajors(majors);
-  assert.deepEqual(deduped.map((m) => m.id), ["V2", "V1"]);
+  assert.deepEqual(CairnLogic.dedupeMajorIds(majors), ["V2", "V1"]);
 });
 
 test("empty input yields empty output", () => {
-  assert.deepEqual(CairnLogic.dedupeMajors([]), []);
+  assert.deepEqual(CairnLogic.dedupeMajorIds([]), []);
 });
 
 test("single-root board (no collisions possible) is unaffected", () => {
   var majors = [{ id: "V1", repo: "PT" }];
-  assert.deepEqual(CairnLogic.dedupeMajors(majors), majors);
+  assert.deepEqual(CairnLogic.dedupeMajorIds(majors), ["V1"]);
 });

@@ -6,13 +6,23 @@
 // knows how board-logic.js gets evaluated.
 //
 // board-logic.js is a plain <script> (no module system -- see
-// INTERFACE.md's "Loading contract"), so it can't be `require()`d
-// directly (no module.exports, and top-level `window.CairnLogic = ...`
-// would throw ReferenceError under Node's CommonJS loader, which has no
-// `window`). node:vm evaluates the file's source in a fresh sandbox
-// object with `window` aliased to that same sandbox -- so
-// `window.CairnLogic = {...}` in the file lands as a plain property of
-// the sandbox, readable back out as `sandbox.CairnLogic` afterward.
+// INTERFACE.md's "Loading contract"): a top-level `var CairnLogic = ...`,
+// no `window.` prefix, no module.exports. A top-level `var` lands on the
+// global object in both environments this file runs in -- `window` in a
+// real browser, the vm context's global object here -- so the one file
+// serves both with no dual-mode branching (architect's ruling,
+// 2026-08-21, settling a convention question that had qa-engineer and
+// implementation-lead each waiting on the other).
+//
+// vm.runInNewContext gives each call its own fresh context/global object
+// and evaluates the source directly against it -- `var CairnLogic = ...`
+// at the top of that source becomes a property of the context object
+// itself, read back out here as `sandbox.CairnLogic`. Deliberately a
+// FRESH context per loadCairnLogic() call (matches "fresh context per
+// test file" -- every test file calls this once at module load) rather
+// than a shared/cached one: every bug this suite exists to catch was
+// about stale or accidentally-shared lookup state, so the harness itself
+// shouldn't introduce a shared-state footgun of its own.
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -32,12 +42,8 @@ function loadCairnLogic() {
   }
 
   const sandbox = {};
-  sandbox.window = sandbox;
-  sandbox.console = console;
-  vm.createContext(sandbox);
-
   try {
-    vm.runInContext(source, sandbox, { filename: BOARD_LOGIC_PATH });
+    vm.runInNewContext(source, sandbox, { filename: BOARD_LOGIC_PATH });
   } catch (err) {
     throw new Error(`board-logic.js threw while loading: ${err.message}`);
   }
@@ -45,14 +51,14 @@ function loadCairnLogic() {
   if (!sandbox.CairnLogic || typeof sandbox.CairnLogic !== "object") {
     throw new Error(
       "board-logic.js did not expose a global CairnLogic object " +
-        '(expected "window.CairnLogic = {...}" at top level -- see ' +
+        '(expected a top-level "var CairnLogic = {...}" -- see ' +
         "INTERFACE.md's Loading contract)"
     );
   }
   return wrapForRealm(sandbox.CairnLogic);
 }
 
-// vm.createContext() gives board-logic.js's code its OWN JS realm -- a
+// vm.runInNewContext() gives board-logic.js's code its OWN JS realm -- a
 // separate Object.prototype/Array.prototype from this file's. A plain
 // object literal `{done: 2, total: 3}` returned from inside the sandbox
 // is therefore NOT deepStrictEqual to an identically-shaped literal
