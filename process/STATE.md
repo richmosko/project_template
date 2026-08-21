@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Drawer PR link builds innerHTML by string concat — escape/DOM-build issue.pr (pre-existing XSS) |
-| Issue | PT-20 |
+| Feature | cairn snapshot — generated STATE.md appendix at milestone close |
+| Issue | PT-2 |
 | Milestone | 0.5 |
 | Session Cycle | SC4 |
-| Branch | `feature/pt-20-pr-link-xss` |
+| Branch | `feature/pt-2-cairn-snapshot` |
 | Started | 2026-08-20 |
-| Goal | Close the pre-existing pr-link XSS (board.js:567) via createElement/textContent, and add a sha256 checksum step to vendor/NOTICE.md's re-vendoring instructions. |
+| Goal | `cairn snapshot` renders a point-in-time markdown view of the tracker (majors/milestones/issues by status) to stdout, for appending to STATE.md at milestone close — a rendering, never a cairn input. |
 | Status | In Progress |
 
 ## Session Cycles
