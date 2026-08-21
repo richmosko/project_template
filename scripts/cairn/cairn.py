@@ -1846,10 +1846,16 @@ def cmd_serve(args: argparse.Namespace) -> int:
     # seceng D: multi-root widens cairn serve's read surface to whatever
     # roots: (or --repos) names -- a human tripwire so a fat-fingered or
     # stale entry that silently serves the wrong project's tracker becomes
-    # visible instead of silent, printed as a RESOLVED ABSOLUTE path (the
-    # /api/board payload deliberately withholds this, per the design
-    # note's §3.1 privacy call -- this is the CLI operator's own terminal,
-    # not a network-exposed surface).
+    # visible instead of silent, printed as a RESOLVED ABSOLUTE path. This
+    # is the CLI operator's own terminal, not a network-exposed surface --
+    # unlike the /api/board payload's `roots[]` array, which deliberately
+    # withholds every root's filesystem path (design note §3.1: keeps a
+    # localhost HTTP surface from leaking the user's directory layout).
+    # That withholding is scoped to `roots[]` specifically, not the whole
+    # payload -- GET /api/issue/<id>'s `path` field (PT-10, unchanged by
+    # PT-3) already carries a real on-disk path for any root, primary or
+    # secondary; seceng's nit (2026-08-21) was this comment overclaiming
+    # "the payload" withholds path info in general, which it doesn't.
     if len(roots) > 1:
         print("Serving across multiple roots:", file=sys.stderr)
         for root in roots:

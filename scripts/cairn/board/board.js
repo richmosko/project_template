@@ -638,19 +638,31 @@
   // List view
   // ------------------------------------------------------------------
 
-  var LIST_COLUMNS = [
-    { key: "id", label: "ID" },
-    { key: "title", label: "Title" },
-    { key: "status", label: "Status" },
-    { key: "milestone", label: "Milestone" },
-    { key: "assignee", label: "Assignee" },
-    { key: "priority", label: "Priority" },
-    { key: "updated", label: "Updated" },
-  ];
+  // PT-3: a function, not a module-level const, so it can carry a "Repo"
+  // column when the board has more than one root -- the list is a
+  // first-class view (its own tab, /list), not a Kanban-only affordance,
+  // so multi-root's repo dimension belongs here too (architect's review,
+  // ratified by team-lead: not Kanban-only for v1). Single-root gets the
+  // exact pre-PT-3 column set, unchanged.
+  function listColumns(board) {
+    var cols = [{ key: "id", label: "ID" }];
+    if (board && board.roots && board.roots.length > 1) {
+      cols.push({ key: "repo", label: "Repo" });
+    }
+    return cols.concat([
+      { key: "title", label: "Title" },
+      { key: "status", label: "Status" },
+      { key: "milestone", label: "Milestone" },
+      { key: "assignee", label: "Assignee" },
+      { key: "priority", label: "Priority" },
+      { key: "updated", label: "Updated" },
+    ]);
+  }
 
   function renderList() {
     var main = document.getElementById("main");
     main.innerHTML = "";
+    var columns = listColumns(state.board);
     var issues = filteredIssues().slice();
     issues.sort(function (a, b) {
       var av = a[state.sortKey] || "";
@@ -664,7 +676,7 @@
     table.className = "issue-list";
     var thead = document.createElement("thead");
     var headRow = document.createElement("tr");
-    LIST_COLUMNS.forEach(function (col) {
+    columns.forEach(function (col) {
       var th = document.createElement("th");
       th.textContent = col.label + (state.sortKey === col.key ? (state.sortDir === 1 ? " ▲" : " ▼") : "");
       th.onclick = function () {
@@ -680,7 +692,7 @@
     issues.forEach(function (issue) {
       var row = document.createElement("tr");
       row.onclick = function () { openDrawer(issue.id); };
-      LIST_COLUMNS.forEach(function (col) {
+      columns.forEach(function (col) {
         var td = document.createElement("td");
         td.textContent = issue[col.key] || "";
         row.appendChild(td);
