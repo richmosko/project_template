@@ -27,6 +27,7 @@ var CairnLogic = (function () {
     milestoneLabel, milestoneMajor, dedupeMajorIds, milestoneProgress,
     issueMilestoneKey, uniqueMilestoneKeys, primaryMilestones,
     isDraggable, primaryRootId, orderRoots, laneStateKey,
+    uniqueSorted, groupByMilestone,
   };
 })();
 ```
@@ -146,6 +147,23 @@ the function itself is correct, only a hypothetical bad call site wouldn't be.
   so collapsing one repo's lane doesn't collapse another's" property as
   `issueMilestoneKey`, just for swimlane collapse state instead of the
   filter-milestone select. Second-tier, same reasoning as `orderRoots`.
+
+- `uniqueSorted(values) -> string[]` — the distinct truthy values among `values`,
+  sorted ascending. Extracted from `board.js`'s `uniqueSorted` (the filter-assignee/
+  filter-label dropdown value dedup) for PT-23 — same function, now testable and
+  fixed. **Must use `Object.create(null)` internally, not a bare `{}`**, per PT-23
+  (architect's finding): an assignee/label value shaped like an `Object.prototype`
+  key name (`"constructor"`, `"toString"`, `"hasOwnProperty"`, …) reads as already
+  truthy on a bare `{}` *before* anything is ever inserted — see
+  `prototype-collision.test.js`'s "an id shaped like `toString`" family of tests.
+
+- `groupByMilestone(issues) -> {order: string[], groups: {[key: string]: Array}}` —
+  groups `issues` by `issue.milestone || "(none)"`, `order` is the group keys
+  sorted ascending. Extracted from the (previously duplicated verbatim in two
+  places — `renderKanban`'s single-root branch and `repoSectionEl`) `byMilestone`
+  grouping block, PT-23. Same `Object.create(null)`-not-bare-`{}` requirement as
+  `uniqueSorted` — a milestone id shaped like an `Object.prototype` key would
+  silently vanish from `order`/`groups` on a bare `{}`.
 
 ## Not extracted in this pass (stretch / out of scope)
 

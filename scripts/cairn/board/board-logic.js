@@ -37,6 +37,19 @@
 var CairnLogic = (function () {
   "use strict";
 
+  // The distinct truthy values among `values`, sorted ascending -- the
+  // filter-assignee/filter-label dropdown dedup. PT-23 extraction from
+  // board.js's own uniqueSorted, fixed in the same move: uses
+  // Object.create(null) internally (architect's finding), not a bare
+  // {} -- a value shaped like "constructor"/"toString"/"hasOwnProperty"
+  // reads as already-seen on a bare {} the moment it's looked up, before
+  // anything is inserted, and silently drops from the option list.
+  function uniqueSorted(values) {
+    var set = Object.create(null);
+    (values || []).forEach(function (v) { if (v) set[v] = true; });
+    return Object.keys(set).sort();
+  }
+
   // The id of the one root in board.roots marked primary, or null when
   // board is falsy, board.roots is absent/empty, or no root is primary.
   // Every other function below that takes a `primaryId` parameter treats
@@ -101,7 +114,14 @@ var CairnLogic = (function () {
   // filtering semantics (board.js's union-comparison logic, unchanged, is
   // not part of this extraction).
   function dedupeMajorIds(majors) {
-    var seen = {};
+    // PT-23 (architect's finding): Object.create(null), not a bare {} --
+    // a bare {} inherits Object.prototype, so a major id shaped like
+    // "constructor"/"toString"/"hasOwnProperty" reads as already-seen
+    // (truthy) the very first time it's looked up, before anything is
+    // ever inserted, and silently drops from the tab bar. Unreachable
+    // today (major ids are version strings) but load-bearing the moment
+    // that's not true, and costs nothing for the normal case.
+    var seen = Object.create(null);
     var out = [];
     (majors || []).forEach(function (m) {
       if (seen[m.id]) return;
@@ -159,6 +179,18 @@ var CairnLogic = (function () {
   // issueMilestoneKey itself, not a second hand-written concatenation --
   // that's what makes the agreement with filteredIssues' comparison
   // structural rather than coincidental.
+  //
+  // DELIBERATELY a bare {}, not Object.create(null) (PT-23, qa-engineer's
+  // finding, verified by architect 2026-08-21) -- unlike dedupeMajorIds/
+  // uniqueSorted/groupByMilestone, this `seen` set is keyed by
+  // issueMilestoneKey's composite "repo::milestone" string (e.g.
+  // "PT::constructor"), which always contains "::" -- no
+  // Object.prototype member name does, so no inherited key can ever be
+  // hit here. Safe by construction, not by omission. Three other sets in
+  // this file use Object.create(null); do not "harmonise" this one to
+  // match them without re-deriving this reasoning first (see
+  // laneStateKey's matching note for the same pattern on the absent-repo
+  // question).
   function uniqueMilestoneKeys(issues) {
     var seen = {};
     var out = [];
@@ -236,6 +268,37 @@ var CairnLogic = (function () {
     return repoId + "::" + milestoneKey;
   }
 
+  // {order, groups} -- groups `issues` by `issue.milestone || "(none)"`;
+  // `order` is the group keys sorted ascending. PT-23 extraction: this
+  // block was duplicated VERBATIM in two places in board.js
+  // (renderKanban's single-root branch and repoSectionEl) -- itself
+  // another instance of PT-3's "duplicated inline expression" bug class
+  // (the same shape issueMilestoneKey/isDraggable closed), found while
+  // fixing the Object.prototype-collision issue rather than a separately
+  // escaped defect. `groups` uses Object.create(null) internally
+  // (architect's finding, same reasoning as uniqueSorted/dedupeMajorIds)
+  // -- on a bare {}, a milestone id shaped like "constructor" is a
+  // DIFFERENT failure mode than dedupeMajorIds' silent drop: `!groups[key]`
+  // is false (the inherited function is truthy), so the `groups[key] = []`
+  // branch is skipped, then `groups[key].push(issue)` calls `.push` on
+  // `Object.prototype.constructor` -- which has no `.push` -- and THROWS
+  // a TypeError that crashes the render, rather than silently vanishing.
+  // Worse than dedupeMajorIds' failure mode, not the same one -- corrected
+  // per architect's review, 2026-08-21, after an earlier draft of this
+  // comment mistakenly generalised dedupeMajorIds' wording here without
+  // re-deriving it for this function's actual code shape.
+  function groupByMilestone(issues) {
+    var groups = Object.create(null);
+    var order = [];
+    (issues || []).forEach(function (issue) {
+      var key = issue.milestone || "(none)";
+      if (!groups[key]) { groups[key] = []; order.push(key); }
+      groups[key].push(issue);
+    });
+    order.sort();
+    return { order: order, groups: groups };
+  }
+
   return {
     primaryRootId: primaryRootId,
     milestoneLabel: milestoneLabel,
@@ -248,5 +311,7 @@ var CairnLogic = (function () {
     isDraggable: isDraggable,
     orderRoots: orderRoots,
     laneStateKey: laneStateKey,
+    uniqueSorted: uniqueSorted,
+    groupByMilestone: groupByMilestone,
   };
 })();

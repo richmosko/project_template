@@ -1670,6 +1670,7 @@ def cmd_new(args: argparse.Namespace) -> int:
 
 def cmd_ls(args: argparse.Namespace) -> int:
     data_dir = resolve_data_dir(args)
+    matched: List[Dict[str, Any]] = []
     for p in _dir_glob(Path(data_dir) / "issues"):
         try:
             fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
@@ -1682,6 +1683,13 @@ def cmd_ls(args: argparse.Namespace) -> int:
             continue
         if args.assignee and fm.get("assignee") != args.assignee:
             continue
+        matched.append(fm)
+    # PT-21: _dir_glob's filename order is lexicographic ("PT-10" sorts
+    # before "PT-2") -- print in numeric-by-id order instead, reusing the
+    # same _id_sort_key PT-2's build_snapshot_markdown already introduced
+    # rather than a second copy of the same sort key.
+    matched.sort(key=lambda fm: _id_sort_key(fm.get("id")))
+    for fm in matched:
         milestone = fm.get("milestone") if fm.get("milestone") is not None else "-"
         assignee = fm.get("assignee") if fm.get("assignee") is not None else "-"
         print(f"{fm.get('id')}\t{fm.get('status')}\t{milestone}\t{assignee}\t{fm.get('title')}")

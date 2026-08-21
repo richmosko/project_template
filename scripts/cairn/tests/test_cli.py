@@ -119,6 +119,33 @@ class LsCommandTests(unittest.TestCase):
         self.assertIn("PT-3", joined)
         self.assertNotIn("PT-4", joined)
 
+    def test_ls_orders_numerically_by_id_not_lexicographically_by_filename(self):
+        # PT-21: _dir_glob's filename order is lexicographic ("PT-10"
+        # sorts before "PT-2", since '1' < '2') -- cmd_ls must not just
+        # print that order verbatim. Add PT-2 and PT-10 (the fixture
+        # ships PT-1/3/4/9 only, no double-digit id) so this is a real
+        # regression case, not a fixture accident.
+        data_dir = helpers.make_tmp_data_dir(self)
+        for issue_id in ("PT-2", "PT-10"):
+            (data_dir / "issues" / f"{issue_id}.md").write_text(
+                "---\n"
+                f"id: {issue_id}\ntitle: Numeric sort case\nstatus: backlog\n"
+                "milestone: null\nparent: null\nassignee: null\nlabels: []\n"
+                "priority: null\npr: null\ncreated: 2026-08-01\nupdated: 2026-08-01\n"
+                "---\n\nBody.\n",
+                encoding="utf-8",
+            )
+        result = run_cairn(["ls", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = [line for line in result.stdout.splitlines() if line.strip()]
+        ids_in_order = [line.split("\t", 1)[0] for line in lines]
+        self.assertIn("PT-2", ids_in_order)
+        self.assertIn("PT-10", ids_in_order)
+        self.assertLess(
+            ids_in_order.index("PT-2"), ids_in_order.index("PT-10"),
+            f"expected PT-2 before PT-10, got order: {ids_in_order}",
+        )
+
 
 class SetCommandTests(unittest.TestCase):
     def test_set_updates_fields_and_bumps_updated(self):

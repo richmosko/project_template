@@ -104,6 +104,7 @@ How far a `/drive`-aimed [goal-driven loop](#goal-driven-loop-drive) runs before
   - QA runs full regression + acceptance suite
   - DevOps deploys to staging (or prod if release-ready)
   - Architect reviews for arch drift / debt accumulation
+  - **Duplicated-inline-expression check** (standing review criterion): when a fix or extraction touches a logic-dense client file — `board.js` above all — grep for the *same* expression written in two places (a predicate, a key-derivation, a grouping block) and expect it to route through one shared function, not two hand-maintained copies. Rationale: the cairn board hit this **three times** (`isDraggable`, `issueMilestoneKey`, `byMilestone` grouping); two caused real shipped-to-review defects the identical way — a fix applied to one copy and not the other. It is far cheaper to catch by looking deliberately than by waiting for the next escape. Verify collapse *by absence* (grep for the old inline shape, expect zero hits outside the shared module), not by presence of the new helper.
   - SecEng re-engaged if any security control was touched
 - **Gate:** Acceptance criteria met → `/merge-pr` → update `STATE.md`. **Tag a release only if this PR completes a release milestone** — the `/merge-pr` skill prompts; tagging is never automatic.
 
