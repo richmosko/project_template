@@ -336,6 +336,23 @@ class ResolveRootsCliReposTests(unittest.TestCase):
         )
         self.assertTrue(any(r.primary and r.id == "AA" for r in roots), roots)
 
+    def test_absolute_cli_repos_entry_is_allowed_unlike_a_config_roots_entry(self):
+        # §4.3: config.yml's roots: must be relative (committed, portable
+        # across clones/machines -- ResolveRootsWarnAndSkipTests.
+        # test_absolute_path_entry_is_bad_entry pins that half). --repos is
+        # ad-hoc and uncommitted, so an absolute path there is fine and
+        # deliberately allowed -- "Same resolution rules as §2.1, except
+        # absolute is allowed." Flagged by implementation-lead as untested
+        # by the original suite; this closes that gap.
+        tmp = helpers.make_empty_tmp_dir(self)
+        primary = make_repo(tmp, "repo_a", "AA")
+        secondary = make_repo(tmp, "repo_c", "CC")
+        roots, warnings = cairn.resolve_roots(
+            primary, {"prefix": "AA", "port": 8766}, cli_repos=[str(secondary.parent.parent)]
+        )
+        self.assertEqual(warnings, [])
+        self.assertEqual({r.id for r in roots}, {"AA", "CC"})
+
 
 # --------------------------------------------------------------------------
 # check_repo: `roots:` shape validation (team-lead's ruling C, 2026-08-21 --
