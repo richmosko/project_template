@@ -29,6 +29,8 @@
   var isDraggable = CairnLogic.isDraggable;
   var orderRoots = CairnLogic.orderRoots;
   var laneStateKey = CairnLogic.laneStateKey;
+  var uniqueSorted = CairnLogic.uniqueSorted;
+  var groupByMilestone = CairnLogic.groupByMilestone;
 
   var STATUS_LABELS = {
     "backlog": "Backlog",
@@ -280,12 +282,6 @@
     );
   }
 
-  function uniqueSorted(values) {
-    var set = {};
-    values.forEach(function (v) { if (v) set[v] = true; });
-    return Object.keys(set).sort();
-  }
-
   function populateSelect(id, values, labelFor) {
     var el = document.getElementById(id);
     var current = el.value;
@@ -498,16 +494,9 @@
 
     if (!collapsed) {
       if (state.swimlanesOn) {
-        var byMilestone = {};
-        var order = [];
-        issues.forEach(function (issue) {
-          var key = issue.milestone || "(none)";
-          if (!byMilestone[key]) { byMilestone[key] = []; order.push(key); }
-          byMilestone[key].push(issue);
-        });
-        order.sort();
-        order.forEach(function (key) {
-          section.appendChild(milestoneLaneEl(board, key, byMilestone[key], laneStateKey(root.id, key), root.id));
+        var grouped = groupByMilestone(issues);
+        grouped.order.forEach(function (key) {
+          section.appendChild(milestoneLaneEl(board, key, grouped.groups[key], laneStateKey(root.id, key), root.id));
         });
       } else {
         section.appendChild(columnsFor(issues));
@@ -533,21 +522,14 @@
         main.appendChild(columnsFor(issues));
         return;
       }
-      var byMilestone = {};
-      var order = [];
-      issues.forEach(function (issue) {
-        var key = issue.milestone || "(none)";
-        if (!byMilestone[key]) { byMilestone[key] = []; order.push(key); }
-        byMilestone[key].push(issue);
-      });
-      if (order.length === 0) {
+      var grouped = groupByMilestone(issues);
+      if (grouped.order.length === 0) {
         main.innerHTML = '<div class="empty-state">No issues match the current filters.</div>';
         return;
       }
-      order.sort();
       var soleRootId = primaryRootId(board);
-      order.forEach(function (key) {
-        main.appendChild(milestoneLaneEl(board, key, byMilestone[key], laneStateKey(soleRootId, key), soleRootId));
+      grouped.order.forEach(function (key) {
+        main.appendChild(milestoneLaneEl(board, key, grouped.groups[key], laneStateKey(soleRootId, key), soleRootId));
       });
       return;
     }
