@@ -308,6 +308,46 @@
     return wrap;
   }
 
+  // PT-16, extracted for PT-3 (pure extraction -- zero behavior change):
+  // one milestone swimlane -- id·name label (milestoneLabel falls back to
+  // the bare key for "(none)" and any dangling milestone id -- no
+  // special-casing needed) + a per-lane collapse toggle. Collapse state
+  // lives only in state.collapsedLanes (in-memory) -- never written to
+  // disk, no network call fires on toggle.
+  function milestoneLaneEl(board, key, issues) {
+    var lane = document.createElement("div");
+    lane.className = "swimlane";
+
+    var collapsed = !!state.collapsedLanes[key];
+    var laneHeader = document.createElement("div");
+    laneHeader.className = "swimlane-header";
+
+    var toggleBtn = document.createElement("button");
+    toggleBtn.type = "button";
+    toggleBtn.className = "swimlane-toggle";
+    toggleBtn.textContent = collapsed ? "▸" : "▾";
+    toggleBtn.setAttribute("aria-label", (collapsed ? "Expand " : "Collapse ") + key);
+    toggleBtn.addEventListener("click", function () {
+      state.collapsedLanes[key] = !collapsed;
+      render();
+    });
+    laneHeader.appendChild(toggleBtn);
+
+    var labelSpan = document.createElement("span");
+    labelSpan.className = "swimlane-label";
+    labelSpan.textContent = milestoneLabel(board, key);
+    laneHeader.appendChild(labelSpan);
+
+    var countSpan = document.createElement("span");
+    countSpan.className = "swimlane-count";
+    countSpan.textContent = issues.length;
+    laneHeader.appendChild(countSpan);
+
+    lane.appendChild(laneHeader);
+    if (!collapsed) lane.appendChild(columnsFor(issues));
+    return lane;
+  }
+
   function renderKanban() {
     var board = state.board;
     var main = document.getElementById("main");
@@ -332,42 +372,7 @@
     }
     order.sort();
     order.forEach(function (key) {
-      var lane = document.createElement("div");
-      lane.className = "swimlane";
-
-      // PT-16: id·name label (milestoneLabel falls back to the bare key
-      // for "(none)" and any dangling milestone id -- no special-casing
-      // needed) + a per-lane collapse toggle. Collapse state lives only
-      // in state.collapsedLanes (in-memory) -- never written to disk, no
-      // network call fires on toggle.
-      var collapsed = !!state.collapsedLanes[key];
-      var laneHeader = document.createElement("div");
-      laneHeader.className = "swimlane-header";
-
-      var toggleBtn = document.createElement("button");
-      toggleBtn.type = "button";
-      toggleBtn.className = "swimlane-toggle";
-      toggleBtn.textContent = collapsed ? "▸" : "▾";
-      toggleBtn.setAttribute("aria-label", (collapsed ? "Expand " : "Collapse ") + key);
-      toggleBtn.addEventListener("click", function () {
-        state.collapsedLanes[key] = !collapsed;
-        render();
-      });
-      laneHeader.appendChild(toggleBtn);
-
-      var labelSpan = document.createElement("span");
-      labelSpan.className = "swimlane-label";
-      labelSpan.textContent = milestoneLabel(board, key);
-      laneHeader.appendChild(labelSpan);
-
-      var countSpan = document.createElement("span");
-      countSpan.className = "swimlane-count";
-      countSpan.textContent = byMilestone[key].length;
-      laneHeader.appendChild(countSpan);
-
-      lane.appendChild(laneHeader);
-      if (!collapsed) lane.appendChild(columnsFor(byMilestone[key]));
-      main.appendChild(lane);
+      main.appendChild(milestoneLaneEl(board, key, byMilestone[key]));
     });
   }
 
