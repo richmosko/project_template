@@ -179,6 +179,18 @@ var CairnLogic = (function () {
   // issueMilestoneKey itself, not a second hand-written concatenation --
   // that's what makes the agreement with filteredIssues' comparison
   // structural rather than coincidental.
+  //
+  // DELIBERATELY a bare {}, not Object.create(null) (PT-23, qa-engineer's
+  // finding, verified by architect 2026-08-21) -- unlike dedupeMajorIds/
+  // uniqueSorted/groupByMilestone, this `seen` set is keyed by
+  // issueMilestoneKey's composite "repo::milestone" string (e.g.
+  // "PT::constructor"), which always contains "::" -- no
+  // Object.prototype member name does, so no inherited key can ever be
+  // hit here. Safe by construction, not by omission. Three other sets in
+  // this file use Object.create(null); do not "harmonise" this one to
+  // match them without re-deriving this reasoning first (see
+  // laneStateKey's matching note for the same pattern on the absent-repo
+  // question).
   function uniqueMilestoneKeys(issues) {
     var seen = {};
     var out = [];
@@ -265,8 +277,16 @@ var CairnLogic = (function () {
   // fixing the Object.prototype-collision issue rather than a separately
   // escaped defect. `groups` uses Object.create(null) internally
   // (architect's finding, same reasoning as uniqueSorted/dedupeMajorIds)
-  // -- a milestone id shaped like "constructor" would otherwise silently
-  // vanish from both `order` and `groups`.
+  // -- on a bare {}, a milestone id shaped like "constructor" is a
+  // DIFFERENT failure mode than dedupeMajorIds' silent drop: `!groups[key]`
+  // is false (the inherited function is truthy), so the `groups[key] = []`
+  // branch is skipped, then `groups[key].push(issue)` calls `.push` on
+  // `Object.prototype.constructor` -- which has no `.push` -- and THROWS
+  // a TypeError that crashes the render, rather than silently vanishing.
+  // Worse than dedupeMajorIds' failure mode, not the same one -- corrected
+  // per architect's review, 2026-08-21, after an earlier draft of this
+  // comment mistakenly generalised dedupeMajorIds' wording here without
+  // re-deriving it for this function's actual code shape.
   function groupByMilestone(issues) {
     var groups = Object.create(null);
     var order = [];
