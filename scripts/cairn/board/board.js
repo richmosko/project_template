@@ -275,10 +275,15 @@
     // lint error. All known primary milestones, not just ones already
     // carrying an issue -- a fresh milestone with zero issues yet should
     // still be choosable when creating the first one for it.
+    // Null-guard (architect review, 2026-08-21): mirrors cardEl/handleDrop
+    // -- a payload with no `roots`/`repo` dimension at all (stale cached
+    // board.js against an older cairn serve) must not filter every
+    // milestone out via `undefined === null`; treat "no repo dimension"
+    // as "everything is the primary" rather than an empty, broken select.
     populateSelect(
       "new-issue-milestone",
       (board.milestones || [])
-        .filter(function (m) { return m.repo === primaryId; })
+        .filter(function (m) { return primaryId == null || m.repo === primaryId; })
         .map(function (m) { return m.id; })
         .sort(),
       function (v) { return milestoneLabel(board, v, primaryId); }
@@ -342,7 +347,18 @@
     // PT-3: a foreign-root card is not draggable -- UI courtesy only
     // (§3.3.2: "not the security boundary"), the server's 403
     // read_only_root is what actually enforces this.
-    card.draggable = issue.repo === primaryRootId(state.board);
+    //
+    // Null-guard (architect review, 2026-08-21): a payload with no
+    // `roots` dimension at all -- e.g. stale board.js cached against an
+    // older cairn serve process, since _send_static sets no
+    // Cache-Control -- makes primaryRootId return null and issue.repo
+    // undefined. `undefined === null` is false, which would make every
+    // card undraggable and every drop refuse itself with a misleading
+    // "read-only" toast. Treat "no repo dimension at all" as "everything
+    // is the primary" (the true pre-PT-3 behavior) rather than degrading
+    // into a board where nothing drags for the wrong reason.
+    var cardPrimaryId = primaryRootId(state.board);
+    card.draggable = cardPrimaryId == null || issue.repo === cardPrimaryId;
     card.dataset.id = issue.id;
     card.addEventListener("dragstart", function (e) {
       card.classList.add("dragging");
@@ -605,7 +621,13 @@
     // before any optimistic state change or network round trip, rather
     // than relying on the server's 403 read_only_root round-trip to be
     // the only thing that catches it (architect review, 2026-08-21).
-    if (issue.repo !== primaryRootId(state.board)) {
+    //
+    // Null-guard (architect review, 2026-08-21): mirrors cardEl's --
+    // a payload with no `roots` dimension makes primaryRootId return
+    // null; treat that as "everything is the primary" rather than
+    // refusing every drop with a toast that blames the wrong thing.
+    var dropPrimaryId = primaryRootId(state.board);
+    if (dropPrimaryId != null && issue.repo !== dropPrimaryId) {
       showToast(id + " is read-only (lives in a different root)", true);
       return;
     }
