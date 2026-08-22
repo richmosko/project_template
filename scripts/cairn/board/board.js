@@ -656,7 +656,7 @@
   // wrapper element; `is-collapsed` only tightens CSS padding, it drives
   // no JS branch. Collapse state lives only in state.expandedLanes
   // (in-memory) -- never written to disk, no network call fires on toggle.
-  function milestoneLaneEl(board, key, issues, stateKey, repoId) {
+  function milestoneLaneEl(board, key, issues, stateKey, repoId, laneId) {
     var lane = document.createElement("div");
     lane.className = "swimlane";
 
@@ -682,6 +682,14 @@
     toggleBtn.textContent = disclosureToken(expanded);
     toggleBtn.setAttribute("aria-label", (expanded ? "Collapse " : "Expand ") + key);
     toggleBtn.setAttribute("aria-expanded", expanded ? "true" : "false");
+    // PT-31 (architect's triage ruling, item 3): aria-controls ONLY when
+    // expanded -- the disclosed .board is not in the DOM when collapsed
+    // (that's the whole point of the roll-up), so pointing aria-controls
+    // at an id that doesn't exist half the time is worse than omitting
+    // it. laneId is computed by the CALLER (renderKanban/repoSectionEl),
+    // the same call sites that already compute stateKey -- never derived
+    // a second way in here.
+    if (expanded) toggleBtn.setAttribute("aria-controls", laneId);
     toggleBtn.addEventListener("click", function () {
       // PT-29: nextExpandedLanes is the SINGLE write path -- non-mutating,
       // returns a fresh map; board.js never assigns into the map by hand.
@@ -731,7 +739,14 @@
     }
 
     lane.appendChild(laneHeader);
-    if (expanded) lane.appendChild(columnsFor(issues));
+    if (expanded) {
+      // PT-31 (item 3): the .board carrying laneId is what aria-controls
+      // (above) points at -- rendered only here, never "always rendered
+      // and hidden" (that would restore the wall of DOM PT-29 removed).
+      var boardEl = columnsFor(issues);
+      boardEl.id = laneId;
+      lane.appendChild(boardEl);
+    }
     return lane;
   }
 
@@ -800,7 +815,15 @@
         var grouped = groupByMilestone(issues);
         grouped.order.forEach(function (key) {
           var stateKey = laneStateKey(root.id, key);
-          section.appendChild(milestoneLaneEl(board, key, grouped.groups[key], stateKey, root.id));
+          // PT-31 (item 3): laneId computed at the call site, same
+          // pattern as stateKey -- state.renderedLaneKeys.length is the
+          // GLOBAL lane index across the whole render pass (reset once at
+          // the top of renderKanban, pushed to at both this call site and
+          // renderKanban's single-root branch), so it stays collision-
+          // proof even if two different stateKeys sanitize to the same
+          // string.
+          var laneId = "lane-" + state.renderedLaneKeys.length + "-" + stateKey.replace(/[^A-Za-z0-9_-]/g, "-");
+          section.appendChild(milestoneLaneEl(board, key, grouped.groups[key], stateKey, root.id, laneId));
           // PT-30: record every lane key actually rendered here -- Expand-all
           // reads state.renderedLaneKeys rather than reconstructing the
           // grouping rules itself (the ruling's "universe builder"
@@ -848,7 +871,11 @@
       var soleRootId = primaryRootId(board);
       grouped.order.forEach(function (key) {
         var stateKey = laneStateKey(soleRootId, key);
-        main.appendChild(milestoneLaneEl(board, key, grouped.groups[key], stateKey, soleRootId));
+        // PT-31 (item 3): same laneId scheme as repoSectionEl's -- global
+        // index (state.renderedLaneKeys.length, read BEFORE this lane's
+        // own push below) + sanitized stateKey.
+        var laneId = "lane-" + state.renderedLaneKeys.length + "-" + stateKey.replace(/[^A-Za-z0-9_-]/g, "-");
+        main.appendChild(milestoneLaneEl(board, key, grouped.groups[key], stateKey, soleRootId, laneId));
         state.renderedLaneKeys.push(stateKey);
       });
       return;
@@ -1443,6 +1470,12 @@
   var pullHorizontalDominant = false;
   var pullLastDeltaY = 0;
   var pullLastPhase = "idle";
+  // PT-31 (architect's triage ruling, item 6b): hoisted -- wirePullToRefresh
+  // already proves this element exists (and bails if it doesn't) before any
+  // listener is attached, and #pull-indicator is static in board.html,
+  // never re-created, so this cache can't go stale. Set once there instead
+  // of a getElementById on every touchmove.
+  var pullIndicatorEl = null;
 
   function pullCancelFlags(multiTouch) {
     // PT-32 (architect's ruling § 2): board.js's job is computing every
@@ -1473,8 +1506,8 @@
   // active drag; the transition is for snap-back-to-hidden (idle) and the
   // release-to-refreshing/refreshing-to-idle settle, never the drag itself.
   function updatePullIndicator(phase, deltaY) {
-    var el = document.getElementById("pull-indicator");
-    if (!el) return; // PT-32 (ruling § 5): bail early if the indicator isn't in the DOM
+    var el = pullIndicatorEl;
+    if (!el) return; // PT-32 (ruling § 5): bail if the indicator isn't in the DOM
     el.classList.toggle("dragging", phase === "pulling" || phase === "armed");
     if (phase === "idle") {
       el.hidden = true;
@@ -1482,15 +1515,41 @@
       return;
     }
     el.hidden = false;
-    el.textContent = pullIndicatorLabel(phase);
+    // PT-31 (item 6c): spin ONLY the leading glyph, not the whole label --
+    // rotating the entire "↻ Refreshing…" text node would spin the words
+    // too. Split the glyph into its own span so the CSS keyframe (below)
+    // has something narrower to target; the rest of the label is a plain
+    // trailing text node, unchanged. PULL_MIN_SPINNER_MS is a MINIMUM
+    // hold, not a duration -- a slow/stalled network can make it
+    // arbitrarily long, and a motionless glyph during that window reads
+    // as a frozen page rather than a working one.
+    var label = pullIndicatorLabel(phase);
+    el.textContent = "";
+    var glyphEl = document.createElement("span");
+    glyphEl.className = "pull-indicator-glyph";
+    glyphEl.classList.toggle("spinning", phase === "refreshing");
+    glyphEl.textContent = label.charAt(0);
+    el.appendChild(glyphEl);
+    el.appendChild(document.createTextNode(label.slice(1)));
     el.style.transform = "translateY(calc(-100% + " + pullIndicatorOffset(deltaY) + "px))";
   }
 
   function resetPullGesture() {
+    // PT-31 (architect's triage ruling, item 6a): complete reset -- the
+    // three vars added below were previously left standing across a
+    // reset, safe only because every read is guarded by the
+    // `pullStartY === null` early return at the top of onPullTouchMove/
+    // onPullTouchEnd. Zero behavior change (onPullTouchEnd already reads
+    // pullLastPhase/pullLastDeltaY into locals BEFORE calling this), and
+    // it removes a trap for whoever next adds a read path that isn't
+    // guarded the same way.
     pullStartY = null;
     pullStartX = null;
+    pullAtScrollTop = false;
     pullAxisDecided = false;
     pullHorizontalDominant = false;
+    pullLastDeltaY = 0;
+    pullLastPhase = "idle";
   }
 
   function onPullTouchStart(e) {
@@ -1605,7 +1664,8 @@
   // { passive: false } (ruling § 3) -- it's the only one that ever calls
   // preventDefault.
   function wirePullToRefresh() {
-    if (!document.getElementById("pull-indicator")) return; // bail early, ruling § 5
+    pullIndicatorEl = document.getElementById("pull-indicator");
+    if (!pullIndicatorEl) return; // bail early, ruling § 5
     document.addEventListener("touchstart", onPullTouchStart, { passive: true });
     document.addEventListener("touchmove", onPullTouchMove, { passive: false });
     document.addEventListener("touchend", onPullTouchEnd, { passive: true });
