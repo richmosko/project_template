@@ -1779,10 +1779,23 @@ def make_server(
             # instead of a grep. BaseHTTPRequestHandler.log_request's own
             # call shape (kept here as the reference format) is
             # `log_message('"%s" %s %s', requestline, code, size)` --
-            # fmt_args[1] is the status code on that path. Any other call
-            # shape (log_error, etc.) doesn't carry one at that position,
-            # so this degrades to the prior terse method+path form rather
-            # than guessing.
+            # fmt_args[1] is the status code on that path.
+            #
+            # PT-31 (architect's comment-accuracy fix, item 8): the
+            # previous version of this comment claimed any OTHER call
+            # shape (log_error, etc.) "degrades to the terse form" -- that
+            # is false. log_error's own call shape is
+            # `log_message("code %d, message %s", code, message)`, so at
+            # fmt_args[1] it carries the MESSAGE ("Not Found"), not a
+            # status code -- that string lands in this line's status
+            # column verbatim, not a "-" placeholder. Harmless for E0's
+            # actual purpose (the real numeric status still appears on
+            # log_request's own line for the same request), but the prior
+            # comment described a fallback that doesn't exist. No
+            # format-string guard added to distinguish the two shapes --
+            # that would couple this handler to a CPython stdlib internal
+            # (the exact positional args http.server happens to pass)
+            # for a cosmetic gain on an already-non-blocking log line.
             status = fmt_args[1] if len(fmt_args) >= 2 else "-"
             sys.stderr.write("  %s %s %s\n" % (self.command, self.path, status))
 

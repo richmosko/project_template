@@ -536,11 +536,25 @@ var CairnLogic = (function () {
       counts[status] += 1;
     });
     var byStatus = [];
+    var total = 0;
     BOARD_COLUMNS.forEach(function (status) {
       var count = counts[status] || 0;
-      if (count > 0) byStatus.push({ status: status, count: count });
+      if (count > 0) {
+        byStatus.push({ status: status, count: count });
+        total += count;
+      }
     });
-    return { total: list.length, byStatus: byStatus };
+    // PT-31 (architect's triage ruling, item 1 -- supersedes PT-29's
+    // `total: list.length`): total is the SUM of byStatus, i.e. only
+    // column-backed statuses count. Measured, not assumed: columnsFor
+    // builds columns for BOARD_COLUMNS only, so an issue whose status
+    // (e.g. "cancelled") has no column renders in NO column, expanded or
+    // collapsed -- issues.length let an expanded lane's header read "5"
+    // over four visible cards with Show-cancelled on. One source
+    // (byStatus) now backs both the header count and the collapsed-lane
+    // chips, so "chips sum to total" holds by construction, not as a
+    // second invariant someone has to keep in sync.
+    return { total: total, byStatus: byStatus };
   }
 
   // PT-30 (architect's ruling § 5): schema constants, exported so tests

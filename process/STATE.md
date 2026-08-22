@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Board server: /api/board 503 under concurrent fetch+SSE |
-| Issue | PT-34 |
-| Milestone | PT-0.6.1 |
-| Branch | `feature/pt-34-board-503-race` |
-| Started | 2026-08-22 |
-| Goal | Reproduce and fix the single-threaded fetch/SSE race server-side; regression coverage; client behavior unchanged |
-| Status | In Progress — pre-approved through /merge-pr (Mosko); PT-31 next under same order |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Releases
 

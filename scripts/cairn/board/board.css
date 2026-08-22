@@ -73,6 +73,25 @@ body {
   transition: none;
 }
 
+/* PT-31 (architect's triage ruling, item 6c): only the leading glyph
+   spins, not the whole "↻ Refreshing…" label -- board.js splits it into
+   its own span for exactly this. `PULL_MIN_SPINNER_MS` is a MINIMUM
+   hold, not a duration; a slow/stalled network can make it arbitrarily
+   long, and a motionless glyph in that window reads as a frozen page
+   rather than a working one. */
+.pull-indicator-glyph {
+  display: inline-block;
+}
+
+.pull-indicator-glyph.spinning {
+  animation: pull-indicator-spin 0.8s linear infinite;
+}
+
+@keyframes pull-indicator-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 header.app-header {
   background: var(--panel);
   border-bottom: 1px solid var(--border);
@@ -316,6 +335,14 @@ main > .swimlane .column {
   display: flex;
   align-items: center;
   gap: 6px;
+  /* PT-31 (architect's triage ruling, item 2): flex-wrap ALONE is a
+     non-fix -- .swimlane-label below is `flex: 1` (i.e. `flex: 1 1 0%`,
+     a zero basis with shrink enabled), so the label always shrinks to
+     nothing before anything has a reason to wrap. Pairs with
+     .swimlane-label's min-width below; neither alone fixes a fully-
+     populated collapsed lane crushing the milestone name at narrow
+     viewports. */
+  flex-wrap: wrap;
 }
 
 /* PT-29 (architect's ruling § 3): shared with .repo-group-toggle -- one
@@ -345,7 +372,13 @@ main > .swimlane .column {
 }
 
 .swimlane-label {
-  flex: 1;
+  /* PT-31 (architect's triage ruling, item 2): the LOAD-BEARING half --
+     `flex: 1 1 auto` plus a `min-width` floor gives the label something
+     to refuse to shrink past, which is what forces the status chips onto
+     a second line instead of crushing the milestone name. `flex: 1`
+     alone (a zero basis) has no floor at all. */
+  flex: 1 1 auto;
+  min-width: 8em;
 }
 
 .swimlane-count {

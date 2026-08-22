@@ -12,19 +12,30 @@
 // (`laneSummary(issues) -> {total, byStatus}`), QA's call per INTERFACE.md's
 // "someone has to pick the concrete behavior" convention -- flag if
 // implementation-lead finds a reason to diverge:
-//   - `total` is `issues.length` -- ALL issues in the lane, matching the
-//     existing `.swimlane-count` semantics unchanged by this feature.
 //   - `byStatus` iterates BOARD_COLUMNS in order; a status with zero issues
 //     is omitted entirely (never a `{status, count: 0}` entry).
-//   - a status value present on an issue but NOT in BOARD_COLUMNS (e.g. a
-//     value this board build doesn't recognize) contributes to `total` but
-//     produces no `byStatus` entry -- byStatus enumerates known columns
-//     only, it does not discover statuses from the data.
+//   - a status value present on an issue but NOT in BOARD_COLUMNS (e.g.
+//     "cancelled") produces no `byStatus` entry -- byStatus enumerates
+//     known columns only, it does not discover statuses from the data.
 //
-// Both laneSummary and CairnLogic.BOARD_COLUMNS are missing from
-// board-logic.js as of this commit -- expected to fail with
-// "CairnLogic.laneSummary is not a function" / BOARD_COLUMNS undefined
-// until implementation-lead's slice lands.
+// PT-31 (architect's triage ruling, item 1, superseding the PT-29 contract
+// above): `total` is now the SUM of `byStatus` counts, not `issues.length`
+// -- it counts only column-backed statuses, the same set byStatus already
+// enumerates. Measured, not reasoned from the bug report: `columnsFor`
+// builds columns for BOARD_COLUMNS only and a cancelled issue matches none
+// of them, so it "renders nowhere" in an EXPANDED lane too -- the pre-PT-31
+// `total: issues.length` therefore had an expanded lane reading e.g. "5"
+// over four visible cards with Show-cancelled on, a mismatch chips (which
+// only ever existed for the collapsed case) never touched. One source
+// (`byStatus`) now backs both the header count and the chips, so they
+// cannot disagree by construction -- chips summing to `total` is true FOR
+// FREE, not a second invariant to maintain. Root cause (the checkbox being
+// inert in kanban view) is explicitly NOT fixed here -- split to PT-35.
+//
+// laneSummary/BOARD_COLUMNS already shipped in PT-29 -- this commit's new
+// cases (the exclude-cancelled-from-total tests below) are expected to fail
+// against the CURRENT total-is-issues.length implementation, not against a
+// missing function, until implementation-lead's PT-31 slice lands.
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -45,7 +56,11 @@ test("laneSummary: empty input yields zero total and an empty byStatus list", ()
   assert.deepEqual(summary, { total: 0, byStatus: [] });
 });
 
-test("laneSummary: total counts every issue in the lane regardless of status", () => {
+test("laneSummary: total counts every issue when every status is column-backed", () => {
+  // Renamed from PT-29's "...regardless of status" -- PT-31 makes that
+  // phrase false in general (see the cancelled-exclusion tests below);
+  // this case still passes unchanged since all three statuses here ARE
+  // column-backed, which is the point -- the common case is unaffected.
   var issues = [issue("PT-1", "todo"), issue("PT-2", "done"), issue("PT-3", "backlog")];
   assert.equal(CairnLogic.laneSummary(issues).total, 3);
 });
@@ -83,9 +98,40 @@ test("laneSummary: counts are correct per status", () => {
   assert.equal(summary.total, 6);
 });
 
-test("laneSummary: a status value not in BOARD_COLUMNS contributes to total but not to byStatus", () => {
+test("laneSummary: a status value not in BOARD_COLUMNS is excluded from total too (PT-31)", () => {
+  // INVERTS the PT-29-era assertion (total used to be issues.length,
+  // counting the cancelled issue). PT-31's ruling: total is the sum of
+  // byStatus counts, so an issue whose status has no column contributes
+  // to NEITHER -- an expanded lane's header count must equal what's
+  // actually rendered, and a cancelled issue renders in no column.
   var issues = [issue("PT-1", "cancelled"), issue("PT-2", "done")];
   var summary = CairnLogic.laneSummary(issues);
-  assert.equal(summary.total, 2, "total must still count the unrecognized-status issue");
+  assert.equal(summary.total, 1, "total must exclude the cancelled issue -- it renders in no column, expanded or collapsed");
   assert.deepEqual(summary.byStatus, [{ status: "done", count: 1 }], "byStatus must not invent an entry for a non-column status");
+});
+
+test("laneSummary: total is exactly the sum of byStatus counts -- the chip-sum-equals-total invariant, with a cancelled issue present", () => {
+  // The ruling's core property, asserted structurally (not by re-deriving
+  // an expected number by hand) so it can never drift: whatever byStatus
+  // says, total must match its sum. Mixes column-backed statuses with a
+  // cancelled issue specifically, since that's the case PT-29 got wrong
+  // (chips -- which sum byStatus -- and the header count -- issues.length
+  // -- disagreed by exactly the cancelled count).
+  var issues = [
+    issue("PT-1", "todo"),
+    issue("PT-2", "todo"),
+    issue("PT-3", "done"),
+    issue("PT-4", "cancelled"),
+    issue("PT-5", "cancelled"),
+  ];
+  var summary = CairnLogic.laneSummary(issues);
+  var chipSum = summary.byStatus.reduce(function (sum, entry) { return sum + entry.count; }, 0);
+  assert.equal(summary.total, chipSum, "total must equal the sum of the chips -- one source, not two that must agree");
+  assert.equal(summary.total, 3, "sanity: 3 column-backed issues (2 todo + 1 done), 2 cancelled excluded");
+});
+
+test("laneSummary: an all-cancelled lane has total 0 and an empty byStatus, not a phantom count", () => {
+  var issues = [issue("PT-1", "cancelled"), issue("PT-2", "cancelled")];
+  var summary = CairnLogic.laneSummary(issues);
+  assert.deepEqual(summary, { total: 0, byStatus: [] });
 });
