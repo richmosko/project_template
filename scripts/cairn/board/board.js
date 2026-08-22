@@ -1354,20 +1354,23 @@
     if (isListView) renderList(); else renderKanban();
   }
 
-  // PT-32 (architect's ruling § 4): resolves to a BOOLEAN -- true when new
-  // data was applied, false on a 304 (apiGetBoard's `data` is null) or a
-  // network error. Every existing caller (the poll timer, SSE's onmessage,
-  // visibilitychange/focus, the comment/patch flows above) already ignores
-  // the return value, so this changes no existing behaviour. Added so the
-  // pull-refresh path (below) can distinguish "refetched and something
-  // changed" from "refetched and nothing did" -- reusing THIS function
-  // rather than giving the pull path its own apiGetBoard() call, which
-  // would duplicate the refresh logic and let the two copies drift.
+  // PT-32 (architect's ruling § 4; refined during diff review @ 295785c --
+  // Chrome-pass finding of a real 503 toasting "Already up to date"):
+  // resolves to one of three strings -- "updated" (new data applied),
+  // "unchanged" (a 304 -- apiGetBoard's `data` is null), or "failed" (the
+  // request itself errored). A plain boolean collapsed the second and
+  // third cases, which are NOT the same fact for a user who just performed
+  // a deliberate gesture -- "nothing changed" and "the refresh itself
+  // broke" need different toasts (see runPullRefresh, below). Every
+  // pre-PT-32 caller (the poll timer, SSE's onmessage, visibilitychange/
+  // focus, the comment/patch flows above) already discards the return
+  // value entirely, so this changes no existing behaviour at any of those
+  // six call sites (QA-verified).
   function refreshBoardSilently() {
     return apiGetBoard().then(function (data) {
-      if (data) { state.board = data; render(); return true; }
-      return false;
-    }).catch(function () { return false; });
+      if (data) { state.board = data; render(); return "updated"; }
+      return "unchanged";
+    }).catch(function () { return "failed"; });
   }
 
   // ------------------------------------------------------------------
@@ -1408,9 +1411,25 @@
     });
   }
 
+  // PT-32 (architect's fix, diff review @ 295785c -- BLOCKING: verified
+  // empirically that the indicator was never visible at any viewport,
+  // occluded under the header regardless of header height). The at-rest
+  // position is `translateY(-100%)` -- fully off-canvas, above its own
+  // height, decoupled from header.app-header's height entirely. Pulling
+  // reveals it by adding the (capped) offset back: `translateY(calc(-100%
+  // + <offset>px))`, so it overlays the header by exactly `offset` pixels
+  // -- the conventional iOS/Android look, and one CSS custom property
+  // change here can never re-couple to a header-height constant the way
+  // raising PULL_MAX_OFFSET to "clear the header" would have.
+  //
+  // The `dragging` class suppresses board.css's transition WHILE
+  // pulling/armed -- the indicator must track the finger 1:1 during an
+  // active drag; the transition is for snap-back-to-hidden (idle) and the
+  // release-to-refreshing/refreshing-to-idle settle, never the drag itself.
   function updatePullIndicator(phase, deltaY) {
     var el = document.getElementById("pull-indicator");
     if (!el) return; // PT-32 (ruling § 5): bail early if the indicator isn't in the DOM
+    el.classList.toggle("dragging", phase === "pulling" || phase === "armed");
     if (phase === "idle") {
       el.hidden = true;
       el.style.transform = "";
@@ -1418,7 +1437,7 @@
     }
     el.hidden = false;
     el.textContent = pullIndicatorLabel(phase);
-    el.style.transform = "translateY(" + pullIndicatorOffset(deltaY) + "px)";
+    el.style.transform = "translateY(calc(-100% + " + pullIndicatorOffset(deltaY) + "px))";
   }
 
   function resetPullGesture() {
@@ -1508,15 +1527,24 @@
   // up to date" on a 304 (the common case in live mode, ruling § 6 -- this
   // toast is what turns that silent no-op into the confirmation the user
   // was asking for).
+  // Three-way toast off refreshBoardSilently's three-state result (see its
+  // comment) -- "unchanged" and "failed" are deliberately different toasts,
+  // not one collapsed "nothing happened" message.
+  var PULL_TOAST_TEXT = {
+    updated: "Board updated",
+    unchanged: "Already up to date",
+    failed: "Couldn't refresh — try again",
+  };
+
   function runPullRefresh(deltaYAtRelease) {
     state.pullRefreshing = true;
     updatePullIndicator("refreshing", deltaYAtRelease);
     var minDelay = new Promise(function (resolve) { setTimeout(resolve, PULL_MIN_SPINNER_MS); });
     Promise.all([refreshBoardSilently(), minDelay]).then(function (results) {
-      var changed = results[0];
+      var result = results[0];
       state.pullRefreshing = false;
       updatePullIndicator("idle", 0);
-      showToast(changed ? "Board updated" : "Already up to date");
+      showToast(PULL_TOAST_TEXT[result] || PULL_TOAST_TEXT.unchanged, result === "failed");
     });
   }
 

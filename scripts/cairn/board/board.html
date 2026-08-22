@@ -9,9 +9,12 @@
 <body>
 
 <!-- PT-32: pull-down-to-refresh indicator -- board.js's updatePullIndicator
-     drives the hidden attribute/text/transform; z-index 9 is deliberately
-     one below the sticky header's 10, so it emerges from UNDER the header
-     as the user pulls, rather than covering it (architect's ruling § 4). -->
+     drives the hidden attribute/text/transform/dragging class. Sits ABOVE
+     the sticky header (z-index 11 > 10), off-canvas at rest via
+     translateY(-100%); pulling reveals it OVER the header by the pull
+     offset -- see board.css's .pull-indicator comment for why (architect's
+     fix during diff review @ 295785c, replacing the original under-header
+     design, which measured out as never visible at any real viewport). -->
 <div class="pull-indicator" id="pull-indicator" hidden></div>
 
 <header class="app-header">

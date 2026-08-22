@@ -34,18 +34,30 @@ body {
   overscroll-behavior-y: contain;
 }
 
-/* PT-32: the pull-down-to-refresh indicator. `position: fixed; top: 0` +
-   `z-index: 9` (one below header.app-header's sticky z-index 10, below) so
-   it sits BEHIND the header at rest and only becomes visible, emerging
-   from underneath it, as board.js's updatePullIndicator increases the
-   translateY offset during an active pull (architect's ruling § 4).
-   Hidden entirely in the "idle" phase via the `hidden` attribute. */
+/* PT-32: the pull-down-to-refresh indicator. Fixed at the very top,
+   ABOVE the header (z-index 11 > header.app-header's 10) -- architect's
+   fix during diff review @ 295785c (BLOCKING): the original design sat
+   BEHIND the header and relied on the header's own height to decide how
+   much of the indicator peeked out below it, which measured out as never
+   visible at any real viewport (verified empirically: at max pull, the
+   element under the indicator's own center point was still a header
+   label). The fix decouples reveal from header height entirely --
+   `translateY(-100%)` at rest puts the indicator fully off-canvas, above
+   its own height; board.js's updatePullIndicator adds the (capped) pull
+   offset back via `translateY(calc(-100% + <offset>px))`, so pulling
+   overlays exactly `offset` pixels of indicator ON TOP of the header --
+   the conventional iOS/Android look, and PULL_MAX_OFFSET (board-logic.js)
+   stays a pure gesture-feel constant, never re-coupled to a header-height
+   value. `.dragging` (added/removed by updatePullIndicator) suppresses the
+   transition WHILE pulling/armed, so the indicator tracks the finger 1:1
+   during the drag itself -- the transition is for snap-back-to-hidden and
+   the release settle, never the live drag. */
 .pull-indicator {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  z-index: 9;
+  z-index: 11;
   text-align: center;
   padding: 10px 0 6px;
   font-size: 13px;
@@ -53,7 +65,12 @@ body {
   color: var(--text-dim);
   background: var(--panel);
   border-bottom: 1px solid var(--border);
+  transform: translateY(-100%);
   transition: transform 0.15s ease;
+}
+
+.pull-indicator.dragging {
+  transition: none;
 }
 
 header.app-header {
