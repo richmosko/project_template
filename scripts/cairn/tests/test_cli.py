@@ -225,6 +225,68 @@ class ShowCommandTests(unittest.TestCase):
         self.assertIn("P1", result.stdout)  # priority
 
 
+class ShowChildrenTests(unittest.TestCase):
+    """PT-25: `cairn show <id>` structural addition -- a parent lists its
+    children (id, status, title); a child already names its parent
+    (architect's finding, verified against real CLI output before writing
+    these -- cmd_show already prints `parent:` via the ISSUE_FIELD_ORDER[2:]
+    loop, so that half needs no code change. Recorded here as a regression
+    lock, not built to a criterion already met.
+    """
+
+    def test_show_on_child_already_names_its_parent(self):
+        # NOT a red test -- confirmed passing against current cairn.py
+        # (qa-engineer, 2026-08-22) before this file was written. PT-3's
+        # fixture parent is PT-1.
+        data_dir = helpers.make_tmp_data_dir(self)
+        result = run_cairn(["show", "PT-3", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PT-1", result.stdout)
+
+    def test_show_on_parent_lists_its_children(self):
+        # PT-1's fixture already has PT-3 as a child (parent: PT-1).
+        data_dir = helpers.make_tmp_data_dir(self)
+        result = run_cairn(["show", "PT-1", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("child", result.stdout.lower())
+        self.assertIn("PT-3", result.stdout)
+        self.assertIn("Link existing email-password user to Google identity", result.stdout)
+        self.assertIn("todo", result.stdout)
+
+    def test_show_on_issue_with_no_children_has_no_children_section(self):
+        # PT-4 has no children in the fixture -- must not print a
+        # children heading with nothing under it.
+        data_dir = helpers.make_tmp_data_dir(self)
+        result = run_cairn(["show", "PT-4", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("child", result.stdout.lower())
+
+    def test_show_children_are_sorted_numerically_not_lexicographically(self):
+        # Same PT-2 < PT-9 < PT-10 case list as the drift pair
+        # (test_id_sort.py / tests/js/id-sort.test.js) -- cmd_show's
+        # children listing reuses _id_sort_key, not a lexicographic sort.
+        data_dir = helpers.make_tmp_data_dir(self)
+        for child_id in ("PT-10", "PT-2", "PT-9"):
+            (data_dir / "issues" / f"{child_id}.md").write_text(
+                "---\n"
+                f"id: {child_id}\ntitle: Child {child_id}\nstatus: todo\n"
+                'milestone: null\nparent: "PT-1"\nassignee: null\nlabels: []\n'
+                "priority: null\npr: null\ncreated: 2026-08-01\nupdated: 2026-08-01\n"
+                "---\n\nBody.\n",
+                encoding="utf-8",
+            )
+        result = run_cairn(["show", "PT-1", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # PT-3 is PT-1's existing fixture child too -- four children total.
+        positions = {}
+        for child_id in ("PT-2", "PT-3", "PT-9", "PT-10"):
+            idx = result.stdout.find(child_id)
+            self.assertNotEqual(idx, -1, f"{child_id} missing from output:\n{result.stdout}")
+            positions[child_id] = idx
+        self.assertLess(positions["PT-2"], positions["PT-9"])
+        self.assertLess(positions["PT-9"], positions["PT-10"])
+
+
 class NonDefaultPrefixTests(unittest.TestCase):
     """The fixture tree hard-codes prefix: PT everywhere else in this file --
     exercise a distinct prefix end-to-end through the CLI to confirm it's

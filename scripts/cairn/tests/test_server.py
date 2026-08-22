@@ -203,20 +203,23 @@ class BoardEndpointTests(ServerTestCase):
         milestone_10 = next(m for m in payload["milestones"] if m["id"] == "1.0")
         self.assertEqual(milestone_10["name"], "MVP")
 
-    def test_sub_issue_count_supports_the_2_of_3_badge(self):
-        # PT-1 has one sub-issue (PT-3, parent: PT-1) in the fixture. The
-        # board's parent-card badge needs this count from somewhere; if the
-        # API doesn't expose it, board.js would have to compute it itself
-        # from the full issues list, which is a design point worth pinning
-        # down with a test either way.
+    def test_sub_issue_count_is_removed_from_the_board_payload(self):
+        # PT-25 (architect's ruling): the n/m child badge is computed
+        # client-side in board-logic.js (childProgress), mirroring
+        # milestoneProgress -- /api/board already carries every issue's
+        # `parent` and `status`, which is everything the badge needs.
+        # sub_issue_count was a second, server-side answer to "how many
+        # children does this have" -- the duplicated-expression class the
+        # standing Validate criterion exists to catch -- so it is removed,
+        # not left alongside. Supersedes
+        # test_sub_issue_count_supports_the_2_of_3_badge (pre-PT-25),
+        # which asserted the opposite -- the field's presence -- and is
+        # deleted, not skipped, since asserting the old shape would be
+        # asserting the bug.
         resp = http_get(f"{self.base_url}/api/board")
         payload = json.loads(resp.read())
-        pt1 = next(i for i in payload["issues"] if i["id"] == "PT-1")
-        pt3 = next(i for i in payload["issues"] if i["id"] == "PT-3")
-        pt4 = next(i for i in payload["issues"] if i["id"] == "PT-4")
-        self.assertEqual(pt1.get("sub_issue_count", 0), 1)
-        self.assertEqual(pt3.get("sub_issue_count", 0), 0)
-        self.assertEqual(pt4.get("sub_issue_count", 0), 0)
+        for issue in payload["issues"]:
+            self.assertNotIn("sub_issue_count", issue, issue)
 
     def test_etag_changes_after_a_mutation(self):
         # test_etag_supports_304 only proves the SAME etag round-trips to a
