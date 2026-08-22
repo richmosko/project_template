@@ -327,11 +327,15 @@ class ConfusablePairCoexistenceTests(unittest.TestCase):
     """The one genuinely confusable pair per the ruling: PT-1 (issue) vs
     PT-1.0 (development milestone) -- the dot resolves it. Also covers the
     issue's own scope note: 'must keep the name->target_tag derivation
-    unambiguous' -- there is no derivation FUNCTION (target_tag stays an
-    explicit field, never inferred, per the architect's rejection of
-    PT-v0.6 in §1), so the observable property to test is exactly this:
-    both ids validate independently and neither's lint outcome depends on
-    the other existing."""
+    unambiguous' -- CONFIRMED by the architect's addendum § A.1: there is
+    no derivation FUNCTION and none is being added (target_tag stays an
+    explicit, never-inferred field; the phrase only ever meant the id must
+    stay LEGIBLE to a human as implying its release, a constraint on id
+    SHAPE discharged by §1, not a constraint on code). No derivation-
+    function tests exist here, deliberately, per that ruling -- the
+    observable property this class actually tests is narrower: both ids
+    validate independently and neither's lint outcome depends on the
+    other existing."""
 
     def test_issue_pt_1_and_milestone_pt_1_0_coexist_without_a_false_collision(self):
         data_dir = make_empty_repo(self, prefix="PT")
