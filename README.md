@@ -69,7 +69,7 @@ Implement ⇄ Validate is the inner loop at three scales: **feature → mileston
 - `/start-doc-update <slug>` — kicks off a `phase/<phase>-<slug>` branch for non-feature doc edits (PRD/ARCH/SECURITY/WORKFLOW/etc.); no tracker issue, no implementation team
 - `/finish-doc-update` — commit + push + open PR for a doc-update branch; no QA handshake (lead reviews directly)
 - `/merge-pr` — gated team-lead merge after QA sign-off (features) or lead review (doc updates); squash-merges, archives, updates state. Alternative to human-review-and-merge via GitHub UI
-- `/setup-tracker` — bootstrap cairn for a new project (one-time): confirms the issue-ID prefix, scaffolds `process/cairn/`, seeds the founding major + M0/M1 milestones, optionally seeds PRD stories as backlog issues
+- `/setup-tracker` — bootstrap cairn for a new project (one-time): confirms the issue-ID prefix, scaffolds `process/cairn/`, seeds the founding major + A/B definition milestones, optionally seeds PRD stories as backlog issues
 - `/cairn` — start the local Kanban/list board (`http://localhost:8766/`); a stateless lens over `process/cairn/` — agents never need it
 - `/setup-claude-deploy-key` — generate a per-repo passphrase-less SSH deploy key so Claude can push to GitHub without TTY-unlockable passphrases (one-time per repo)
 - `/sweep-temp [status]` — interactive sweep of the gitignored `temp/` hand-off buffer: every unplaced agent finding gets placed into a tracked artifact, discarded with a rationale, or explicitly held (`hold-until:` frontmatter). Team-lead session-close obligation; a SessionStart hook reports the pending count (14-day staleness threshold; visibility only, never auto-deletion). `status` = read-only inventory. See process/WORKFLOW.md → Hand-off protocol & the `temp/` buffer
@@ -145,7 +145,7 @@ claude
 2. **`/setup-claude-deploy-key`** — generate a passphrase-less SSH key scoped to this repo, add it to GitHub as a deploy key with write access, and pin the repo's git to use it. Without this, Claude's `git push` will fail when your main SSH key is passphrase-protected.
 3. **Enable GitHub branch protection on `main`** — Settings → Branches → Add rule → ✅ Require pull request before merging, ✅ Do not allow bypassing. This is the hard enforcement layer behind the workflow's "no direct pushes" rule.
 4. Replace the project description placeholders in `CLAUDE.md`.
-5. `/setup-tracker` — bootstrap cairn (confirm the issue-ID prefix; seeds V1 + M0/M1).
+5. `/setup-tracker` — bootstrap cairn (confirm the issue-ID prefix; seeds V1 + A/B).
 6. Verify `teammateMode` in `.claude/settings.json` (default: `tmux` for split-pane).
 7. Spawn the Research team: _"Create an agent team for the Research phase."_
 8. `/generate-prd` — start the discovery interview.
