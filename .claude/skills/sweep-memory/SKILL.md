@@ -13,7 +13,7 @@ Counters the structural append-bias of LLM memory: the dedupe rule ("check for a
 
 | Store | Location | Written by |
 |---|---|---|
-| Team-lead auto-memory | `~/.claude/projects/<project-slug>/memory/` — slug is the project path with `/` → `-` (e.g. `-Users-mosko-Projects-project-template`) | the main session |
+| Team-lead auto-memory | `~/.claude/projects/<project-slug>/memory/` — slug is the project path with every non-alphanumeric character (including `_`) → `-` (e.g. `/Users/mosko/Projects/project_template` → `-Users-mosko-Projects-project-template`) | the main session |
 | Teammate agent-memory | `**/.claude/agent-memory/<role>/` under the repo — **glob the whole tree**, not just the root: agents that ran with a nested cwd leave stray stores (e.g. `scripts/cairn/.claude/agent-memory/`) | each spawned teammate |
 
 Both are workflow surface under `.claude/**` / the lead's project dir — the team-lead owns them and edits directly; no teammate dispatch is needed for hygiene.
@@ -28,8 +28,8 @@ Both are workflow surface under `.claude/**` / the lead's project dir — the te
 ### 1. Inventory
 
 ```bash
-# team-lead store
-ls -la "$HOME/.claude/projects/$(pwd | tr '/' '-')/memory/"
+# team-lead store (slug: every non-alphanumeric char becomes '-', underscores included)
+ls -la "$HOME/.claude/projects/$(pwd | sed 's/[^a-zA-Z0-9]/-/g')/memory/"
 # teammate stores, strays included
 find . -type d -path '*/.claude/agent-memory/*' -not -path '*/node_modules/*'
 ```
