@@ -1886,6 +1886,37 @@ def cmd_comment(args: argparse.Namespace) -> int:
     return 0
 
 
+def _scan_issues(data_dir: Path, exclude: Path, predicate) -> List[Dict[str, Any]]:
+    """Frontmatter of every issue in issues/ (except `exclude`) satisfying
+    `predicate` -- the one scan behind cmd_show's Children and Blocks
+    sections. Per-file parse errors are skipped, not raised (mirrors
+    check_repo). One function, not two copies differing only in the
+    predicate -- the Python-side twin of board.js's issueLinkListEl.
+    """
+    out = []
+    for p in _dir_glob(Path(data_dir) / "issues"):
+        if p == exclude:
+            continue
+        try:
+            fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
+        except CairnError:
+            continue
+        if predicate(fm):
+            out.append(fm)
+    return out
+
+
+def _print_issue_list(heading: str, records: List[Dict[str, Any]]) -> None:
+    """Print a `_id_sort_key`-ordered id/status/title block under `heading`,
+    or nothing at all when `records` is empty -- an issue with no
+    dependencies must print no section header for them."""
+    if not records:
+        return
+    print(f"\n{heading}:")
+    for fm in sorted(records, key=lambda fm: _id_sort_key(fm.get("id"))):
+        print(f"  {fm.get('id')}\t{fm.get('status')}\t{fm.get('title')}")
+
+
 def cmd_show(args: argparse.Namespace) -> int:
     data_dir = resolve_data_dir(args)
     path = find_issue_path(data_dir, args.id)
@@ -1914,63 +1945,32 @@ def cmd_show(args: argparse.Namespace) -> int:
                 print(f"    {line}")
 
     # PT-25: a parent issue also lists its children (id, status, title),
-    # sorted numerically by id (_id_sort_key -- same sort cmd_ls/
-    # build_snapshot_markdown already use). The child->parent half of the
-    # acceptance criterion needs no code here: `parent:` is already printed
-    # above via the ISSUE_FIELD_ORDER[2:] loop (verified against real
-    # output, architect's PT-25 ruling #3). This is a directory scan --
-    # cmd_show otherwise reads exactly one file via find_issue_path.
-    children = []
-    for p in _dir_glob(Path(data_dir) / "issues"):
-        if p == path:
-            continue
-        try:
-            fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
-        except CairnError:
-            continue
-        if fm.get("parent") == args.id:
-            children.append(fm)
-    if children:
-        children.sort(key=lambda fm: _id_sort_key(fm.get("id")))
-        print("\nChildren:")
-        for fm in children:
-            print(f"  {fm.get('id')}\t{fm.get('status')}\t{fm.get('title')}")
+    # sorted numerically by id. The child->parent half of the acceptance
+    # criterion needs no code here: `parent:` is already printed above via
+    # the ISSUE_FIELD_ORDER[2:] loop (verified against real output,
+    # architect's PT-25 ruling #3).
+    _print_issue_list(
+        "Children", _scan_issues(data_dir, path, lambda fm: fm.get("parent") == args.id)
+    )
 
     # PT-26: this issue's own blockers (its blocked_by field -- direct
-    # lookups, no scan) and the reverse "blocks" list (who names THIS
-    # issue in their own blocked_by -- a directory scan, same shape as
-    # the children scan above). Both sorted by _id_sort_key.
+    # find_issue_path lookups, no scan) and the reverse "blocks" list (who
+    # names THIS issue in their own blocked_by -- a directory scan, same
+    # shape as the children scan above). Both sorted by _id_sort_key.
     blocked_by = issue.get("blocked_by") or []
-    if blocked_by:
-        blockers = []
-        for ref in blocked_by:
-            ref_path = find_issue_path(data_dir, ref)
-            if ref_path is not None:
-                blockers.append(parse_issue(ref_path.read_text(encoding="utf-8")))
-            else:
-                # Dangling ref on an unchecked tree -- cairn check would
-                # flag this; cmd_show still renders it rather than crash.
-                blockers.append({"id": ref, "status": "?", "title": "(not found)"})
-        blockers.sort(key=lambda fm: _id_sort_key(fm.get("id")))
-        print("\nBlocked by:")
-        for fm in blockers:
-            print(f"  {fm.get('id')}\t{fm.get('status')}\t{fm.get('title')}")
-
-    blocks = []
-    for p in _dir_glob(Path(data_dir) / "issues"):
-        if p == path:
-            continue
-        try:
-            fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
-        except CairnError:
-            continue
-        if args.id in (fm.get("blocked_by") or []):
-            blocks.append(fm)
-    if blocks:
-        blocks.sort(key=lambda fm: _id_sort_key(fm.get("id")))
-        print("\nBlocks:")
-        for fm in blocks:
-            print(f"  {fm.get('id')}\t{fm.get('status')}\t{fm.get('title')}")
+    blockers = []
+    for ref in blocked_by:
+        ref_path = find_issue_path(data_dir, ref)
+        if ref_path is not None:
+            blockers.append(parse_issue(ref_path.read_text(encoding="utf-8")))
+        else:
+            # Dangling ref on an unchecked tree -- cairn check would flag
+            # this; cmd_show still renders it rather than crash.
+            blockers.append({"id": ref, "status": "?", "title": "(not found)"})
+    _print_issue_list("Blocked by", blockers)
+    _print_issue_list(
+        "Blocks", _scan_issues(data_dir, path, lambda fm: args.id in (fm.get("blocked_by") or []))
+    )
 
     return 0
 
