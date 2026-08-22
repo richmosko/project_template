@@ -54,8 +54,14 @@ test("pullRefreshToast(REFRESH_UNCHANGED): \"Already up to date\", not an error"
 });
 
 test("pullRefreshToast(REFRESH_FAILED): the two-clause failure copy, IS an error", () => {
+  // Copy superseded mid-Validate (team-lead relay, 2026-08-22): the
+  // architect's FIRST micro-ruling (5f3d03a) said "Refresh failed --
+  // showing last known data"; a second pass re-ruled the opening clause to
+  // read plainer in a toast while keeping the load-bearing second clause
+  // (what the user is now looking at) -- "Couldn't refresh -- showing last
+  // known data" is the final, current copy this test pins.
   var result = CairnLogic.pullRefreshToast(CairnLogic.REFRESH_FAILED);
-  assert.deepEqual(result, { message: "Refresh failed — showing last known data", isError: true });
+  assert.deepEqual(result, { message: "Couldn't refresh — showing last known data", isError: true });
 });
 
 // ---- 3. isError on REFRESH_FAILED, asserted on its own ----
