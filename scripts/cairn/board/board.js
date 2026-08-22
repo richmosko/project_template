@@ -64,6 +64,16 @@
   var pullIndicatorOffset = CairnLogic.pullIndicatorOffset;
   var pullIndicatorLabel = CairnLogic.pullIndicatorLabel;
   var shouldCancelPull = CairnLogic.shouldCancelPull;
+  // PT-32 (architect's micro-ruling): the three-state refresh outcome --
+  // board.js is the ONLY producer of these constants (refreshBoardSilently,
+  // below); board-logic.js's pullRefreshToast is their only consumer.
+  // Importing rather than re-typing the string literals here is what makes
+  // a future rename of any of the three break a test, since
+  // refreshBoardSilently itself can't be reached from node:test.
+  var REFRESH_UPDATED = CairnLogic.REFRESH_UPDATED;
+  var REFRESH_UNCHANGED = CairnLogic.REFRESH_UNCHANGED;
+  var REFRESH_FAILED = CairnLogic.REFRESH_FAILED;
+  var pullRefreshToast = CairnLogic.pullRefreshToast;
 
   var STATUS_LABELS = {
     "backlog": "Backlog",
@@ -174,6 +184,17 @@
     if (state.etag) headers["If-None-Match"] = state.etag;
     return fetch("/api/board", { headers: headers }).then(function (resp) {
       if (resp.status === 304) return null;
+      // PT-32 (architect's micro-ruling § 4, ratified prerequisite for the
+      // three-state refresh outcome): without this, a non-2xx response
+      // with a well-formed JSON error body would parse successfully and
+      // get assigned to state.board, rendering the error object as if it
+      // were the board -- the observed 503 only reached refreshBoardSilently's
+      // .catch by luck, because its body happened not to be valid JSON.
+      // Scope note: this also changes behaviour for the poll/SSE/focus
+      // paths, not just the pull gesture -- a non-ok response that used to
+      // be parsed and applied is now caught and discarded, leaving the
+      // last-known-good board on screen, which is the correct outcome.
+      if (!resp.ok) throw new Error("board fetch failed: " + resp.status);
       var etag = resp.headers.get("ETag");
       return resp.json().then(function (data) {
         state.etag = etag;
@@ -1354,23 +1375,26 @@
     if (isListView) renderList(); else renderKanban();
   }
 
-  // PT-32 (architect's ruling § 4; refined during diff review @ 295785c --
-  // Chrome-pass finding of a real 503 toasting "Already up to date"):
-  // resolves to one of three strings -- "updated" (new data applied),
-  // "unchanged" (a 304 -- apiGetBoard's `data` is null), or "failed" (the
-  // request itself errored). A plain boolean collapsed the second and
-  // third cases, which are NOT the same fact for a user who just performed
-  // a deliberate gesture -- "nothing changed" and "the refresh itself
-  // broke" need different toasts (see runPullRefresh, below). Every
-  // pre-PT-32 caller (the poll timer, SSE's onmessage, visibilitychange/
-  // focus, the comment/patch flows above) already discards the return
-  // value entirely, so this changes no existing behaviour at any of those
-  // six call sites (QA-verified).
+  // PT-32 (architect's ruling § 4, then a micro-ruling after the Chrome
+  // pass drew a real 503 that toasted "Already up to date" -- the § 4
+  // boolean put "failed" on the same, reassuring branch as "unchanged").
+  // Resolves to exactly one of REFRESH_UPDATED/REFRESH_UNCHANGED/
+  // REFRESH_FAILED (board-logic.js's exported constants -- board.js is
+  // their only producer, pullRefreshToast their only consumer) and STILL
+  // NEVER REJECTS: six existing bare-statement call sites (the poll
+  // timer, SSE's onmessage, visibilitychange/focus, the comment/patch
+  // flows above) discard the returned promise structurally, with nowhere
+  // to attach a `.catch` -- a rejection is the one thing those call sites
+  // cannot ignore, so this changes no existing behaviour at any of them
+  // (QA-verified). Depends on apiGetBoard's resp.ok check (above) to be
+  // trustworthy -- without it, a non-2xx response with a well-formed JSON
+  // body would have resolved as "updated" with an error object as the
+  // board.
   function refreshBoardSilently() {
     return apiGetBoard().then(function (data) {
-      if (data) { state.board = data; render(); return "updated"; }
-      return "unchanged";
-    }).catch(function () { return "failed"; });
+      if (data) { state.board = data; render(); return REFRESH_UPDATED; }
+      return REFRESH_UNCHANGED;
+    }).catch(function () { return REFRESH_FAILED; });
   }
 
   // ------------------------------------------------------------------
@@ -1530,21 +1554,24 @@
   // Three-way toast off refreshBoardSilently's three-state result (see its
   // comment) -- "unchanged" and "failed" are deliberately different toasts,
   // not one collapsed "nothing happened" message.
-  var PULL_TOAST_TEXT = {
-    updated: "Board updated",
-    unchanged: "Already up to date",
-    failed: "Couldn't refresh — try again",
-  };
-
+  // PT-32 (architect's micro-ruling § 3): pullRefreshToast (board-logic.js)
+  // is the single home for the copy/isError mapping -- not a board.js-local
+  // lookup table, so the "unrecognized outcome -> the FAILED shape, not a
+  // neutral one" rule lives in the one function QA's suite can hold to it.
+  // PULL_MIN_SPINNER_MS's floor (below) applies to all three outcomes with
+  // no branching -- a failure resolving faster than a success would read
+  // as "the gesture didn't register" rather than "the refresh was tried
+  // and failed".
   function runPullRefresh(deltaYAtRelease) {
     state.pullRefreshing = true;
     updatePullIndicator("refreshing", deltaYAtRelease);
     var minDelay = new Promise(function (resolve) { setTimeout(resolve, PULL_MIN_SPINNER_MS); });
     Promise.all([refreshBoardSilently(), minDelay]).then(function (results) {
-      var result = results[0];
+      var outcome = results[0];
       state.pullRefreshing = false;
       updatePullIndicator("idle", 0);
-      showToast(PULL_TOAST_TEXT[result] || PULL_TOAST_TEXT.unchanged, result === "failed");
+      var toast = pullRefreshToast(outcome);
+      showToast(toast.message, toast.isError);
     });
   }
 

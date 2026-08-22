@@ -683,6 +683,40 @@ var CairnLogic = (function () {
     );
   }
 
+  // PT-32 (architect's micro-ruling, 2026-08-22 -- the § 4 boolean this
+  // supersedes collapsed "confirmed unchanged" and "the request failed"
+  // onto the same branch, so a real 503 toasted the most reassuring
+  // message the board can show). refreshBoardSilently (board.js) resolves
+  // to exactly one of these three strings and STILL NEVER REJECTS -- six
+  // existing bare-statement call sites (setInterval, a focus listener,
+  // etc.) discard the returned promise structurally, with nowhere to
+  // attach a `.catch`; a rejection is the one thing they cannot ignore.
+  // Exported as constants, not left as string literals independently
+  // typed in board.js (the producer) and here (the consumer), because
+  // refreshBoardSilently itself isn't reachable from node:test -- nothing
+  // could otherwise catch the two copies drifting apart.
+  var REFRESH_UPDATED = "updated";
+  var REFRESH_UNCHANGED = "unchanged";
+  var REFRESH_FAILED = "failed";
+
+  // PT-32 (architect's micro-ruling § 3): the single home for the pull
+  // gesture's post-refresh toast copy -- {message, isError}. The failure
+  // copy has TWO clauses deliberately: "Refresh failed" alone answers the
+  // wrong question (the user's real question is "is what I'm looking at
+  // current?"), so it also states that the board is showing last-known
+  // data, not something empty/partial/half-applied. An outcome that isn't
+  // one of the three known constants maps to the SAME failed shape --
+  // the opposite default from pullIndicatorLabel's "" for an unknown
+  // phase, and deliberately so: an unknown phase means "show nothing", an
+  // unknown outcome means "something went wrong and I can't characterise
+  // it" -- defaulting an unrecognized state to a reassuring message is
+  // exactly the defect this function exists to close, one level up.
+  function pullRefreshToast(outcome) {
+    if (outcome === REFRESH_UPDATED) return { message: "Board updated", isError: false };
+    if (outcome === REFRESH_UNCHANGED) return { message: "Already up to date", isError: false };
+    return { message: "Couldn't refresh — showing last known data", isError: true };
+  }
+
   return {
     primaryRootId: primaryRootId,
     milestoneLabel: milestoneLabel,
@@ -722,5 +756,9 @@ var CairnLogic = (function () {
     pullIndicatorOffset: pullIndicatorOffset,
     pullIndicatorLabel: pullIndicatorLabel,
     shouldCancelPull: shouldCancelPull,
+    REFRESH_UPDATED: REFRESH_UPDATED,
+    REFRESH_UNCHANGED: REFRESH_UNCHANGED,
+    REFRESH_FAILED: REFRESH_FAILED,
+    pullRefreshToast: pullRefreshToast,
   };
 })();
