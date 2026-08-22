@@ -11,6 +11,10 @@
   --radius: 6px;
   --col-gap: 12px;
   --card-gap: 8px;
+  /* PT-29: the containing-card shadow (majors/milestones as bordered
+     surface cards, architect's ruling § 1) -- named here rather than
+     inlined at each use site so the value exists once. */
+  --shadow: 0 1px 2px rgba(9, 30, 66, 0.12);
 }
 
 * { box-sizing: border-box; }
@@ -210,8 +214,38 @@ main {
   justify-content: space-between;
 }
 
+/* PT-29 (architect's ruling § 1): .swimlane and .repo-group ARE the
+   containment cards -- no new wrapper elements. The header is always in
+   the DOM; only .board (the card body) is conditionally appended, so
+   is-collapsed only ever tightens padding here, it never drives layout
+   structure. Three nested surfaces need three distinguishable
+   backgrounds -- alternated BY DEPTH via the main>/.repo-group> combinators
+   below, never by editing the base .column/.swimlane rule globally (the
+   standalone .board view, Swimlanes checkbox off, has no containing card
+   at all and must keep its pre-PT-29 look untouched). */
 .swimlane {
   margin-bottom: 16px;
+  border-radius: var(--radius);
+  padding: 4px 12px 12px;
+}
+
+.swimlane.is-collapsed {
+  padding-bottom: 4px;
+}
+
+/* Single-root: the swimlane is the ONLY containing card -- white panel,
+   border, shadow. */
+main > .swimlane {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+/* Single-root: columns sit inside that white card, so they read as a
+   grey WELL rather than a second white surface stacked on the first. */
+main > .swimlane .column {
+  background: var(--bg);
+  border-color: transparent;
 }
 
 .swimlane-header {
@@ -224,14 +258,30 @@ main {
   gap: 6px;
 }
 
-.swimlane-toggle {
+/* PT-29 (architect's ruling § 3): shared with .repo-group-toggle -- one
+   filled-triangle control, not two visually different ones. Fixed 18x18
+   box is the point, not the font-size bump: ▼ and ▶ have different
+   glyph advance widths, so without a fixed box the label shifts
+   horizontally on every toggle. `font: inherit` is deliberately NOT used
+   here -- it resets family/size/weight together, making a bare
+   font-size override alongside it order-dependent; all three are set
+   explicitly instead. */
+.swimlane-toggle,
+.repo-group-toggle {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
-  color: inherit;
-  font: inherit;
+  padding: 0;
+  color: var(--text-dim);
   cursor: pointer;
-  padding: 0 2px;
-  line-height: 1;
 }
 
 .swimlane-label {
@@ -242,14 +292,43 @@ main {
   font-weight: 400;
 }
 
-/* PT-3: top-level repo section under multi-root repo grouping -- a
-   heavier header than .swimlane-header (this is the outer grouping,
-   milestone lanes nest inside it) plus a left border to read as a
-   distinct region when swimlanes render flush against each other. */
+/* PT-29 (architect's ruling § 1, judgment call): the collapsed-lane
+   status breakdown -- one chip per non-empty status, board-column order
+   (laneSummary, board-logic.js). Reuses .chip's visual language (see
+   .card-meta below) rather than inventing a second chip style. */
+.swimlane-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* PT-3: top-level repo section under multi-root repo grouping, promoted
+   to a containment card by PT-29 -- a heavier header than
+   .swimlane-header (this is the outer grouping, milestone lanes nest
+   inside it) plus the left accent (now --accent, was --border pre-PT-29)
+   to read as the repo marker on top of the card boundary itself. */
 .repo-group {
   margin-bottom: 20px;
-  border-left: 3px solid var(--border);
-  padding-left: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 4px 12px 12px;
+}
+
+.repo-group.is-collapsed {
+  padding-bottom: 4px;
+}
+
+/* Multi-root: milestone lanes nest ONE level inside the white
+   .repo-group card, so they take the grey inset-card treatment instead
+   of a second white surface -- .repo-group .column underneath stays
+   --panel, unchanged, since the default .column rule already alternates
+   correctly against this grey lane. */
+.repo-group > .swimlane {
+  background: var(--bg);
+  border: 1px solid var(--border);
 }
 
 .repo-group-header {
@@ -259,16 +338,6 @@ main {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.repo-group-toggle {
-  background: none;
-  border: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  padding: 0 2px;
-  line-height: 1;
 }
 
 .repo-group-label {

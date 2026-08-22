@@ -257,7 +257,7 @@ var CairnLogic = (function () {
   // the original `root.id + "::" + key` / `soleRootId + "::" + key`
   // construction, so `laneStateKey(null, "0.5")` still yields
   // "null::0.5", unchanged from pre-extraction behavior. This key is
-  // purely in-memory (state.collapsedLanes), never a DOM attribute value
+  // purely in-memory (PT-29: state.expandedLanes), never a DOM attribute value
   // and never displayed, so there was no "undefined"-in-a-user-visible-
   // place motivation to normalise it the way issueMilestoneKey's guard
   // was added. Two key builders now have different conventions for an

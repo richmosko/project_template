@@ -36,6 +36,15 @@
   var blockersOf = CairnLogic.blockersOf;
   var blocksOf = CairnLogic.blocksOf;
   var openBlockers = CairnLogic.openBlockers;
+  // PT-29: BOARD_COLUMNS relocated into board-logic.js (architect's
+  // ruling § 4) as the single canonical column-order list -- laneSummary
+  // iterates the SAME array makeColumn's column set is built from, not a
+  // second board.js-local copy.
+  var BOARD_COLUMNS = CairnLogic.BOARD_COLUMNS;
+  var laneExpanded = CairnLogic.laneExpanded;
+  var nextExpandedLanes = CairnLogic.nextExpandedLanes;
+  var disclosureToken = CairnLogic.disclosureToken;
+  var laneSummary = CairnLogic.laneSummary;
 
   var STATUS_LABELS = {
     "backlog": "Backlog",
@@ -68,15 +77,37 @@
     sortKey: "id",
     sortDir: 1,
     openIssueId: null,
-    // PT-16: per-swimlane collapse, view-local only -- keyed by the same
-    // lane key renderKanban groups on (a milestone id, or the literal
-    // string "(none)"), or (PT-3, multi-root) a "<root.id>::<milestone
-    // key>" composite -- see milestoneLaneEl. Never persisted -- the
-    // board is a stateless lens.
-    collapsedLanes: {},
-    // PT-3: per-repo-section collapse under repo grouping, keyed by
-    // root.id. Same in-memory-only contract as collapsedLanes.
-    collapsedRepos: {},
+    // PT-29 (architect's ruling § 2, judgment call a): expandedLanes and
+    // collapsedRepos have OPPOSITE polarity -- read that carefully before
+    // touching either.
+    //
+    //   expandedLanes  -- opt-in-OPEN.  Absence of a key means collapsed;
+    //                     presence (always `true`) means expanded. Milestone
+    //                     lanes default-collapse (this feature's ask), so
+    //                     a lane key that doesn't exist yet -- first paint,
+    //                     or one a filter change/poll just revealed -- must
+    //                     read as collapsed for free, which absence-means-
+    //                     collapsed gives structurally. The SINGLE read/
+    //                     write path is CairnLogic.laneExpanded /
+    //                     nextExpandedLanes (board-logic.js) -- board.js
+    //                     must never read/write this map by hand.
+    //   collapsedRepos -- opt-in-CLOSED, unchanged from PT-3. Absence means
+    //                     expanded; presence means collapsed. Repo sections
+    //                     do NOT default-collapse -- collapsing a repo by
+    //                     default would hide its milestone headers too, one
+    //                     level further in than this feature asks for.
+    //
+    // This asymmetry is deliberate (not an oversight to "harmonise") --
+    // reversal, if ever wanted: flip repoSectionEl's read/write and rename
+    // to expandedRepos. Both maps are Object.create(null): a real fix for
+    // collapsedRepos (bare root.id keys collide with Object.prototype
+    // members, the PT-23 class); insurance only for expandedLanes (its
+    // keys are always "<repo>::<milestone>" composites via laneStateKey,
+    // and no Object.prototype member contains "::"). Neither map is ever
+    // persisted -- the board is a stateless lens; no disk write, no
+    // network call fires on either toggle.
+    expandedLanes: Object.create(null),
+    collapsedRepos: Object.create(null),
   };
 
   // ------------------------------------------------------------------
@@ -405,8 +436,6 @@
     return col;
   }
 
-  var BOARD_COLUMNS = ["backlog", "todo", "in-progress", "in-review", "done"];
-
   function columnsFor(issues) {
     var columns = BOARD_COLUMNS;
     var wrap = document.createElement("div");
@@ -418,12 +447,15 @@
     return wrap;
   }
 
-  // PT-16, extracted for PT-3 (pure extraction -- zero behavior change):
-  // one milestone swimlane -- id·name label (milestoneLabel falls back to
-  // the bare key for "(none)" and any dangling milestone id -- no
-  // special-casing needed) + a per-lane collapse toggle. Collapse state
-  // lives only in state.collapsedLanes (in-memory) -- never written to
-  // disk, no network call fires on toggle.
+  // PT-16, extracted for PT-3 (pure extraction -- zero behavior change),
+  // rewired for PT-29 (architect's ruling, sections 1/2/3): one milestone
+  // swimlane -- id·name label (milestoneLabel falls back to the bare key
+  // for "(none)" and any dangling milestone id -- no special-casing
+  // needed) + a per-lane disclosure toggle, default-COLLAPSED (absence in
+  // state.expandedLanes). `.swimlane` IS the containing card now -- no new
+  // wrapper element; `is-collapsed` only tightens CSS padding, it drives
+  // no JS branch. Collapse state lives only in state.expandedLanes
+  // (in-memory) -- never written to disk, no network call fires on toggle.
   function milestoneLaneEl(board, key, issues, stateKey, repoId) {
     var lane = document.createElement("div");
     lane.className = "swimlane";
@@ -434,17 +466,26 @@
     // collapse keys never appear in the DOM, so there was nothing to gain
     // from keeping the old bare-id shape as a conditional special case:
     // one read/write path beats two that have to stay in sync.
-    var collapsed = !!state.collapsedLanes[stateKey];
+    //
+    // PT-29: laneExpanded is the SINGLE read path (board-logic.js) --
+    // never `state.expandedLanes[stateKey]` read directly here.
+    var expanded = laneExpanded(state.expandedLanes, stateKey);
+    lane.classList.toggle("is-collapsed", !expanded);
     var laneHeader = document.createElement("div");
     laneHeader.className = "swimlane-header";
 
     var toggleBtn = document.createElement("button");
     toggleBtn.type = "button";
     toggleBtn.className = "swimlane-toggle";
-    toggleBtn.textContent = collapsed ? "▸" : "▾";
-    toggleBtn.setAttribute("aria-label", (collapsed ? "Expand " : "Collapse ") + key);
+    // PT-29: disclosureToken reports STATE (▼ shown / ▶ hidden); the
+    // aria-label keeps reporting the ACTION a click would take.
+    toggleBtn.textContent = disclosureToken(expanded);
+    toggleBtn.setAttribute("aria-label", (expanded ? "Collapse " : "Expand ") + key);
+    toggleBtn.setAttribute("aria-expanded", expanded ? "true" : "false");
     toggleBtn.addEventListener("click", function () {
-      state.collapsedLanes[stateKey] = !collapsed;
+      // PT-29: nextExpandedLanes is the SINGLE write path -- non-mutating,
+      // returns a fresh map; board.js never assigns into the map by hand.
+      state.expandedLanes = nextExpandedLanes(state.expandedLanes, stateKey);
       render();
     });
     laneHeader.appendChild(toggleBtn);
@@ -459,14 +500,33 @@
     countSpan.textContent = issues.length;
     laneHeader.appendChild(countSpan);
 
+    // PT-29 (architect's ruling § 1, judgment call): shown ONLY when
+    // collapsed -- when expanded the columns below already carry these
+    // numbers, so a second copy in the header would be noise. One chip
+    // per non-empty status, board-column order (laneSummary,
+    // board-logic.js) -- decides whether a collapsed lane is worth
+    // opening without opening it.
+    if (!expanded) {
+      var summary = laneSummary(issues);
+      if (summary.byStatus.length) {
+        var summaryEl = document.createElement("span");
+        summaryEl.className = "swimlane-summary";
+        summary.byStatus.forEach(function (entry) {
+          summaryEl.appendChild(chip("", (STATUS_LABELS[entry.status] || entry.status) + " · " + entry.count));
+        });
+        laneHeader.appendChild(summaryEl);
+      }
+    }
+
     lane.appendChild(laneHeader);
-    if (!collapsed) lane.appendChild(columnsFor(issues));
+    if (expanded) lane.appendChild(columnsFor(issues));
     return lane;
   }
 
   // PT-3: one repo section under repo-grouped multi-root view -- a
-  // top-level collapse toggle (state.collapsedRepos, in-memory only, same
-  // contract as collapsedLanes) around either milestone lanes (Swimlanes
+  // top-level collapse toggle (state.collapsedRepos, in-memory only --
+  // PT-29: OPPOSITE polarity from state.expandedLanes, see the state
+  // declaration comment) around either milestone lanes (Swimlanes
   // checkbox on -- reuses milestoneLaneEl unchanged, composite state key)
   // or a flat column board (Swimlanes checkbox off). Repo grouping itself
   // is NOT governed by the Swimlanes checkbox -- team-lead's ruling:
@@ -477,15 +537,25 @@
     var section = document.createElement("div");
     section.className = "repo-group";
 
+    // PT-29: collapsedRepos keeps its PT-3 polarity (opt-in-closed) and
+    // its direct-mutation read/write -- unlike expandedLanes, this map is
+    // NOT default-collapsed by this feature (see the state.collapsedRepos
+    // comment above), so there is no absence-means-collapsed contract to
+    // route through a shared helper here.
     var collapsed = !!state.collapsedRepos[root.id];
+    section.classList.toggle("is-collapsed", collapsed);
     var header = document.createElement("div");
     header.className = "repo-group-header";
 
     var toggleBtn = document.createElement("button");
     toggleBtn.type = "button";
     toggleBtn.className = "repo-group-toggle";
-    toggleBtn.textContent = collapsed ? "▸" : "▾";
+    // PT-29 (architect's ruling § 3, judgment call a): same filled-triangle
+    // token as the milestone toggle -- disclosureToken takes "is expanded",
+    // the inverse of this map's "is collapsed" polarity.
+    toggleBtn.textContent = disclosureToken(!collapsed);
     toggleBtn.setAttribute("aria-label", (collapsed ? "Expand " : "Collapse ") + root.label);
+    toggleBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
     toggleBtn.addEventListener("click", function () {
       state.collapsedRepos[root.id] = !collapsed;
       render();
