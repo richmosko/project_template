@@ -118,6 +118,7 @@ title: Google OAuth login
 status: in-progress
 milestone: "1.0"
 parent: null
+blocked_by: []
 assignee: backend-lead
 labels: [auth, api]
 priority: P1
@@ -158,6 +159,7 @@ The OAuth path should end in the same session object the password path produces.
 | `status` | enum | ✅ | See [Status vocabulary](#status-vocabulary). |
 | `milestone` | string \| null | ✅ | Milestone slug (`"1.0"`, `M2`, `A`). Quote numeric-looking values. `null` = unassigned. |
 | `parent` | id \| null | ✅ | Sub-issue linkage. One level is expected; the parser tolerates deeper nesting but the board renders two. |
+| `blocked_by` | list[id] | — | Issues that must resolve before this one can start. **Same-root ids only.** An absent key ≡ `[]`. `cairn check` lints dangling refs, self-reference, and cycles. See [Dependencies](#dependencies). |
 | `assignee` | string \| null | ✅ | Bare agent role (`backend-lead`) matching a file in `.claude/agents/`, or `@handle` for a human. Replaces Linear's `agent:<role>` labels — attribution becomes a field, not a label. |
 | `labels` | list[string] | ✅ | Free-form, lowercase-kebab. May be `[]`. |
 | `priority` | `P0`–`P3` \| null | — | Backlog ordering only. Not a due date. |
@@ -290,6 +292,32 @@ This shape was chosen so an agent can append a comment with a **plain `Edit`** �
 ### Sub-issues
 
 A sub-issue is an ordinary issue file with `parent: PT-14`. It has its own status and can be assigned independently. The board renders a `2/3` badge on the parent and nests children in the detail drawer. There is no separate file type and no ordering field — children sort by ID.
+
+### Dependencies
+
+An issue may declare others as blocking it: `blocked_by: [PT-9, PT-12]`. The relation is
+one-directional in the file and derived in both directions at read time — nothing writes a
+reverse `blocks` field, because two stored sides of one relation is two things to keep in
+agreement.
+
+**Same-root only.** A `blocked_by` entry resolves within its own root; an id from another
+root is a dangling reference. Ids are unique only within a repo, and `cairn check` runs
+per-root — a cross-root edge could never be validated by the lint whose job is exactly that
+guarantee. `parent` is same-root-only by identical construction.
+
+**A blocker that is `done` or `cancelled` is resolved, not an error.** The entry stays;
+"resolved" is computed at render time. Erasing a blocker on completion would make the field
+self-erasing and destroy the dependency record, which is the part worth keeping.
+
+**Blocking is informational in v1 — nothing refuses or warns.** Moving a blocked issue to
+`in-progress` is allowed everywhere: on the board, through `cairn set`, and through
+`/start-feature`. Enforcement would need the same predicate at three write paths, and could
+not be enforced at all against a plain `Edit` — and hand-editing is fully supported here, so
+a rule the files can bypass would teach confidence the system cannot honour. The board shows
+open blockers on the card and in the drawer; that is where the decision is actually made.
+
+`cairn check` errors on a dangling reference, a self-reference, and any dependency cycle
+(reported once per cycle, with the full path).
 
 ### Archive
 
@@ -502,7 +530,7 @@ The ratified decision allows last-write-wins and makes the mtime check optional.
 | `cairn comment PT-14 --author qa-engineer --body -` | Correct delimiter + date, from stdin. |
 | `cairn show PT-14` | Rendered single issue, plus its children when it has any. |
 | `cairn archive --done-before <date>` | Bulk `git mv`. |
-| `cairn check` | Lint: id/filename mismatch, dangling `parent`, unknown `milestone`, bad `status`, milestone id-shape ↔ `kind` agreement (see [Milestone ids](#milestone-ids--definition-vs-development)), unsupported YAML, `config.yml`'s `roots:` shape (list of non-empty relative-path strings — reachability is a runtime concern, not lint, see [Multi-root](#multi-root-pt-3-2026-08-21)). |
+| `cairn check` | Lint: id/filename mismatch, dangling `parent`, unknown `milestone`, bad `status`, milestone id-shape ↔ `kind` agreement (see [Milestone ids](#milestone-ids--definition-vs-development)), `blocked_by` dependency integrity (dangling ref, self-reference, cycles — see [Dependencies](#dependencies)), unsupported YAML, `config.yml`'s `roots:` shape (list of non-empty relative-path strings — reachability is a runtime concern, not lint, see [Multi-root](#multi-root-pt-3-2026-08-21)). |
 | `cairn serve [--repos a,b]` | The board. `--repos` (PT-3) replaces `config.yml`'s `roots:` for that invocation — read-only cross-project aggregation, see [Multi-root](#multi-root-pt-3-2026-08-21). |
 
 **Ruled 2026-08-19: the CLI is legitimate under "agents never need a server."** The constraint is read as *no MCP, no HTTP, no JSON payloads in context*; a local script that prints one line satisfies it, and atomic ID allocation cannot be done safely any other way.
@@ -571,5 +599,6 @@ Every question this spec opened has been ruled. Each resolution is folded into t
 | 7 | Should the board write back acceptance-criteria checkboxes? | **Deferred.** Phase 1 keeps zero body-touching write paths (comment append excepted — tail-only). If ever built, it would be the first middle-of-file rewrite and needs its own design. | [Candidate follow-ups](#candidate-follow-ups-designed-for-not-committed) |
 | 8 | Should `config.yml` carry a `data_dir` key so a project can relocate the tracker to a top-level `cairn/`? | **No — affordance removed (2026-08-20, during stage-2 conformance review).** The key is circular: `config.yml` lives inside the directory it would declare. v1 fixes the layout at `process/cairn/`, and a **loud-error contract** replaces it — an unresolvable data dir is an error, never an empty result. | [Directory layout](#directory-layout) · [`config.yml`](#configyml) |
 | 9 | With definition milestones moving to letter ids, do repos already seeded with `M0`/`M1` + `kind: process` get a grandfather clause? | **No clause (2026-08-21, PT-27).** `check_repo` errors on the old shape and the error string carries the migration. A permanent exception would mean "`M0` might be a definition milestone" forever — the exact ambiguity the convention deletes — and this template's own tracker has no `kind: process` milestone, so the clause would have zero users where the lint runs. | [Milestone ids](#milestone-ids--definition-vs-development) |
+| 10 | Can a `blocked_by` reference cross roots, and does blocking enforce anything? | **Same-root only, and informational in v1 (2026-08-22, PT-26).** `check_repo` runs per-root, so a cross-root edge could never be validated by the lint that exists to guarantee referential integrity — the guarantee would be structurally unavailable, not merely unimplemented. Enforcement was considered and declined: it would need one predicate at three write paths and is unenforceable against a plain `Edit`, which the tracker fully supports. | [Dependencies](#dependencies) |
 
-Rows 1–7 were ruled 2026-08-19 at design time; row 8 was ruled 2026-08-20, when building the engine surfaced a question the spec had answered wrongly; row 9 was ruled 2026-08-21, when the milestone-naming convention split definition from development. Nothing in this spec is pending a decision.
+Rows 1–7 were ruled 2026-08-19 at design time; row 8 was ruled 2026-08-20, when building the engine surfaced a question the spec had answered wrongly; row 9 was ruled 2026-08-21, when the milestone-naming convention split definition from development; row 10 was ruled 2026-08-22, when issue dependencies landed. Nothing in this spec is pending a decision.

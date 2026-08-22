@@ -33,6 +33,9 @@
   var groupByMilestone = CairnLogic.groupByMilestone;
   var childProgress = CairnLogic.childProgress;
   var childrenOf = CairnLogic.childrenOf;
+  var blockersOf = CairnLogic.blockersOf;
+  var blocksOf = CairnLogic.blocksOf;
+  var openBlockers = CairnLogic.openBlockers;
 
   var STATUS_LABELS = {
     "backlog": "Backlog",
@@ -350,6 +353,13 @@
     var progress = state.board ? childProgress(state.board.issues, issue) : { done: 0, total: 0 };
     if (progress.total > 0) meta.appendChild(chip("subissues", progress.done + "/" + progress.total));
     if (issue.parent) meta.appendChild(chip("subissues", "↳ " + issue.parent));
+    // PT-26: the blocked chip appears only when OPEN blockers exist
+    // (architect's ruling #4) -- an all-resolved blocked_by list is no
+    // longer a live constraint, and flagging one anyway is noise on the
+    // card, the scarcest surface. The reverse "blocks" list never appears
+    // on cards at all -- drawer and `cairn show` only.
+    var open = state.board ? openBlockers(state.board.issues, issue) : [];
+    if (open.length > 0) meta.appendChild(chip("blocked", "⛔ " + open.length + " blocked"));
     card.appendChild(meta);
 
     return card;
@@ -744,6 +754,38 @@
     });
   }
 
+  // PT-25/PT-26 shared drawer list renderer: Children, "Blocked by", and
+  // "Blocks" are the same shape (id + title, opens that issue's own
+  // drawer, a trailing status annotation) -- one function, not a third
+  // hand-written copy of the same block (the standing duplicated-inline-
+  // expression criterion, applied at the second-use moment rather than
+  // waiting for a third). `opts.markResolved` adds a `.resolved` class to
+  // done/cancelled entries -- PT-26's "open vs resolved distinguished"
+  // requirement for the "Blocked by" list; Children and "Blocks" don't
+  // pass it, so they render with no resolved/open distinction at all.
+  function issueLinkListEl(items, opts) {
+    opts = opts || {};
+    var ul = document.createElement("ul");
+    ul.className = "children-list";
+    items.forEach(function (item) {
+      var li = document.createElement("li");
+      if (opts.markResolved && (item.status === "done" || item.status === "cancelled")) {
+        li.className = "resolved";
+      }
+      var link = document.createElement("a");
+      link.href = "#";
+      link.textContent = item.id + " — " + item.title;
+      link.onclick = function (e) {
+        e.preventDefault();
+        openDrawer(item.id);
+      };
+      li.appendChild(link);
+      li.appendChild(document.createTextNode(" (" + item.status + ")"));
+      ul.appendChild(li);
+    });
+    return ul;
+  }
+
   function renderDrawer(issue) {
     if (state.openIssueId !== issue.id) return; // user navigated away while fetching
     var overlay = document.getElementById("drawer-overlay");
@@ -833,33 +875,41 @@
       drawer.appendChild(parentP);
     }
 
-    // PT-25: a parent's children are listed (id + title + status), each
-    // opening to the child's own drawer. Computed from the full board
-    // payload (childrenOf, board-logic.js) -- GET /api/issue/<id> (the
-    // `issue` this function receives) carries no sibling-issue list of
-    // its own, only this one issue's frontmatter + description + comments.
+    // PT-25/PT-26: Children, "Blocked by", and "Blocks" are the same
+    // rendering shape -- id + title, opens that issue's own drawer, a
+    // status annotation -- factored into one helper (issueLinkListEl,
+    // below) rather than a third hand-written copy of the same block.
+    // Computed from the full board payload (childrenOf/blockersOf/
+    // blocksOf, board-logic.js) -- GET /api/issue/<id> (the `issue` this
+    // function receives) carries no sibling-issue list of its own, only
+    // this one issue's frontmatter + description + comments.
     var kids = state.board ? childrenOf(state.board.issues, issue) : [];
     if (kids.length) {
       var childrenHeading = document.createElement("div");
       childrenHeading.className = "section-heading";
       childrenHeading.textContent = "Children";
       drawer.appendChild(childrenHeading);
-      var childUl = document.createElement("ul");
-      childUl.className = "children-list";
-      kids.forEach(function (child) {
-        var li = document.createElement("li");
-        var link = document.createElement("a");
-        link.href = "#";
-        link.textContent = child.id + " — " + child.title;
-        link.onclick = function (e) {
-          e.preventDefault();
-          openDrawer(child.id);
-        };
-        li.appendChild(link);
-        li.appendChild(document.createTextNode(" (" + child.status + ")"));
-        childUl.appendChild(li);
-      });
-      drawer.appendChild(childUl);
+      drawer.appendChild(issueLinkListEl(kids));
+    }
+
+    // PT-26: "Blocked by" -- open vs resolved (done/cancelled) visually
+    // distinguished (architect's ruling #4); "Blocks" is the reverse
+    // lookup, drawer-and-cairn-show-only, never on cards.
+    var blockers = state.board ? blockersOf(state.board.issues, issue) : [];
+    if (blockers.length) {
+      var blockedByHeading = document.createElement("div");
+      blockedByHeading.className = "section-heading";
+      blockedByHeading.textContent = "Blocked by";
+      drawer.appendChild(blockedByHeading);
+      drawer.appendChild(issueLinkListEl(blockers, { markResolved: true }));
+    }
+    var blocks = state.board ? blocksOf(state.board.issues, issue) : [];
+    if (blocks.length) {
+      var blocksHeading = document.createElement("div");
+      blocksHeading.className = "section-heading";
+      blocksHeading.textContent = "Blocks";
+      drawer.appendChild(blocksHeading);
+      drawer.appendChild(issueLinkListEl(blocks));
     }
 
     var split = splitAcceptanceCriteria(issue.description);

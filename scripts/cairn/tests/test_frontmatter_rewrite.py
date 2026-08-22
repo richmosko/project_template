@@ -44,6 +44,7 @@ class DumpFrontmatterTests(unittest.TestCase):
             "status": "todo",
             "milestone": None,
             "parent": None,
+            "blocked_by": [],
             "assignee": None,
             "labels": [],
             "priority": None,
@@ -203,7 +204,7 @@ class UnknownFrontmatterKeyPreservationTests(unittest.TestCase):
     def _canonical_frontmatter_text(self):
         return (
             "id: PT-1\ntitle: Thing\nstatus: todo\nmilestone: null\nparent: null\n"
-            "assignee: null\nlabels: []\npriority: null\npr: null\n"
+            "blocked_by: []\nassignee: null\nlabels: []\npriority: null\npr: null\n"
             "created: 2026-08-01\nupdated: 2026-08-01\n"
         )
 
@@ -489,7 +490,7 @@ class PT13MilestoneFieldOrderAndNoUpdatedInjectionTests(unittest.TestCase):
         write_issue(
             issue_path,
             "id: PT-1\ntitle: Thing\nstatus: todo\nmilestone: null\nparent: null\n"
-            "assignee: null\nlabels: []\npriority: null\npr: null\n"
+            "blocked_by: []\nassignee: null\nlabels: []\npriority: null\npr: null\n"
             "created: 2026-08-01\nupdated: 2026-08-01\n",
             "Body.\n",
         )

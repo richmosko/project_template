@@ -67,7 +67,7 @@ _DEFINITION_MILESTONE_ID_RE = re.compile(r"^(?!M)[A-Z][a-z]?$")
 _DEVELOPMENT_MILESTONE_ID_RE = re.compile(r"^(?:M\d+[a-z]?|\d+\.\d+(?:\.\d+)?)$")
 
 ISSUE_FIELD_ORDER = [
-    "id", "title", "status", "milestone", "parent", "assignee",
+    "id", "title", "status", "milestone", "parent", "blocked_by", "assignee",
     "labels", "priority", "pr", "created", "updated",
 ]
 
@@ -492,6 +492,24 @@ def get_seen(path: Path) -> str:
 
 NULLABLE_FIELDS = ("milestone", "assignee", "parent", "priority", "pr")
 
+# PT-26: list-valued fields never join NULLABLE_FIELDS -- clearing one
+# writes `[]`, never `null` (labels already worked this way; blocked_by
+# follows the same precedent). The list branch in _coerce_cli_value must
+# be checked *before* the nullable branch for exactly this reason.
+LIST_FIELDS = ("labels", "blocked_by")
+
+
+def _split_csv(value: str) -> List[str]:
+    """Comma-split `value` into a list, stripping whitespace and dropping
+    empty segments -- the shared helper behind both --labels/--blocked-by
+    (cmd_new) and labels=/blocked_by= (cmd_set's _coerce_cli_value). One
+    function, not two copies of the same comprehension (PT-26: cmd_new
+    carried a pre-existing duplicate of _coerce_cli_value's labels split --
+    the standing duplicated-inline-expression criterion, fixed here rather
+    than adding a third copy for blocked_by).
+    """
+    return [v.strip() for v in value.split(",") if v.strip()]
+
 
 def apply_patch(path: Path, patch: Dict[str, Any]) -> Dict[str, Any]:
     """Merge `patch` into `path`'s frontmatter and rewrite it in place.
@@ -801,6 +819,38 @@ def check_repo(data_dir: Path) -> List[str]:
         priority = fm.get("priority")
         if priority is not None and priority not in PRIORITIES:
             errors.append(f"{label}: unknown priority {priority!r}")
+        # PT-26: blocked_by dangling reference + self-reference. Same terse
+        # vocabulary as the dangling-parent check above (architect's
+        # ruling #2) -- a self-reference gets its OWN message, never
+        # folded into the cycle detector's verbose treatment below, so a
+        # 1-node self-loop is reported once, here, not twice.
+        for ref in fm.get("blocked_by") or []:
+            issue_id = fm.get("id")
+            if ref == issue_id:
+                errors.append(f"{label}: blocked_by contains itself")
+            elif ref not in known_ids:
+                errors.append(f"{label}: dangling blocked_by {ref!r}")
+
+    # PT-26: dependency cycles. The graph excludes self-edges (already
+    # reported above, on their own) and dangling refs (already reported
+    # above; you cannot walk to a node that doesn't exist, and including
+    # one here could mask a real cycle behind it or fabricate a false
+    # one) -- both anti-double-reporting rules from the architect's ruling.
+    id_to_blocked: Dict[str, List[str]] = {}
+    for p, fm in parsed_issues:
+        issue_id = fm.get("id")
+        if issue_id not in known_ids:
+            continue  # id/filename mismatch already reported above
+        id_to_blocked[issue_id] = [
+            ref for ref in (fm.get("blocked_by") or []) if ref != issue_id and ref in known_ids
+        ]
+    for cycle in _detect_blocked_by_cycles(id_to_blocked):
+        path_str = " -> ".join(cycle + [cycle[0]])
+        errors.append(
+            f"{cycle[0]}: dependency cycle {path_str} -- an issue cannot "
+            f"transitively block itself; break the loop by removing one "
+            f"blocked_by entry along that path"
+        )
 
     return errors
 
@@ -827,6 +877,73 @@ def _id_sort_key(issue_id: Any) -> Tuple[str, int, str]:
     if m:
         return (m.group(1), int(m.group(2)), s)
     return (s, -1, s)
+
+
+def _rotate_cycle_to_canonical(cycle: List[str]) -> List[str]:
+    """Rotate `cycle` (a list of ids in edge order) so the `_id_sort_key`-
+    smallest id leads -- the canonical form for deduping "the same cycle,
+    discovered from a different entry point" down to one reported error
+    (PT-26). A rotation, never a re-sort: the edge order within the cycle
+    is preserved, only the starting point moves.
+    """
+    smallest_idx = min(range(len(cycle)), key=lambda i: _id_sort_key(cycle[i]))
+    return cycle[smallest_idx:] + cycle[:smallest_idx]
+
+
+def _detect_blocked_by_cycles(id_to_blocked: Dict[str, List[str]]) -> List[List[str]]:
+    """Iterative three-colour (white/grey/black) DFS over the blocked_by
+    graph. Returns one path per distinct cycle (each on its canonical
+    rotation, deduped), in the order discovered.
+
+    Iterative, not recursive, because `check_repo` must never raise on
+    user data -- a long enough dependency chain would blow the recursion
+    limit. A plain visited set is not enough: it cannot distinguish
+    "already fully explored" from "on the current path", and reports a
+    false cycle on any reconvergent DAG (two nodes both blocked_by a third,
+    unrelated, common ancestor). Grey (on the current path) is the only
+    color a real back-edge can land on.
+
+    Callers must pre-filter self-edges and dangling refs out of
+    `id_to_blocked` -- this function assumes every edge target is itself a
+    key in `id_to_blocked`. Walks roots in `_id_sort_key` order and, within
+    each node, neighbours in `blocked_by` order (a plain dict/list walk,
+    already in file order) -- deterministic output regardless of
+    filesystem iteration order.
+    """
+    WHITE, GREY, BLACK = 0, 1, 2
+    color: Dict[str, int] = {node: WHITE for node in id_to_blocked}
+    cycles: List[List[str]] = []
+    seen_rotations = set()
+
+    for root in sorted(id_to_blocked, key=_id_sort_key):
+        if color[root] != WHITE:
+            continue
+        color[root] = GREY
+        path = [root]
+        stack = [iter(id_to_blocked[root])]
+        while stack:
+            try:
+                nxt = next(stack[-1])
+            except StopIteration:
+                finished = path.pop()
+                color[finished] = BLACK
+                stack.pop()
+                continue
+            if color[nxt] == WHITE:
+                color[nxt] = GREY
+                path.append(nxt)
+                stack.append(iter(id_to_blocked[nxt]))
+            elif color[nxt] == GREY:
+                # Back-edge to a node on the current path -- the slice from
+                # its first occurrence to here is the cycle.
+                idx = path.index(nxt)
+                rotated = _rotate_cycle_to_canonical(path[idx:])
+                key = tuple(rotated)
+                if key not in seen_rotations:
+                    seen_rotations.add(key)
+                    cycles.append(rotated)
+            # BLACK: already fully explored via another path -- no new info.
+    return cycles
 
 
 def build_snapshot_markdown(data_dir: Path, generated_at: Optional[str] = None) -> str:
@@ -1677,8 +1794,8 @@ def resolve_data_dir(args: argparse.Namespace) -> Path:
 
 
 def _coerce_cli_value(key: str, value: str) -> Any:
-    if key == "labels":
-        return [v.strip() for v in value.split(",") if v.strip()]
+    if key in LIST_FIELDS:
+        return _split_csv(value)
     if key in NULLABLE_FIELDS and value == "":
         return None
     if value.lower() == "null":
@@ -1693,8 +1810,9 @@ def cmd_new(args: argparse.Namespace) -> int:
         "status": args.status,
         "milestone": args.milestone,
         "parent": args.parent,
+        "blocked_by": _split_csv(args.blocked_by) if args.blocked_by else [],
         "assignee": args.assignee,
-        "labels": [l.strip() for l in args.labels.split(",") if l.strip()] if args.labels else [],
+        "labels": _split_csv(args.labels) if args.labels else [],
         "priority": args.priority,
         "pr": None,
     }
@@ -1768,6 +1886,37 @@ def cmd_comment(args: argparse.Namespace) -> int:
     return 0
 
 
+def _scan_issues(data_dir: Path, exclude: Path, predicate) -> List[Dict[str, Any]]:
+    """Frontmatter of every issue in issues/ (except `exclude`) satisfying
+    `predicate` -- the one scan behind cmd_show's Children and Blocks
+    sections. Per-file parse errors are skipped, not raised (mirrors
+    check_repo). One function, not two copies differing only in the
+    predicate -- the Python-side twin of board.js's issueLinkListEl.
+    """
+    out = []
+    for p in _dir_glob(Path(data_dir) / "issues"):
+        if p == exclude:
+            continue
+        try:
+            fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
+        except CairnError:
+            continue
+        if predicate(fm):
+            out.append(fm)
+    return out
+
+
+def _print_issue_list(heading: str, records: List[Dict[str, Any]]) -> None:
+    """Print a `_id_sort_key`-ordered id/status/title block under `heading`,
+    or nothing at all when `records` is empty -- an issue with no
+    dependencies must print no section header for them."""
+    if not records:
+        return
+    print(f"\n{heading}:")
+    for fm in sorted(records, key=lambda fm: _id_sort_key(fm.get("id"))):
+        print(f"  {fm.get('id')}\t{fm.get('status')}\t{fm.get('title')}")
+
+
 def cmd_show(args: argparse.Namespace) -> int:
     data_dir = resolve_data_dir(args)
     path = find_issue_path(data_dir, args.id)
@@ -1777,6 +1926,13 @@ def cmd_show(args: argparse.Namespace) -> int:
     issue = parse_issue(path.read_text(encoding="utf-8"))
     print(f"{issue.get('id')} — {issue.get('title')}")
     for key in ISSUE_FIELD_ORDER[2:]:
+        # PT-26: blocked_by gets its own "Blocked by:"/"Blocks:" sections
+        # below (sorted, both directions, blank when there's nothing to
+        # show) rather than a raw `blocked_by: [...]` line here -- an
+        # issue with no dependencies at all must print no "block"-shaped
+        # text anywhere in the output.
+        if key == "blocked_by":
+            continue
         print(f"  {key}: {issue.get(key)}")
     print()
     print(issue.get("description", ""))
@@ -1789,27 +1945,33 @@ def cmd_show(args: argparse.Namespace) -> int:
                 print(f"    {line}")
 
     # PT-25: a parent issue also lists its children (id, status, title),
-    # sorted numerically by id (_id_sort_key -- same sort cmd_ls/
-    # build_snapshot_markdown already use). The child->parent half of the
-    # acceptance criterion needs no code here: `parent:` is already printed
-    # above via the ISSUE_FIELD_ORDER[2:] loop (verified against real
-    # output, architect's PT-25 ruling #3). This is a directory scan --
-    # cmd_show otherwise reads exactly one file via find_issue_path.
-    children = []
-    for p in _dir_glob(Path(data_dir) / "issues"):
-        if p == path:
-            continue
-        try:
-            fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
-        except CairnError:
-            continue
-        if fm.get("parent") == args.id:
-            children.append(fm)
-    if children:
-        children.sort(key=lambda fm: _id_sort_key(fm.get("id")))
-        print("\nChildren:")
-        for fm in children:
-            print(f"  {fm.get('id')}\t{fm.get('status')}\t{fm.get('title')}")
+    # sorted numerically by id. The child->parent half of the acceptance
+    # criterion needs no code here: `parent:` is already printed above via
+    # the ISSUE_FIELD_ORDER[2:] loop (verified against real output,
+    # architect's PT-25 ruling #3).
+    _print_issue_list(
+        "Children", _scan_issues(data_dir, path, lambda fm: fm.get("parent") == args.id)
+    )
+
+    # PT-26: this issue's own blockers (its blocked_by field -- direct
+    # find_issue_path lookups, no scan) and the reverse "blocks" list (who
+    # names THIS issue in their own blocked_by -- a directory scan, same
+    # shape as the children scan above). Both sorted by _id_sort_key.
+    blocked_by = issue.get("blocked_by") or []
+    blockers = []
+    for ref in blocked_by:
+        ref_path = find_issue_path(data_dir, ref)
+        if ref_path is not None:
+            blockers.append(parse_issue(ref_path.read_text(encoding="utf-8")))
+        else:
+            # Dangling ref on an unchecked tree -- cairn check would flag
+            # this; cmd_show still renders it rather than crash.
+            blockers.append({"id": ref, "status": "?", "title": "(not found)"})
+    _print_issue_list("Blocked by", blockers)
+    _print_issue_list(
+        "Blocks", _scan_issues(data_dir, path, lambda fm: args.id in (fm.get("blocked_by") or []))
+    )
+
     return 0
 
 
@@ -1969,6 +2131,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_new.add_argument("--parent", default=None)
     p_new.add_argument("--priority", default=None)
     p_new.add_argument("--labels", default=None, help="comma-separated")
+    p_new.add_argument("--blocked-by", default=None, help="comma-separated issue ids")
     p_new.set_defaults(func=cmd_new)
 
     p_ls = sub.add_parser("ls", parents=[common], help="list issues")

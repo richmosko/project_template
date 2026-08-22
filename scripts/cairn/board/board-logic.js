@@ -314,7 +314,14 @@ var CairnLogic = (function () {
     return (issue.repo || "") + "::" + issue.parent;
   }
 
-  function parentKeyOf(issue) {
+  // PT-26: renamed from PT-25's parentKeyOf (architect's ruling #4). Its
+  // body was never parent-specific -- it's the issue's own repo-scoped
+  // identity key -- and PT-26's blockersOf/blocksOf need exactly this
+  // same key. A second, identically-bodied key function (a "blockerKeyOf")
+  // would have been the fifth instance of the isDraggable/
+  // issueMilestoneKey/groupByMilestone/childProgress bare-id-across-roots
+  // defect class.
+  function issueKeyOf(issue) {
     return (issue.repo || "") + "::" + issue.id;
   }
 
@@ -351,7 +358,7 @@ var CairnLogic = (function () {
   // duplicated-inline-expression criterion: one shared function, never
   // two hand-maintained copies of the same predicate).
   function childRecords(issues, issue) {
-    var key = parentKeyOf(issue);
+    var key = issueKeyOf(issue);
     return (issues || []).filter(function (i) { return childKeyOf(i) === key; });
   }
 
@@ -376,6 +383,64 @@ var CairnLogic = (function () {
     return childRecords(issues, issue).sort(compareByIdSortKey);
   }
 
+  // PT-26: the blocker records named in `issue.blocked_by`, sorted
+  // numerically by id. Repo-scoped from the FIRST line: `blocked_by`
+  // entries are same-root-only by construction (TRACKER.md § Dependencies
+  // -- `cairn check` runs per-root, so a cross-root ref could never be
+  // validated), so `issue`'s own repo is the correct scope for every ref
+  // in its list -- never a bare-id lookup across the aggregated multi-root
+  // payload. `wanted` uses Object.create(null), same reasoning as
+  // uniqueSorted/dedupeMajorIds/groupByMilestone: a blocked_by ref shaped
+  // like "constructor" must not silently match or miss via an inherited
+  // Object.prototype member.
+  function blockersOf(issues, issue) {
+    var repo = issue.repo || "";
+    var key = issueKeyOf(issue);
+    // Resolve `issue`'s OWN record from `issues` rather than trusting a
+    // `blocked_by` field on the passed-in `issue` object -- callers may
+    // pass a minimal {id, repo} stub (e.g. a stale card re-render before
+    // the next /api/board poll lands the full record); the full board
+    // payload in `issues` is the source of truth for what blocks it.
+    var self_ = (issues || []).filter(function (i) { return issueKeyOf(i) === key; })[0];
+    var refs = (self_ && self_.blocked_by) || issue.blocked_by || [];
+    var wanted = Object.create(null);
+    refs.forEach(function (ref) { wanted[repo + "::" + ref] = true; });
+    return (issues || [])
+      .filter(function (i) { return wanted[issueKeyOf(i)]; })
+      .sort(compareByIdSortKey);
+  }
+
+  // The reverse lookup -- every issue that names `issue`'s id in ITS OWN
+  // blocked_by, sorted numerically by id. Repo-scoped the same way
+  // blockersOf is: a candidate blocker's blocked_by ref only ever
+  // resolves within ITS OWN repo, so the candidate must share `issue`'s
+  // repo to be considered at all -- same-repo comparison, not a bare-id
+  // match across roots.
+  function blocksOf(issues, issue) {
+    var key = issueKeyOf(issue);
+    return (issues || [])
+      .filter(function (i) {
+        var repo = i.repo || "";
+        var refs = i.blocked_by || [];
+        for (var j = 0; j < refs.length; j++) {
+          if (repo + "::" + refs[j] === key) return true;
+        }
+        return false;
+      })
+      .sort(compareByIdSortKey);
+  }
+
+  // The OPEN subset of blockersOf's list -- not done, not cancelled. The
+  // board's card chip and its count derive from THIS list, never a
+  // parallel filter (the F1 correction from PT-25's review, applied
+  // before the fact rather than after) -- so the chip can never disagree
+  // with what the drawer's own "Blocked by" section marks as open.
+  function openBlockers(issues, issue) {
+    return blockersOf(issues, issue).filter(function (i) {
+      return i.status !== "done" && i.status !== "cancelled";
+    });
+  }
+
   return {
     primaryRootId: primaryRootId,
     milestoneLabel: milestoneLabel,
@@ -393,5 +458,8 @@ var CairnLogic = (function () {
     idSortKey: idSortKey,
     childProgress: childProgress,
     childrenOf: childrenOf,
+    blockersOf: blockersOf,
+    blocksOf: blocksOf,
+    openBlockers: openBlockers,
   };
 })();

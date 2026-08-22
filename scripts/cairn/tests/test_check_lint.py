@@ -178,6 +178,23 @@ def write_issue_priority_field_omitted(data_dir: Path, filename: str, issue_id: 
     (data_dir / "issues" / filename).write_text(text, encoding="utf-8")
 
 
+def write_issue_with_blocked_by(data_dir: Path, filename: str, issue_id: str, blocked_by: list, status: str = "todo") -> None:
+    """Write an issue whose frontmatter carries an explicit `blocked_by`
+    flow list -- PT-26's dependency field, `list[id]`, absent ≡ [] (not
+    added to GOOD_FRONTMATTER/write_issue above, since most existing tests
+    must keep exercising the absent-field case unmodified)."""
+    ids = ", ".join(blocked_by)
+    text = (
+        "---\n"
+        f"id: {issue_id}\ntitle: Thing\nstatus: {status}\nmilestone: null\nparent: null\n"
+        f"blocked_by: [{ids}]\n"
+        "assignee: null\nlabels: []\npriority: null\npr: null\n"
+        "created: 2026-08-01\nupdated: 2026-08-01\n"
+        "---\n\nBody.\n"
+    )
+    (data_dir / "issues" / filename).write_text(text, encoding="utf-8")
+
+
 class CheckRepoTests(unittest.TestCase):
     def test_clean_fixture_tree_has_no_errors(self):
         data_dir = helpers.make_tmp_data_dir(self)
@@ -569,6 +586,194 @@ class CheckRepoIdShapeKindTests(unittest.TestCase):
         self.assertTrue(_errors_for(errors, "A"), errors)
 
 
+class CheckRepoBlockedByTests(unittest.TestCase):
+    """PT-26: check_repo lints blocked_by -- dangling reference, self-
+    reference, and dependency cycles, all errors, same-root only (the
+    lint's own tree is always exactly one root by construction -- no code
+    path exists for cross-root refs at all, architect's ruling #2). A
+    blocker that is done/cancelled is resolved, not an error -- the field
+    is a permanent dependency record, not self-erasing on completion.
+    """
+
+    def test_absent_blocked_by_is_legal(self):
+        data_dir = make_tree(self)
+        write_issue(data_dir, "PT-1.md", id="PT-1")  # no blocked_by key at all
+        errors = cairn.check_repo(data_dir)
+        self.assertEqual(errors, [], errors)
+
+    def test_empty_blocked_by_is_legal(self):
+        data_dir = make_tree(self)
+        write_issue_with_blocked_by(data_dir, "PT-1.md", "PT-1", [])
+        errors = cairn.check_repo(data_dir)
+        self.assertEqual(errors, [], errors)
+
+    def test_dangling_blocked_by_reference_is_flagged(self):
+        data_dir = make_tree(self)
+        write_issue_with_blocked_by(data_dir, "PT-1.md", "PT-1", ["PT-99"])
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(errors)
+        self.assertTrue(
+            any(
+                "PT-1" in e and "dangling" in e.lower() and "blocked_by" in e and "PT-99" in e
+                for e in errors
+            ),
+            errors,
+        )
+
+    def test_self_reference_is_flagged_distinctly_from_a_cycle(self):
+        # Architect's ruling #2 (addendum): self-reference gets the lint's
+        # own terse vocabulary, the same tier as "dangling parent" -- it
+        # must NOT be swept into the cycle detector's verbose full-path
+        # treatment, and must produce EXACTLY ONE error (not also a
+        # 1-cycle report -- the addendum's explicit double-reporting
+        # guard). A self-loop is graph-theoretically a 1-node cycle, but
+        # the ruling treats it as its own category, not a degenerate cycle.
+        data_dir = make_tree(self)
+        write_issue_with_blocked_by(data_dir, "PT-1.md", "PT-1", ["PT-1"])
+        errors = cairn.check_repo(data_dir)
+        self.assertEqual(len(errors), 1, errors)
+        message = errors[0]
+        self.assertIn("PT-1", message)
+        self.assertIn("self", message.lower())
+        self.assertNotIn("cycle", message.lower())
+
+    def test_two_node_cycle_is_reported_exactly_once_with_full_path(self):
+        # File-iteration order (_dir_glob sorts by filename, lexicographic)
+        # visits "PT-10.md" before "PT-2.md" -- so a DFS keyed to file scan
+        # order would reach PT-10 first. The canonical rotation must still
+        # lead with PT-2 (the _id_sort_key-SMALLEST id), not whichever
+        # node the file scan happened to reach first.
+        data_dir = make_tree(self)
+        write_issue_with_blocked_by(data_dir, "PT-10.md", "PT-10", ["PT-2"])
+        write_issue_with_blocked_by(data_dir, "PT-2.md", "PT-2", ["PT-10"])
+        errors = cairn.check_repo(data_dir)
+        cycle_errors = [e for e in errors if "PT-2" in e and "PT-10" in e]
+        self.assertEqual(len(cycle_errors), 1, errors)  # once per cycle, not once per node
+        message = cycle_errors[0]
+        self.assertIn("cycle", message.lower())
+        self.assertLess(message.index("PT-2"), message.index("PT-10"))
+
+    def test_three_node_cycle_is_reported_exactly_once_with_full_path(self):
+        data_dir = make_tree(self)
+        write_issue_with_blocked_by(data_dir, "PT-10.md", "PT-10", ["PT-9"])
+        write_issue_with_blocked_by(data_dir, "PT-9.md", "PT-9", ["PT-2"])
+        write_issue_with_blocked_by(data_dir, "PT-2.md", "PT-2", ["PT-10"])
+        errors = cairn.check_repo(data_dir)
+        cycle_errors = [e for e in errors if "PT-2" in e and "PT-9" in e and "PT-10" in e]
+        self.assertEqual(len(cycle_errors), 1, errors)
+        message = cycle_errors[0]
+        self.assertIn("cycle", message.lower())
+        self.assertLess(message.index("PT-2"), message.index("PT-9"))
+        self.assertLess(message.index("PT-2"), message.index("PT-10"))
+
+    def test_done_blocker_is_legal_not_an_error(self):
+        data_dir = make_tree(self)
+        write_issue_with_blocked_by(data_dir, "PT-2.md", "PT-2", [], status="done")
+        write_issue_with_blocked_by(data_dir, "PT-1.md", "PT-1", ["PT-2"])
+        errors = cairn.check_repo(data_dir)
+        self.assertEqual(errors, [], errors)
+
+    def test_cancelled_blocker_is_legal_not_an_error(self):
+        data_dir = make_tree(self)
+        write_issue_with_blocked_by(data_dir, "PT-2.md", "PT-2", [], status="cancelled")
+        write_issue_with_blocked_by(data_dir, "PT-1.md", "PT-1", ["PT-2"])
+        errors = cairn.check_repo(data_dir)
+        self.assertEqual(errors, [], errors)
+
+    def test_blocked_by_referencing_an_archived_issue_is_not_dangling(self):
+        # known_ids already spans issues/ AND archive/ -- falls out for
+        # free, per the ruling.
+        data_dir = make_tree(self)
+        (data_dir / "archive" / "PT-9.md").write_text(
+            "---\nid: PT-9\ntitle: Archived\nstatus: done\nmilestone: null\nparent: null\n"
+            "assignee: null\nlabels: []\npriority: null\npr: null\n"
+            "created: 2026-08-01\nupdated: 2026-08-01\n---\n\nBody.\n",
+            encoding="utf-8",
+        )
+        write_issue_with_blocked_by(data_dir, "PT-1.md", "PT-1", ["PT-9"])
+        errors = cairn.check_repo(data_dir)
+        self.assertEqual(errors, [], errors)
+
+    def test_multiple_blocked_by_violations_each_reported(self):
+        data_dir = make_tree(self)
+        write_issue_with_blocked_by(data_dir, "PT-1.md", "PT-1", ["PT-99"])
+        write_issue_with_blocked_by(data_dir, "PT-2.md", "PT-2", ["PT-2"])
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(_errors_for(errors, "PT-1"), errors)
+        self.assertTrue(_errors_for(errors, "PT-2"), errors)
+
+    def test_two_disjoint_cycles_produce_exactly_two_errors(self):
+        # Architect's addendum: separate cycles are separate errors --
+        # neither merged into one report nor multiplied per member.
+        data_dir = make_tree(self)
+        write_issue_with_blocked_by(data_dir, "PT-1.md", "PT-1", ["PT-2"])
+        write_issue_with_blocked_by(data_dir, "PT-2.md", "PT-2", ["PT-1"])
+        write_issue_with_blocked_by(data_dir, "PT-5.md", "PT-5", ["PT-6"])
+        write_issue_with_blocked_by(data_dir, "PT-6.md", "PT-6", ["PT-5"])
+        errors = cairn.check_repo(data_dir)
+        cycle_errors = [e for e in errors if "cycle" in e.lower()]
+        self.assertEqual(len(cycle_errors), 2, errors)
+        self.assertTrue(any("PT-1" in e and "PT-2" in e for e in cycle_errors), errors)
+        self.assertTrue(any("PT-5" in e and "PT-6" in e for e in cycle_errors), errors)
+
+    def test_reconvergent_dag_is_not_a_false_cycle(self):
+        # THE discriminating test (architect's addendum): a plain
+        # visited-set DFS reports a false cycle on any reconvergent DAG --
+        # PT-1 -> PT-2, PT-1 -> PT-3, PT-2 -> PT-4, PT-3 -> PT-4 has no
+        # cycle (PT-4 is reached twice, by two different paths, neither of
+        # which revisits a node still on ITS OWN path), but a visited-set
+        # walk that treats "already seen anywhere" as "cycle" will flag
+        # PT-4 as revisited and misreport. Correct behaviour: zero errors.
+        data_dir = make_tree(self)
+        write_issue_with_blocked_by(data_dir, "PT-1.md", "PT-1", ["PT-2", "PT-3"])
+        write_issue_with_blocked_by(data_dir, "PT-2.md", "PT-2", ["PT-4"])
+        write_issue_with_blocked_by(data_dir, "PT-3.md", "PT-3", ["PT-4"])
+        write_issue_with_blocked_by(data_dir, "PT-4.md", "PT-4", [])
+        errors = cairn.check_repo(data_dir)
+        self.assertEqual(errors, [], errors)
+
+    def test_dangling_and_cycle_on_the_same_issue_produce_exactly_two_errors(self):
+        # Architect's addendum: dangling refs are excluded from the cycle
+        # graph's edges entirely (you cannot walk to a node that does not
+        # exist) -- one issue carrying both a dangling ref AND a real
+        # cycle edge must produce exactly two errors (one dangling, one
+        # cycle), not three (double-counted) and not one (the dangling ref
+        # masking or fabricating the cycle).
+        data_dir = make_tree(self)
+        write_issue_with_blocked_by(data_dir, "PT-1.md", "PT-1", ["PT-99", "PT-2"])
+        write_issue_with_blocked_by(data_dir, "PT-2.md", "PT-2", ["PT-1"])
+        errors = cairn.check_repo(data_dir)
+        self.assertEqual(len(errors), 2, errors)
+        self.assertTrue(any("dangling" in e.lower() and "PT-99" in e for e in errors), errors)
+        self.assertTrue(any("cycle" in e.lower() and "PT-1" in e and "PT-2" in e for e in errors), errors)
+
+    def test_cross_root_reference_is_dangling_not_resolved(self):
+        # Architect's addendum: check_repo runs per-root and has no code
+        # path to resolve_roots at all -- an id that exists only in a
+        # sibling root is dangling here, full stop, even when the
+        # primary's own config.yml lists that root. Same-root only.
+        data_dir = make_tree(self)
+        sibling_dir = data_dir.parent / "sibling" / "cairn"
+        (sibling_dir / "issues").mkdir(parents=True)
+        (sibling_dir / "issues" / "PT-14.md").write_text(
+            "---\nid: PT-14\ntitle: Lives in the sibling root\nstatus: todo\nmilestone: null\n"
+            "parent: null\nassignee: null\nlabels: []\npriority: null\npr: null\n"
+            "created: 2026-08-01\nupdated: 2026-08-01\n---\n\nBody.\n",
+            encoding="utf-8",
+        )
+        (data_dir / "config.yml").write_text(
+            'prefix: PT\nport: 8766\ndata_dir: process/cairn\nroots: ["../sibling/cairn"]\n',
+            encoding="utf-8",
+        )
+        write_issue_with_blocked_by(data_dir, "PT-1.md", "PT-1", ["PT-14"])
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(errors)
+        self.assertTrue(
+            any("PT-1" in e and "dangling" in e.lower() and "PT-14" in e for e in errors),
+            errors,
+        )
+
+
 class CheckCliTests(unittest.TestCase):
     def test_clean_tree_exits_zero(self):
         data_dir = helpers.make_tmp_data_dir(self)
@@ -651,6 +856,34 @@ class CheckCliTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         combined = result.stdout + result.stderr
         self.assertIn("mvp", combined)
+
+    def test_dangling_blocked_by_exits_nonzero_with_pointed_message(self):
+        data_dir = make_tree(self)
+        write_issue_with_blocked_by(data_dir, "PT-1.md", "PT-1", ["PT-99"])
+        result = subprocess.run(
+            [str(helpers.CAIRN_BIN), "check", "--data-dir", str(data_dir)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        combined = result.stdout + result.stderr
+        self.assertIn("PT-1", combined)
+        self.assertIn("PT-99", combined)
+
+    def test_blocked_by_cycle_exits_nonzero_with_pointed_message(self):
+        data_dir = make_tree(self)
+        write_issue_with_blocked_by(data_dir, "PT-1.md", "PT-1", ["PT-2"])
+        write_issue_with_blocked_by(data_dir, "PT-2.md", "PT-2", ["PT-1"])
+        result = subprocess.run(
+            [str(helpers.CAIRN_BIN), "check", "--data-dir", str(data_dir)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        combined = result.stdout + result.stderr
+        self.assertIn("PT-1", combined)
+        self.assertIn("PT-2", combined)
+        self.assertIn("cycle", combined.lower())
 
 
 if __name__ == "__main__":
