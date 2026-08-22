@@ -92,6 +92,12 @@ durable into a tracked artifact — or discarding it — before session close.**
 that routes a finding to `temp/` has discharged its half; the finding is
 **not recorded** until the team-lead places it.
 
+**Commit-ready text meant to land verbatim** (a doc section, a config block, a ruling)
+is a *deliverable*, not a finding: give the overflow file `kind: deliverable` +
+`target: <path>` frontmatter. When the lead reports `landed @ <sha>`, verify your text
+with `git show <sha>:<path>` — against the commit object, never the checkout — before
+treating the hand-off as closed. See `process/WORKFLOW.md` → Findings vs deliverables.
+
 If you believe an exception is warranted, say so in one line and ask. Do not take
 it unilaterally.
 

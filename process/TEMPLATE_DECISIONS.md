@@ -19,6 +19,15 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 
 ---
 
+### 2026-08-22 — Sha-pinned hand-offs adopted; one-writer-per-checkout made explicit; deliverable-grade temp/ integration
+**Decision:** Adopt the sha-pinned hand-off discipline (from a brief out of the fintech project, where a crossed-message worktree reset silently destroyed an uncommitted deliverable), adapted to this template's topology: (1) the existing sha-leading message convention expands into a full WORKFLOW.md § *Sha-pinned hand-offs* — frozen-sha reviews, merge-is-a-dispatch, and the **one writer per checkout** principle, with per-agent worktrees + full commit-based delivery named as the package deal for any escalation to concurrent writers; (2) `temp/` hand-offs split into *findings* (summarizable) vs *deliverables* (`kind: deliverable` + `target:` frontmatter → land verbatim, **verify-before-delete**, integrator reports `landed @ <sha>`, author verifies via `git show <sha>:<path>`).
+**Why:** A description ("it's ready") is a claim about a moment that has passed; a sha either resolves or fails loudly. The template's prior protocol guaranteed temp/ files get *noticed* (sweep + SessionStart nag) but not *faithfully integrated* — placement was an unverified copy whose delete-in-the-same-action destroyed the only comparison source, and the author never saw the landed form. Pinning at the integrating commit closes both holes with zero new state.
+**Alternatives considered:**
+- Full commit-based delivery for all hand-offs now (per-agent worktrees / handoff refs) — rejected: our shared-checkout, one-committer topology lacks the incident's vector (a private worktree to reset); the cost would be paid on every hand-off against a failure class never observed here. Named as the designated upgrade path instead.
+- Content-addressing temp files at authoring time (`git hash-object -w`, blob sha in the hand-off message) — rejected: the sha goes stale the moment the author legitimately revises the file, recreating the stale-description problem one level down, and a verification against a stale sha is worse than none. The integrating commit is the pinning point.
+**Approved by:** Rich Mosko
+**Supersedes:** _extends the 2026-08-20 sha-leading convention (WORKFLOW.md, adopted after four crossings on PT-3)._
+
 ### 2026-08-22 — Decision ledgers consolidated; TRACKER.md Resolutions log lives here
 **Decision:** All decisions made in the template repo belong in this ledger — `DECISIONS.md` returns to its seed-stub state (its four accumulated entries migrated here, marked), and `TRACKER.md`'s Resolutions log moves here verbatim (below) as part of a TRACKER.md tightening pass; the spec keeps inline `ruled YYYY-MM-DD` stamps and points here.
 **Why:** This repo *is* the template, so every decision here is a template decision; `DECISIONS.md` must ship clean as the seed for instantiated projects, and `TEMPLATE_DECISIONS.md` is deleted at bootstrap — so history parked here costs downstream projects nothing. TRACKER.md is pulled into agent context on every tracker task; history-prose belongs in the ledger, not the spec.

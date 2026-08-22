@@ -33,7 +33,7 @@ find temp -type f -name '*.md' 2>/dev/null | sort
 
 If empty (or `temp/` doesn't exist): report "temp/ is clean — nothing to sweep" and stop.
 
-For each file, gather: filename (date, agent, topic), size, first heading, `hold-until:` if present. Present one compact table with an age classification per file:
+For each file, gather: filename (date, agent, topic), size, first heading, `hold-until:` if present, and `kind: deliverable` + `target:` if present (see `process/WORKFLOW.md` → Findings vs deliverables). Present one compact table with an age classification per file:
 
 | Classification | Rule | Default recommendation |
 |---|---|---|
@@ -48,7 +48,7 @@ Age comes from the filename's date prefix; fall back to file mtime if the prefix
 
 Walk pending files oldest-first (stale and expired holds first). For each, read the file and drive one of three decisions. Per the role file's Deciding rules: trivial calls (obviously dead scratch, a finding already visibly landed in a tracked artifact) the lead makes and states; anything genuinely judgment-bearing goes to the user — batched into one question set, not a drip.
 
-- **Place** — copy the durable content into its tracked home (`process/DECISIONS.md`, a `docs/` artifact, `process/STATE.md`, or a cairn issue comment — `scripts/cairn/cairn comment <ID> …`), then **delete the temp file in the same action**. Placement without deletion is not placement — the file would read as pending forever.
+- **Place** — copy the durable content into its tracked home (`process/DECISIONS.md`, a `docs/` artifact, `process/STATE.md`, or a cairn issue comment — `scripts/cairn/cairn comment <ID> …`), **verify the landed text against the temp file, then delete it** — in that order, never delete-first: the temp file is the only comparison source, and a lossy copy becomes undetectable once it's gone. For a *finding*, summarizing at placement is legitimate and "verify" means confirming the conclusion survived intact. For a **`kind: deliverable`** file, the strict path applies: land **verbatim** at the declared `target:`, diff the landed hunk against the temp file before deleting, and — once the placement is committed — report `landed @ <sha>` plus the target path back to the supplying agent, who verifies via `git show <sha>:<path>`. Placement without deletion is not placement — the file would read as pending forever.
 - **Discard** — delete, echoing a one-line rationale ("superseded by ADR-—", "investigation dead-ended") so the decision is visible in the transcript.
 - **Hold** — stamp or extend frontmatter at the top of the file:
 
