@@ -441,6 +441,91 @@ var CairnLogic = (function () {
     });
   }
 
+  // PT-29: the board-column order laneSummary iterates, and (unchanged)
+  // makeColumn's own column set -- relocated from board.js verbatim as
+  // the single canonical copy (architect's ruling § 4): a second,
+  // board.js-local copy of this exact list would be the drift class
+  // PT-22's extraction pass exists to close.
+  var BOARD_COLUMNS = ["backlog", "todo", "in-progress", "in-review", "done"];
+
+  // PT-29 (architect's ruling § 2): the SINGLE read path for
+  // state.expandedLanes. Absence of `stateKey` in `expandedMap` means
+  // collapsed -- there is no second encoding of "closed" (see
+  // nextExpandedLanes below) -- so this is a plain presence-and-truthy
+  // check, never `expandedMap[stateKey] !== false` or similar.
+  function laneExpanded(expandedMap, stateKey) {
+    // Object.prototype.hasOwnProperty.call, not a bare truthy read of
+    // expandedMap[stateKey] -- a stateKey shaped like "constructor" reads
+    // as already-truthy on a bare `{}` via the inherited
+    // Object.prototype.constructor function, before any key was ever
+    // inserted. Own-property guard makes this safe on Object.create(null)
+    // maps (the normal case) AND on a bare `{}` a caller might still pass.
+    return !!(expandedMap && Object.prototype.hasOwnProperty.call(expandedMap, stateKey) && expandedMap[stateKey]);
+  }
+
+  // PT-29 (architect's ruling § 2): the SINGLE write path for
+  // state.expandedLanes -- board.js does
+  // `state.expandedLanes = nextExpandedLanes(state.expandedLanes, key)`
+  // and never assigns into the map by hand. Returns a FRESH
+  // `Object.create(null)` map (non-mutating: the "never store `false`"
+  // invariant is only assertable from outside if a caller can compare the
+  // input against the output). Toggling an absent key ADDS it; toggling a
+  // present key DELETES it -- two encodings of "closed" (present-false vs
+  // absent) is how the next reader gets it wrong, per the ruling.
+  //
+  // Object.create(null) here is insurance, not a live fix (architect's
+  // ruling): every real caller builds `stateKey` via laneStateKey, whose
+  // "<repo>::<milestone>" composite never collides with an
+  // Object.prototype member name. Tested anyway (prototype-collision.test.js)
+  // against a bare prototype-shaped key, because that's a property of
+  // THIS function's own implementation, not of board.js's call sites.
+  function nextExpandedLanes(expandedMap, stateKey) {
+    var next = Object.create(null);
+    for (var key in expandedMap) {
+      if (Object.prototype.hasOwnProperty.call(expandedMap, key)) next[key] = expandedMap[key];
+    }
+    if (laneExpanded(expandedMap, stateKey)) {
+      delete next[stateKey];
+    } else {
+      next[stateKey] = true;
+    }
+    return next;
+  }
+
+  // PT-29 (architect's ruling § 3): the exact filled-triangle codepoints
+  // -- `▼` U+25BC (expanded) / `▶` U+25B6 (collapsed) -- NOT the thin
+  // `▾`/`▸` (U+25BE/U+25B8) PT-16 originally shipped. The token reports
+  // *state*, not the action; callers still write their own
+  // "Expand "/"Collapse " aria-label text.
+  function disclosureToken(expanded) {
+    return expanded ? "▼" : "▶";
+  }
+
+  // PT-29 (architect's ruling § 1/4): the collapsed-card status-breakdown
+  // -- `{ total, byStatus: [{status, count}] }`. `total` is
+  // `issues.length`, unchanged from the pre-existing `.swimlane-count`
+  // semantics. `byStatus` iterates BOARD_COLUMNS in order and OMITS a
+  // zero-count status entirely (never a `{status, count: 0}` entry) --
+  // an issue whose status isn't one of BOARD_COLUMNS still counts toward
+  // `total` but contributes no byStatus entry (QA's pinned contract,
+  // 2026-08-22: byStatus enumerates known columns only, it does not
+  // discover statuses from the data).
+  function laneSummary(issues) {
+    var list = issues || [];
+    var counts = Object.create(null);
+    list.forEach(function (issue) {
+      var status = issue.status;
+      if (counts[status] === undefined) counts[status] = 0;
+      counts[status] += 1;
+    });
+    var byStatus = [];
+    BOARD_COLUMNS.forEach(function (status) {
+      var count = counts[status] || 0;
+      if (count > 0) byStatus.push({ status: status, count: count });
+    });
+    return { total: list.length, byStatus: byStatus };
+  }
+
   return {
     primaryRootId: primaryRootId,
     milestoneLabel: milestoneLabel,
@@ -461,5 +546,10 @@ var CairnLogic = (function () {
     blockersOf: blockersOf,
     blocksOf: blocksOf,
     openBlockers: openBlockers,
+    BOARD_COLUMNS: BOARD_COLUMNS,
+    laneExpanded: laneExpanded,
+    nextExpandedLanes: nextExpandedLanes,
+    disclosureToken: disclosureToken,
+    laneSummary: laneSummary,
   };
 })();

@@ -80,10 +80,21 @@ function rehome(value) {
 function wrapForRealm(cairnLogic) {
   var wrapped = {};
   Object.keys(cairnLogic).forEach(function (name) {
-    var fn = cairnLogic[name];
-    wrapped[name] = function () {
-      return rehome(fn.apply(null, arguments));
-    };
+    var value = cairnLogic[name];
+    // PT-29: not every CairnLogic export is a function -- BOARD_COLUMNS
+    // (architect's ruling § 4) is a plain data array. Wrapping it in a
+    // callable the way every prior export was (this function pre-dates
+    // PT-29) silently replaced the array with a Function value, so
+    // `CairnLogic.BOARD_COLUMNS` read back here as `[Function (anonymous)]`
+    // instead of the list of strings. Data exports are rehomed directly;
+    // only functions get the call-and-rehome wrapper.
+    if (typeof value === "function") {
+      wrapped[name] = function () {
+        return rehome(value.apply(null, arguments));
+      };
+    } else {
+      wrapped[name] = rehome(value);
+    }
   });
   return wrapped;
 }
