@@ -344,6 +344,17 @@ var CairnLogic = (function () {
     return ka[2] < kb[2] ? -1 : ka[2] > kb[2] ? 1 : 0;
   }
 
+  // The child records belonging to `issue`, unsorted -- THE single
+  // membership rule for "is this a child of that issue". childProgress
+  // counts over it, childrenOf sorts it, so the badge and the drawer
+  // list cannot disagree about which issues count (the standing
+  // duplicated-inline-expression criterion: one shared function, never
+  // two hand-maintained copies of the same predicate).
+  function childRecords(issues, issue) {
+    var key = parentKeyOf(issue);
+    return (issues || []).filter(function (i) { return childKeyOf(i) === key; });
+  }
+
   // {done, total} among `issue`'s own children -- the board's parent-card
   // n/m badge, computed client-side, mirroring milestoneProgress's
   // done/total-over-a-filtered-set shape (architect's PT-25 ruling #1).
@@ -352,8 +363,7 @@ var CairnLogic = (function () {
   // sub_issue_count this replaces was a second answer to the same
   // question and has been removed.
   function childProgress(issues, issue) {
-    var key = parentKeyOf(issue);
-    var kids = (issues || []).filter(function (i) { return childKeyOf(i) === key; });
+    var kids = childRecords(issues, issue);
     var done = kids.filter(function (i) { return i.status === "done"; }).length;
     return { done: done, total: kids.length };
   }
@@ -363,11 +373,7 @@ var CairnLogic = (function () {
   // childProgress, so the two can never disagree on which issues count
   // as `issue`'s children.
   function childrenOf(issues, issue) {
-    var key = parentKeyOf(issue);
-    return (issues || [])
-      .filter(function (i) { return childKeyOf(i) === key; })
-      .slice()
-      .sort(compareByIdSortKey);
+    return childRecords(issues, issue).sort(compareByIdSortKey);
   }
 
   return {
