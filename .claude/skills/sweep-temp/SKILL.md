@@ -82,3 +82,4 @@ Close with one summary line: *N placed (into which artifacts), N discarded, N he
 - **SessionStart hook** (`.claude/settings.json`) — reports the pending/stale count whenever `temp/` is non-empty. Visibility only; it never modifies files.
 - **Hand-off protocol** (every `.claude/agents/*.md`) — how files get *into* `temp/`. See `process/WORKFLOW.md` → Hand-off protocol & the `temp/` buffer.
 - **Role file** (`.claude/roles/team-lead.md`) — the receiving-half obligation this skill discharges.
+- **`/sweep-memory`** — the session-close peer of this skill: the same walk over the persistent memory stores (lead auto-memory + teammate agent-memory), which have no hook nag and only shrink when something audits them.
