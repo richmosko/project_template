@@ -97,7 +97,29 @@ function rehome(value) {
     return arr;
   }
   var copy = Object.getPrototypeOf(value) === null ? Object.create(null) : {};
-  Object.keys(value).forEach(function (key) { copy[key] = rehome(value[key]); });
+  // PT-31 (item 5 self-tests, QA finding -- a THIRD escaped gap in this
+  // function, caught only by writing the direct self-tests the architect's
+  // ruling asked for): NOT a plain `copy[key] = ...` assignment. A source
+  // key literally named "__proto__" is exactly the prototype-collision
+  // class this codebase keeps meeting (dedupeMajorIds, uniqueSorted,
+  // groupByMilestone, laneExpanded's PROTOTYPE_KEY_SHAPED_VALUES tests) --
+  // but bracket/dot assignment to a key named "__proto__" invokes
+  // Object.prototype's special accessor instead of creating an own data
+  // property. Since the rehomed value here is virtually never a valid
+  // prototype (an object or null), that assignment is SILENTLY DROPPED --
+  // verified empirically: `({})["__proto__"] = "a string"` leaves the
+  // object with zero own keys, not one. `Object.defineProperty` always
+  // creates a real own data property regardless of key name, identical in
+  // effect to normal assignment for every OTHER key (same default
+  // enumerable/writable/configurable flags assignment produces).
+  Object.keys(value).forEach(function (key) {
+    Object.defineProperty(copy, key, {
+      value: rehome(value[key]),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  });
   return copy;
 }
 
@@ -123,4 +145,11 @@ function wrapForRealm(cairnLogic) {
   return wrapped;
 }
 
-module.exports = { loadCairnLogic, BOARD_LOGIC_PATH };
+// PT-31 (item 5, architect's ruling): rehome/wrapForRealm are exported so
+// helpers-realm.test.js can test them DIRECTLY against a synthetic,
+// foreign-realm fixture -- these two functions have shipped a real,
+// escaped gap in two consecutive loops (PT-29's function-vs-data-export
+// wrap; PT-30's JSON-round-trip losing null-proto), both caught only by
+// incidental product-test coverage (a CairnLogic function that happened to
+// exercise the gap). Direct self-tests close that reliance on coincidence.
+module.exports = { loadCairnLogic, BOARD_LOGIC_PATH, rehome, wrapForRealm };
