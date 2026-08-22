@@ -32,6 +32,10 @@
     <select id="filter-repo" hidden><option value="">All repos</option></select>
     <label><input type="checkbox" id="filter-cancelled"> Show cancelled</label>
     <label><input type="checkbox" id="toggle-swimlanes" checked> Swimlanes</label>
+    <!-- PT-30: hidden (not disabled) whenever Swimlanes is off -- renderHeader
+         toggles the hidden attribute, same precedent as #filter-repo above. -->
+    <button id="expand-all-btn" class="view-state-btn" type="button">Expand all</button>
+    <button id="collapse-all-btn" class="view-state-btn" type="button">Collapse all</button>
   </div>
   <!-- Minimal create affordance: title + milestone only, per the spec's
        "issue creation from the board beyond title + milestone" being the

@@ -45,6 +45,15 @@
   var nextExpandedLanes = CairnLogic.nextExpandedLanes;
   var disclosureToken = CairnLogic.disclosureToken;
   var laneSummary = CairnLogic.laneSummary;
+  // PT-30: the localStorage schema's pure half -- board.js supplies the
+  // three guarded primitives that actually touch the `localStorage`
+  // global (readViewState/writeViewState/clearViewState, below); every
+  // decision about the blob's shape lives in board-logic.js so it's
+  // covered by the node:test suite without a DOM.
+  var viewStateKey = CairnLogic.viewStateKey;
+  var serializeExpandedLanes = CairnLogic.serializeExpandedLanes;
+  var parseExpandedLanes = CairnLogic.parseExpandedLanes;
+  var expandAllLanes = CairnLogic.expandAllLanes;
 
   var STATUS_LABELS = {
     "backlog": "Backlog",
@@ -103,11 +112,37 @@
     // collapsedRepos (bare root.id keys collide with Object.prototype
     // members, the PT-23 class); insurance only for expandedLanes (its
     // keys are always "<repo>::<milestone>" composites via laneStateKey,
-    // and no Object.prototype member contains "::"). Neither map is ever
-    // persisted -- the board is a stateless lens; no disk write, no
-    // network call fires on either toggle.
+    // and no Object.prototype member contains "::").
+    //
+    // PT-30: expandedLanes is now the ONE piece of board state that
+    // survives a reload -- every toggle/expand-all/collapse-all persists
+    // it to localStorage (persistExpandedLanes, below), guarded so a
+    // storage failure degrades silently to this feature's pre-PT-30,
+    // purely-in-memory behavior. collapsedRepos remains UNPERSISTED,
+    // deliberately (architect's ruling § 3): it has the opposite polarity,
+    // repo sections don't default-collapse so there's no N-clicks problem
+    // to solve for them, and a persisted collapsed repo's failure mode --
+    // an entire repo silently reduced to one header row next session -- is
+    // worse than a lane's. No server-side change either way: still no
+    // disk write, no network call, on any toggle.
     expandedLanes: Object.create(null),
     collapsedRepos: Object.create(null),
+    // PT-30: set true the first time state.board lands after a fresh page
+    // load, so the localStorage restore (which needs primaryRootId(board),
+    // and therefore can't happen before the board arrives) runs EXACTLY
+    // ONCE, from the board-load path -- never from renderKanban, which
+    // runs on every refresh/poll/toggle and would otherwise stomp a
+    // same-session toggle back to the stored value the instant the user
+    // made it (architect's ruling § 2).
+    viewStateRestored: false,
+    // PT-30: the repo-scoped lane keys the MOST RECENT renderKanban() pass
+    // actually rendered a .swimlane for -- populated at the same call
+    // sites that decide whether to call milestoneLaneEl at all (so it
+    // naturally respects the active filters and collapsedRepos), read by
+    // the Expand-all button so it unions exactly what's visible, never a
+    // parallel reconstruction of the grouping rules (the "universe
+    // builder" duplication the ruling warns against in § 2).
+    renderedLaneKeys: [],
   };
 
   // ------------------------------------------------------------------
@@ -166,6 +201,73 @@
     el.classList.add("visible");
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { el.classList.remove("visible"); }, 3500);
+  }
+
+  // ------------------------------------------------------------------
+  // PT-30: view-state persistence (localStorage)
+  //
+  // Precedent copied deliberately from docs/_assets/toc.js's theme
+  // toggle -- the only prior `localStorage` use in this repo, and it does
+  // guarded storage correctly: the `localStorage` global reference itself
+  // lives INSIDE each `try`, never hoisted to a module-level `var`, since
+  // merely TOUCHING `localStorage` throws in some blocked-cookie/private-
+  // mode configurations -- a top-level reference would take the whole
+  // board down on load instead of degrading. No `storageAvailable` cached
+  // flag either (architect's ruling § 5): silent per-call degradation is
+  // enough, and a cached flag is state that can itself go stale.
+  // ------------------------------------------------------------------
+
+  function readViewState(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeViewState(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      // Private mode, blocked storage, quota exceeded -- degrade silently
+      // to this feature's pre-PT-30 purely-in-memory behavior. The toggle
+      // that triggered this write has already applied to state.expandedLanes
+      // and already rendered; only the NEXT reload fails to remember it.
+    }
+  }
+
+  function clearViewState(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {
+      // Same degrade-silently contract as writeViewState.
+    }
+  }
+
+  // The SINGLE write-then-persist path for every toggle that mutates
+  // state.expandedLanes -- computes the repo-scoped storage key itself
+  // (viewStateKey needs primaryRootId(state.board), so this can't run
+  // before a board exists) and serializes the CURRENT map, whatever it is
+  // at call time. Callers assign state.expandedLanes first, then call
+  // this -- it never mutates state itself.
+  function persistExpandedLanes() {
+    if (!state.board) return;
+    writeViewState(viewStateKey(primaryRootId(state.board)), serializeExpandedLanes(state.expandedLanes));
+  }
+
+  // Fires exactly once, from the board-load path (init's first
+  // apiGetBoard().then, below) -- never from renderKanban, which runs on
+  // every refresh/poll/toggle and would otherwise overwrite a same-session
+  // toggle with the stored value the instant the user made it (architect's
+  // ruling § 2). parseExpandedLanes never throws and degrades a corrupt/
+  // foreign/oversized blob to the empty map on its own, so there is
+  // nothing else to guard here.
+  function restoreViewStateOnce() {
+    if (state.viewStateRestored) return;
+    state.viewStateRestored = true;
+    if (!state.board) return;
+    var raw = readViewState(viewStateKey(primaryRootId(state.board)));
+    state.expandedLanes = parseExpandedLanes(raw);
   }
 
   // ------------------------------------------------------------------
@@ -295,6 +397,15 @@
       repoFilterEl.hidden = true;
       if (state.filters.repo) { state.filters.repo = ""; repoFilterEl.value = ""; }
     }
+
+    // PT-30 (architect's ruling § 4): hidden, not disabled, when Swimlanes
+    // is off -- no lanes exist for either button to act on. `filter-repo`
+    // above already establishes the toggle-the-hidden-attribute precedent
+    // in this same function.
+    var expandAllBtn = document.getElementById("expand-all-btn");
+    var collapseAllBtn = document.getElementById("collapse-all-btn");
+    expandAllBtn.hidden = !state.swimlanesOn;
+    collapseAllBtn.hidden = !state.swimlanesOn;
 
     // PT-3 (team-lead ruling, NON-NEGOTIABLE -- data integrity, not
     // cosmetics): creation always writes to the PRIMARY root only, so
@@ -486,6 +597,12 @@
       // PT-29: nextExpandedLanes is the SINGLE write path -- non-mutating,
       // returns a fresh map; board.js never assigns into the map by hand.
       state.expandedLanes = nextExpandedLanes(state.expandedLanes, stateKey);
+      // PT-30: persist AFTER the map is updated, BEFORE render -- render()
+      // doesn't depend on the write's success either way (parseExpandedLanes/
+      // writeViewState both degrade silently), but ordering it here keeps
+      // "the toggle happened" and "we tried to remember it" next to each
+      // other at the one call site that does both.
+      persistExpandedLanes();
       render();
     });
     laneHeader.appendChild(toggleBtn);
@@ -583,7 +700,14 @@
       if (state.swimlanesOn) {
         var grouped = groupByMilestone(issues);
         grouped.order.forEach(function (key) {
-          section.appendChild(milestoneLaneEl(board, key, grouped.groups[key], laneStateKey(root.id, key), root.id));
+          var stateKey = laneStateKey(root.id, key);
+          section.appendChild(milestoneLaneEl(board, key, grouped.groups[key], stateKey, root.id));
+          // PT-30: record every lane key actually rendered here -- Expand-all
+          // reads state.renderedLaneKeys rather than reconstructing the
+          // grouping rules itself (the ruling's "universe builder"
+          // duplication warning). Naturally respects collapsedRepos: this
+          // forEach doesn't run at all when the repo section is collapsed.
+          state.renderedLaneKeys.push(stateKey);
         });
       } else {
         section.appendChild(columnsFor(issues));
@@ -601,6 +725,14 @@
 
     var roots = (board && board.roots) || [];
 
+    // PT-30: reset at the top of every render pass -- repopulated below (and
+    // inside repoSectionEl, for the multi-root branch) with exactly the
+    // lane keys THIS pass actually rendered a .swimlane for. Stays empty in
+    // Swimlanes-off mode (neither branch below reaches a milestoneLaneEl
+    // call in that mode), which is what hides the Expand/Collapse-all
+    // buttons in renderHeader.
+    state.renderedLaneKeys = [];
+
     // Single-root: byte-identical to the pre-PT-3 code path -- no
     // .repo-group wrapper anywhere in the DOM (architect's PT-3 review
     // criterion 2: the multi-root branch is strictly additive).
@@ -616,7 +748,9 @@
       }
       var soleRootId = primaryRootId(board);
       grouped.order.forEach(function (key) {
-        main.appendChild(milestoneLaneEl(board, key, grouped.groups[key], laneStateKey(soleRootId, key), soleRootId));
+        var stateKey = laneStateKey(soleRootId, key);
+        main.appendChild(milestoneLaneEl(board, key, grouped.groups[key], stateKey, soleRootId));
+        state.renderedLaneKeys.push(stateKey);
       });
       return;
     }
@@ -1225,6 +1359,31 @@
     };
   }
 
+  // PT-30 (architect's ruling § 4): "Expand all" unions state.renderedLaneKeys
+  // -- the lane keys the LAST renderKanban() pass actually rendered, i.e.
+  // exactly what's currently visible under the active filters and
+  // collapsedRepos state -- into state.expandedLanes. Additive only
+  // (expandAllLanes never removes a key), so a lane that's expanded but
+  // hidden by a filter keeps its state.
+  function expandAll() {
+    if (!state.board) return;
+    state.expandedLanes = expandAllLanes(state.expandedLanes, state.renderedLaneKeys);
+    persistExpandedLanes();
+    render();
+  }
+
+  // PT-30 (architect's ruling § 4): sets the map to empty AND removes the
+  // storage key entirely -- not a stored "everything closed". The default
+  // state IS the empty set, and no-key is the cleanest representation of
+  // empty; this is also the reset gesture the issue's Problem section
+  // names ("reset gesture = collapse the lanes again").
+  function collapseAll() {
+    if (!state.board) return;
+    state.expandedLanes = Object.create(null);
+    clearViewState(viewStateKey(primaryRootId(state.board)));
+    render();
+  }
+
   function wireFilters() {
     document.getElementById("filter-text").addEventListener("input", function (e) {
       state.filters.text = e.target.value; render();
@@ -1247,6 +1406,8 @@
     document.getElementById("toggle-swimlanes").addEventListener("change", function (e) {
       state.swimlanesOn = e.target.checked; render();
     });
+    document.getElementById("expand-all-btn").addEventListener("click", expandAll);
+    document.getElementById("collapse-all-btn").addEventListener("click", collapseAll);
   }
 
   // Minimal create affordance (title + milestone only) — see
@@ -1300,6 +1461,10 @@
     wireNewIssueForm();
     apiGetBoard().then(function (data) {
       state.board = data;
+      // PT-30: the ONE call site on the board-load path -- restoreViewStateOnce
+      // is a no-op on every subsequent apiGetBoard resolution (refreshBoardSilently's
+      // 4s poll, SSE push, focus/visibilitychange), guarded by state.viewStateRestored.
+      restoreViewStateOnce();
       render();
     });
     connectLive();

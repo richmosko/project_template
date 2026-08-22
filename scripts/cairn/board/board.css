@@ -134,6 +134,20 @@ header.app-header {
   color: var(--text-dim);
 }
 
+/* PT-30: Expand all / Collapse all -- secondary buttons, same visual
+   weight as #new-issue-cancel, living in the filter bar per the
+   architect's ruling § 4. Hidden (not disabled) via board.js's
+   renderHeader when Swimlanes is off. */
+.view-state-btn {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .new-issue-btn {
   background: var(--accent);
   color: #fff;
