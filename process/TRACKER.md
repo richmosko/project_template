@@ -38,13 +38,13 @@ issue tracker)" on first mention in any doc.
 
 ```
 process/cairn/
-├── config.yml            engine + project config (committed — no secrets)
-├── majors/V1.md          major version line
+├── config.yml               engine + project config (committed — no secrets)
+├── majors/PT-V1.md          major version line
 ├── milestones/
-│   ├── A.md · B.md       definition milestones
-│   └── 1.0.md            development milestone, named by target version
-├── issues/PT-1.md        feature (and sub-issues — same file type)
-└── archive/PT-1.md       same schema; moved here as hygiene
+│   ├── PT-A.md · PT-B.md    definition milestones
+│   └── PT-1.0.md            development milestone, named by target version
+├── issues/PT-1.md           feature (and sub-issues — same file type)
+└── archive/PT-1.md          same schema; moved here as hygiene
 
 scripts/cairn/            THE ENGINE — self-contained, spin-off-ready
 ├── cairn                 bash shim → cairn.py
@@ -89,7 +89,7 @@ Status vocabulary is deliberately **not** configurable in v1 — the skills hard
 id: PT-14
 title: Google OAuth login
 status: in-progress
-milestone: "1.0"
+milestone: PT-1.0
 parent: null
 blocked_by: []
 assignee: backend-lead
@@ -142,14 +142,14 @@ Reuse `lib/session/store.py` rather than introducing a second session abstractio
 
 ### Milestone file
 
-`process/cairn/milestones/1.0.md`:
+`process/cairn/milestones/PT-1.0.md`:
 
 ```markdown
 ---
-id: "1.0"
+id: PT-1.0
 name: MVP
 kind: product          # product | process
-major: V1
+major: PT-V1
 status: planned        # planned | in-progress | paused | completed | cancelled
 target_tag: v1.0.0
 ga: true               # exactly one development milestone per major carries ga: true
@@ -284,16 +284,16 @@ A major owns milestones; a milestone owns issues; an issue owns sub-issues. **On
 
 | Concept | Cairn artifact | Version digit |
 |---|---|---|
-| Major version line (`V1`, `V2`, concurrent) | `majors/<id>.md` | **MAJOR** |
-| Milestone (development, named by target version) | `milestones/<version>.md`, `kind: product` | **MINOR** |
-| Milestone (development, unversioned ordinal) | `milestones/M<n>.md`, `kind: product` | — (untagged unless `target_tag` is set) |
-| Milestone (definition: Bootstrap & Research, Plan) | `milestones/<letter>.md`, `kind: process` | — (untagged) |
+| Major version line (`PT-V1`, `PT-V2`, concurrent) | `majors/<prefix>-V<n>.md` | **MAJOR** |
+| Milestone (development, named by target version) | `milestones/<prefix>-<version>.md`, `kind: product` | **MINOR** |
+| Milestone (development, unversioned ordinal) | `milestones/<prefix>-M<n>.md`, `kind: product` | — (untagged unless `target_tag` is set) |
+| Milestone (definition: Bootstrap & Research, Plan) | `milestones/<prefix>-<letter>.md`, `kind: process` | — (untagged) |
 | Feature | `issues/<ID>.md` | — (identity = ID + PR + release notes) |
 | Sub-issue | `issues/<ID>.md` with `parent:` | — |
 | Hotfix | `issues/<ID>.md` on the milestone it patches | **PATCH** |
 | Session Cycle | **none, by design** | — |
 
-Concurrent majors fall out for free: `majors/V1.md` and `majors/V2.md` both `status: active`, each with its own milestones, in one repo, on one board with a major selector.
+Concurrent majors fall out for free: `majors/PT-V1.md` and `majors/PT-V2.md` both `status: active`, each with its own milestones, in one repo, on one board with a major selector.
 
 ---
 
