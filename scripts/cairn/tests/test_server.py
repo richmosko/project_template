@@ -169,7 +169,7 @@ class BoardEndpointTests(ServerTestCase):
         self.assertIn("V1", major_ids)
         milestone_ids = {m["id"] for m in payload["milestones"]}
         self.assertIn("1.0", milestone_ids)
-        self.assertIn("M0", milestone_ids)
+        self.assertIn("A", milestone_ids)
 
     def test_milestone_and_major_carry_the_fields_the_board_header_needs(self):
         # The header renders "1.0 · GA · v1.0.0 · 7/12 done" and a major
@@ -184,9 +184,9 @@ class BoardEndpointTests(ServerTestCase):
         self.assertTrue(milestone_10["ga"])
         self.assertEqual(milestone_10["target_tag"], "v1.0.0")
 
-        milestone_m0 = next(m for m in payload["milestones"] if m["id"] == "M0")
-        self.assertEqual(milestone_m0["kind"], "process")
-        self.assertFalse(milestone_m0["ga"])
+        milestone_a = next(m for m in payload["milestones"] if m["id"] == "A")
+        self.assertEqual(milestone_a["kind"], "process")
+        self.assertFalse(milestone_a["ga"])
 
         major_v1 = next(m for m in payload["majors"] if m["id"] == "V1")
         self.assertEqual(major_v1["status"], "active")

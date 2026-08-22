@@ -58,6 +58,13 @@ DEFAULT_COLUMNS = ["backlog", "todo", "in-progress", "in-review", "done"]
 STATUSES = {"backlog", "todo", "in-progress", "in-review", "done", "cancelled"}
 DEFAULT_STATUS = "backlog"
 PRIORITIES = {"P0", "P1", "P2", "P3"}
+MILESTONE_KINDS = {"process", "product"}
+
+# PT-27: milestone id-shape <-> kind agreement. `M` is reserved out of the
+# definition alphabet -- M<n> always means development, so `M`/`Ma` etc. must
+# NOT match the definition regex (the negative lookahead enforces that).
+_DEFINITION_MILESTONE_ID_RE = re.compile(r"^(?!M)[A-Z][a-z]?$")
+_DEVELOPMENT_MILESTONE_ID_RE = re.compile(r"^(?:M\d+[a-z]?|\d+\.\d+(?:\.\d+)?)$")
 
 ISSUE_FIELD_ORDER = [
     "id", "title", "status", "milestone", "parent", "assignee",
@@ -734,6 +741,34 @@ def check_repo(data_dir: Path) -> List[str]:
             errors.append(f"{p.stem}: missing major")
         elif str(major) not in known_majors:
             errors.append(f"{p.stem}: unknown major {major!r}")
+
+        # PT-27: milestone id-shape <-> kind agreement. The filename stem is
+        # authoritative (id/filename mismatch is its own check above), so the
+        # shape check runs against p.stem rather than the raw fm["id"].
+        stem = p.stem
+        kind = fm.get("kind")
+        is_definition_shape = bool(_DEFINITION_MILESTONE_ID_RE.match(stem))
+        is_development_shape = bool(_DEVELOPMENT_MILESTONE_ID_RE.match(stem))
+        if kind not in MILESTONE_KINDS:
+            errors.append(
+                f"{stem}: missing or invalid kind {kind!r} -- expected 'product' or 'process'"
+            )
+        elif not is_definition_shape and not is_development_shape:
+            errors.append(
+                f"{stem}: unrecognised milestone id {stem!r} -- expected a letter (A, B, Aa) "
+                f"for kind: process, or a version (1.0, 0.5.1) or M<n> for kind: product"
+            )
+        elif kind == "process" and not is_definition_shape:
+            errors.append(
+                f"{stem}: id shape {stem!r} is a development milestone but kind is 'process' -- "
+                f"definition milestones use letter ids (A, B, C...); rename the file and its id, "
+                f"then retarget its issues, or set kind: product"
+            )
+        elif kind == "product" and not is_development_shape:
+            errors.append(
+                f"{stem}: id shape {stem!r} is a definition milestone but kind is 'product' -- "
+                f"development milestones use a version id (1.0) or M<n>"
+            )
 
     known_ids = set()
     parsed_issues: List[Tuple[Path, Dict[str, Any]]] = []
