@@ -7,14 +7,13 @@
 <!-- REPLACE on first run: one or two sentences on what the product is and who it's for. -->
 _TBD — fill in during the Research phase. See [`docs/PRD/index.html`](docs/PRD/index.html)._
 
-This repo was instantiated from the [project_template](https://github.com/richmosko/project_template) starter. The template's workflow, agent roster, and artifact conventions are defined in [`process/WORKFLOW.md`](process/WORKFLOW.md). The current state of the work — phase, session cycle, feature, decisions — lives in [`process/STATE.md`](process/STATE.md). **Read process/STATE.md before doing anything else.**
+This repo was instantiated from the [project_template](https://github.com/richmosko/project_template) starter. The template's workflow, agent roster, and artifact conventions are defined in [`process/WORKFLOW.md`](process/WORKFLOW.md). The current state of the work — phase, feature, decisions — lives in [`process/STATE.md`](process/STATE.md). **Read process/STATE.md before doing anything else.**
 
 ## Current state at a glance
 
 - **Majors & roadmap:** the tracker's files — `process/cairn/majors/` and `process/cairn/milestones/` — viewed on the board (`/cairn`) or via `scripts/cairn/cairn ls`
 - **Phase:** see `## Current Phase` in [`process/STATE.md`](process/STATE.md)
 - **Active feature:** see `## Active Feature` in [`process/STATE.md`](process/STATE.md) (a feature = one cairn issue = one PR = one I→V loop)
-- **Active session cycle:** see `## Session Cycles` in [`process/STATE.md`](process/STATE.md) — a context-bounded work session (heuristic; no tracker artifact)
 - **Tracker binding:** `process/cairn/config.yml` — ID prefix + board port (run `/setup-tracker` if missing); full spec in [`process/TRACKER.md`](process/TRACKER.md)
 
 ## Artifacts
@@ -61,7 +60,7 @@ When in doubt about where we left off, **read process/STATE.md first** — it's 
 
 When a session starts cold and the user says any variant of "continue" / "pick up where we left off" / "what's next", the team-lead should run this sequence **before doing tactical work**:
 
-1. **Read the full `process/STATE.md`** (not just the auto-injected head). Note Active Feature, Current Phase, and the most recent Session Cycle rows; the roadmap lives in the tracker (`scripts/cairn/cairn ls`, or `process/cairn/milestones/`).
+1. **Read the full `process/STATE.md`** (not just the auto-injected head). Note Active Feature and Current Phase; the roadmap lives in the tracker (`scripts/cairn/cairn ls`, or `process/cairn/milestones/`) and recent work history in the git log + issue comments.
 2. **Inspect git state** in parallel: `git status`, `git rev-parse --abbrev-ref HEAD`, `git log --oneline -10`. The branch name tells you which loop you're in (`feature/*`, `phase/*`, or `main`).
 3. **Match branch → context:**
    - On a `feature/*` branch → an Implement→Validate loop was in flight. Read the issue file (`scripts/cairn/cairn show <ID>`), list recently-modified files (`git diff --stat main...HEAD`), and re-derive what's left from the issue's acceptance criteria.

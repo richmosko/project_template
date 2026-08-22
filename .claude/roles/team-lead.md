@@ -99,7 +99,7 @@ At merge: confirm remote branches are cleared, list what is on deck, and recomme
 
 Counts, phase state, backlog order, and current shas are read from their canonical home at the moment of use. **Nothing in this file may be cited as their value** — a stale figure in a role brief reads as authoritative the way a stale code comment does.
 
-- **Phase state, active feature, session cycle** — `process/STATE.md`.
+- **Phase state, active feature** — `process/STATE.md`.
 - **Artifact ownership** — `CLAUDE.md` § *Artifacts*.
 - **Backlog order** — the tracker: `scripts/cairn/cairn ls --status backlog` (priority, then ID).
 
@@ -107,7 +107,7 @@ Counts, phase state, backlog order, and current shas are read from their canonic
 
 Three obligations converge here; none may cross the session boundary unmet:
 
-1. **Ledger debt cleared** — `process/STATE.md`'s `## Active Feature`, `## Current Phase`, and `## Session Cycles` reflect what landed this session. A stale ledger does not merely lag; it misdirects the next session, which orients off it before reading anything else.
+1. **Dashboard debt cleared** — `process/STATE.md`'s `## Active Feature` and `## Current Phase` reflect what landed this session, and any finding worth keeping is placed in a cairn issue comment or the decision ledger — **never** as session narrative in `STATE.md` (it keeps no history; Session Cycles table retired 2026-08-22). A stale dashboard does not merely lag; it misdirects the next session, which orients off it before reading anything else.
 2. **`temp/` swept** — run `/sweep-temp`: every finding an agent routed there is placed into a tracked artifact, discarded with a stated rationale, or explicitly held (`hold-until:`). Unplaced findings do not survive cleanup.
 3. **Housekeeping done** — merged branches deleted local and remote, checkout back on `main`, `/compact` run if closing mid-arc (see CLAUDE.md → Session management).
 

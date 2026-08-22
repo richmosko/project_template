@@ -152,7 +152,7 @@ claude
 
 ## Session startup
 
-Every session starts minimal. Only the files needed to re-orient are auto-loaded; everything else is read lazily as the work demands. Three `SessionStart` hooks in `.claude/settings.json` do the injection: the first loads the team-lead role definition (`.claude/roles/team-lead.md` — main-session identity; spawned teammates keep their own agent-file identity), the second runs an `awk` extractor over `process/STATE.md` so the auto-loaded state slice stays compact even as the Session Cycles and Releases tables grow, and the third reports the `temp/` hand-off buffer's pending count whenever it's non-empty (silent when clean).
+Every session starts minimal. Only the files needed to re-orient are auto-loaded; everything else is read lazily as the work demands. Three `SessionStart` hooks in `.claude/settings.json` do the injection: the first loads the team-lead role definition (`.claude/roles/team-lead.md` — main-session identity; spawned teammates keep their own agent-file identity), the second runs an `awk` extractor over `process/STATE.md` so the auto-loaded state slice stays compact even as the Releases table grows, and the third reports the `temp/` hand-off buffer's pending count whenever it's non-empty (silent when clean).
 
 ```mermaid
 flowchart TD

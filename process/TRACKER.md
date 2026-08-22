@@ -297,7 +297,7 @@ Concurrent majors fall out for free: `majors/V1.md` and `majors/V2.md` both `sta
 
 The one place cairn overlapped an existing artifact. **Ruled 2026-08-19: the overlap dissolves** — `STATE.md`'s hand-maintained *Major line*, *Roadmap*, and *Features* tables were removed, and the Completed-table rolloff ritual retired with them (its only purpose was bounding a duplicate).
 
-**Division of labour.** Durable work state — majors, milestones, issues — lives in `process/cairn/`. `STATE.md` keeps only what cairn deliberately does *not* model: **Current Phase**, **Active Feature**, **Session Cycles**, and **Releases**, plus a board pointer and, optionally, a snapshot appended at milestone close:
+**Division of labour.** Durable work state — majors, milestones, issues — lives in `process/cairn/`. `STATE.md` keeps only what cairn deliberately does *not* model: **Current Phase**, **Active Feature**, and **Releases**, plus a board pointer and, optionally, a snapshot appended at milestone close (the Session Cycles history table was retired 2026-08-22 — session history lives in issue comments, the git log, and PRs):
 
 ```
 scripts/cairn/cairn snapshot >> process/STATE.md

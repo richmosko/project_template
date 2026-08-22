@@ -63,7 +63,7 @@ Major-line completion isn't auto-tracked: when a line EOLs, the lead sets `major
 ### 4. Update process/STATE.md
 
 - Clear `## Active Feature`.
-- Update the `## Session Cycles` note for the active session.
+- Do **not** add session narrative to STATE.md — it keeps no history. Anything worth recording goes to the cairn issue as a comment (or the decision ledger).
 - **If this feature completed a milestone**: the milestone flip already rode the final branch commit (step 2). Consider `scripts/cairn/cairn archive --done-before <date>` as hygiene — never a quota, there is no cap.
 
 (There is no Completed/In-Flight table to move rows between — those tables dissolved into the board; see `process/TRACKER.md` → Relationship to STATE.md.)

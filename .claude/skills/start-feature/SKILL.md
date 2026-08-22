@@ -93,7 +93,6 @@ Set the `## Active Feature` block:
 - Feature: the issue title
 - Issue: `<ID>` (cairn)
 - Milestone: the issue's milestone
-- Session Cycle: the current session's label (heuristic; e.g. `SC3`)
 - Branch: `feature/<id>-<slug>`
 - Started: today's date (absolute)
 - Goal: one sentence
