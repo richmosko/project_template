@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Board polish bundle (closes PT-0.6.1) |
-| Issue | PT-31 |
-| Milestone | PT-0.6.1 |
-| Branch | `feature/pt-31-board-polish` |
-| Started | 2026-08-22 |
-| Goal | Cancelled-chip sum, header flex-wrap, aria-controls, helpers self-tests, PT-32 residue, un-migrated-roots display — last open 0.6.1 issue |
-| Status | In Progress — pre-approved through /merge-pr (Mosko); milestone flip + v0.6.1 tag prompt at merge |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Releases
 

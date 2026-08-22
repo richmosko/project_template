@@ -3,7 +3,7 @@ id: PT-0.6.1
 name: board roll-up + tracker-id follow-ups
 kind: product
 major: PT-V1
-status: active
+status: completed
 target_tag: v0.6.1
 ga: false
 ---
