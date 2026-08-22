@@ -25,6 +25,21 @@ def run_cairn(args: list[str], input: str | None = None) -> subprocess.Completed
     )
 
 
+def _write_issue_with_blocked_by(data_dir: Path, issue_id: str, blocked_by: list[str], status: str = "todo") -> None:
+    """PT-26 scratch-tree helper: write (or overwrite) issues/<id>.md with
+    an explicit `blocked_by` flow list, for ShowBlockersTests."""
+    ids = ", ".join(blocked_by)
+    (data_dir / "issues" / f"{issue_id}.md").write_text(
+        "---\n"
+        f"id: {issue_id}\ntitle: Issue {issue_id}\nstatus: {status}\nmilestone: null\nparent: null\n"
+        f"blocked_by: [{ids}]\n"
+        "assignee: null\nlabels: []\npriority: null\npr: null\n"
+        "created: 2026-08-01\nupdated: 2026-08-01\n"
+        "---\n\nBody.\n",
+        encoding="utf-8",
+    )
+
+
 class NewCommandTests(unittest.TestCase):
     def test_new_with_only_a_title_uses_defaults(self):
         data_dir = helpers.make_tmp_data_dir(self)
@@ -80,6 +95,34 @@ class NewCommandTests(unittest.TestCase):
         result = run_cairn(["new", "Prints its id", "--data-dir", str(data_dir)])
         self.assertEqual(result.returncode, 0)
         self.assertIn("PT-10", result.stdout)
+
+    def test_new_with_blocked_by_writes_the_field_as_a_list(self):
+        # PT-26: --blocked-by (kebab flag) -> args.blocked_by -> blocked_by:
+        # (snake key), comma-separated, same shape as --labels.
+        data_dir = helpers.make_tmp_data_dir(self)
+        result = run_cairn(
+            ["new", "Blocked issue", "--blocked-by", "PT-1,PT-3", "--data-dir", str(data_dir)]
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        new_files = [
+            p for p in sorted((data_dir / "issues").glob("PT-*.md"))
+            if p.name not in ("PT-1.md", "PT-3.md", "PT-4.md")
+        ]
+        self.assertEqual(len(new_files), 1)
+        frontmatter, _ = cairn.parse_frontmatter(new_files[0].read_text(encoding="utf-8"))
+        self.assertEqual(frontmatter["blocked_by"], ["PT-1", "PT-3"])
+
+    def test_new_without_blocked_by_defaults_to_empty_list(self):
+        # Absent flag ≡ [] -- not null, not omitted from the written file.
+        data_dir = helpers.make_tmp_data_dir(self)
+        result = run_cairn(["new", "No blockers", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        new_files = [
+            p for p in sorted((data_dir / "issues").glob("PT-*.md"))
+            if p.name not in ("PT-1.md", "PT-3.md", "PT-4.md")
+        ]
+        frontmatter, _ = cairn.parse_frontmatter(new_files[0].read_text(encoding="utf-8"))
+        self.assertEqual(frontmatter["blocked_by"], [])
 
 
 class LsCommandTests(unittest.TestCase):
@@ -178,6 +221,49 @@ class SetCommandTests(unittest.TestCase):
         result = run_cairn(["set", "PT-999", "status=done", "--data-dir", str(data_dir)])
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("PT-999", result.stdout + result.stderr)
+
+
+class SetBlockedByTests(unittest.TestCase):
+    """PT-26: `cairn set <id> blocked_by=...` writes/clears the field --
+    comma-separated, empty clears to [] (never null, since blocked_by is
+    NOT a NULLABLE_FIELDS member -- it's list-valued like labels)."""
+
+    def test_set_writes_blocked_by_as_a_list(self):
+        data_dir = helpers.make_tmp_data_dir(self)
+        result = run_cairn(["set", "PT-1", "blocked_by=PT-3,PT-4", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        frontmatter, _ = cairn.parse_frontmatter(
+            (data_dir / "issues" / "PT-1.md").read_text(encoding="utf-8")
+        )
+        self.assertEqual(frontmatter["blocked_by"], ["PT-3", "PT-4"])
+
+    def test_set_blocked_by_empty_clears_to_empty_list_never_null(self):
+        data_dir = helpers.make_tmp_data_dir(self)
+        run_cairn(["set", "PT-1", "blocked_by=PT-3", "--data-dir", str(data_dir)])  # give it something to clear
+        result = run_cairn(["set", "PT-1", "blocked_by=", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        frontmatter, _ = cairn.parse_frontmatter(
+            (data_dir / "issues" / "PT-1.md").read_text(encoding="utf-8")
+        )
+        self.assertEqual(frontmatter["blocked_by"], [])
+        self.assertIsNotNone(frontmatter["blocked_by"])
+
+    def test_labels_and_blocked_by_split_identically_on_messy_input(self):
+        # Architect's ruling #3: one shared _split_csv helper and a
+        # LIST_FIELDS membership test -- no second `if key == "blocked_by"`
+        # branch. Can't assert the internal structure directly (that's
+        # implementation-lead's call), but if labels and blocked_by really
+        # share one helper, they MUST agree, byte-for-byte, on every edge
+        # case: trailing commas, embedded whitespace, empty segments.
+        data_dir = helpers.make_tmp_data_dir(self)
+        messy = "  PT-1 , ,PT-3,  "
+        run_cairn(["set", "PT-1", f"labels={messy}", "--data-dir", str(data_dir)])
+        run_cairn(["set", "PT-1", f"blocked_by={messy}", "--data-dir", str(data_dir)])
+        frontmatter, _ = cairn.parse_frontmatter(
+            (data_dir / "issues" / "PT-1.md").read_text(encoding="utf-8")
+        )
+        self.assertEqual(frontmatter["labels"], frontmatter["blocked_by"])
+        self.assertEqual(frontmatter["blocked_by"], ["PT-1", "PT-3"])
 
 
 class CommentCommandTests(unittest.TestCase):
@@ -283,6 +369,63 @@ class ShowChildrenTests(unittest.TestCase):
             idx = result.stdout.find(child_id)
             self.assertNotEqual(idx, -1, f"{child_id} missing from output:\n{result.stdout}")
             positions[child_id] = idx
+        self.assertLess(positions["PT-2"], positions["PT-9"])
+        self.assertLess(positions["PT-9"], positions["PT-10"])
+
+
+class ShowBlockersTests(unittest.TestCase):
+    """PT-26: `cairn show <id>` displays blocked_by (blockers) and the
+    reverse "blocks" links, both directions sorted by _id_sort_key
+    (architect's ruling)."""
+
+    def test_show_displays_its_blockers(self):
+        data_dir = helpers.make_tmp_data_dir(self)
+        _write_issue_with_blocked_by(data_dir, "PT-1", ["PT-3"])
+        result = run_cairn(["show", "PT-1", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("block", result.stdout.lower())
+        self.assertIn("PT-3", result.stdout)
+
+    def test_show_displays_reverse_blocks_links(self):
+        data_dir = helpers.make_tmp_data_dir(self)
+        _write_issue_with_blocked_by(data_dir, "PT-1", ["PT-3"])
+        result = run_cairn(["show", "PT-3", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("block", result.stdout.lower())
+        self.assertIn("PT-1", result.stdout)
+
+    def test_show_on_issue_with_no_dependencies_has_no_dependency_sections(self):
+        data_dir = helpers.make_tmp_data_dir(self)
+        result = run_cairn(["show", "PT-4", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("block", result.stdout.lower())
+
+    def test_show_blockers_are_sorted_numerically_not_lexicographically(self):
+        data_dir = helpers.make_tmp_data_dir(self)
+        for blocker_id in ("PT-10", "PT-2", "PT-9"):
+            _write_issue_with_blocked_by(data_dir, blocker_id, [])
+        _write_issue_with_blocked_by(data_dir, "PT-1", ["PT-10", "PT-2", "PT-9"])
+        result = run_cairn(["show", "PT-1", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        positions = {}
+        for blocker_id in ("PT-2", "PT-9", "PT-10"):
+            idx = result.stdout.find(blocker_id)
+            self.assertNotEqual(idx, -1, f"{blocker_id} missing from output:\n{result.stdout}")
+            positions[blocker_id] = idx
+        self.assertLess(positions["PT-2"], positions["PT-9"])
+        self.assertLess(positions["PT-9"], positions["PT-10"])
+
+    def test_show_reverse_blocks_are_sorted_numerically_not_lexicographically(self):
+        data_dir = helpers.make_tmp_data_dir(self)
+        for blocked_id in ("PT-10", "PT-2", "PT-9"):
+            _write_issue_with_blocked_by(data_dir, blocked_id, ["PT-1"])
+        result = run_cairn(["show", "PT-1", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        positions = {}
+        for blocked_id in ("PT-2", "PT-9", "PT-10"):
+            idx = result.stdout.find(blocked_id)
+            self.assertNotEqual(idx, -1, f"{blocked_id} missing from output:\n{result.stdout}")
+            positions[blocked_id] = idx
         self.assertLess(positions["PT-2"], positions["PT-9"])
         self.assertLess(positions["PT-9"], positions["PT-10"])
 
