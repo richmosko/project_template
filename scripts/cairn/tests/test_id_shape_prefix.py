@@ -341,7 +341,7 @@ class ConfusablePairCoexistenceTests(unittest.TestCase):
         data_dir = make_empty_repo(self, prefix="PT")
         write_major(data_dir, "PT-V1.md", "PT-V1")
         write_milestone(data_dir, "PT-1.0.md", "PT-1.0", kind="product", target_tag="v1.0.0", ga="true")
-        write_issue(data_dir, "PT-1.md", "PT-1", milestone=_fm_id("1.0"))
+        write_issue(data_dir, "PT-1.md", "PT-1", milestone=_fm_id("PT-1.0"))
         errors = cairn.check_repo(data_dir)
         self.assertEqual(errors, [], errors)
 
@@ -353,7 +353,7 @@ class ConfusablePairCoexistenceTests(unittest.TestCase):
         data_dir = make_empty_repo(self, prefix="PT")
         write_major(data_dir, "PT-V1.md", "PT-V1")
         write_milestone(data_dir, "PT-1.0.md", "PT-1.0", kind="product", target_tag="v1.0.0", ga="true")
-        write_issue(data_dir, "PT-1.md", "PT-1", milestone=_fm_id("1.0"))
+        write_issue(data_dir, "PT-1.md", "PT-1", milestone=_fm_id("PT-1.0"))
         write_issue(data_dir, "PT-2.md", "PT-2", milestone='"nonexistent"')
         errors = cairn.check_repo(data_dir)
         # PT-1's milestone ref must NOT be flagged (it correctly resolves
