@@ -264,6 +264,23 @@ var CairnLogic = (function () {
   // absent repo id -- that's intentional, not an oversight; do not
   // "harmonise" this one to match issueMilestoneKey without re-checking
   // this reasoning first.
+  // PT-28 (architect's ruling, confirmation #4): since milestone/major ids
+  // are now self-prefixed (e.g. "PT-0.6"), this function produces
+  // DOUBLED-LOOKING keys like "PT::PT-0.6" -- repoId "PT", milestoneKey
+  // "PT-0.6", joined by "::". That doubling is a COINCIDENCE, not
+  // redundancy to collapse: the repo dimension in this composite is
+  // load-bearing for multi-root correctness (it's what keeps two repos'
+  // same-id milestones from toggling as one lane -- the bare-id-across-
+  // roots defect class closed four times already: issueMilestoneKey,
+  // isDraggable, groupByMilestone, childProgress); the prefix INSIDE the
+  // milestone id is a completely different fact (which repo's convention
+  // named this milestone) that merely happens to look similar when that
+  // repo's own id is also its prefix. Do NOT "simplify" this to just
+  // `milestoneKey` because it already carries a prefix -- that is exactly
+  // how the fifth instance of this defect class would start: a project
+  // whose prefix differs from its primaryRootId, or a milestone id that
+  // isn't self-prefixed at all (a stale un-migrated repo), would silently
+  // collapse two repos' lanes into one the moment that assumption is made.
   function laneStateKey(repoId, milestoneKey) {
     return repoId + "::" + milestoneKey;
   }

@@ -419,8 +419,15 @@
       var span = document.createElement("span");
       var tag = ms.ga ? " · GA" : "";
       var target = ms.target_tag ? " · " + ms.target_tag : "";
-      var repoPrefix = multiRoot ? ms.repo + " · " : "";
-      span.textContent = repoPrefix + ms.id + " · " + (ms.name || "") + tag + target + " · " + progress.done + "/" + progress.total + " done";
+      // PT-28 (architect's ruling, confirmation #3): ids are now
+      // self-qualifying (ms.id is "PT-0.6", not "0.6"), so the repo
+      // qualifier this used to prepend in multi-root mode is redundant --
+      // it used to read "PT · PT-0.6 · ...", the repo id shown twice.
+      // Render ms.id alone in both modes. laneStateKey's OWN repo-scoped
+      // composite key is unrelated and untouched (board-logic.js) -- that
+      // key still needs the repo dimension for multi-root collapse-state
+      // correctness; this is purely a display string.
+      span.textContent = ms.id + " · " + (ms.name || "") + tag + target + " · " + progress.done + "/" + progress.total + " done";
       progressEl.appendChild(span);
     });
 
