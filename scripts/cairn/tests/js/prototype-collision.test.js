@@ -25,6 +25,19 @@
 //      pre-PT-23: renderKanban's single-root branch AND repoSectionEl --
 //      itself another instance of PT-3's "duplicated inline expression"
 //      bug class) -> below, extracted as groupByMilestone
+//
+// PT-29 (architect's ruling, section 2/4, red-first case 7): laneExpanded /
+// nextExpandedLanes' expandedLanes map must ALSO use Object.create(null)
+// internally -- the architect names this "insurance only" (expandedLanes'
+// real keys are always "<repo>::<milestone>" composites via laneStateKey,
+// and no Object.prototype member contains "::", so an actual collision via
+// the normal call path cannot fire) rather than a live defect the way
+// collapsedRepos' bare root.id keys are. Tested anyway, directly against a
+// bare prototype-shaped stateKey (bypassing laneStateKey's composite),
+// because "insurance only" is a claim about board.js's call sites, not a
+// property of laneExpanded/nextExpandedLanes' own implementation -- the
+// functions themselves must not silently misbehave on such a key regardless
+// of whether today's callers happen to never construct one.
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -120,4 +133,24 @@ test("groupByMilestone: order is sorted ascending across distinct milestone keys
   ];
   var result = CairnLogic.groupByMilestone(issues);
   assert.deepEqual(result.order, ["0.4", "0.5", "1.0"]);
+});
+
+test("laneExpanded: a prototype-key-shaped stateKey reads as collapsed on an empty map, not already-expanded", () => {
+  PROTOTYPE_KEY_SHAPED_VALUES.concat(["__proto__"]).forEach((key) => {
+    assert.equal(
+      CairnLogic.laneExpanded({}, key),
+      false,
+      `laneExpanded misread stateKey ${JSON.stringify(key)} as already-expanded on an empty map`
+    );
+  });
+});
+
+test("nextExpandedLanes: a prototype-key-shaped stateKey toggles open and closed like any other key", () => {
+  PROTOTYPE_KEY_SHAPED_VALUES.concat(["__proto__"]).forEach((key) => {
+    var opened = CairnLogic.nextExpandedLanes({}, key);
+    assert.equal(CairnLogic.laneExpanded(opened, key), true, `key ${JSON.stringify(key)} did not open`);
+    var closed = CairnLogic.nextExpandedLanes(opened, key);
+    assert.equal(CairnLogic.laneExpanded(closed, key), false, `key ${JSON.stringify(key)} did not close`);
+    assert.equal(Object.keys(closed).length, 0, `key ${JSON.stringify(key)} left a stray entry on close`);
+  });
 });
