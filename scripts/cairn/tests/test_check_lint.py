@@ -123,6 +123,36 @@ def write_major_with_stray_title(data_dir: Path, filename: str, major_id: str) -
     (data_dir / "majors" / filename).write_text(text, encoding="utf-8")
 
 
+def write_milestone_kind_field_omitted(data_dir: Path, filename: str, milestone_id: str) -> None:
+    """A milestone whose frontmatter has no `kind:` key at all -- distinct
+    from an invalid string value. PT-27 error 4: missing or invalid kind must
+    both be flagged, mirroring the priority/major omitted-field distinction
+    drawn above for issues/milestones."""
+    text = (
+        "---\n"
+        f"id: {milestone_id}\nname: Omitted Kind\nmajor: V1\nstatus: planned\n"
+        "target_tag: v1.0.0\nga: true\n"
+        "---\n\nDoD.\n"
+    )
+    (data_dir / "milestones" / filename).write_text(text, encoding="utf-8")
+
+
+def _fm_id(value: str) -> str:
+    """Quote a milestone id for test frontmatter when it's dotted/numeric-shaped
+    (e.g. "0.6", "10.20.30") so parse_yaml_subset keeps it a string -- matches
+    how real milestone files (0.4.md etc.) are written. Letter/M-prefixed ids
+    (A, M0, M0a) are unambiguous unquoted, matching the M0.md fixture."""
+    return f'"{value}"' if "." in value else value
+
+
+def _errors_for(errors, milestone_id):
+    """Errors are formatted `f"{p.stem}: ..."` (see cairn.py's known_milestones
+    loop) -- prefix-match rather than bare substring so short/ambiguous ids
+    (A, M, a) can't false-positive against unrelated error text."""
+    prefix = f"{milestone_id}:"
+    return [e for e in errors if e.startswith(prefix)]
+
+
 def write_issue(data_dir: Path, filename: str, **overrides) -> None:
     fields = dict(id="PT-1", status="todo", milestone="null", parent="null", priority="null")
     fields.update(overrides)
@@ -424,6 +454,121 @@ class CheckRepoTitleShapeTests(unittest.TestCase):
         self.assertTrue(any("2.0" in e for e in errors), errors)
 
 
+class CheckRepoIdShapeKindTests(unittest.TestCase):
+    r"""PT-27: check_repo lints milestone id-shape <-> kind consistency.
+
+    Spec (architect ruling, PT-27, ratified):
+      definition  (kind: process)   ^(?!M)[A-Z][a-z]?$
+      development (kind: product)   ^(?:M\d+[a-z]?|\d+\.\d+(?:\.\d+)?)$
+
+    Four errors: (1) kind: process on a development-shaped id, (2) kind:
+    product on a definition-shaped id, (3) id matching neither shape
+    (regardless of kind), (4) kind missing or not product/process. `M` is
+    reserved out of the definition alphabet -- `M`/`Ma` fall into error 3,
+    not error 2, the case the ruling calls out as most likely to be
+    implemented wrong.
+    """
+
+    def test_valid_definition_ids_pass(self):
+        for milestone_id in ("A", "B", "C", "Aa", "Ab", "Z"):
+            with self.subTest(id=milestone_id):
+                data_dir = make_tree(self)
+                write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind="process", major="V1")
+                errors = cairn.check_repo(data_dir)
+                self.assertEqual(errors, [], errors)
+
+    def test_valid_development_ids_pass(self):
+        for milestone_id in ("M0", "M1", "M12", "M0a", "M0b", "0.6", "1.0", "0.5.1", "1.0.1", "10.20.30"):
+            with self.subTest(id=milestone_id):
+                data_dir = make_tree(self)
+                write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind="product", major="V1")
+                errors = cairn.check_repo(data_dir)
+                self.assertEqual(errors, [], errors)
+
+    def test_development_milestone_with_null_target_tag_still_passes(self):
+        # Spec: the id-shape lint says nothing about target_tag/ga -- an
+        # M<n> milestone with target_tag: null (pre-GA, no tag cut yet) is
+        # legitimate and must not be flagged by this lint.
+        data_dir = make_tree(self)
+        write_milestone(data_dir, "M0.md", id="M0", kind="product", major="V1",
+                         target_tag="null", ga="false")
+        errors = cairn.check_repo(data_dir)
+        self.assertEqual(errors, [], errors)
+
+    def test_process_kind_on_development_shaped_id_is_flagged(self):
+        for milestone_id in ("M0", "1.0"):
+            with self.subTest(id=milestone_id):
+                data_dir = make_tree(self)
+                write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind="process", major="V1")
+                errors = cairn.check_repo(data_dir)
+                matching = _errors_for(errors, milestone_id)
+                self.assertTrue(matching, errors)
+                self.assertTrue(any("process" in e.lower() for e in matching), errors)
+
+    def test_product_kind_on_definition_shaped_id_is_flagged(self):
+        for milestone_id in ("A", "Aa"):
+            with self.subTest(id=milestone_id):
+                data_dir = make_tree(self)
+                write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind="product", major="V1")
+                errors = cairn.check_repo(data_dir)
+                matching = _errors_for(errors, milestone_id)
+                self.assertTrue(matching, errors)
+                self.assertTrue(any("product" in e.lower() for e in matching), errors)
+
+    def test_m_reservation_m_and_ma_are_unrecognised_not_definition_shaped(self):
+        # `M` is reserved out of the definition alphabet -- `M` and `Ma` must
+        # NOT be treated as valid (or even mismatched-kind) definition ids;
+        # they match neither regex and fall to error 3 regardless of kind.
+        for milestone_id in ("M", "Ma"):
+            for kind in ("process", "product"):
+                with self.subTest(id=milestone_id, kind=kind):
+                    data_dir = make_tree(self)
+                    write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind=kind, major="V1")
+                    errors = cairn.check_repo(data_dir)
+                    matching = _errors_for(errors, milestone_id)
+                    self.assertTrue(matching, errors)
+                    # Must not be reported as a process/product kind MISMATCH
+                    # (errors 1/2) -- it's unrecognised (error 3), full stop.
+                    self.assertTrue(
+                        any("expected" in e.lower() or "unrecognised" in e.lower() or "unrecognized" in e.lower()
+                            for e in matching),
+                        errors,
+                    )
+
+    def test_ids_matching_neither_shape_are_flagged_regardless_of_kind(self):
+        for milestone_id in ("mvp", "alpha", "1.0-rc", "V1", "AB", "a"):
+            for kind in ("process", "product"):
+                with self.subTest(id=milestone_id, kind=kind):
+                    data_dir = make_tree(self)
+                    write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind=kind, major="V1")
+                    errors = cairn.check_repo(data_dir)
+                    self.assertTrue(_errors_for(errors, milestone_id), errors)
+
+    def test_missing_kind_is_flagged(self):
+        data_dir = make_tree(self)
+        write_milestone_kind_field_omitted(data_dir, "2.0.md", '"2.0"')
+        errors = cairn.check_repo(data_dir)
+        matching = _errors_for(errors, "2.0")
+        self.assertTrue(matching, errors)
+        self.assertTrue(any("kind" in e.lower() for e in matching), errors)
+
+    def test_invalid_kind_value_is_flagged(self):
+        data_dir = make_tree(self)
+        write_milestone(data_dir, "2.0.md", id='"2.0"', kind="draft", major="V1")
+        errors = cairn.check_repo(data_dir)
+        matching = _errors_for(errors, "2.0")
+        self.assertTrue(matching, errors)
+        self.assertTrue(any("kind" in e.lower() and "draft" in e for e in matching), errors)
+
+    def test_multiple_id_shape_violations_each_reported(self):
+        data_dir = make_tree(self)
+        write_milestone(data_dir, "M0.md", id="M0", kind="process", major="V1")
+        write_milestone(data_dir, "A.md", id="A", kind="product", major="V1")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(_errors_for(errors, "M0"), errors)
+        self.assertTrue(_errors_for(errors, "A"), errors)
+
+
 class CheckCliTests(unittest.TestCase):
     def test_clean_tree_exits_zero(self):
         data_dir = helpers.make_tmp_data_dir(self)
@@ -476,6 +621,36 @@ class CheckCliTests(unittest.TestCase):
         combined = result.stdout + result.stderr
         self.assertIn("PT-1", combined)
         self.assertIn("urgent", combined)
+
+    def test_process_kind_on_development_id_exits_nonzero_with_pointed_message(self):
+        # PT-27 error 1: a development-shaped id (M<n> or version) with
+        # kind: process must fail cairn check with the id and the
+        # conflicting kind named.
+        data_dir = make_tree(self)
+        write_milestone(data_dir, "M0.md", id="M0", kind="process", major="V1")
+        result = subprocess.run(
+            [str(helpers.CAIRN_BIN), "check", "--data-dir", str(data_dir)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        combined = result.stdout + result.stderr
+        self.assertIn("M0", combined)
+        self.assertIn("process", combined.lower())
+
+    def test_unrecognised_milestone_id_shape_exits_nonzero_with_pointed_message(self):
+        # PT-27 error 3: an id matching neither shape must fail regardless
+        # of kind.
+        data_dir = make_tree(self)
+        write_milestone(data_dir, "mvp.md", id="mvp", kind="product", major="V1")
+        result = subprocess.run(
+            [str(helpers.CAIRN_BIN), "check", "--data-dir", str(data_dir)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        combined = result.stdout + result.stderr
+        self.assertIn("mvp", combined)
 
 
 if __name__ == "__main__":

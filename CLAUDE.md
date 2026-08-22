@@ -92,7 +92,7 @@ When this template is freshly cloned for a new project, the team-lead should wal
 5. **Replace the placeholders** in this file:
    - L7–8: the "TBD" project description block
    - L10: the GitHub URL (points at the template repo by default — change to this project's repo once created)
-6. **Run `/setup-tracker`** to bootstrap cairn (the file-based issue tracker) — confirms the issue-ID prefix, scaffolds `process/cairn/` with the founding major (V1) and the M0/M1 process milestones so the board is populated from Day 0, optionally seeds PRD stories as backlog issues, and sets the **delivery-autonomy methodology** for `/drive` (`stop-at-merge` recommended). View the board anytime with `/cairn`.
+6. **Run `/setup-tracker`** to bootstrap cairn (the file-based issue tracker) — confirms the issue-ID prefix, scaffolds `process/cairn/` with the founding major (V1) and the A/B definition milestones so the board is populated from Day 0, optionally seeds PRD stories as backlog issues, and sets the **delivery-autonomy methodology** for `/drive` (`stop-at-merge` recommended). View the board anytime with `/cairn`.
 7. **Verify team-agents is enabled.** `.claude/settings.json` must have `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"` (shipped with the template — do not turn off; the workflow depends on it). Then pick `teammateMode`: `"tmux"` (default) for split-pane teammates that survive `/resume`, or `"in-process"` if you don't have tmux/iTerm2 with `it2`. Change it before spawning the first team.
 8. **Spawn the Research team:** say _"Create an agent team for the Research phase"_ — the lead will spawn `product-manager` (and bring `ux-designer` + `seceng` in later).
 9. **Run `/generate-prd`** to start the discovery interview. The PM teammate drives.

@@ -1,6 +1,6 @@
 ---
 name: setup-tracker
-description: One-time bootstrap that scaffolds cairn (the file-based issue tracker) for this project — creates process/cairn/ with config.yml (ID prefix derived from the repo name, confirmed by the user once), seeds the founding major (V1) and the M0/M1 process milestones, optionally seeds PRD user stories as backlog issues, and sets the delivery-autonomy methodology for /drive. Run on the first session of a new project, or whenever process/cairn/ is missing. No arguments — interviews the user as needed.
+description: One-time bootstrap that scaffolds cairn (the file-based issue tracker) for this project — creates process/cairn/ with config.yml (ID prefix derived from the repo name, confirmed by the user once), seeds the founding major (V1) and the A/B definition milestones, optionally seeds PRD user stories as backlog issues, and sets the delivery-autonomy methodology for /drive. Run on the first session of a new project, or whenever process/cairn/ is missing. No arguments — interviews the user as needed.
 ---
 
 # setup-tracker
@@ -47,7 +47,7 @@ board:
   swimlane: milestone   # milestone | none
 ```
 
-### 3. Seed the founding major and process milestones
+### 3. Seed the founding major and definition milestones
 
 Write `process/cairn/majors/V1.md`:
 
@@ -63,21 +63,21 @@ health: on-track
 Founding major line. Starts at MAJOR 0; the GA-designated milestone tags 1.0.0.
 ```
 
-Write `process/cairn/milestones/M0.md` and `M1.md` (`kind: process`, `major: V1`, `target_tag: null`, `ga: false`, status per phase — the `major:` key is load-bearing: the board derives an issue's major *through* its milestone, so omitting it hides every M0/M1 issue from the V1 tab):
+Write `process/cairn/milestones/A.md` and `B.md` (`kind: process`, `major: V1`, `target_tag: null`, `ga: false`, status per phase — the `major:` key is load-bearing: the board derives an issue's major *through* its milestone, so omitting it hides every A/B issue from the V1 tab):
 
 | id | name | status | Definition of done (body) |
 |---|---|---|---|
-| `M0` | Bootstrap & Research | `in-progress` | PRD v1 approved; user stories enumerated; product-milestone scope sketched in PRD §9. |
-| `M1` | Plan | `planned` | ARCH + SECURITY approved; product milestones created in `milestones/` + GA designated; first session planned. |
+| `A` | Bootstrap & Research | `in-progress` | PRD v1 approved; user stories enumerated; product-milestone scope sketched in PRD §9. |
+| `B` | Plan | `planned` | ARCH + SECURITY approved; product milestones created in `milestones/` + GA designated; first session planned. |
 
-Product milestones (`1.0`, `1.1`, …) are **not** seeded here — the `architect` creates them during Plan, flagging exactly one per major with `ga: true` (see `process/WORKFLOW.md` → Versioning scheme).
+Development milestones (`1.0`, `1.1`, …) are **not** seeded here — the `architect` creates them during Plan, flagging exactly one per major with `ga: true` (see `process/WORKFLOW.md` → Versioning scheme).
 
 ### 4. Seed PRD user stories as issues (optional)
 
 If `docs/PRD/index.html` § User Stories has content, offer to seed each story as an issue. There is **no cap and no overflow tier** — every story becomes a real issue immediately:
 
 ```bash
-scripts/cairn/cairn new "<story title>" --status backlog --milestone <M0|M1|null> --assignee product-manager
+scripts/cairn/cairn new "<story title>" --status backlog --milestone <A|B|null> --assignee product-manager
 ```
 
 Show the count before writing ("Seed 14 stories from the PRD as backlog issues?"). Stories without a clear milestone get `--milestone` omitted (null = unassigned; the architect attaches them during Plan).
@@ -102,7 +102,7 @@ scripts/cairn/cairn ls           # show what was seeded
 Commit the scaffold (via the current branch flow — `/start-doc-update` if nothing is open). Print a summary:
 
 - Prefix: `<PREFIX>` · data dir: `process/cairn/`
-- Seeded: `majors/V1.md`, `milestones/M0.md`, `milestones/M1.md`
+- Seeded: `majors/V1.md`, `milestones/A.md`, `milestones/B.md`
 - Issues seeded: N from PRD
 - Delivery autonomy: `<choice>`
 - Board: `/cairn` starts it at `http://localhost:8766/`

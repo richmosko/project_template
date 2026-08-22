@@ -76,7 +76,7 @@ How far a `/drive`-aimed [goal-driven loop](#goal-driven-loop-drive) runs before
   - DevOps defines CI/CD topology, IaC approach, environments
   - QA proposes a test strategy (unit, integration, E2E split; coverage targets; acceptance-test framework)
   - Lead breaks the roadmap into **milestones (`process/cairn/milestones/`) → features (cairn issues)**; Session Cycles are a session-time planning heuristic, not a roadmap layer
-  - Architect **designates the GA milestone** for the major line — the one that tags `N.0.0` — and sets each product milestone file's `target_tag` (see [Versioning scheme](#versioning-scheme))
+  - Architect **designates the GA milestone** for the major line — the one that tags `N.0.0` — and sets each development milestone file's `target_tag` (see [Versioning scheme](#versioning-scheme))
 - **Artifacts:** `docs/ARCH/index.html`, `docs/SECURITY/index.html`, populated `process/cairn/` (milestones + issues), updated `STATE.md`
 - **Gate:** ARCH + SECURITY approved; tracker issues populated for the first milestone.
 
@@ -532,7 +532,7 @@ Sections that already have comments show a `💬 N` count badge next to the head
 | Our concept | cairn artifact | Version digit |
 |---|---|---|
 | **Major version line** (`V1`, `V2`, …) | `majors/<id>.md` (one per major; concurrent; owner, health, target ship; `status: completed` when the line is EOL'd) | **MAJOR** (`x`) |
-| **Milestone** | `milestones/<name>.md` (product milestones **named by target version**, `kind: product`, carry `target_tag` + `ga`; process milestones `kind: process`) | **MINOR** (`y`) |
+| **Milestone** | `milestones/<id>.md` (development milestones **named by target version**, `kind: product`, carry `target_tag` + `ga`; definition milestones use letter ids, `kind: process`) | **MINOR** (`y`) |
 | **Feature** | `issues/<ID>.md` (one issue = one PR = one I→V loop) | — (identity via issue ID + release notes) |
 | **Hotfix** | `issues/<ID>.md` on the milestone it patches | **PATCH** (`z`) |
 | **Sub-issue** | `issues/<ID>.md` with `parent:` | — |
@@ -545,16 +545,16 @@ Releases follow **strict [semver](https://semver.org)** — `MAJOR.MINOR.PATCH` 
 | Digit | Bound to | Bumps when |
 |---|---|---|
 | **MAJOR** (`x`) | Major line (`majors/<id>.md`) | A breaking change ships. A new major **opens a new major file**. |
-| **MINOR** (`y`) | Milestone | A **product milestone** completes (a backward-compatible feature batch). |
+| **MINOR** (`y`) | Milestone | A **development milestone** completes (a backward-compatible feature batch). |
 | **PATCH** (`z`) | Hotfix | A backward-compatible fix ships against an already-released milestone. |
 
 **A feature is not a version digit.** Features land continuously inside a milestone; their identity is the **issue ID + PR**, and they're enumerated in the milestone's GitHub Release notes. Keeping `z` for hotfixes preserves semver's compatibility signal — `v1.3.2` tells a consumer it's a safe patch over `v1.3.0`, which it couldn't if `z` counted features.
 
-**MINOR is not the milestone ordinal.** `MINOR` restarts at `0` for each major and counts *product releases within that major*. The `Mn` label (M0, M1, M2…) is just a per-Initiative sequential tag that also numbers the non-tagging process milestones — so it always runs ahead of `MINOR`. To kill the ambiguity, **name product milestones by their target version** (`1.0`, `1.1`, `2.0`), so milestone ↔ `MAJOR.MINOR` is 1:1 by construction. Process milestones keep descriptive names (Bootstrap & Research, Plan).
+**MINOR is not the milestone ordinal.** `MINOR` restarts at `0` for each major and counts *product releases within that major*. The `M<n>` label (M0, M1, M2…) is an unversioned development-milestone ordinal — it carries no version information, so it always runs ahead of `MINOR`. To kill the ambiguity, **name development milestones that tag by their target version** (`1.0`, `1.1`, `2.0`), so milestone ↔ `MAJOR.MINOR` is 1:1 by construction. Definition milestones use letter ids and descriptive names (`A` — Bootstrap & Research, `B` — Plan).
 
-**One milestone per MINOR (Model A).** The run-up to any `N.0.0` is a *single* milestone named `N.0`, internally subdivided via the [M0a/M0b mechanism](#process-milestones-vs-product-milestones) when it's large. Pre-release checkpoints inside it are cut as semver pre-release tags (`N.0.0-alpha.1`, `-beta.1`, `-rc.1`), which sort *before* `N.0.0`. This keeps the 1:1 milestone↔version mapping intact.
+**One milestone per MINOR (Model A).** The run-up to any `N.0.0` is a *single* milestone named `N.0`, internally subdivided via the [subdivision mechanism](#definition-milestones-vs-development-milestones) when it's large. Pre-release checkpoints inside it are cut as semver pre-release tags (`N.0.0-alpha.1`, `-beta.1`, `-rc.1`), which sort *before* `N.0.0`. This keeps the 1:1 milestone↔version mapping intact.
 
-**GA is designated at planning time, never inferred.** During Plan (M1), the `architect` flags exactly one milestone per major line as **GA** — `ga: true` in its milestone file, the one that tags `N.0.0` — and records target versions in each file's `target_tag`. Don't assume "first product milestone = `N.0.0`."
+**GA is designated at planning time, never inferred.** During Plan (`B`), the `architect` flags exactly one milestone per major line as **GA** — `ga: true` in its milestone file, the one that tags `N.0.0` — and records target versions in each file's `target_tag`. Don't assume "first product milestone = `N.0.0`."
 
 **The `0.y.z` → `1.0.0` transition.** The founding Initiative starts at MAJOR `0`, semver's reserved "no compatibility promise" zone, so its pre-GA milestones get **real minor numbers** — `0.1.0`, `0.2.0`, `0.3.0`. Cutting `1.0.0` is the human act of *declaring the line stable*; you create a milestone literally named `1.0` and the MINOR counter resets there. Later majors (`V2`+) have no reserved zone, so their pre-GA run-up uses **pre-release identifiers** (`2.0.0-rc.1`) or stays untagged while `V1.x` keeps shipping to users.
 
@@ -574,13 +574,13 @@ Plan                  → (untagged)     2.0 (GA-designated)  → v2.0.0
   └─ hotfix           → v1.1.1  ◄─── still shipping from release/1.x
 ```
 
-### Process milestones vs. product milestones
+### Definition milestones vs. development milestones
 
-Milestones come in two flavors. **Process milestones** (M0 — Bootstrap & Research, M1 — Plan) track the Research and Plan phases themselves as first-class milestone files (`kind: process`), seeded automatically by `/setup-tracker`; they keep descriptive names and **do not tag releases**. **Product milestones** are the actual scope chunks of the product, **named by their target version** (`1.0`, `1.1`, …), and are populated by the `architect` during M1 — who also flags which one is [GA](#versioning-scheme).
+Milestones come in two flavors. **Definition milestones** (`A` — Bootstrap & Research, `B` — Plan) track the Research and Plan phases themselves as first-class milestone files (`kind: process`), seeded automatically by `/setup-tracker`; they use letter ids (the letter `M` is reserved — `M<n>` always means development) with descriptive names and **do not tag releases**. **Development milestones** (`kind: product`) are the actual scope chunks of the product, **named by their target version** (`1.0`, `1.1`, …) — or by an `M<n>` ordinal when they won't tag a release — and are populated by the `architect` during `B` — who also flags which one is [GA](#versioning-scheme).
 
-The point of giving Research and Plan their own milestones is that those phases are often as complex as a product milestone — drafting a PRD or designing an architecture generates a real backlog of sub-tasks (interview a stakeholder, sketch a flow, decide a stack). Treating them as milestones means that work is **trackable as issues** with the same visibility as product work, and a fresh session sees the board populated from Day 0 instead of waiting until Plan completes.
+The point of giving Research and Plan their own milestones is that those phases are often as complex as a development milestone — drafting a PRD or designing an architecture generates a real backlog of sub-tasks (interview a stakeholder, sketch a flow, decide a stack). Treating them as milestones means that work is **trackable as issues** with the same visibility as product work, and a fresh session sees the board populated from Day 0 instead of waiting until Plan completes.
 
-**Subdivide if complexity warrants.** If Research turns out to be heavy, split M0 into `M0a — PRD draft`, `M0b — PRD review & refinement`. Same for M1 if Architecture vs Security warrant separate tracks. Each subdivision is its own milestone file. `/setup-tracker` seeds two as the floor, not a cap.
+**Subdivide if complexity warrants.** If Research turns out to be heavy, split `A` into `Aa — PRD draft`, `Ab — PRD review & refinement`. Same for `B` if Architecture vs Security warrant separate tracks. Each subdivision is its own milestone file. `/setup-tracker` seeds two as the floor, not a cap.
 
 - **Agent attribution is the `assignee` field.** Every issue carries `assignee: <role>` matching a file in `.claude/agents/` (or `@handle` for a human); comments carry per-author attribution natively (`### @qa-engineer — <date>`). The Linear-era `agent:<role>` labels are retired.
 - **No cap, no overflow tier.** cairn has no issue limit and no forced archiving, so the Linear-era overflow machinery — the backlog promotion queue and its skills, plus budget checks in `/start-feature` — is retired. A scoped item is simply an issue with `status: backlog`; `cairn archive --done-before <date>` is occasional hygiene so a years-old project's board stays readable — issues remain in git and greppable forever.
@@ -748,7 +748,7 @@ The template intentionally **does not ship a `CHANGELOG.md`**. Git log + GitHub 
 
 Releases are **human decisions**, never automatic. The `/merge-pr` skill prompts at the right moment.
 
-**When to cut a release.** When the most recent merge completes a milestone's "Definition of done" (the milestone file's body, `process/cairn/milestones/<name>.md`). Process milestones (Bootstrap & Research, Plan) don't get tagged releases — they're internal phase gates. Product milestones tag on completion, and **the version comes from the milestone's name + its `target_tag` field** per the [Versioning scheme](#versioning-scheme): a milestone named `1.1` completing tags `v1.1.0`; the [GA](#versioning-scheme)-designated milestone of a major line tags `vN.0.0`; a hotfix against a shipped milestone bumps PATCH (`v1.1.1`). Pre-release checkpoints inside a not-yet-GA milestone are cut as `-alpha/-beta/-rc` tags, and `V1.x` maintenance releases are tagged from the `release/1.x` branch while `main` carries the newest major.
+**When to cut a release.** When the most recent merge completes a milestone's "Definition of done" (the milestone file's body, `process/cairn/milestones/<name>.md`). Definition milestones (`A` — Bootstrap & Research, `B` — Plan) don't get tagged releases — they're internal phase gates. Development milestones tag on completion, and **the version comes from the milestone's name + its `target_tag` field** per the [Versioning scheme](#versioning-scheme): a milestone named `1.1` completing tags `v1.1.0`; the [GA](#versioning-scheme)-designated milestone of a major line tags `vN.0.0`; a hotfix against a shipped milestone bumps PATCH (`v1.1.1`). Pre-release checkpoints inside a not-yet-GA milestone are cut as `-alpha/-beta/-rc` tags, and `V1.x` maintenance releases are tagged from the `release/1.x` branch while `main` carries the newest major.
 
 **The flow at milestone close:**
 

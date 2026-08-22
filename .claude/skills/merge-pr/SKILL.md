@@ -94,7 +94,7 @@ The lead does *not* publish on the user's behalf — release notes are a Princip
 
 **d. Add a row to `## Releases` in process/STATE.md** with version, date, major, milestone shipped, branch, and the release URL (mark `Draft` until the user publishes).
 
-Do **not** tag automatically. Releases are human decisions. **Process milestones (`kind: process`) never tag.**
+Do **not** tag automatically. Releases are human decisions. **Definition milestones (`kind: process`) never tag.**
 
 ### 6. Hand off
 

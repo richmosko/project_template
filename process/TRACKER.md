@@ -54,9 +54,9 @@ process/cairn/
 ├── majors/
 │   └── V1.md             major version line  (was: Linear Initiative)
 ├── milestones/
-│   ├── M0.md             process milestone   (was: Linear Project)
-│   ├── M1.md
-│   └── 1.0.md            product milestone, named by target version
+│   ├── A.md              definition milestone (was: Linear Project)
+│   ├── B.md
+│   └── 1.0.md            development milestone, named by target version
 ├── issues/
 │   ├── PT-1.md           feature            (was: Linear Issue)
 │   └── PT-2.md
@@ -156,7 +156,7 @@ The OAuth path should end in the same session object the password path produces.
 | `id` | string | ✅ | Must equal the filename stem. **The filename is authoritative**; `cairn check` errors on a mismatch. Kept in-file so a pasted or moved file is self-describing. |
 | `title` | string | ✅ | One line. No trailing period. |
 | `status` | enum | ✅ | See [Status vocabulary](#status-vocabulary). |
-| `milestone` | string \| null | ✅ | Milestone slug (`"1.0"`, `M0`). Quote numeric-looking values. `null` = unassigned. |
+| `milestone` | string \| null | ✅ | Milestone slug (`"1.0"`, `M2`, `A`). Quote numeric-looking values. `null` = unassigned. |
 | `parent` | id \| null | ✅ | Sub-issue linkage. One level is expected; the parser tolerates deeper nesting but the board renders two. |
 | `assignee` | string \| null | ✅ | Bare agent role (`backend-lead`) matching a file in `.claude/agents/`, or `@handle` for a human. Replaces Linear's `agent:<role>` labels — attribution becomes a field, not a label. |
 | `labels` | list[string] | ✅ | Free-form, lowercase-kebab. May be `[]`. |
@@ -184,14 +184,53 @@ kind: product          # product | process
 major: V1
 status: planned        # planned | in-progress | paused | completed | cancelled
 target_tag: v1.0.0
-ga: true               # exactly one product milestone per major carries ga: true
+ga: true               # exactly one development milestone per major carries ga: true
 ---
 
 **Definition of done:** a new user can sign up, log in, and complete the core loop
 end to end on staging, with the acceptance suite green.
 ```
 
-Process milestones (`M0 — Bootstrap & Research`, `M1 — Plan`) use `kind: process`, `target_tag: null`, `ga: false`.
+Definition milestones (`A — Bootstrap & Research`, `B — Plan`) use `kind: process`, `target_tag: null`, `ga: false`.
+
+### Milestone ids — definition vs. development
+
+Milestones come in two flavours, distinguished by `kind:`. **The id shape and the kind must agree** — `cairn check` errors when they don't.
+
+| Flavour | `kind:` | Id shape | Examples | Tags a release? |
+|---|---|---|---|---|
+| **Definition** — the phases that produce the artifacts (Bootstrap & Research → PRD; Plan → ARCH + SECURITY) | `process` | one capital letter, optionally one lowercase subdivision suffix | `A`, `B`, `C`, `Aa`, `Ab` | never (`target_tag: null`, `ga: false`) |
+| **Development** — the scope chunks that build the product | `product` | a version string, or `M<n>` (optionally subdivided) | `1.0`, `0.6`, `0.5.1`, `M0`, `M0a` | version-named ones do (`target_tag: v1.0.0`) |
+
+A fresh project bootstraps with `A — Bootstrap & Research` and `B — Plan`; its first development milestone is `M0`, or better, a version-named one.
+
+**`M` is reserved.** `M<n>` means development, always — so the letter `M` is skipped in the definition sequence (`… K`, `L`, `N`, `O` …). Thirteen definition milestones is not a situation; one skipped letter is cheap next to making "M means development" absolute.
+
+**Prefer version-named ids for anything that tags.** `M<n>` is an ordinal and carries no version information, so a milestone that will cut a release is named for the release (`1.0` → `v1.0.0`) — that is what keeps milestone ↔ `MAJOR.MINOR` 1:1 ([WORKFLOW.md → Versioning scheme](WORKFLOW.md#versioning-scheme)). `M<n>` is for development milestones that don't tag one.
+
+**Subdivision** works the same in both flavours: append one lowercase letter — `Aa` / `Ab` for a heavy Research phase, `M0a` / `M0b` for a heavy development chunk. Each subdivision is its own file.
+
+**The enum keeps its old values.** `kind:` stays `process` | `product`; renaming them to `definition` | `development` would be a data migration across every existing repo, plus the board and the skills, for a vocabulary gain. Prose says *definition* / *development*; the file says `process` / `product`. That mapping is the one thing to remember.
+
+**`cairn check` enforces the pairing.** The regexes are literal:
+
+```
+definition  (kind: process)   ^(?!M)[A-Z][a-z]?$
+development (kind: product)   ^(?:M\d+[a-z]?|\d+\.\d+(?:\.\d+)?)$
+```
+
+Four errors: (1) `kind: process` on a development-shaped id; (2) `kind: product` on a definition-shaped id; (3) an id matching neither shape (`mvp`, `V1`, `1.0-rc`); (4) `kind:` missing or not one of `product` | `process` — the id rule is meaningless without it and there is no safe default. Nothing here constrains `target_tag` or `ga` against the id shape: an `M<n>` milestone that never tags is legitimate.
+
+**No grandfather clause (ruled 2026-08-21).** A repo seeded before 0.6 carries `M0`/`M1` with `kind: process` and will fail the lint. That is intentional — a permanent exception would mean `M0` might be a definition milestone forever, which is the ambiguity this convention deletes. Migration is mechanical:
+
+```bash
+git mv process/cairn/milestones/M0.md process/cairn/milestones/A.md
+git mv process/cairn/milestones/M1.md process/cairn/milestones/B.md
+# edit the `id:` line in each: M0 -> A, M1 -> B
+scripts/cairn/cairn ls --milestone M0        # the issues that pointed at it
+scripts/cairn/cairn set <ID> milestone=A     # ...for each
+scripts/cairn/cairn check                    # must exit 0
+```
 
 ### Major file
 
@@ -290,11 +329,11 @@ Cairn represents the [version-driven hierarchy](WORKFLOW.md#versioning-scheme) r
 
 ```mermaid
 flowchart TD
-  L["Major — V1<br/><code>majors/V1.md</code><br/>MAJOR digit"] --> M1["Milestone — 1.0 (GA)<br/><code>milestones/1.0.md</code><br/>MINOR digit → v1.0.0"]
-  L --> M2["Milestone — 1.1<br/><code>milestones/1.1.md</code><br/>→ v1.1.0"]
-  L --> M0["Process milestone — M0/M1<br/><code>kind: process</code><br/>untagged"]
-  M1 --> I1["Issue — PT-14<br/><code>issues/PT-14.md</code><br/>1 issue = 1 PR = 1 I→V loop"]
-  M1 --> I2["Issue — PT-15"]
+  L["Major — V1<br/><code>majors/V1.md</code><br/>MAJOR digit"] --> D1["Development milestone — 1.0 (GA)<br/><code>milestones/1.0.md</code><br/>MINOR digit → v1.0.0"]
+  L --> D2["Development milestone — 1.1<br/><code>milestones/1.1.md</code><br/>→ v1.1.0"]
+  L --> DEF["Definition milestone — A/B<br/><code>milestones/A.md</code> · <code>kind: process</code><br/>untagged"]
+  D1 --> I1["Issue — PT-14<br/><code>issues/PT-14.md</code><br/>1 issue = 1 PR = 1 I→V loop"]
+  D1 --> I2["Issue — PT-15"]
   I1 --> S1["Sub-issue — PT-21<br/><code>parent: PT-14</code>"]
   SC["Session Cycle<br/><i>heuristic only — no tracker artifact;<br/>lives as a note in STATE.md</i>"]
   style SC stroke-dasharray: 4 4
@@ -303,8 +342,9 @@ flowchart TD
 | Concept | Cairn artifact | Version digit |
 |---|---|---|
 | Major version line (`V1`, `V2`, concurrent) | `majors/<id>.md` | **MAJOR** |
-| Milestone (product, named by target version) | `milestones/<version>.md`, `kind: product` | **MINOR** |
-| Milestone (process: Bootstrap & Research, Plan) | `milestones/<Mn>.md`, `kind: process` | — (untagged) |
+| Milestone (development, named by target version) | `milestones/<version>.md`, `kind: product` | **MINOR** |
+| Milestone (development, unversioned ordinal) | `milestones/M<n>.md`, `kind: product` | — (untagged unless `target_tag` is set) |
+| Milestone (definition: Bootstrap & Research, Plan) | `milestones/<letter>.md`, `kind: process` | — (untagged) |
 | Feature | `issues/<ID>.md` | — (identity = ID + PR + release notes) |
 | Sub-issue | `issues/<ID>.md` with `parent:` | — |
 | Hotfix | `issues/<ID>.md` on the milestone it patches | **PATCH** |
@@ -462,7 +502,7 @@ The ratified decision allows last-write-wins and makes the mtime check optional.
 | `cairn comment PT-14 --author qa-engineer --body -` | Correct delimiter + date, from stdin. |
 | `cairn show PT-14` | Rendered single issue. |
 | `cairn archive --done-before <date>` | Bulk `git mv`. |
-| `cairn check` | Lint: id/filename mismatch, dangling `parent`, unknown `milestone`, bad `status`, unsupported YAML, `config.yml`'s `roots:` shape (list of non-empty relative-path strings — reachability is a runtime concern, not lint, see [Multi-root](#multi-root-pt-3-2026-08-21)). |
+| `cairn check` | Lint: id/filename mismatch, dangling `parent`, unknown `milestone`, bad `status`, milestone id-shape ↔ `kind` agreement (see [Milestone ids](#milestone-ids--definition-vs-development)), unsupported YAML, `config.yml`'s `roots:` shape (list of non-empty relative-path strings — reachability is a runtime concern, not lint, see [Multi-root](#multi-root-pt-3-2026-08-21)). |
 | `cairn serve [--repos a,b]` | The board. `--repos` (PT-3) replaces `config.yml`'s `roots:` for that invocation — read-only cross-project aggregation, see [Multi-root](#multi-root-pt-3-2026-08-21). |
 
 **Ruled 2026-08-19: the CLI is legitimate under "agents never need a server."** The constraint is read as *no MCP, no HTTP, no JSON payloads in context*; a local script that prints one line satisfies it, and atomic ID allocation cannot be done safely any other way.
@@ -530,5 +570,6 @@ Every question this spec opened has been ruled. Each resolution is folded into t
 | 6 | Does the CLI violate "agents never need a server"? | **No — the CLI stands as specified.** The constraint reads as no-MCP / no-HTTP / no-JSON-in-context, which a one-line-printing local script satisfies. | [CLI](#cli) |
 | 7 | Should the board write back acceptance-criteria checkboxes? | **Deferred.** Phase 1 keeps zero body-touching write paths (comment append excepted — tail-only). If ever built, it would be the first middle-of-file rewrite and needs its own design. | [Candidate follow-ups](#candidate-follow-ups-designed-for-not-committed) |
 | 8 | Should `config.yml` carry a `data_dir` key so a project can relocate the tracker to a top-level `cairn/`? | **No — affordance removed (2026-08-20, during stage-2 conformance review).** The key is circular: `config.yml` lives inside the directory it would declare. v1 fixes the layout at `process/cairn/`, and a **loud-error contract** replaces it — an unresolvable data dir is an error, never an empty result. | [Directory layout](#directory-layout) · [`config.yml`](#configyml) |
+| 9 | With definition milestones moving to letter ids, do repos already seeded with `M0`/`M1` + `kind: process` get a grandfather clause? | **No clause (2026-08-21, PT-27).** `check_repo` errors on the old shape and the error string carries the migration. A permanent exception would mean "`M0` might be a definition milestone" forever — the exact ambiguity the convention deletes — and this template's own tracker has no `kind: process` milestone, so the clause would have zero users where the lint runs. | [Milestone ids](#milestone-ids--definition-vs-development) |
 
-Rows 1–7 were ruled 2026-08-19 at design time; row 8 was ruled 2026-08-20, when building the engine surfaced a question the spec had answered wrongly. Nothing in this spec is pending a decision.
+Rows 1–7 were ruled 2026-08-19 at design time; row 8 was ruled 2026-08-20, when building the engine surfaced a question the spec had answered wrongly; row 9 was ruled 2026-08-21, when the milestone-naming convention split definition from development. Nothing in this spec is pending a decision.

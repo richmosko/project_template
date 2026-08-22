@@ -19,7 +19,7 @@ function board() {
       { id: "0.5", name: "polish", repo: "PT" },
       { id: "0.5", name: "sibling-polish", repo: "SB" },
       { id: "0.4", name: "hardening", repo: "PT" },
-      { id: "M0", name: "", repo: "PT" }, // explicit empty name -- fallback case
+      { id: "A", name: "", repo: "PT" }, // explicit empty name -- fallback case
     ],
   };
 }
@@ -35,7 +35,7 @@ test("PT-3 regression: a same-id milestone in another repo never leaks through",
 });
 
 test("falls back to the bare id when the repo-scoped milestone has no name", () => {
-  assert.equal(CairnLogic.milestoneLabel(board(), "M0", "PT"), "M0");
+  assert.equal(CairnLogic.milestoneLabel(board(), "A", "PT"), "A");
 });
 
 test("falls back to the bare id when no milestone matches at all (dangling ref)", () => {
