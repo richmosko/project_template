@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-29-board-rollup` |
 | Started | 2026-08-22 |
 | Goal | Board loads with milestones collapsed, legible ▼/▶ disclosure, and majors/milestones as containing cards issue cards sit inside |
-| Status | In Progress |
+| Status | In Review — [PR #72](https://github.com/richmosko/project_template/pull/72), QA sign-off GREEN @ a96a15e |
 
 ## Releases
 
