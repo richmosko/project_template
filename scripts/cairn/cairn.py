@@ -2034,12 +2034,40 @@ def _coerce_cli_value(key: str, value: str) -> Any:
     return value
 
 
+def _normalize_milestone_input(value: Optional[str], prefix: str) -> Optional[str]:
+    """PT-28 (architect's ruling § 3, item 2). Accepts the BARE form on any
+    CLI input that carries a milestone value -- `cairn ls --milestone 0.6`,
+    `cairn new --milestone 0.6`, `cairn set <id> milestone=0.6` -- and
+    normalizes to the configured prefix, since the prefix is fixed per repo
+    and typing it on every local invocation is pure friction where it adds
+    nothing. An already-prefixed value passes through unchanged (idempotent
+    -- typing the full form still works). Falsy (`None`/`""`) passes through
+    unchanged too -- "no milestone" / "clear this field" is not "a bare
+    value", and must keep coercing to `null`, not `"PT-"`.
+    This is CLI input leniency only, distinct from the lint (files must
+    still be prefixed) -- see check_repo's id-shape enforcement.
+
+    PT-28 Validate-phase finding (QA, adf1cce): originally wired into
+    cmd_ls's read-path filter ONLY. cmd_new/cmd_set's write paths wrote
+    the bare value straight to disk, succeeding (exit 0) while leaving
+    the repo lint-failing with a dangling milestone: ref -- worse than no
+    leniency at all, since the failure surfaced later at `cairn check`
+    time, disconnected from the command that caused it. All three call
+    sites route through this one function now, so they can't drift out
+    of agreement the way the pre-fix two-out-of-three state did.
+    """
+    if not value or value.startswith(f"{prefix}-"):
+        return value
+    return f"{prefix}-{value}"
+
+
 def cmd_new(args: argparse.Namespace) -> int:
     data_dir = resolve_data_dir(args)
+    prefix = load_config(data_dir)["prefix"]
     fields = {
         "title": args.title,
         "status": args.status,
-        "milestone": args.milestone,
+        "milestone": _normalize_milestone_input(args.milestone, prefix),
         "parent": args.parent,
         "blocked_by": _split_csv(args.blocked_by) if args.blocked_by else [],
         "assignee": args.assignee,
@@ -2053,24 +2081,9 @@ def cmd_new(args: argparse.Namespace) -> int:
     return 0
 
 
-def _normalize_milestone_filter(value: Optional[str], prefix: str) -> Optional[str]:
-    """PT-28 (architect's ruling § 3, item 2): `cairn ls --milestone` accepts
-    the BARE form on input and compares against the always-prefixed on-disk
-    value -- `cairn ls --milestone 0.6` keeps working, normalized to
-    `PT-0.6`, since the prefix is fixed per repo and typing it on every
-    local invocation is pure friction where it adds nothing. An
-    already-prefixed value passes through unchanged (idempotent -- typing
-    the full form still works). This is CLI input leniency only, distinct
-    from the lint (files must still be prefixed).
-    """
-    if not value or value.startswith(f"{prefix}-"):
-        return value
-    return f"{prefix}-{value}"
-
-
 def cmd_ls(args: argparse.Namespace) -> int:
     data_dir = resolve_data_dir(args)
-    milestone_filter = _normalize_milestone_filter(args.milestone, load_config(data_dir)["prefix"])
+    milestone_filter = _normalize_milestone_input(args.milestone, load_config(data_dir)["prefix"])
     matched: List[Dict[str, Any]] = []
     for p in _dir_glob(Path(data_dir) / "issues"):
         try:
@@ -2103,6 +2116,7 @@ def cmd_set(args: argparse.Namespace) -> int:
     if path is None:
         print(f"error: no such issue: {args.id}", file=sys.stderr)
         return 1
+    prefix = load_config(data_dir)["prefix"]
     patch: Dict[str, Any] = {}
     for kv in args.assignments:
         if "=" not in kv:
@@ -2112,7 +2126,15 @@ def cmd_set(args: argparse.Namespace) -> int:
         if key not in ISSUE_FIELD_ORDER:
             print(f"error: unknown field {key!r}", file=sys.stderr)
             return 1
-        patch[key] = _coerce_cli_value(key, value)
+        coerced = _coerce_cli_value(key, value)
+        # PT-28 (Validate-phase fix): `milestone=0.6` must normalize the
+        # same way `cairn ls --milestone 0.6` does -- _coerce_cli_value
+        # already turned "" / "null" into None (clear the field), which
+        # _normalize_milestone_input passes through unchanged (falsy is
+        # not "a bare value").
+        if key == "milestone" and coerced is not None:
+            coerced = _normalize_milestone_input(coerced, prefix)
+        patch[key] = coerced
     try:
         apply_patch(path, patch)
     except CairnError as e:
