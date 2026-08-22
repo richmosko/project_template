@@ -526,6 +526,97 @@ var CairnLogic = (function () {
     return { total: list.length, byStatus: byStatus };
   }
 
+  // PT-30 (architect's ruling § 5): schema constants, exported so tests
+  // assert the exact values the code uses rather than a copy of them.
+  var VIEW_STATE_VERSION = 1;
+  var VIEW_STATE_MAX_LANES = 500;
+
+  // PT-30 (architect's ruling § 1/5): the localStorage key, namespaced by
+  // the primary root id (§0's ruling: localStorage is scoped to ORIGIN,
+  // not to project -- every board on the same port shares one bucket
+  // without this). Deliberately does NOT guard a null primaryId -- yields
+  // "cairn.board.expandedLanes.null", matching laneStateKey's documented
+  // non-guarding convention rather than inventing a third one for absent
+  // repo ids (ruling's noted tension: unlike laneStateKey's key, this
+  // string IS user-visible in devtools -- consistency with the
+  // neighbouring key builder wins anyway; revisit both together if ever
+  // revisited).
+  function viewStateKey(primaryId) {
+    return "cairn.board.expandedLanes." + primaryId;
+  }
+
+  // PT-30 (architect's ruling § 1): serialize state.expandedLanes to the
+  // v1 JSON shape -- an ARRAY of expanded keys, not the map. The map's
+  // values are always `true` (PT-29's invariant: absence is the only
+  // encoding of "closed"); serializing the map as an object would persist
+  // a redundant value and reopen the door to a stored `false` coming back
+  // from disk on the next load -- the exact second-encoding hazard PT-29
+  // closed structurally. Own+truthy keys only -- the last line of defense
+  // against ever writing that second encoding, not a blind trust of the
+  // in-memory invariant. Sorted ascending so two sessions holding the same
+  // set produce a byte-identical blob regardless of click order.
+  function serializeExpandedLanes(map) {
+    var lanes = [];
+    for (var key in map) {
+      if (Object.prototype.hasOwnProperty.call(map, key) && map[key]) lanes.push(key);
+    }
+    lanes.sort();
+    return JSON.stringify({ v: VIEW_STATE_VERSION, lanes: lanes });
+  }
+
+  // PT-30 (architect's ruling § 1/2/5): parse a persisted blob back into an
+  // expandedLanes-shaped map. THE highest-value function in this feature
+  // (ruling's own words) -- it parses untrusted input that survives across
+  // versions and is the one function a hostile or merely stale blob
+  // reaches first. Its ONE contract: NEVER THROW, always return a usable
+  // (possibly empty) Object.create(null) map -- a corrupt, foreign,
+  // future/past-versioned, or oversized blob degrades to "nothing was ever
+  // expanded", never a crash.
+  //
+  // No pruning against "live" lanes (ruling § 2) -- this function has no
+  // notion of which lanes currently render; a key with no corresponding
+  // lane is carried through inert (only ever read by laneExpanded for a
+  // lane actually being rendered). Unknown `v` returns the empty map
+  // (ruling: no forward-migration attempt) -- the caller is expected to
+  // removeItem the stale-shaped key on next write. An oversized `lanes`
+  // array (over VIEW_STATE_MAX_LANES) discards the WHOLE blob as corrupt
+  // rather than truncating -- one comparison, no ordering metadata needed.
+  function parseExpandedLanes(raw) {
+    var out = Object.create(null);
+    if (typeof raw !== "string" || raw === "") return out;
+    var parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      return out;
+    }
+    if (!parsed || typeof parsed !== "object") return out;
+    if (parsed.v !== VIEW_STATE_VERSION) return out;
+    var lanes = parsed.lanes;
+    if (!Array.isArray(lanes)) return out;
+    if (lanes.length > VIEW_STATE_MAX_LANES) return out;
+    lanes.forEach(function (key) {
+      if (typeof key === "string") out[key] = true;
+    });
+    return out;
+  }
+
+  // PT-30 (architect's ruling § 4/5): the pure half of "Expand all" --
+  // unions `laneKeys` (the currently-RENDERED lane keys, per the ruling;
+  // filter-hidden lanes are simply not in this list) into `map`. Additive
+  // only: never removes a key, so a lane that's expanded but hidden by an
+  // active filter keeps its state. Same non-mutating "fresh
+  // Object.create(null) map" contract shape as nextExpandedLanes -- board.js
+  // does `state.expandedLanes = expandAllLanes(state.expandedLanes, keys)`.
+  function expandAllLanes(map, laneKeys) {
+    var next = Object.create(null);
+    for (var key in map) {
+      if (Object.prototype.hasOwnProperty.call(map, key)) next[key] = map[key];
+    }
+    (laneKeys || []).forEach(function (key) { next[key] = true; });
+    return next;
+  }
+
   return {
     primaryRootId: primaryRootId,
     milestoneLabel: milestoneLabel,
@@ -551,5 +642,11 @@ var CairnLogic = (function () {
     nextExpandedLanes: nextExpandedLanes,
     disclosureToken: disclosureToken,
     laneSummary: laneSummary,
+    VIEW_STATE_VERSION: VIEW_STATE_VERSION,
+    VIEW_STATE_MAX_LANES: VIEW_STATE_MAX_LANES,
+    viewStateKey: viewStateKey,
+    serializeExpandedLanes: serializeExpandedLanes,
+    parseExpandedLanes: parseExpandedLanes,
+    expandAllLanes: expandAllLanes,
   };
 })();
