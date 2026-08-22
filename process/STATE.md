@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-28-prefixed-ids` |
 | Started | 2026-08-22 |
 | Goal | Majors/milestones carry explicit PT-prefixed ids per architect design ruling — id shape, lint, CLI/board surfaces, migration policy |
-| Status | In Progress — design phase; stops at PR for Mosko review (not pre-approved) |
+| Status | In Review — [PR #76](https://github.com/richmosko/project_template/pull/76), QA sign-off GREEN @ 188d24d; awaiting Mosko |
 
 ## Releases
 
