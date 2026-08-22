@@ -701,9 +701,16 @@
     labelSpan.textContent = milestoneLabel(board, key, repoId);
     laneHeader.appendChild(labelSpan);
 
+    // PT-31 (architect's triage ruling, item 1): ONE laneSummary call
+    // backs both the header count and the collapsed chips, so they
+    // cannot disagree by construction -- total is the sum of byStatus
+    // (column-backed statuses only), not issues.length, since an issue
+    // whose status has no BOARD_COLUMNS entry (e.g. "cancelled") renders
+    // in no column, expanded or collapsed.
+    var summary = laneSummary(issues);
     var countSpan = document.createElement("span");
     countSpan.className = "swimlane-count";
-    countSpan.textContent = issues.length;
+    countSpan.textContent = summary.total;
     laneHeader.appendChild(countSpan);
 
     // PT-29 (architect's ruling § 1, judgment call): shown ONLY when
@@ -713,7 +720,6 @@
     // board-logic.js) -- decides whether a collapsed lane is worth
     // opening without opening it.
     if (!expanded) {
-      var summary = laneSummary(issues);
       if (summary.byStatus.length) {
         var summaryEl = document.createElement("span");
         summaryEl.className = "swimlane-summary";
@@ -778,9 +784,13 @@
     idSpan.textContent = root.id;
     header.appendChild(idSpan);
 
+    // PT-31 (architect's triage ruling, item 1): same fix as
+    // milestoneLaneEl's swimlane-count -- laneSummary(issues).total,
+    // not issues.length, so this section's count also excludes issues
+    // that render in no column (e.g. "cancelled" with Show-cancelled on).
     var countSpan = document.createElement("span");
     countSpan.className = "repo-group-count";
-    countSpan.textContent = issues.length;
+    countSpan.textContent = laneSummary(issues).total;
     header.appendChild(countSpan);
 
     section.appendChild(header);
