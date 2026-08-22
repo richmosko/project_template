@@ -126,7 +126,7 @@ Reuse `lib/session/store.py` rather than introducing a second session abstractio
 | `id` | string | ✅ | Must equal the filename stem. **The filename is authoritative**; `cairn check` errors on a mismatch. Kept in-file so a pasted or moved file is self-describing. |
 | `title` | string | ✅ | One line. No trailing period. |
 | `status` | enum | ✅ | See [Status vocabulary](#status-vocabulary). |
-| `milestone` | string \| null | ✅ | Milestone slug (`"1.0"`, `M2`, `A`). Quote numeric-looking values. `null` = unassigned. |
+| `milestone` | string \| null | ✅ | Milestone id (`PT-1.0`, `PT-M2`, `PT-A`). `null` = unassigned. |
 | `parent` | id \| null | ✅ | Sub-issue linkage. One level is expected; the parser tolerates deeper nesting but the board renders two. |
 | `blocked_by` | list[id] | — | Issues that must resolve before this one can start. **Same-root ids only.** An absent key ≡ `[]`. `cairn check` lints dangling refs, self-reference, and cycles. See [Dependencies](#dependencies). |
 | `assignee` | string \| null | ✅ | Bare agent role (`backend-lead`) matching a file in `.claude/agents/`, or `@handle` for a human. Replaces Linear's `agent:<role>` labels — attribution becomes a field, not a label. |
@@ -174,7 +174,7 @@ A fresh project bootstraps with `PT-A — Bootstrap & Research` and `PT-B — Pl
 
 **`M` and `V` are reserved.** `M<n>` means development, always, and `V<n>` is a major line — so both letters are skipped in the definition sequence (`… K`, `L`, `N` … `U`, `W` …), making "M means development" and "V means major" absolute at the cost of two letters out of 26. `V` joined `M` in 0.6.1 (PT-28), when prefixing put majors and milestones in one namespace: without it, `PT-V` (a definition milestone) sits one character from `PT-V1` (a major). The four shapes never formally collide even without the reservation, but formally-unambiguous and readable-at-a-glance are different properties, and the second one is what prefixing is for.
 
-**Prefer version-named ids for anything that tags.** `M<n>` is an ordinal carrying no version information, so a milestone that will cut a release is named for the release (`1.0` → `v1.0.0`) — that is what keeps milestone ↔ `MAJOR.MINOR` 1:1 ([WORKFLOW.md → Versioning scheme](WORKFLOW.md#versioning-scheme)). `M<n>` is for development milestones that don't tag one.
+**Prefer version-named ids for anything that tags.** `M<n>` is an ordinal carrying no version information, so a milestone that will cut a release is named for the release (`PT-1.0` → `v1.0.0`) — that is what keeps milestone ↔ `MAJOR.MINOR` 1:1 ([WORKFLOW.md → Versioning scheme](WORKFLOW.md#versioning-scheme)). `M<n>` is for development milestones that don't tag one.
 
 **Subdivision** works the same in both flavours: append one lowercase letter — `PT-Aa` / `PT-Ab`, `PT-M0a` / `PT-M0b`. Each subdivision is its own file.
 
