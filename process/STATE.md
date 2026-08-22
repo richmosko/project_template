@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Board server: /api/board 503 under concurrent fetch+SSE |
-| Issue | PT-34 |
+| Feature | Board polish bundle (closes PT-0.6.1) |
+| Issue | PT-31 |
 | Milestone | PT-0.6.1 |
-| Branch | `feature/pt-34-board-503-race` |
+| Branch | `feature/pt-31-board-polish` |
 | Started | 2026-08-22 |
-| Goal | Reproduce and fix the single-threaded fetch/SSE race server-side; regression coverage; client behavior unchanged |
-| Status | In Progress — pre-approved through /merge-pr (Mosko); PT-31 next under same order |
+| Goal | Cancelled-chip sum, header flex-wrap, aria-controls, helpers self-tests, PT-32 residue, un-migrated-roots display — last open 0.6.1 issue |
+| Status | In Progress — pre-approved through /merge-pr (Mosko); milestone flip + v0.6.1 tag prompt at merge |
 
 ## Releases
 
