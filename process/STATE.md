@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Board: default milestone roll-up, triangle disclosure tokens, containment cards |
+| Issue | PT-29 |
+| Milestone | 0.6.1 |
+| Branch | `feature/pt-29-board-rollup` |
+| Started | 2026-08-22 |
+| Goal | Board loads with milestones collapsed, legible ▼/▶ disclosure, and majors/milestones as containing cards issue cards sit inside |
+| Status | In Progress |
 
 ## Releases
 
