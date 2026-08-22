@@ -24,7 +24,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-27-letter-milestone-convention` |
 | Started | 2026-08-21 |
 | Goal | Definition milestones (PRD/Research, ARCH+SEC/Plan) use letter ids A/B/C; M0+ reserved for development milestones — encoded in TRACKER.md, setup-tracker, and a check_repo lint. |
-| Status | In Progress |
+| Status | In Review — PR [#61](https://github.com/richmosko/project_template/pull/61) |
 
 ## Session Cycles
 
