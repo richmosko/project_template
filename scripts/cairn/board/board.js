@@ -54,6 +54,16 @@
   var serializeExpandedLanes = CairnLogic.serializeExpandedLanes;
   var parseExpandedLanes = CairnLogic.parseExpandedLanes;
   var expandAllLanes = CairnLogic.expandAllLanes;
+  // PT-32: the pull-down-to-refresh gesture's pure, input-agnostic half --
+  // board.js supplies the touch listeners, the `passive: false`
+  // registration, and the #pull-indicator DOM; every decision (arming,
+  // resistance/cap math, copy, cancel predicate) lives in board-logic.js.
+  var PULL_THRESHOLD = CairnLogic.PULL_THRESHOLD;
+  var PULL_MIN_SPINNER_MS = CairnLogic.PULL_MIN_SPINNER_MS;
+  var pullPhase = CairnLogic.pullPhase;
+  var pullIndicatorOffset = CairnLogic.pullIndicatorOffset;
+  var pullIndicatorLabel = CairnLogic.pullIndicatorLabel;
+  var shouldCancelPull = CairnLogic.shouldCancelPull;
 
   var STATUS_LABELS = {
     "backlog": "Backlog",
@@ -143,6 +153,16 @@
     // parallel reconstruction of the grouping rules (the "universe
     // builder" duplication the ruling warns against in § 2).
     renderedLaneKeys: [],
+    // PT-32 (architect's ruling § 2): cancel-condition inputs for
+    // shouldCancelPull (board-logic.js). cardDragActive is set/cleared at
+    // cardEl's dragstart/dragend, the same two call sites that already
+    // toggle the .dragging class -- one fact, not a DOM query inferring
+    // it later. pullRefreshing gates re-entrancy (no stacking repeated
+    // pulls while one is already in flight) and also drives the
+    // indicator's "refreshing" phase, which pullPhase itself can never
+    // return (it's async-entered -- see runPullRefresh, below).
+    cardDragActive: false,
+    pullRefreshing: false,
   };
 
   // ------------------------------------------------------------------
@@ -491,9 +511,16 @@
     card.dataset.id = issue.id;
     card.addEventListener("dragstart", function (e) {
       card.classList.add("dragging");
+      // PT-32 (architect's ruling § 2, cancel condition 2): a flag set at
+      // the SAME two call sites that already toggle .dragging, not
+      // inferred later by querying the DOM for it -- one fact, not two.
+      state.cardDragActive = true;
       e.dataTransfer.setData("text/plain", issue.id);
     });
-    card.addEventListener("dragend", function () { card.classList.remove("dragging"); });
+    card.addEventListener("dragend", function () {
+      card.classList.remove("dragging");
+      state.cardDragActive = false;
+    });
     card.addEventListener("click", function () { openDrawer(issue.id); });
 
     var idEl = document.createElement("div");
@@ -1327,10 +1354,185 @@
     if (isListView) renderList(); else renderKanban();
   }
 
+  // PT-32 (architect's ruling § 4): resolves to a BOOLEAN -- true when new
+  // data was applied, false on a 304 (apiGetBoard's `data` is null) or a
+  // network error. Every existing caller (the poll timer, SSE's onmessage,
+  // visibilitychange/focus, the comment/patch flows above) already ignores
+  // the return value, so this changes no existing behaviour. Added so the
+  // pull-refresh path (below) can distinguish "refetched and something
+  // changed" from "refetched and nothing did" -- reusing THIS function
+  // rather than giving the pull path its own apiGetBoard() call, which
+  // would duplicate the refresh logic and let the two copies drift.
   function refreshBoardSilently() {
     return apiGetBoard().then(function (data) {
-      if (data) { state.board = data; render(); }
-    }).catch(function () {});
+      if (data) { state.board = data; render(); return true; }
+      return false;
+    }).catch(function () { return false; });
+  }
+
+  // ------------------------------------------------------------------
+  // PT-32: pull-down-to-refresh gesture (touch only -- see board-logic.js's
+  // pullPhase comment and the architect's ruling § 1 for why trackpad
+  // `wheel` overscroll is deliberately NOT handled here; PT-33 is the
+  // deferred follow-up). The board scrolls the DOCUMENT, not a nested
+  // container (ground truth established in the ruling: nothing in
+  // board.css sets overflow-y, and header.app-header is itself
+  // position: sticky) -- "at scroll top" is window.scrollY === 0, and
+  // listeners are registered on `document`, not any particular element.
+  //
+  // Gesture-tracking state lives in closure-local vars, not `state` --
+  // it's per-touch-sequence bookkeeping with no meaning outside an
+  // in-flight gesture, unlike state.cardDragActive/state.pullRefreshing
+  // (declared with `state`) which shouldCancelPull and rendering both
+  // need to read from outside this closure.
+  // ------------------------------------------------------------------
+
+  var pullStartY = null; // null = no gesture currently being tracked
+  var pullStartX = null;
+  var pullAtScrollTop = false;
+  var pullAxisDecided = false;
+  var pullHorizontalDominant = false;
+  var pullLastDeltaY = 0;
+  var pullLastPhase = "idle";
+
+  function pullCancelFlags(multiTouch) {
+    // PT-32 (architect's ruling § 2): board.js's job is computing every
+    // cancel flag and handing the union to shouldCancelPull (board-logic.js)
+    // -- never re-deriving a subset of the predicate here.
+    return shouldCancelPull({
+      cardDragActive: state.cardDragActive,
+      drawerOpen: state.openIssueId !== null,
+      multiTouch: multiTouch,
+      horizontalDominant: pullHorizontalDominant,
+      refreshing: state.pullRefreshing,
+    });
+  }
+
+  function updatePullIndicator(phase, deltaY) {
+    var el = document.getElementById("pull-indicator");
+    if (!el) return; // PT-32 (ruling § 5): bail early if the indicator isn't in the DOM
+    if (phase === "idle") {
+      el.hidden = true;
+      el.style.transform = "";
+      return;
+    }
+    el.hidden = false;
+    el.textContent = pullIndicatorLabel(phase);
+    el.style.transform = "translateY(" + pullIndicatorOffset(deltaY) + "px)";
+  }
+
+  function resetPullGesture() {
+    pullStartY = null;
+    pullStartX = null;
+    pullAxisDecided = false;
+    pullHorizontalDominant = false;
+  }
+
+  function onPullTouchStart(e) {
+    if (pullStartY !== null) {
+      // A second finger touching down mid-gesture -- cancel immediately
+      // rather than waiting for the next touchmove to notice (§2, cancel
+      // condition 4: pinch-zoom is not a pull).
+      if (e.touches.length > 1) {
+        resetPullGesture();
+        updatePullIndicator("idle", 0);
+      }
+      return;
+    }
+    if (e.touches.length !== 1) return; // starting with >1 touch: never begin tracking
+    pullStartY = e.touches[0].clientY;
+    pullStartX = e.touches[0].clientX;
+    // PT-32 (ruling § 2, cancel condition 1): checked ONCE, at gesture
+    // start, not continuously -- this is what lets normal mid-list
+    // scrolling proceed untouched once it's under way.
+    pullAtScrollTop = window.scrollY === 0;
+    pullAxisDecided = false;
+    pullHorizontalDominant = false;
+    pullLastDeltaY = 0;
+    pullLastPhase = "idle";
+  }
+
+  function onPullTouchMove(e) {
+    if (pullStartY === null) return;
+    var touch = e.touches[0];
+    if (!touch) return;
+    var deltaY = touch.clientY - pullStartY;
+    var deltaX = touch.clientX - pullStartX;
+
+    // PT-32 (ruling § 2, cancel condition 5): decided ONCE, on the first
+    // move past a tiny noise threshold, and held for the rest of the
+    // gesture -- a swipe that starts vertical and drifts horizontal later
+    // (or vice versa) doesn't flip allegiance mid-gesture.
+    if (!pullAxisDecided && (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4)) {
+      pullAxisDecided = true;
+      pullHorizontalDominant = Math.abs(deltaX) > Math.abs(deltaY);
+    }
+
+    var cancelled = pullCancelFlags(e.touches.length > 1);
+    var phase = pullPhase({ atScrollTop: pullAtScrollTop, deltaY: deltaY, cancelled: cancelled });
+    pullLastDeltaY = deltaY;
+    pullLastPhase = phase;
+
+    // PT-32 (ruling § 3): preventDefault ONLY while pulling/armed --
+    // registered non-passive (see wirePullToRefresh) so this call has any
+    // effect at all. Calling it unconditionally would break normal
+    // scrolling; never calling it lets the native bounce fight the
+    // indicator.
+    if (phase === "pulling" || phase === "armed") e.preventDefault();
+    updatePullIndicator(phase, deltaY);
+  }
+
+  function onPullTouchEnd() {
+    if (pullStartY === null) return;
+    var phase = pullLastPhase;
+    var deltaYAtRelease = pullLastDeltaY;
+    resetPullGesture();
+    if (phase === "armed") {
+      runPullRefresh(deltaYAtRelease);
+    } else {
+      updatePullIndicator("idle", 0);
+    }
+  }
+
+  function onPullTouchCancel() {
+    resetPullGesture();
+    updatePullIndicator("idle", 0);
+  }
+
+  // PT-32 (ruling § 4): reuses refreshBoardSilently -- the same ETag-
+  // conditional GET the poll fallback uses, satisfying AC1's "same path...
+  // no full page reload" with zero new network code. Promise.all with a
+  // PULL_MIN_SPINNER_MS floor so an instant localhost round trip doesn't
+  // flash the spinner; the boolean result drives which toast fires --
+  // "Board updated" when refreshBoardSilently applied new data, "Already
+  // up to date" on a 304 (the common case in live mode, ruling § 6 -- this
+  // toast is what turns that silent no-op into the confirmation the user
+  // was asking for).
+  function runPullRefresh(deltaYAtRelease) {
+    state.pullRefreshing = true;
+    updatePullIndicator("refreshing", deltaYAtRelease);
+    var minDelay = new Promise(function (resolve) { setTimeout(resolve, PULL_MIN_SPINNER_MS); });
+    Promise.all([refreshBoardSilently(), minDelay]).then(function (results) {
+      var changed = results[0];
+      state.pullRefreshing = false;
+      updatePullIndicator("idle", 0);
+      showToast(changed ? "Board updated" : "Already up to date");
+    });
+  }
+
+  // PT-32 (ruling § 5): NO feature detection -- attach unconditionally.
+  // On a device that never produces touch events, none of these listeners
+  // ever fire, which is exactly AC4's "degrades to nothing"; an
+  // "ontouchstart" in window branch would be one more thing that can be
+  // wrong for zero benefit. touchmove is the only listener registered
+  // { passive: false } (ruling § 3) -- it's the only one that ever calls
+  // preventDefault.
+  function wirePullToRefresh() {
+    if (!document.getElementById("pull-indicator")) return; // bail early, ruling § 5
+    document.addEventListener("touchstart", onPullTouchStart, { passive: true });
+    document.addEventListener("touchmove", onPullTouchMove, { passive: false });
+    document.addEventListener("touchend", onPullTouchEnd, { passive: true });
+    document.addEventListener("touchcancel", onPullTouchCancel, { passive: true });
   }
 
   // ------------------------------------------------------------------
@@ -1488,6 +1690,7 @@
   function init() {
     wireFilters();
     wireNewIssueForm();
+    wirePullToRefresh();
     apiGetBoard().then(function (data) {
       state.board = data;
       // PT-30: the ONE call site on the board-load path -- restoreViewStateOnce

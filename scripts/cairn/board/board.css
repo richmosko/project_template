@@ -25,6 +25,35 @@ body {
   background: var(--bg);
   color: var(--text);
   font-size: 14px;
+  /* PT-32 (architect's ruling § 3): LOAD-BEARING, not polish. Chrome on
+     Android ships its own native pull-to-refresh that reloads the WHOLE
+     PAGE -- exactly what PT-32's AC1 forbids. Without this, a pull on
+     Android Chrome can trigger both the browser's gesture and ours;
+     `contain` stops the vertical overscroll from chaining past this
+     element to that native handler. */
+  overscroll-behavior-y: contain;
+}
+
+/* PT-32: the pull-down-to-refresh indicator. `position: fixed; top: 0` +
+   `z-index: 9` (one below header.app-header's sticky z-index 10, below) so
+   it sits BEHIND the header at rest and only becomes visible, emerging
+   from underneath it, as board.js's updatePullIndicator increases the
+   translateY offset during an active pull (architect's ruling § 4).
+   Hidden entirely in the "idle" phase via the `hidden` attribute. */
+.pull-indicator {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9;
+  text-align: center;
+  padding: 10px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  transition: transform 0.15s ease;
 }
 
 header.app-header {
