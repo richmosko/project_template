@@ -332,6 +332,7 @@ main {
 .chip.milestone { background: #e3fcef; color: #006644; }
 .chip.subissues { background: #fffae6; color: #974f0c; }
 .chip.repo { background: #eae6ff; color: #403294; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.chip.blocked { background: #ffebe6; color: #bf2600; }
 
 .column.drop-target {
   outline: 2px dashed var(--accent);
@@ -581,6 +582,11 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
 .children-list li {
   font-size: 13px;
   padding: 3px 0;
+}
+
+.children-list li.resolved {
+  color: var(--text-dim);
+  text-decoration: line-through;
 }
 
 /* Toast */
