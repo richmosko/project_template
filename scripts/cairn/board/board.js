@@ -252,7 +252,21 @@
   // this -- it never mutates state itself.
   function persistExpandedLanes() {
     if (!state.board) return;
-    writeViewState(viewStateKey(primaryRootId(state.board)), serializeExpandedLanes(state.expandedLanes));
+    var key = viewStateKey(primaryRootId(state.board));
+    // PT-30 (empty-state invariant, ruled in during diff review @ ef5ae9f):
+    // clearViewState, not writeViewState("...lanes\":[]}"), when the map is
+    // empty -- collapsing the very last expanded lane one at a time
+    // (as opposed to the Collapse-all button, which already removeItem's)
+    // would otherwise leave an empty-lanes blob on disk. Without this, "the
+    // storage key exists" stops meaning "at least one lane is expanded" --
+    // exactly the two-encodings-of-the-same-state hazard PT-29's
+    // absence-means-collapsed invariant exists to prevent, one layer down
+    // at the persistence boundary instead of the in-memory map.
+    if (Object.keys(state.expandedLanes).length === 0) {
+      clearViewState(key);
+      return;
+    }
+    writeViewState(key, serializeExpandedLanes(state.expandedLanes));
   }
 
   // Fires exactly once, from the board-load path (init's first
@@ -262,10 +276,19 @@
   // ruling § 2). parseExpandedLanes never throws and degrades a corrupt/
   // foreign/oversized blob to the empty map on its own, so there is
   // nothing else to guard here.
+  //
+  // PT-30 (restore-flag ordering, ruled in during diff review @ ef5ae9f):
+  // state.viewStateRestored is set AFTER the `!state.board` guard, not
+  // before it -- setting it first was only accidentally safe (it happened
+  // to work because apiGetBoard's resolution always assigns state.board
+  // before calling this), not structurally guaranteed by this function's
+  // own body. A null/falsy first payload would otherwise mark the restore
+  // as "done" without ever having attempted it, permanently skipping a
+  // legitimate later restore.
   function restoreViewStateOnce() {
     if (state.viewStateRestored) return;
-    state.viewStateRestored = true;
     if (!state.board) return;
+    state.viewStateRestored = true;
     var raw = readViewState(viewStateKey(primaryRootId(state.board)));
     state.expandedLanes = parseExpandedLanes(raw);
   }
@@ -398,14 +421,20 @@
       if (state.filters.repo) { state.filters.repo = ""; repoFilterEl.value = ""; }
     }
 
-    // PT-30 (architect's ruling § 4): hidden, not disabled, when Swimlanes
-    // is off -- no lanes exist for either button to act on. `filter-repo`
-    // above already establishes the toggle-the-hidden-attribute precedent
-    // in this same function.
+    // PT-30 (architect's ruling § 4; gap found in diff review @ ef5ae9f):
+    // hidden, not disabled, when Swimlanes is off OR in list view -- no
+    // lanes exist for either button to act on in either case. `/` and
+    // `/list` serve the same board.html, and renderHeader runs in both, so
+    // without the isListView guard both buttons showed on the list screen,
+    // where state.renderedLaneKeys is permanently empty: Expand-all would
+    // silently no-op, but Collapse-all would still destructively clear the
+    // persisted view state from a screen with no lanes to show for it.
+    // `filter-repo` above already establishes the toggle-the-hidden-
+    // attribute precedent in this same function.
     var expandAllBtn = document.getElementById("expand-all-btn");
     var collapseAllBtn = document.getElementById("collapse-all-btn");
-    expandAllBtn.hidden = !state.swimlanesOn;
-    collapseAllBtn.hidden = !state.swimlanesOn;
+    expandAllBtn.hidden = isListView || !state.swimlanesOn;
+    collapseAllBtn.hidden = isListView || !state.swimlanesOn;
 
     // PT-3 (team-lead ruling, NON-NEGOTIABLE -- data integrity, not
     // cosmetics): creation always writes to the PRIMARY root only, so
