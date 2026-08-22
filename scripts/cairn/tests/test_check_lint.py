@@ -523,24 +523,39 @@ class CheckRepoIdShapeKindTests(unittest.TestCase):
         self.assertEqual(errors, [], errors)
 
     def test_process_kind_on_development_shaped_id_is_flagged(self):
-        for milestone_id in ("M0", "1.0"):
+        # PT-28 QA fix (Validate-phase finding on c2c896f): the original
+        # bare ids ("M0", "1.0") no longer reach error 1 at all -- a bare
+        # id fails the id-shape lint FIRST (no prefix), landing in error 3
+        # ("unrecognised milestone id"), whose boilerplate text happens to
+        # contain the word "process" too ("...for kind: process, or...").
+        # The loose `any("process" in e.lower())` check therefore passed
+        # for the WRONG reason -- verified empirically: a bare "M0" milestone
+        # produces ONLY the unrecognised-id message, never the kind-mismatch
+        # one. Must use a PROPERLY PREFIXED, correctly-shaped id (PT-M0,
+        # PT-1.0) to actually reach the id-shape<->kind mismatch branch, and
+        # the assertion is tightened to the mismatch message's distinguishing
+        # phrase ("but kind is") so it can't silently degrade to matching
+        # error 3's boilerplate again.
+        for milestone_id in ("PT-M0", "PT-1.0"):
             with self.subTest(id=milestone_id):
                 data_dir = make_tree(self)
-                write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind="process", major="V1")
+                write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind="process", major="PT-V1")
                 errors = cairn.check_repo(data_dir)
                 matching = _errors_for(errors, milestone_id)
                 self.assertTrue(matching, errors)
-                self.assertTrue(any("process" in e.lower() for e in matching), errors)
+                self.assertTrue(any("but kind is" in e.lower() and "process" in e.lower() for e in matching), errors)
 
     def test_product_kind_on_definition_shaped_id_is_flagged(self):
-        for milestone_id in ("A", "Aa"):
+        # Same PT-28 QA fix as the sibling test above -- prefixed ids and a
+        # tightened, mismatch-specific assertion.
+        for milestone_id in ("PT-A", "PT-Aa"):
             with self.subTest(id=milestone_id):
                 data_dir = make_tree(self)
-                write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind="product", major="V1")
+                write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind="product", major="PT-V1")
                 errors = cairn.check_repo(data_dir)
                 matching = _errors_for(errors, milestone_id)
                 self.assertTrue(matching, errors)
-                self.assertTrue(any("product" in e.lower() for e in matching), errors)
+                self.assertTrue(any("but kind is" in e.lower() and "product" in e.lower() for e in matching), errors)
 
     def test_m_reservation_m_and_ma_are_unrecognised_not_definition_shaped(self):
         # `M` is reserved out of the definition alphabet -- `M` and `Ma` must
@@ -841,8 +856,16 @@ class CheckCliTests(unittest.TestCase):
         # PT-27 error 1: a development-shaped id (M<n> or version) with
         # kind: process must fail cairn check with the id and the
         # conflicting kind named.
+        #
+        # PT-28 QA fix (Validate-phase finding on c2c896f): a bare "M0" no
+        # longer reaches error 1 at all -- it fails the id-shape lint FIRST
+        # (no prefix) and lands in error 3 ("unrecognised milestone id"),
+        # whose boilerplate text happens to also contain "process"
+        # ("...for kind: process, or..."), so the old loose assertIn checks
+        # passed for the wrong reason. Prefixed + tightened to "but kind is"
+        # the same way the CheckRepoIdShapeKindTests sibling was.
         data_dir = make_tree(self)
-        write_milestone(data_dir, "M0.md", id="M0", kind="process", major="V1")
+        write_milestone(data_dir, "PT-M0.md", id="PT-M0", kind="process", major="PT-V1")
         result = subprocess.run(
             [str(helpers.CAIRN_BIN), "check", "--data-dir", str(data_dir)],
             capture_output=True,
@@ -850,7 +873,8 @@ class CheckCliTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         combined = result.stdout + result.stderr
-        self.assertIn("M0", combined)
+        self.assertIn("PT-M0", combined)
+        self.assertIn("but kind is", combined.lower())
         self.assertIn("process", combined.lower())
 
     def test_unrecognised_milestone_id_shape_exits_nonzero_with_pointed_message(self):

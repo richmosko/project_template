@@ -185,6 +185,41 @@ class MigrationCorrectnessTests(unittest.TestCase):
         fm3, _ = cairn.parse_frontmatter((data_dir / "issues" / "PT-3.md").read_text(encoding="utf-8"))
         self.assertIsNone(fm3["milestone"])
 
+    def test_archived_issues_milestone_ref_is_also_rewritten(self):
+        # QA gap, added at Validate time (c2c896f): my original reds never
+        # exercised archive/ at all -- implementation-lead found this
+        # dogfooding the migration against this repo's own real tracker
+        # data (an archived issue with a bare milestone: ref). check_repo's
+        # known_ids/parsed_issues loop reads BOTH issues/ and archive/
+        # identically, so an archived issue left un-rewritten would dangle
+        # the moment its milestone file is renamed -- a repo with any
+        # archived history could then never reach a clean post-migration
+        # state. This test is the regression guard that gap was missing.
+        data_dir = make_bare_repo(self)
+        (data_dir / "archive" / "PT-9.md").write_text(
+            '---\nid: PT-9\ntitle: Long done\nstatus: done\nmilestone: "1.0"\nparent: null\n'
+            "assignee: null\nlabels: []\npriority: null\npr: null\n"
+            "created: 2026-08-01\nupdated: 2026-08-01\n---\n\nBody.\n",
+            encoding="utf-8",
+        )
+        result = run_cairn(["migrate", "prefix-ids", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        fm, _ = cairn.parse_frontmatter((data_dir / "archive" / "PT-9.md").read_text(encoding="utf-8"))
+        self.assertEqual(fm["milestone"], "PT-1.0")
+        self.assertEqual(cairn.check_repo(data_dir), [])
+
+    def test_archived_issue_with_null_milestone_survives_untouched(self):
+        data_dir = make_bare_repo(self)
+        (data_dir / "archive" / "PT-9.md").write_text(
+            "---\nid: PT-9\ntitle: Long done, never milestoned\nstatus: done\nmilestone: null\nparent: null\n"
+            "assignee: null\nlabels: []\npriority: null\npr: null\n"
+            "created: 2026-08-01\nupdated: 2026-08-01\n---\n\nBody.\n",
+            encoding="utf-8",
+        )
+        run_cairn(["migrate", "prefix-ids", "--data-dir", str(data_dir)])
+        fm, _ = cairn.parse_frontmatter((data_dir / "archive" / "PT-9.md").read_text(encoding="utf-8"))
+        self.assertIsNone(fm["milestone"])
+
     def test_filename_equals_id_invariant_holds_after_migration(self):
         data_dir = make_bare_repo(self)
         run_cairn(["migrate", "prefix-ids", "--data-dir", str(data_dir)])
