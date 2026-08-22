@@ -568,8 +568,19 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
   font-weight: 600;
 }
 
-.pr-link, .file-link {
+.pr-link, .file-link, .parent-link {
   font-size: 12px;
+}
+
+.children-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.children-list li {
+  font-size: 13px;
+  padding: 3px 0;
 }
 
 /* Toast */

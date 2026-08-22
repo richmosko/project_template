@@ -31,6 +31,8 @@
   var laneStateKey = CairnLogic.laneStateKey;
   var uniqueSorted = CairnLogic.uniqueSorted;
   var groupByMilestone = CairnLogic.groupByMilestone;
+  var childProgress = CairnLogic.childProgress;
+  var childrenOf = CairnLogic.childrenOf;
 
   var STATUS_LABELS = {
     "backlog": "Backlog",
@@ -341,7 +343,12 @@
     if (issue.assignee) meta.appendChild(chip("assignee", issue.assignee));
     if (issue.milestone) meta.appendChild(chip("milestone", issue.milestone));
     (issue.labels || []).forEach(function (l) { meta.appendChild(chip("", l)); });
-    if (issue.sub_issue_count) meta.appendChild(chip("subissues", issue.sub_issue_count + " sub"));
+    // PT-25: the n/m child badge is computed client-side (childProgress,
+    // board-logic.js), repo-scoped from the first line -- replaces the
+    // removed server-side sub_issue_count, which was a second answer to
+    // the same question.
+    var progress = state.board ? childProgress(state.board.issues, issue) : { done: 0, total: 0 };
+    if (progress.total > 0) meta.appendChild(chip("subissues", progress.done + "/" + progress.total));
     if (issue.parent) meta.appendChild(chip("subissues", "↳ " + issue.parent));
     card.appendChild(meta);
 
@@ -809,6 +816,51 @@
     // an archived issue's archive/ location) -- no longer hardcoded here.
     fileP.textContent = "File: " + issue.path;
     drawer.appendChild(fileP);
+
+    // PT-25: a child's drawer links back to its parent.
+    if (issue.parent) {
+      var parentP = document.createElement("div");
+      parentP.className = "parent-link";
+      parentP.appendChild(document.createTextNode("Parent: "));
+      var parentLink = document.createElement("a");
+      parentLink.href = "#";
+      parentLink.textContent = issue.parent;
+      parentLink.onclick = function (e) {
+        e.preventDefault();
+        openDrawer(issue.parent);
+      };
+      parentP.appendChild(parentLink);
+      drawer.appendChild(parentP);
+    }
+
+    // PT-25: a parent's children are listed (id + title + status), each
+    // opening to the child's own drawer. Computed from the full board
+    // payload (childrenOf, board-logic.js) -- GET /api/issue/<id> (the
+    // `issue` this function receives) carries no sibling-issue list of
+    // its own, only this one issue's frontmatter + description + comments.
+    var kids = state.board ? childrenOf(state.board.issues, issue) : [];
+    if (kids.length) {
+      var childrenHeading = document.createElement("div");
+      childrenHeading.className = "section-heading";
+      childrenHeading.textContent = "Children";
+      drawer.appendChild(childrenHeading);
+      var childUl = document.createElement("ul");
+      childUl.className = "children-list";
+      kids.forEach(function (child) {
+        var li = document.createElement("li");
+        var link = document.createElement("a");
+        link.href = "#";
+        link.textContent = child.id + " — " + child.title;
+        link.onclick = function (e) {
+          e.preventDefault();
+          openDrawer(child.id);
+        };
+        li.appendChild(link);
+        li.appendChild(document.createTextNode(" (" + child.status + ")"));
+        childUl.appendChild(li);
+      });
+      drawer.appendChild(childUl);
+    }
 
     var split = splitAcceptanceCriteria(issue.description);
 
