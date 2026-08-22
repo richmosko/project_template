@@ -299,6 +299,83 @@ var CairnLogic = (function () {
     return { order: order, groups: groups };
   }
 
+  // PT-25: the shared "repo::parentId" key a child issue's `parent` field
+  // must match to belong to a given parent issue -- mirrors
+  // issueMilestoneKey's repo-scoping shape (architect's ruling #2). Repo-
+  // scoped from the FIRST line, not added after a review finding:
+  // build_board_payload's server-side child_counts (now removed) keyed
+  // off the bare parent id with no repo dimension, safe only because it
+  // ran per-root; computed client-side over the aggregated multi-root
+  // payload, an unscoped key would fuse two repos' same-id issues'
+  // children into one shared, wrong count -- the fourth instance of the
+  // isDraggable/issueMilestoneKey/groupByMilestone bare-id-across-roots
+  // defect class (all three caught late).
+  function childKeyOf(issue) {
+    return (issue.repo || "") + "::" + issue.parent;
+  }
+
+  function parentKeyOf(issue) {
+    return (issue.repo || "") + "::" + issue.id;
+  }
+
+  // Numeric-aware id sort key -- the JS twin of cairn.py's _id_sort_key
+  // (PT-2/PT-21). PT-25 names this a DRIFT PAIR (architect's ruling #4):
+  // no shared-code seam exists across Python and JS in this stack, so the
+  // same numeric-aware sort logic exists twice, by design; both sides are
+  // tested against the SAME case list (PT-2 < PT-9 < PT-10,
+  // tests/test_id_sort.py / tests/js/id-sort.test.js) so they cannot
+  // silently diverge from each other. [prefix, number, full] -- falls
+  // back to [full, -1, full] for anything that doesn't match
+  // "<prefix>-<digits>", so a malformed id still sorts (just not
+  // meaningfully) instead of throwing.
+  var ID_SORT_RE = /^(.*?)-(\d+)$/;
+  function idSortKey(id) {
+    var s = id == null ? "" : String(id);
+    var m = ID_SORT_RE.exec(s);
+    if (m) return [m[1], parseInt(m[2], 10), s];
+    return [s, -1, s];
+  }
+
+  function compareByIdSortKey(a, b) {
+    var ka = idSortKey(a.id);
+    var kb = idSortKey(b.id);
+    if (ka[0] !== kb[0]) return ka[0] < kb[0] ? -1 : 1;
+    if (ka[1] !== kb[1]) return ka[1] - kb[1];
+    return ka[2] < kb[2] ? -1 : ka[2] > kb[2] ? 1 : 0;
+  }
+
+  // The child records belonging to `issue`, unsorted -- THE single
+  // membership rule for "is this a child of that issue". childProgress
+  // counts over it, childrenOf sorts it, so the badge and the drawer
+  // list cannot disagree about which issues count (the standing
+  // duplicated-inline-expression criterion: one shared function, never
+  // two hand-maintained copies of the same predicate).
+  function childRecords(issues, issue) {
+    var key = parentKeyOf(issue);
+    return (issues || []).filter(function (i) { return childKeyOf(i) === key; });
+  }
+
+  // {done, total} among `issue`'s own children -- the board's parent-card
+  // n/m badge, computed client-side, mirroring milestoneProgress's
+  // done/total-over-a-filtered-set shape (architect's PT-25 ruling #1).
+  // /api/board already carries every issue's `parent` and `status`, so
+  // the client has everything the badge needs; the server-side
+  // sub_issue_count this replaces was a second answer to the same
+  // question and has been removed.
+  function childProgress(issues, issue) {
+    var kids = childRecords(issues, issue);
+    var done = kids.filter(function (i) { return i.status === "done"; }).length;
+    return { done: done, total: kids.length };
+  }
+
+  // `issue`'s own children (full records), sorted numerically by id
+  // (idSortKey) -- the drawer's children list. Same repo-scoped key as
+  // childProgress, so the two can never disagree on which issues count
+  // as `issue`'s children.
+  function childrenOf(issues, issue) {
+    return childRecords(issues, issue).sort(compareByIdSortKey);
+  }
+
   return {
     primaryRootId: primaryRootId,
     milestoneLabel: milestoneLabel,
@@ -313,5 +390,8 @@ var CairnLogic = (function () {
     laneStateKey: laneStateKey,
     uniqueSorted: uniqueSorted,
     groupByMilestone: groupByMilestone,
+    idSortKey: idSortKey,
+    childProgress: childProgress,
+    childrenOf: childrenOf,
   };
 })();

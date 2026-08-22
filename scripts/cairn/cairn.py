@@ -977,17 +977,18 @@ def build_board_payload(data_dir: Path) -> Dict[str, Any]:
     milestones = [_read_frontmatter_dict(p) for p in _dir_glob(data_dir / "milestones")]
 
     pairs = [(p, _read_frontmatter_dict(p)) for p in _dir_glob(data_dir / "issues")]
-    child_counts: Dict[str, int] = {}
-    for _, fm in pairs:
-        parent = fm.get("parent")
-        if parent:
-            child_counts[parent] = child_counts.get(parent, 0) + 1
 
+    # PT-25: no server-side child count -- the board's n/m badge is
+    # computed client-side (board-logic.js's childProgress), mirroring
+    # milestoneProgress. /api/board already carries every issue's `parent`
+    # and `status`, which is everything that needs; a second, server-side
+    # answer to "how many children does this have" is exactly the
+    # duplicated-expression class the standing Validate criterion exists
+    # to catch, so there is one producer, not two.
     issues = []
     for path, fm in pairs:
         issue = dict(fm)
         issue["seen"] = get_seen(path)
-        issue["sub_issue_count"] = child_counts.get(fm.get("id"), 0)
         issue["path"] = str(path)  # PT-10: same contract as build_issue_payload's "path"
         issues.append(issue)
 
@@ -1786,6 +1787,29 @@ def cmd_show(args: argparse.Namespace) -> int:
             print(f"  @{c['author']} — {c['date']}")
             for line in c["body"].split("\n"):
                 print(f"    {line}")
+
+    # PT-25: a parent issue also lists its children (id, status, title),
+    # sorted numerically by id (_id_sort_key -- same sort cmd_ls/
+    # build_snapshot_markdown already use). The child->parent half of the
+    # acceptance criterion needs no code here: `parent:` is already printed
+    # above via the ISSUE_FIELD_ORDER[2:] loop (verified against real
+    # output, architect's PT-25 ruling #3). This is a directory scan --
+    # cmd_show otherwise reads exactly one file via find_issue_path.
+    children = []
+    for p in _dir_glob(Path(data_dir) / "issues"):
+        if p == path:
+            continue
+        try:
+            fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
+        except CairnError:
+            continue
+        if fm.get("parent") == args.id:
+            children.append(fm)
+    if children:
+        children.sort(key=lambda fm: _id_sort_key(fm.get("id")))
+        print("\nChildren:")
+        for fm in children:
+            print(f"  {fm.get('id')}\t{fm.get('status')}\t{fm.get('title')}")
     return 0
 
 

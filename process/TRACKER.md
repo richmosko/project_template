@@ -500,7 +500,7 @@ The ratified decision allows last-write-wins and makes the mtime check optional.
 | `cairn ls [--status todo --milestone 1.0 --assignee qa-engineer]` | One line per issue instead of reading N files into context. Context economy is the whole point. |
 | `cairn set PT-14 status=in-review pr=<url>` | Frontmatter-only rewrite that can't corrupt the body. |
 | `cairn comment PT-14 --author qa-engineer --body -` | Correct delimiter + date, from stdin. |
-| `cairn show PT-14` | Rendered single issue. |
+| `cairn show PT-14` | Rendered single issue, plus its children when it has any. |
 | `cairn archive --done-before <date>` | Bulk `git mv`. |
 | `cairn check` | Lint: id/filename mismatch, dangling `parent`, unknown `milestone`, bad `status`, milestone id-shape ↔ `kind` agreement (see [Milestone ids](#milestone-ids--definition-vs-development)), unsupported YAML, `config.yml`'s `roots:` shape (list of non-empty relative-path strings — reachability is a runtime concern, not lint, see [Multi-root](#multi-root-pt-3-2026-08-21)). |
 | `cairn serve [--repos a,b]` | The board. `--repos` (PT-3) replaces `config.yml`'s `roots:` for that invocation — read-only cross-project aggregation, see [Multi-root](#multi-root-pt-3-2026-08-21). |
