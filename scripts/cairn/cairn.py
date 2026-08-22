@@ -2053,8 +2053,24 @@ def cmd_new(args: argparse.Namespace) -> int:
     return 0
 
 
+def _normalize_milestone_filter(value: Optional[str], prefix: str) -> Optional[str]:
+    """PT-28 (architect's ruling § 3, item 2): `cairn ls --milestone` accepts
+    the BARE form on input and compares against the always-prefixed on-disk
+    value -- `cairn ls --milestone 0.6` keeps working, normalized to
+    `PT-0.6`, since the prefix is fixed per repo and typing it on every
+    local invocation is pure friction where it adds nothing. An
+    already-prefixed value passes through unchanged (idempotent -- typing
+    the full form still works). This is CLI input leniency only, distinct
+    from the lint (files must still be prefixed).
+    """
+    if not value or value.startswith(f"{prefix}-"):
+        return value
+    return f"{prefix}-{value}"
+
+
 def cmd_ls(args: argparse.Namespace) -> int:
     data_dir = resolve_data_dir(args)
+    milestone_filter = _normalize_milestone_filter(args.milestone, load_config(data_dir)["prefix"])
     matched: List[Dict[str, Any]] = []
     for p in _dir_glob(Path(data_dir) / "issues"):
         try:
@@ -2064,7 +2080,7 @@ def cmd_ls(args: argparse.Namespace) -> int:
             continue
         if args.status and fm.get("status") != args.status:
             continue
-        if args.milestone and str(fm.get("milestone")) != args.milestone:
+        if milestone_filter and str(fm.get("milestone")) != milestone_filter:
             continue
         if args.assignee and fm.get("assignee") != args.assignee:
             continue

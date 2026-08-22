@@ -1,8 +1,8 @@
 ---
-id: "1.0"
+id: PT-1.0
 name: MVP
 kind: product
-major: V1
+major: PT-V1
 status: in-progress
 target_tag: v1.0.0
 ga: true

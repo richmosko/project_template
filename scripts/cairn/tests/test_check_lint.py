@@ -28,26 +28,32 @@ def make_tree(testcase) -> Path:
     (data_dir / "milestones").mkdir(parents=True)
     (data_dir / "majors").mkdir(parents=True)
     (data_dir / "config.yml").write_text("prefix: PT\nport: 8766\ndata_dir: process/cairn\n", encoding="utf-8")
-    (data_dir / "milestones" / "1.0.md").write_text(
-        '---\nid: "1.0"\nname: MVP\nkind: product\nmajor: V1\nstatus: planned\n'
+    (data_dir / "milestones" / "PT-1.0.md").write_text(
+        '---\nid: "PT-1.0"\nname: MVP\nkind: product\nmajor: PT-V1\nstatus: planned\n'
         "target_tag: v1.0.0\nga: true\n---\n\nDoD.\n",
         encoding="utf-8",
     )
-    # PT-12: milestones/1.0.md above names major: V1 -- without a matching
-    # majors/V1.md, the PT-12 missing/dangling-major check would flag every
-    # test built on this tree the moment it lands, even tests asserting
-    # `errors == []` for something unrelated (e.g. CheckRepoPriorityTests).
-    # Keep the base tree internally consistent the same way the real fixture
-    # under tests/fixtures/ already is.
-    (data_dir / "majors" / "V1.md").write_text(
-        "---\nid: V1\nstatus: active\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n",
+    # PT-12: milestones/PT-1.0.md above names major: PT-V1 -- without a
+    # matching majors/PT-V1.md, the PT-12 missing/dangling-major check
+    # would flag every test built on this tree the moment it lands, even
+    # tests asserting `errors == []` for something unrelated (e.g.
+    # CheckRepoPriorityTests). Keep the base tree internally consistent the
+    # same way the real fixture under tests/fixtures/ already is.
+    #
+    # PT-28: ids prefixed (PT-1.0/PT-V1, was 1.0/V1) -- the id-shape lint
+    # now enforces the configured prefix: on every namespace, so an
+    # unprefixed base tree would fail lint on its own, tripping every
+    # `errors == []` assertion built on make_tree() for a reason unrelated
+    # to what each test actually exercises.
+    (data_dir / "majors" / "PT-V1.md").write_text(
+        "---\nid: PT-V1\nstatus: active\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n",
         encoding="utf-8",
     )
     return data_dir
 
 
 def write_milestone(data_dir: Path, filename: str, **overrides) -> None:
-    fields = dict(id='"1.0"', name="MVP", kind="product", major="V1", status="planned",
+    fields = dict(id='"PT-1.0"', name="MVP", kind="product", major="PT-V1", status="planned",
                   target_tag="v1.0.0", ga="true")
     fields.update(overrides)
     text = (
@@ -487,18 +493,22 @@ class CheckRepoIdShapeKindTests(unittest.TestCase):
     """
 
     def test_valid_definition_ids_pass(self):
+        # PT-28: prefixed (PT-A, not A) -- the id-shape lint now requires
+        # the configured prefix: on every namespace.
         for milestone_id in ("A", "B", "C", "Aa", "Ab", "Z"):
             with self.subTest(id=milestone_id):
+                prefixed = f"PT-{milestone_id}"
                 data_dir = make_tree(self)
-                write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind="process", major="V1")
+                write_milestone(data_dir, f"{prefixed}.md", id=_fm_id(prefixed), kind="process", major="PT-V1")
                 errors = cairn.check_repo(data_dir)
                 self.assertEqual(errors, [], errors)
 
     def test_valid_development_ids_pass(self):
         for milestone_id in ("M0", "M1", "M12", "M0a", "M0b", "0.6", "1.0", "0.5.1", "1.0.1", "10.20.30"):
             with self.subTest(id=milestone_id):
+                prefixed = f"PT-{milestone_id}"
                 data_dir = make_tree(self)
-                write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind="product", major="V1")
+                write_milestone(data_dir, f"{prefixed}.md", id=_fm_id(prefixed), kind="product", major="PT-V1")
                 errors = cairn.check_repo(data_dir)
                 self.assertEqual(errors, [], errors)
 
@@ -507,7 +517,7 @@ class CheckRepoIdShapeKindTests(unittest.TestCase):
         # M<n> milestone with target_tag: null (pre-GA, no tag cut yet) is
         # legitimate and must not be flagged by this lint.
         data_dir = make_tree(self)
-        write_milestone(data_dir, "M0.md", id="M0", kind="product", major="V1",
+        write_milestone(data_dir, "PT-M0.md", id="PT-M0", kind="product", major="PT-V1",
                          target_tag="null", ga="false")
         errors = cairn.check_repo(data_dir)
         self.assertEqual(errors, [], errors)
