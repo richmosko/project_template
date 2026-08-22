@@ -1,8 +1,8 @@
 ---
-id: "0.6.1"
+id: PT-0.6.1
 name: board roll-up + tracker-id follow-ups
 kind: product
-major: V1
+major: PT-V1
 status: active
 target_tag: v0.6.1
 ga: false

@@ -1,5 +1,5 @@
 ---
-id: V1
+id: PT-V1
 status: active
 owner: mosko
 target_ship: null

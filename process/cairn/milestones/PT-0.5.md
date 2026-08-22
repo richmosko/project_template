@@ -1,8 +1,8 @@
 ---
-id: "0.5"
+id: PT-0.5
 name: polish
 kind: product
-major: V1
+major: PT-V1
 status: completed
 target_tag: v0.5.0
 ga: false

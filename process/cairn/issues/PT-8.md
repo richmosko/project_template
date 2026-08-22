@@ -2,7 +2,7 @@
 id: PT-8
 title: Validate --done-before as YYYY-MM-DD in cairn archive
 status: done
-milestone: "0.4"
+milestone: PT-0.4
 parent: null
 assignee: null
 labels: []

@@ -2,7 +2,7 @@
 id: PT-4
 title: Markdown rendering in the detail drawer (vendored JS renderer)
 status: done
-milestone: "0.5"
+milestone: PT-0.5
 parent: null
 assignee: null
 labels: []

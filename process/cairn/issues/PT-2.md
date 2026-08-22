@@ -2,7 +2,7 @@
 id: PT-2
 title: cairn snapshot — generated STATE.md appendix at milestone close
 status: done
-milestone: "0.5"
+milestone: PT-0.5
 parent: null
 assignee: null
 labels: []

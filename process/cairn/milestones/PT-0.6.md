@@ -1,8 +1,8 @@
 ---
-id: "0.6"
+id: PT-0.6
 name: tracker relations + milestone conventions
 kind: product
-major: V1
+major: PT-V1
 status: completed
 target_tag: v0.6.0
 ga: false

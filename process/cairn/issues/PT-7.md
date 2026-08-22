@@ -2,7 +2,7 @@
 id: PT-7
 title: Preserve file mode on frontmatter rewrite (mkstemp 0600 flip)
 status: done
-milestone: "0.4"
+milestone: PT-0.4
 parent: null
 assignee: null
 labels: []
