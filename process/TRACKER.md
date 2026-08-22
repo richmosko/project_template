@@ -184,7 +184,7 @@ kind: product          # product | process
 major: V1
 status: planned        # planned | in-progress | paused | completed | cancelled
 target_tag: v1.0.0
-ga: true               # exactly one product milestone per major carries ga: true
+ga: true               # exactly one development milestone per major carries ga: true
 ---
 
 **Definition of done:** a new user can sign up, log in, and complete the core loop

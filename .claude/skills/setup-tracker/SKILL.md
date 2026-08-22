@@ -47,7 +47,7 @@ board:
   swimlane: milestone   # milestone | none
 ```
 
-### 3. Seed the founding major and process milestones
+### 3. Seed the founding major and definition milestones
 
 Write `process/cairn/majors/V1.md`:
 
@@ -70,7 +70,7 @@ Write `process/cairn/milestones/A.md` and `B.md` (`kind: process`, `major: V1`, 
 | `A` | Bootstrap & Research | `in-progress` | PRD v1 approved; user stories enumerated; product-milestone scope sketched in PRD §9. |
 | `B` | Plan | `planned` | ARCH + SECURITY approved; product milestones created in `milestones/` + GA designated; first session planned. |
 
-Product milestones (`1.0`, `1.1`, …) are **not** seeded here — the `architect` creates them during Plan, flagging exactly one per major with `ga: true` (see `process/WORKFLOW.md` → Versioning scheme).
+Development milestones (`1.0`, `1.1`, …) are **not** seeded here — the `architect` creates them during Plan, flagging exactly one per major with `ga: true` (see `process/WORKFLOW.md` → Versioning scheme).
 
 ### 4. Seed PRD user stories as issues (optional)
 

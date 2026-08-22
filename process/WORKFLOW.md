@@ -76,7 +76,7 @@ How far a `/drive`-aimed [goal-driven loop](#goal-driven-loop-drive) runs before
   - DevOps defines CI/CD topology, IaC approach, environments
   - QA proposes a test strategy (unit, integration, E2E split; coverage targets; acceptance-test framework)
   - Lead breaks the roadmap into **milestones (`process/cairn/milestones/`) → features (cairn issues)**; Session Cycles are a session-time planning heuristic, not a roadmap layer
-  - Architect **designates the GA milestone** for the major line — the one that tags `N.0.0` — and sets each product milestone file's `target_tag` (see [Versioning scheme](#versioning-scheme))
+  - Architect **designates the GA milestone** for the major line — the one that tags `N.0.0` — and sets each development milestone file's `target_tag` (see [Versioning scheme](#versioning-scheme))
 - **Artifacts:** `docs/ARCH/index.html`, `docs/SECURITY/index.html`, populated `process/cairn/` (milestones + issues), updated `STATE.md`
 - **Gate:** ARCH + SECURITY approved; tracker issues populated for the first milestone.
 
@@ -532,7 +532,7 @@ Sections that already have comments show a `💬 N` count badge next to the head
 | Our concept | cairn artifact | Version digit |
 |---|---|---|
 | **Major version line** (`V1`, `V2`, …) | `majors/<id>.md` (one per major; concurrent; owner, health, target ship; `status: completed` when the line is EOL'd) | **MAJOR** (`x`) |
-| **Milestone** | `milestones/<name>.md` (product milestones **named by target version**, `kind: product`, carry `target_tag` + `ga`; process milestones `kind: process`) | **MINOR** (`y`) |
+| **Milestone** | `milestones/<id>.md` (development milestones **named by target version**, `kind: product`, carry `target_tag` + `ga`; definition milestones use letter ids, `kind: process`) | **MINOR** (`y`) |
 | **Feature** | `issues/<ID>.md` (one issue = one PR = one I→V loop) | — (identity via issue ID + release notes) |
 | **Hotfix** | `issues/<ID>.md` on the milestone it patches | **PATCH** (`z`) |
 | **Sub-issue** | `issues/<ID>.md` with `parent:` | — |
@@ -545,7 +545,7 @@ Releases follow **strict [semver](https://semver.org)** — `MAJOR.MINOR.PATCH` 
 | Digit | Bound to | Bumps when |
 |---|---|---|
 | **MAJOR** (`x`) | Major line (`majors/<id>.md`) | A breaking change ships. A new major **opens a new major file**. |
-| **MINOR** (`y`) | Milestone | A **product milestone** completes (a backward-compatible feature batch). |
+| **MINOR** (`y`) | Milestone | A **development milestone** completes (a backward-compatible feature batch). |
 | **PATCH** (`z`) | Hotfix | A backward-compatible fix ships against an already-released milestone. |
 
 **A feature is not a version digit.** Features land continuously inside a milestone; their identity is the **issue ID + PR**, and they're enumerated in the milestone's GitHub Release notes. Keeping `z` for hotfixes preserves semver's compatibility signal — `v1.3.2` tells a consumer it's a safe patch over `v1.3.0`, which it couldn't if `z` counted features.
@@ -748,7 +748,7 @@ The template intentionally **does not ship a `CHANGELOG.md`**. Git log + GitHub 
 
 Releases are **human decisions**, never automatic. The `/merge-pr` skill prompts at the right moment.
 
-**When to cut a release.** When the most recent merge completes a milestone's "Definition of done" (the milestone file's body, `process/cairn/milestones/<name>.md`). Process milestones (Bootstrap & Research, Plan) don't get tagged releases — they're internal phase gates. Product milestones tag on completion, and **the version comes from the milestone's name + its `target_tag` field** per the [Versioning scheme](#versioning-scheme): a milestone named `1.1` completing tags `v1.1.0`; the [GA](#versioning-scheme)-designated milestone of a major line tags `vN.0.0`; a hotfix against a shipped milestone bumps PATCH (`v1.1.1`). Pre-release checkpoints inside a not-yet-GA milestone are cut as `-alpha/-beta/-rc` tags, and `V1.x` maintenance releases are tagged from the `release/1.x` branch while `main` carries the newest major.
+**When to cut a release.** When the most recent merge completes a milestone's "Definition of done" (the milestone file's body, `process/cairn/milestones/<name>.md`). Definition milestones (`A` — Bootstrap & Research, `B` — Plan) don't get tagged releases — they're internal phase gates. Development milestones tag on completion, and **the version comes from the milestone's name + its `target_tag` field** per the [Versioning scheme](#versioning-scheme): a milestone named `1.1` completing tags `v1.1.0`; the [GA](#versioning-scheme)-designated milestone of a major line tags `vN.0.0`; a hotfix against a shipped milestone bumps PATCH (`v1.1.1`). Pre-release checkpoints inside a not-yet-GA milestone are cut as `-alpha/-beta/-rc` tags, and `V1.x` maintenance releases are tagged from the `release/1.x` branch while `main` carries the newest major.
 
 **The flow at milestone close:**
 
