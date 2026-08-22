@@ -19,6 +19,57 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 
 ---
 
+### 2026-08-22 — Decision ledgers consolidated; TRACKER.md Resolutions log lives here
+**Decision:** All decisions made in the template repo belong in this ledger — `DECISIONS.md` returns to its seed-stub state (its four accumulated entries migrated here, marked), and `TRACKER.md`'s Resolutions log moves here verbatim (below) as part of a TRACKER.md tightening pass; the spec keeps inline `ruled YYYY-MM-DD` stamps and points here.
+**Why:** This repo *is* the template, so every decision here is a template decision; `DECISIONS.md` must ship clean as the seed for instantiated projects, and `TEMPLATE_DECISIONS.md` is deleted at bootstrap — so history parked here costs downstream projects nothing. TRACKER.md is pulled into agent context on every tracker task; history-prose belongs in the ledger, not the spec.
+**Approved by:** Rich Mosko
+**Supersedes:** _extends 2026-05-25 — `TEMPLATE_DECISIONS.md` separated from seed `DECISIONS.md`._
+
+**The migrated cairn-spec Resolutions log** (rows 1–7 ruled 2026-08-19 at design time; 8 on 2026-08-20 during stage-2 conformance review; 9 on 2026-08-21 with PT-27; 10 on 2026-08-22 with PT-26 — each ruling is also folded into the TRACKER.md section it governs):
+
+| # | Question | Ruling | Where it lives |
+|---|---|---|---|
+| 1 | Does `STATE.md` keep its *Major line*, *Roadmap*, and *Features* tables, or do they dissolve into cairn? | **Dissolve.** Stage 3 removes all four overlapping tables; `STATE.md` keeps Current Phase, Active Feature, Session Cycles, Releases, plus a board pointer and an optional `cairn snapshot`. The Completed-table rolloff ritual retires with them. | TRACKER.md → Relationship to `STATE.md` |
+| 2 | Is losing Linear's cross-project board acceptable at v1? | **Accepted as a v1 regression at first (2026-08-19), then built read-only as PT-3 (2026-08-21)** — `roots:` in `config.yml` / `--repos`, warn-and-skip on unreachable roots, cross-root writes structurally refused (`403 read_only_root`). | TRACKER.md → Non-goals · API surface |
+| 3 | How is the ID prefix chosen? | **Repo-derived default with a one-time confirm prompt** at `/setup-tracker`. | TRACKER.md → ID scheme · `config.yml` |
+| 4 | Render markdown in the detail drawer, or ship `<pre>`? | **`<pre>` ships in phase 1.** Vendoring a JS renderer (the `vendor-mermaid.sh` path) is deferred until it demonstrably annoys. _(Later built: PT-4 shipped marked+DOMPurify in 0.5.)_ | TRACKER.md → Board — phase 1 scope |
+| 5 | Should `/start-feature` reserve IDs on `main` to avoid cross-branch collisions? | **No — the git add/add conflict stays the detector.** A rare loud conflict beats an extra `main` commit per feature, forever. | TRACKER.md → ID scheme |
+| 6 | Does the CLI violate "agents never need a server"? | **No — the CLI stands as specified.** The constraint reads as no-MCP / no-HTTP / no-JSON-in-context, which a one-line-printing local script satisfies. | TRACKER.md → CLI |
+| 7 | Should the board write back acceptance-criteria checkboxes? | **Deferred.** Phase 1 keeps zero body-touching write paths (comment append excepted — tail-only). If ever built, it would be the first middle-of-file rewrite and needs its own design. | TRACKER.md → deferred work |
+| 8 | Should `config.yml` carry a `data_dir` key so a project can relocate the tracker to a top-level `cairn/`? | **No — affordance removed (2026-08-20, stage-2 conformance review).** The key is circular: `config.yml` lives inside the directory it would declare. v1 fixes the layout at `process/cairn/`, and a **loud-error contract** replaces it — an unresolvable data dir is an error, never an empty result. | TRACKER.md → Directory layout · `config.yml` |
+| 9 | With definition milestones moving to letter ids, do repos already seeded with `M0`/`M1` + `kind: process` get a grandfather clause? | **No clause (2026-08-21, PT-27).** `check_repo` errors on the old shape and the error string carries the migration. A permanent exception would mean "`M0` might be a definition milestone" forever — the exact ambiguity the convention deletes — and this template's own tracker has no `kind: process` milestone, so the clause would have zero users where the lint runs. | TRACKER.md → Milestone ids |
+| 10 | Can a `blocked_by` reference cross roots, and does blocking enforce anything? | **Same-root only, and informational in v1 (2026-08-22, PT-26).** `check_repo` runs per-root, so a cross-root edge could never be validated by the lint that exists to guarantee referential integrity — the guarantee would be structurally unavailable, not merely unimplemented. Enforcement was considered and declined: it would need one predicate at three write paths and is unenforceable against a plain `Edit`, which the tracker fully supports. | TRACKER.md → Dependencies |
+
+### 2026-08-20 — board.js test harness: zero-dependency node:test, no jsdom (PT-22)
+_(Migrated from `DECISIONS.md`, 2026-08-22.)_
+**Decision:** board.js's pure-logic functions are extracted into `scripts/cairn/board/board-logic.js` (a `CairnLogic` global loaded before board.js — no module system, no build step) and unit-tested with Node's built-in `node:test`/`node:assert`/`node:vm` under `scripts/cairn/tests/js/`. No jsdom, no npm, no `package.json`. Node is a soft prerequisite for the JS test suite only (board.js still runs framework-free in any browser); the JS suite skips-with-notice when Node is absent, and the Python suite stays the hard gate.
+**Why:** The bug class that motivated this (PT-3's six id-collision lookups + the twice-written draggable predicate) is pure logic — it needs no DOM to test once the functions are extracted. Adding jsdom+npm to a *template* is the deciding cost: every instantiated project and every `/spin-off-component` inherits the toolchain whether or not it has any JS, and jsdom's transitive tree can't be byte-verified the way seceng's vendored deps (PT-4/PT-20) are. The extraction also converts two hand-maintained invariants into shared functions (`issueMilestoneKey`, `isDraggable`), removing the duplication class outright — the payoff independent of any test.
+**Alternatives considered:**
+- *jsdom + a test runner* — rejected: npm toolchain in a template, unverifiable transitive deps, contradicts the vendored-dependency posture.
+- *Hand-rolled harness on Node stdlib* — rejected: `node:test` already is the minimal harness, maintained by the Node team; rolling our own only adds maintenance.
+**Approved by:** Rich Mosko
+**Supersedes:** _none — closes the coverage gap PT-3 exposed (board.js had zero automated tests). Bundled with PT-24 (the `/finish-feature` gate that never actually ran)._
+
+### 2026-08-20 — Multi-root board layout: repo-grouped, read-only (PT-3)
+_(Migrated from `DECISIONS.md`, 2026-08-22.)_
+**Decision:** The multi-root board (`cairn serve` aggregating a `roots:` config list, or `--repos` which replaces it) is **read-only** and renders **repo-grouped** — a top-level section per repo, milestone lanes nested inside, each card repo-tagged. Single-root renders byte-identically to before (no repo wrapper). Because milestone/major ids are version-named and therefore **not** distinct across roots (every repo has a `0.5`, a `V1`), every id-keyed lookup is repo-scoped via a `repo::id` identity; the major-tab bar dedupes by bare id with union filtering while the lookup stays repo-scoped. `--repos` replaces the config list (`B`); `cairn check` validates `roots:` shape only, not reachability (`C`).
+**Why:** Milestones only share a version string by coincidence across independently-versioned spun-off components, so fusing lanes on bare id would merge unrelated roadmaps — repo-grouping keeps each project legible, which is the point of a cross-project view. Read-only keeps writes structurally scoped to the primary root (no code path from a POST handler to a secondary root), sidestepping cross-root write-routing entirely for v1.
+**Alternatives considered:**
+- *Composite `repo·milestone` lanes* (architect's recommendation, lighter board.js change) — rejected by Mosko in favor of clearest project separation over smallest diff.
+- *Fused lanes + card tags* (the literal reading of "keep milestone swimlanes, tag each card") — rejected: merges milestones that only share a version number.
+- *Editable cross-root board* — deferred: cross-root write-routing is real complexity with no v1 need.
+**Approved by:** Rich Mosko
+**Supersedes:** _refines the 2026-08-19 "not cross-project by default" ruling; see TRACKER.md → Multi-root (PT-3)._
+
+### 2026-08-20 — Cross-root read access accepted as a security risk (PT-3)
+_(Migrated from `DECISIONS.md`, 2026-08-22.)_
+**Decision:** Accept the trust-boundary widening from the multi-root board — `cairn serve` reading directories named in a committed `roots:` config — as a recorded Open Risk in [`docs/SECURITY`](../docs/SECURITY/index.html) rather than adding a runtime path-jail. Compensating control: a startup stderr banner logging each resolved root path.
+**Why:** Read-only, localhost-only, no exfiltration channel, and config.yml-gated before any read; whoever can commit a `roots:` entry already has a stronger vector (editing the server code directly), so a path-jail would be theater against the real threat. seceng reviewed and recommended acceptance.
+**Alternatives considered:**
+- *Runtime path-jail confining `roots:` to a parent workspace* — rejected: closes a narrow sub-vector while leaving the actual attacker capability (commit access) untouched.
+**Approved by:** Rich Mosko
+**Supersedes:** _none — new Open Risk entry in [`docs/SECURITY`](../docs/SECURITY/index.html) § 11._
+
 ### 2026-08-20 — Template ships CLAUDE_CODE_ENABLE_TODO_TOOLS=1; degraded mode documented as fallback (#47)
 **Decision:** Add `CLAUDE_CODE_ENABLE_TODO_TOOLS: "1"` to `.claude/settings.json` → `env`, alongside the agent-teams flag. The shared Task tools (`TaskCreate`/`TaskGet`/`TaskList`/`TaskUpdate`) are session-gated by model — absent by default on Opus 4.8 / Sonnet 5 / Fable 5 and later — so without the opt-in the anchor-task pattern is dead-by-default on current models. WORKFLOW.md's new *Task-tool availability & the degraded mode* section (PT-18) documents the gating, the opt-in, and the SendMessage + `temp/` fallback as the pattern's degraded mode.
 **Why:** The template already commits to the agent-teams experiment; shipping a workflow whose primary coordination pattern silently cannot operate on current models is the worse state. Verified live: the flag took effect in the running session the moment it landed in settings (Claude Code reapplies settings `env` on save) and the Task tools appeared.
@@ -62,6 +113,17 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 **Supersedes:** nothing yet — Linear remains functional for existing derived projects; the skills-migration PR (stage 3) will supersede the Linear-specific workflow bindings.
 
 ---
+
+### 2026-07-23 — Deployment topology: trunk-based, production deploys from tags
+_(Migrated from `DECISIONS.md`, 2026-08-22.)_
+**Decision:** Default deploy wiring is **preview → PRs, staging → `main`, production → release tags (`v*`)**; "no feature breaks `main`" is enforced by making required CI status checks a *mandatory* box in `main` branch protection, not by branch topology. Incomplete-but-mergeable work ships dark behind feature flags. A per-milestone integration branch is an opt-in exception, logged per-use.
+**Why:** Keeps trunk-based development's small, continuously-reviewed PRs while making production advance only at milestone/release cadence — satisfying the CI/CD concern (prod never sees half-finished milestone work) without a long-lived integration branch that costs the 1:1 issue=PR=I→V invariant, forces big-bang reviews, and accumulates drift.
+**Alternatives considered:**
+- *Milestone-integration branch as default* (features → `milestone/N.y` → one PR to `main` at milestone close) — rejected as default: breaks the 1:1 invariant, degrades review quality, drifts from `main`; kept as a logged opt-in for un-flaggable atomic work.
+- *Point production directly at `main`* — rejected: makes every feature merge a prod deploy, the exact churn the concern was about.
+- *Rely on the `self-merge-within-milestone` autonomy knob* — orthogonal (it moves the *human gate*, not the *deploy target*); doesn't address CI/CD.
+**Approved by:** Rich Mosko
+**Supersedes:** _none — new section in [`WORKFLOW.md`](WORKFLOW.md) → Deployment topology._
 
 ### 2026-07-23 — Version-driven hierarchy: Initiative-per-major, semver binding, Session Cycles
 **Decision:** Rebind the workflow hierarchy so version numbers drive the Linear layers. A Linear **Initiative** now scopes **one major version line** (`V1`, `V2`, …) rather than the whole project forever — a breaking change opens a new Initiative, `V1.x`/`V2.x` run as concurrent Initiatives, and an Initiative closes when its line is EOL'd. Releases follow **strict semver** with `MAJOR`←Initiative, `MINOR`←milestone (product milestones **named by target version**, one milestone per `MINOR` — "Model A"), `PATCH`←hotfix; a feature is **not** a version digit (identity = Linear issue ID + release notes). The **GA milestone** (`→ vN.0.0`) is explicitly designated during Plan via a Roadmap *Target tag* column, never inferred from position; `0.y.z` is the founding line's pre-1.0 zone and later majors use pre-release identifiers (`2.0.0-rc.1`); parallel majors are maintained via long-lived `release/N.x` branches with a flat tag namespace. The old **Sprint** layer is renamed **Session Cycle** — a **context-budget-bounded** working session (heuristic only, **no Linear Cycle**), with **session planning at the start** of each session as the new trigger for `/sync-backlog` promotion and `/cleanup-linear` archiving. Propagated across `WORKFLOW.md`, `MILESTONES.md`, `CLAUDE.md`, `README.md`, the `architect`/`mcp-broker` agents, and the `start-feature`/`merge-pr`/`sync-backlog`/`cleanup-linear`/`setup-linear-team`/`drive` skills.
