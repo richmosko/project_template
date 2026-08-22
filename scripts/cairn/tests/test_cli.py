@@ -82,13 +82,21 @@ class NewCommandTests(unittest.TestCase):
         ]
         self.assertEqual(len(new_files), 1)
         frontmatter, _ = cairn.parse_frontmatter(new_files[0].read_text(encoding="utf-8"))
-        self.assertEqual(frontmatter["milestone"], "1.0")
+        # PT-28 (Validate-phase fix): --milestone accepts the bare form and
+        # normalizes to the configured prefix (same as `cairn ls
+        # --milestone`) -- a bare "1.0" written straight to disk left the
+        # repo lint-failing with a dangling ref, which this test locked in
+        # as correct before the fix landed.
+        self.assertEqual(frontmatter["milestone"], "PT-1.0")
         self.assertEqual(frontmatter["assignee"], "backend-lead")
         self.assertEqual(frontmatter["status"], "todo")
         self.assertEqual(frontmatter["parent"], "PT-1")
-        # milestone "1.0" must round-trip as a string on disk too.
+        self.assertEqual(cairn.check_repo(data_dir), [], "cairn new must never write an issue that fails its own lint")
+        # A prefixed milestone id isn't numeric-looking, so it round-trips
+        # unquoted (PT-28's finalized ruling § 9.2, verified against
+        # dump_frontmatter's actual output).
         raw = new_files[0].read_text(encoding="utf-8")
-        self.assertIn('milestone: "1.0"', raw)
+        self.assertIn("milestone: PT-1.0", raw)
 
     def test_new_prints_the_new_id(self):
         data_dir = helpers.make_tmp_data_dir(self)

@@ -2,7 +2,7 @@
 id: PT-9
 title: Accept --data-dir before the subcommand (top-level argparse option)
 status: done
-milestone: "0.4"
+milestone: PT-0.4
 parent: null
 assignee: null
 labels: []

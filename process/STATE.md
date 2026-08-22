@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Board: pull-down-to-refresh gesture |
-| Issue | PT-32 |
+| Feature | PT-prefixed ids for majors and milestones |
+| Issue | PT-28 |
 | Milestone | 0.6.1 |
-| Branch | `feature/pt-32-pull-to-refresh` |
+| Branch | `feature/pt-28-prefixed-ids` |
 | Started | 2026-08-22 |
-| Goal | Pull-down past threshold at scroll-top refetches board data with visible indicator; never hijacks scroll or drag; degrades to nothing |
-| Status | In Progress — pre-approved through /merge-pr (Mosko) |
+| Goal | Majors/milestones carry explicit PT-prefixed ids per architect design ruling — id shape, lint, CLI/board surfaces, migration policy |
+| Status | In Review — [PR #76](https://github.com/richmosko/project_template/pull/76), QA sign-off GREEN @ 188d24d; awaiting Mosko |
 
 ## Releases
 

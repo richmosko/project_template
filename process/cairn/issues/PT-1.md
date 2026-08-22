@@ -2,7 +2,7 @@
 id: PT-1
 title: Board phase 2: SSE live push (fs-scan watcher + EventSource, poll fallback)
 status: done
-milestone: "0.4"
+milestone: PT-0.4
 parent: null
 assignee: null
 labels: []

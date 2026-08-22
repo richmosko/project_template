@@ -2,7 +2,7 @@
 id: PT-1
 title: Google OAuth login
 status: in-progress
-milestone: "1.0"
+milestone: PT-1.0
 parent: null
 assignee: backend-lead
 labels: [auth, api]

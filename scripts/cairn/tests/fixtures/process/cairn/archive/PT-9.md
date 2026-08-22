@@ -2,7 +2,7 @@
 id: PT-9
 title: Set up staging environment
 status: done
-milestone: "1.0"
+milestone: PT-1.0
 parent: null
 assignee: devops-engineer
 labels: [infra]

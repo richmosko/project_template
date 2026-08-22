@@ -60,11 +60,50 @@ DEFAULT_STATUS = "backlog"
 PRIORITIES = {"P0", "P1", "P2", "P3"}
 MILESTONE_KINDS = {"process", "product"}
 
-# PT-27: milestone id-shape <-> kind agreement. `M` is reserved out of the
-# definition alphabet -- M<n> always means development, so `M`/`Ma` etc. must
-# NOT match the definition regex (the negative lookahead enforces that).
-_DEFINITION_MILESTONE_ID_RE = re.compile(r"^(?!M)[A-Z][a-z]?$")
-_DEVELOPMENT_MILESTONE_ID_RE = re.compile(r"^(?:M\d+[a-z]?|\d+\.\d+(?:\.\d+)?)$")
+# PT-28: `prefix:` format -- the SAME regex /setup-tracker already uses for
+# the interactive path (architect's ruling § 7), now also enforced at lint
+# time so a hand-edited config.yml can't silently corrupt every id-shape
+# regex below, all four of which are DERIVED from this value.
+PREFIX_RE = re.compile(r"^[A-Z]{2,5}$")
+
+# PT-27/PT-28: milestone id-shape <-> kind agreement, and (PT-28) major/issue
+# id shape -- all four now PREFIXED (architect's ruling § 1, addendum-
+# confirmed #1): `<P>-V<n>` (major), `<P>-<letter>` (definition milestone,
+# `M`/`V` both reserved out of the letter sequence), `<P>-M<n>` or
+# `<P>-<version>` (development milestone), `<P>-<n>` (issue). Functions, not
+# module-level constants, because `<P>` is the repo's CONFIGURED prefix:,
+# never a literal "PT" -- check_repo builds each of these once per call,
+# after validating the prefix itself (see check_repo's own comment).
+def _major_id_re(prefix: str) -> "re.Pattern[str]":
+    return re.compile(rf"^{re.escape(prefix)}-V\d+$")
+
+
+def _definition_milestone_id_re(prefix: str) -> "re.Pattern[str]":
+    return re.compile(rf"^{re.escape(prefix)}-(?!M|V)[A-Z][a-z]?$")
+
+
+def _development_milestone_id_re(prefix: str) -> "re.Pattern[str]":
+    return re.compile(rf"^{re.escape(prefix)}-(?:M\d+[a-z]?|\d+\.\d+(?:\.\d+)?)$")
+
+
+def _issue_id_re(prefix: str) -> "re.Pattern[str]":
+    return re.compile(rf"^{re.escape(prefix)}-\d+$")
+
+
+def _migrate_hint_if_bare(stem: str, prefix: str) -> str:
+    """The ruling's error-string recipe (§ 6) -- named so it appears once,
+    not re-typed at every id-shape error site. Only attached when `stem`
+    doesn't already carry `prefix` at all: `cairn migrate prefix-ids` only
+    ever prefixes a bare stem (PT-28's addendum § A.2 predicate), so a
+    stem that's ALREADY prefixed but the wrong shape (e.g. a major named
+    "PT-1", or a reserved letter like "PT-V") needs a human fix, not the
+    migration command -- attaching this hint there would send someone to
+    run a tool that can't help.
+    """
+    if stem.startswith(prefix + "-"):
+        return ""
+    return "  fix: scripts/cairn/cairn migrate prefix-ids --dry-run   (then re-run without --dry-run)"
+
 
 ISSUE_FIELD_ORDER = [
     "id", "title", "status", "milestone", "parent", "blocked_by", "assignee",
@@ -700,11 +739,25 @@ def check_repo(data_dir: Path) -> List[str]:
     # PT-3 (team-lead ruling C): `roots:` shape only, never reachability --
     # `cairn check` runs in CI and on any clone lacking a sibling repo, so
     # a missing/unreachable secondary root is a runtime warn-and-skip
-    # concern (resolve_roots), not a lint error. A missing config.yml
-    # isn't itself flagged here -- that's out of this function's existing
-    # scope, unrelated to PT-3.
+    # concern (resolve_roots), not a lint error.
+    #
+    # PT-28 (architect's ruling § 3.1, confirmation #2): a missing or
+    # prefix-less config.yml STOPS being tolerable the moment id shapes are
+    # derived from `prefix:` -- every regex below needs it, and a lint that
+    # quietly stops linting (or guesses) is worse than no lint. `prefix`
+    # stays None on any failure path here, which is this function's single
+    # signal to every id-shape check below to skip itself rather than run
+    # against a regex it can't safely build -- never a guess, and never a
+    # silent partial lint (PrefixFormatLintTests.
+    # test_a_malformed_prefix_does_not_silently_skip_the_rest_of_the_lint:
+    # the prefix error itself, appended immediately below, is what keeps
+    # `errors` non-empty even when nothing else fires).
     config_path = data_dir / "config.yml"
-    if config_path.exists():
+    prefix: Optional[str] = None
+    if not config_path.exists():
+        errors.append(f"config.yml: missing at {config_path} -- required for the id-shape prefix lint")
+        cfg: Dict[str, Any] = {}
+    else:
         try:
             cfg = parse_yaml_subset(config_path.read_text(encoding="utf-8"))
         except CairnError as e:
@@ -723,6 +776,23 @@ def check_repo(data_dir: Path) -> List[str]:
                     elif Path(entry).is_absolute():
                         errors.append(f"config.yml: roots[{idx}] {entry!r} must be relative to the repo root")
 
+        raw_prefix = cfg.get("prefix")
+        if raw_prefix is None:
+            errors.append("config.yml: missing prefix: key -- required for the id-shape lint")
+        elif not PREFIX_RE.match(str(raw_prefix)):
+            errors.append(f"config.yml: prefix {raw_prefix!r} must match {PREFIX_RE.pattern}")
+        else:
+            prefix = str(raw_prefix)
+
+    # PT-28: built once per call, only when the prefix validated -- every
+    # id-shape check below reads through these four, never rebuilding its
+    # own regex inline (that would be the exact "two copies must agree"
+    # hazard PT-22/PT-29 exist to close, one layer down).
+    major_re = _major_id_re(prefix) if prefix else None
+    definition_re = _definition_milestone_id_re(prefix) if prefix else None
+    development_re = _development_milestone_id_re(prefix) if prefix else None
+    issue_re = _issue_id_re(prefix) if prefix else None
+
     known_majors = set()
     for p in _dir_glob(data_dir / "majors"):
         try:
@@ -733,6 +803,13 @@ def check_repo(data_dir: Path) -> List[str]:
         mid = fm.get("id")
         if mid is None or str(mid) != p.stem:
             errors.append(f"{p.stem}: id {mid!r} does not match filename {p.stem!r}")
+        elif major_re is not None and not major_re.match(p.stem):
+            # PT-28: NEW enforcement -- pre-PT-28, check_repo never
+            # validated a major's id shape at all, only id==filename.
+            errors.append(
+                f"{p.stem}: major id shape {p.stem!r} does not match {major_re.pattern!r} "
+                f"(configured prefix {prefix!r}){_migrate_hint_if_bare(p.stem, prefix)}"
+            )
         if fm.get("title") is not None:
             errors.append(f"{p.stem}: unexpected title {fm['title']!r} -- title is issue-only")
         known_majors.add(p.stem)
@@ -760,33 +837,40 @@ def check_repo(data_dir: Path) -> List[str]:
         elif str(major) not in known_majors:
             errors.append(f"{p.stem}: unknown major {major!r}")
 
-        # PT-27: milestone id-shape <-> kind agreement. The filename stem is
-        # authoritative (id/filename mismatch is its own check above), so the
-        # shape check runs against p.stem rather than the raw fm["id"].
+        # PT-27/PT-28: milestone id-shape <-> kind agreement, now against
+        # the PREFIXED shapes (definition_re/development_re, built above --
+        # `V` joined `M` as a reserved definition letter, architect's
+        # ruling § 1). The filename stem is authoritative (id/filename
+        # mismatch is its own check above), so the shape check runs
+        # against p.stem rather than the raw fm["id"]. Skipped entirely
+        # when the prefix didn't validate (definition_re is None) -- there
+        # is no safe shape to check against.
         stem = p.stem
         kind = fm.get("kind")
-        is_definition_shape = bool(_DEFINITION_MILESTONE_ID_RE.match(stem))
-        is_development_shape = bool(_DEVELOPMENT_MILESTONE_ID_RE.match(stem))
         if kind not in MILESTONE_KINDS:
             errors.append(
                 f"{stem}: missing or invalid kind {kind!r} -- expected 'product' or 'process'"
             )
-        elif not is_definition_shape and not is_development_shape:
-            errors.append(
-                f"{stem}: unrecognised milestone id {stem!r} -- expected a letter (A, B, Aa) "
-                f"for kind: process, or a version (1.0, 0.5.1) or M<n> for kind: product"
-            )
-        elif kind == "process" and not is_definition_shape:
-            errors.append(
-                f"{stem}: id shape {stem!r} is a development milestone but kind is 'process' -- "
-                f"definition milestones use letter ids (A, B, C...); rename the file and its id, "
-                f"then retarget its issues, or set kind: product"
-            )
-        elif kind == "product" and not is_development_shape:
-            errors.append(
-                f"{stem}: id shape {stem!r} is a definition milestone but kind is 'product' -- "
-                f"development milestones use a version id (1.0) or M<n>"
-            )
+        elif definition_re is not None and development_re is not None:
+            is_definition_shape = bool(definition_re.match(stem))
+            is_development_shape = bool(development_re.match(stem))
+            if not is_definition_shape and not is_development_shape:
+                errors.append(
+                    f"{stem}: unrecognised milestone id {stem!r} -- expected {prefix}-<letter> "
+                    f"(e.g. {prefix}-A) for kind: process, or {prefix}-<version> / {prefix}-M<n> "
+                    f"for kind: product{_migrate_hint_if_bare(stem, prefix)}"
+                )
+            elif kind == "process" and not is_definition_shape:
+                errors.append(
+                    f"{stem}: id shape {stem!r} is a development milestone but kind is 'process' -- "
+                    f"definition milestones use letter ids ({prefix}-A, {prefix}-B, {prefix}-C...); "
+                    f"rename the file and its id, then retarget its issues, or set kind: product"
+                )
+            elif kind == "product" and not is_development_shape:
+                errors.append(
+                    f"{stem}: id shape {stem!r} is a definition milestone but kind is 'product' -- "
+                    f"development milestones use a version id ({prefix}-1.0) or {prefix}-M<n>"
+                )
 
     known_ids = set()
     parsed_issues: List[Tuple[Path, Dict[str, Any]]] = []
@@ -800,6 +884,13 @@ def check_repo(data_dir: Path) -> List[str]:
         issue_id = fm.get("id")
         if issue_id == p.stem:
             known_ids.add(issue_id)
+            # PT-28: NEW enforcement -- pre-PT-28, check_repo only ever
+            # checked id == filename for issues, never the shape itself.
+            if issue_re is not None and not issue_re.match(p.stem):
+                errors.append(
+                    f"{p.stem}: issue id shape {p.stem!r} does not match {issue_re.pattern!r} "
+                    f"(configured prefix {prefix!r}){_migrate_hint_if_bare(p.stem, prefix)}"
+                )
         else:
             errors.append(f"{p.stem}: id {issue_id!r} does not match filename {p.stem!r}")
 
@@ -853,6 +944,146 @@ def check_repo(data_dir: Path) -> List[str]:
         )
 
     return errors
+
+
+# --------------------------------------------------------------------------
+# PT-28: `cairn migrate prefix-ids` -- one-shot 0.6.1 migration
+#
+# Architect's finalized ruling + addendum (process/cairn/issues/PT-28.md,
+# dbdbb7e § 5, corrected by 4ac505e § A.2). Named migration ("prefix-ids"),
+# not a bare "migrate" -- each breaking tracker change gets its own name so
+# an invocation in a runbook still means one specific thing a year later.
+# --------------------------------------------------------------------------
+
+def _migration_prefix(data_dir: Path) -> str:
+    """Read+validate `prefix:` for a migration run. Raises CairnError (hard
+    stop, nothing written) on a missing config.yml, a parse failure, or a
+    prefix that doesn't match PREFIX_RE -- every rewrite below depends on
+    this value, so there is no partial-migration path when it's absent.
+    """
+    config_path = Path(data_dir) / "config.yml"
+    if not config_path.exists():
+        raise CairnError(f"no config.yml found at {config_path} -- cannot determine prefix, nothing migrated")
+    cfg = parse_yaml_subset(config_path.read_text(encoding="utf-8"))
+    raw_prefix = cfg.get("prefix")
+    if raw_prefix is None or not PREFIX_RE.match(str(raw_prefix)):
+        raise CairnError(
+            f"config.yml: prefix {raw_prefix!r} must match {PREFIX_RE.pattern} -- cannot migrate, nothing written"
+        )
+    return str(raw_prefix)
+
+
+def migrate_prefix_ids(data_dir: Path, dry_run: bool = False) -> Dict[str, Any]:
+    """Run (`dry_run=False`) or preview (`dry_run=True`) the prefix-ids
+    migration. Returns a report describing every change made or planned --
+    {"prefix": str, "majors": [...], "milestones": [...], "issues": [...]}
+    -- which cmd_migrate_prefix_ids renders for both --dry-run and a real
+    run (the plan IS the report; there is no second, separately-maintained
+    "describe what would happen" path).
+
+    Does NOT gate on `check_repo` first (architect's ruling: that would
+    deadlock the exact situation this command exists to resolve -- a repo
+    whose lint is already failing on bare ids).
+
+    Idempotency and crash-recovery (addendum § A.2, corrected): phase 1's
+    unit of work is keyed on the FILENAME STEM, not the id -- "the old-
+    named file is still present" stays true exactly until that file's
+    work is finished, which survives a crash between the write and the
+    unlink (an id-keyed predicate does not: migrating one file is two
+    observable actions, the content-write and the rename, and an id-based
+    check can't tell those apart). If the new-named file already exists on
+    entry, a prior run wrote it -- it was written atomically, so it is
+    complete; do not rewrite it, only unlink the stale old file.
+
+    Phase 2 (issues/) is keyed on VALUE per file: a `milestone:` ref is
+    rewritten iff it's non-null and not already prefixed. Idempotent by
+    construction.
+
+    Touches exactly three fields across the whole run: `id:`, `major:`,
+    `milestone:`. Everything else (target_tag included -- addendum § A.1:
+    it is a git tag name, not a cairn id) is carried through byte-for-byte
+    via dump_frontmatter's "emit keys actually present" contract.
+    """
+    data_dir = Path(data_dir)
+    prefix = _migration_prefix(data_dir)
+    stamp = prefix + "-"
+    report: Dict[str, Any] = {"prefix": prefix, "majors": [], "milestones": [], "issues": []}
+
+    for subdir, report_key in (("majors", "majors"), ("milestones", "milestones")):
+        dir_path = data_dir / subdir
+        for p in _dir_glob(dir_path):
+            if p.stem.startswith(stamp):
+                continue  # already migrated -- the hyphen-qualified check (§5)
+            new_name = f"{stamp}{p.stem}.md"
+            new_path = dir_path / new_name
+            if new_path.exists():
+                # A prior run wrote the new file completely before being
+                # interrupted before the unlink -- finish just that, don't
+                # re-derive or rewrite content that's already correct.
+                report[report_key].append({"old": p.name, "new": new_name, "resumed": True})
+                if not dry_run:
+                    p.unlink()
+                continue
+            fm, body = parse_frontmatter(p.read_text(encoding="utf-8"))
+            fm = dict(fm)
+            fm["id"] = f"{stamp}{p.stem}"
+            if subdir == "milestones":
+                major = fm.get("major")
+                if major is not None and not str(major).startswith(stamp):
+                    fm["major"] = f"{stamp}{major}"
+            report[report_key].append({"old": p.name, "new": new_name, "resumed": False})
+            if not dry_run:
+                # id: (and major:, for a milestone) written together in
+                # ONE atomic write to the NEW path -- "new file exists
+                # with the right id but a stale major:" must not be a
+                # reachable crash state (addendum § A.2).
+                _atomic_write(new_path, dump_frontmatter(fm) + body)
+                p.unlink()
+
+    # PT-28 fix (found dogfooding the migration against this repo's own
+    # fixture tree, see the commit body): archive/ too, not just issues/ --
+    # check_repo validates an archived issue's `milestone:` ref exactly the
+    # same way it validates a live one (its known_ids/parsed_issues loop
+    # reads both directories), so skipping archive/ here would leave any
+    # archived issue with a bare ref that lints dangling the moment its
+    # milestone file is renamed -- a repo with archived history could never
+    # reach a clean post-migration state.
+    for p in list(_dir_glob(data_dir / "issues")) + list(_dir_glob(data_dir / "archive")):
+        fm, body = parse_frontmatter(p.read_text(encoding="utf-8"))
+        milestone = fm.get("milestone")
+        if milestone is None or str(milestone).startswith(stamp):
+            continue  # null refs survive untouched; already-prefixed refs are idempotent no-ops
+        new_milestone = f"{stamp}{milestone}"
+        report["issues"].append({"file": p.name, "old_milestone": str(milestone), "new_milestone": new_milestone})
+        if not dry_run:
+            fm = dict(fm)
+            fm["milestone"] = new_milestone
+            _atomic_write(p, dump_frontmatter(fm) + body)
+
+    return report
+
+
+def _format_migration_report(report: Dict[str, Any], dry_run: bool) -> str:
+    """Human-legible plan/summary for cmd_migrate_prefix_ids -- one line per
+    change (or "nothing to do"), loosely worded (INTERFACE.md convention:
+    pin content, not exact wording) so it reads sensibly for either mode.
+    """
+    verb = "would rename" if dry_run else "renamed"
+    ref_verb = "would rewrite" if dry_run else "rewrote"
+    lines = []
+    for key, label in (("majors", "major"), ("milestones", "milestone")):
+        for entry in report[key]:
+            if entry["resumed"]:
+                lines.append(f"{label} {entry['old']} -> {entry['new']} (already written by a prior run, resuming)")
+            else:
+                lines.append(f"{verb} {label} {entry['old']} -> {entry['new']}")
+    for entry in report["issues"]:
+        lines.append(
+            f"{ref_verb} {entry['file']}: milestone {entry['old_milestone']!r} -> {entry['new_milestone']!r}"
+        )
+    if not lines:
+        return "nothing to do -- every id is already prefixed"
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------
@@ -1803,12 +2034,40 @@ def _coerce_cli_value(key: str, value: str) -> Any:
     return value
 
 
+def _normalize_milestone_input(value: Optional[str], prefix: str) -> Optional[str]:
+    """PT-28 (architect's ruling § 3, item 2). Accepts the BARE form on any
+    CLI input that carries a milestone value -- `cairn ls --milestone 0.6`,
+    `cairn new --milestone 0.6`, `cairn set <id> milestone=0.6` -- and
+    normalizes to the configured prefix, since the prefix is fixed per repo
+    and typing it on every local invocation is pure friction where it adds
+    nothing. An already-prefixed value passes through unchanged (idempotent
+    -- typing the full form still works). Falsy (`None`/`""`) passes through
+    unchanged too -- "no milestone" / "clear this field" is not "a bare
+    value", and must keep coercing to `null`, not `"PT-"`.
+    This is CLI input leniency only, distinct from the lint (files must
+    still be prefixed) -- see check_repo's id-shape enforcement.
+
+    PT-28 Validate-phase finding (QA, adf1cce): originally wired into
+    cmd_ls's read-path filter ONLY. cmd_new/cmd_set's write paths wrote
+    the bare value straight to disk, succeeding (exit 0) while leaving
+    the repo lint-failing with a dangling milestone: ref -- worse than no
+    leniency at all, since the failure surfaced later at `cairn check`
+    time, disconnected from the command that caused it. All three call
+    sites route through this one function now, so they can't drift out
+    of agreement the way the pre-fix two-out-of-three state did.
+    """
+    if not value or value.startswith(f"{prefix}-"):
+        return value
+    return f"{prefix}-{value}"
+
+
 def cmd_new(args: argparse.Namespace) -> int:
     data_dir = resolve_data_dir(args)
+    prefix = load_config(data_dir)["prefix"]
     fields = {
         "title": args.title,
         "status": args.status,
-        "milestone": args.milestone,
+        "milestone": _normalize_milestone_input(args.milestone, prefix),
         "parent": args.parent,
         "blocked_by": _split_csv(args.blocked_by) if args.blocked_by else [],
         "assignee": args.assignee,
@@ -1824,6 +2083,7 @@ def cmd_new(args: argparse.Namespace) -> int:
 
 def cmd_ls(args: argparse.Namespace) -> int:
     data_dir = resolve_data_dir(args)
+    milestone_filter = _normalize_milestone_input(args.milestone, load_config(data_dir)["prefix"])
     matched: List[Dict[str, Any]] = []
     for p in _dir_glob(Path(data_dir) / "issues"):
         try:
@@ -1833,7 +2093,7 @@ def cmd_ls(args: argparse.Namespace) -> int:
             continue
         if args.status and fm.get("status") != args.status:
             continue
-        if args.milestone and str(fm.get("milestone")) != args.milestone:
+        if milestone_filter and str(fm.get("milestone")) != milestone_filter:
             continue
         if args.assignee and fm.get("assignee") != args.assignee:
             continue
@@ -1856,6 +2116,7 @@ def cmd_set(args: argparse.Namespace) -> int:
     if path is None:
         print(f"error: no such issue: {args.id}", file=sys.stderr)
         return 1
+    prefix = load_config(data_dir)["prefix"]
     patch: Dict[str, Any] = {}
     for kv in args.assignments:
         if "=" not in kv:
@@ -1865,7 +2126,15 @@ def cmd_set(args: argparse.Namespace) -> int:
         if key not in ISSUE_FIELD_ORDER:
             print(f"error: unknown field {key!r}", file=sys.stderr)
             return 1
-        patch[key] = _coerce_cli_value(key, value)
+        coerced = _coerce_cli_value(key, value)
+        # PT-28 (Validate-phase fix): `milestone=0.6` must normalize the
+        # same way `cairn ls --milestone 0.6` does -- _coerce_cli_value
+        # already turned "" / "null" into None (clear the field), which
+        # _normalize_milestone_input passes through unchanged (falsy is
+        # not "a bare value").
+        if key == "milestone" and coerced is not None:
+            coerced = _normalize_milestone_input(coerced, prefix)
+        patch[key] = coerced
     try:
         apply_patch(path, patch)
     except CairnError as e:
@@ -2049,6 +2318,35 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_migrate_prefix_ids(args: argparse.Namespace) -> int:
+    """`cairn migrate prefix-ids [--dry-run]` (PT-28, architect's ruling § 5).
+
+    Deliberately does NOT gate on a clean `cairn check` first -- that would
+    deadlock the exact bare-id situation this command exists to resolve.
+    `resolve_data_dir` still hard-errors on a missing config.yml (nothing
+    written, per ExitCodeTests); `migrate_prefix_ids` itself hard-errors on
+    a missing/malformed `prefix:` the same way. Exit code is 0 for any
+    completed run (dry or real, migrated or "nothing to do") -- an
+    UNRELATED lint error surviving the migration (e.g. a dangling parent
+    ref this command never touches) is reported, not treated as this
+    command's own failure; only "could not proceed" (bad prefix, an
+    unwritable file) is non-zero, per the ruling's Exit codes section.
+    """
+    data_dir = resolve_data_dir(args)
+    report = migrate_prefix_ids(data_dir, dry_run=args.dry_run)
+    print(_format_migration_report(report, args.dry_run))
+    if args.dry_run:
+        return 0
+    errors = check_repo(data_dir)
+    if errors:
+        print(f"\nwarning: {len(errors)} lint error(s) remain after migration:", file=sys.stderr)
+        for e in errors:
+            print(f"  {e}", file=sys.stderr)
+    else:
+        print("\nok")
+    return 0
+
+
 def cmd_snapshot(args: argparse.Namespace) -> int:
     data_dir = resolve_data_dir(args)
     sys.stdout.write(build_snapshot_markdown(data_dir))
@@ -2161,6 +2459,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     p_check = sub.add_parser("check", parents=[common], help="lint the data dir")
     p_check.set_defaults(func=cmd_check)
+
+    # PT-28 (architect's ruling § 5): a NAMED migration, not a bare
+    # "migrate" -- each one-shot tracker migration gets its own
+    # sub-subcommand under `migrate`, so an invocation in a shell history
+    # or a runbook still means one specific thing regardless of which
+    # cairn version wrote it.
+    p_migrate = sub.add_parser("migrate", parents=[common], help="run a one-shot tracker migration")
+    migrate_sub = p_migrate.add_subparsers(dest="migration", required=True)
+    p_migrate_prefix_ids = migrate_sub.add_parser(
+        "prefix-ids", parents=[common],
+        help="prefix bare major/milestone ids with the configured prefix: (PT-28)",
+    )
+    p_migrate_prefix_ids.add_argument(
+        "--dry-run", action="store_true", help="preview the plan without writing or renaming anything",
+    )
+    p_migrate_prefix_ids.set_defaults(func=cmd_migrate_prefix_ids)
 
     p_snapshot = sub.add_parser(
         "snapshot", parents=[common],

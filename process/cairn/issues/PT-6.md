@@ -2,7 +2,7 @@
 id: PT-6
 title: Require seen on POST /api/issue/<id>; opt out via explicit null
 status: done
-milestone: "0.4"
+milestone: PT-0.4
 parent: null
 assignee: null
 labels: []

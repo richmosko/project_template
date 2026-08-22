@@ -2,7 +2,7 @@
 id: PT-3
 title: Link existing email-password user to Google identity
 status: todo
-milestone: "1.0"
+milestone: PT-1.0
 parent: PT-1
 assignee: backend-lead
 labels: [auth]

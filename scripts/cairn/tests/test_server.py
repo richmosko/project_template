@@ -166,10 +166,10 @@ class BoardEndpointTests(ServerTestCase):
         resp = http_get(f"{self.base_url}/api/board")
         payload = json.loads(resp.read())
         major_ids = {m["id"] for m in payload["majors"]}
-        self.assertIn("V1", major_ids)
+        self.assertIn("PT-V1", major_ids)
         milestone_ids = {m["id"] for m in payload["milestones"]}
-        self.assertIn("1.0", milestone_ids)
-        self.assertIn("A", milestone_ids)
+        self.assertIn("PT-1.0", milestone_ids)
+        self.assertIn("PT-A", milestone_ids)
 
     def test_milestone_and_major_carry_the_fields_the_board_header_needs(self):
         # The header renders "1.0 · GA · v1.0.0 · 7/12 done" and a major
@@ -179,16 +179,16 @@ class BoardEndpointTests(ServerTestCase):
         resp = http_get(f"{self.base_url}/api/board")
         payload = json.loads(resp.read())
 
-        milestone_10 = next(m for m in payload["milestones"] if m["id"] == "1.0")
+        milestone_10 = next(m for m in payload["milestones"] if m["id"] == "PT-1.0")
         self.assertEqual(milestone_10["kind"], "product")
         self.assertTrue(milestone_10["ga"])
         self.assertEqual(milestone_10["target_tag"], "v1.0.0")
 
-        milestone_a = next(m for m in payload["milestones"] if m["id"] == "A")
+        milestone_a = next(m for m in payload["milestones"] if m["id"] == "PT-A")
         self.assertEqual(milestone_a["kind"], "process")
         self.assertFalse(milestone_a["ga"])
 
-        major_v1 = next(m for m in payload["majors"] if m["id"] == "V1")
+        major_v1 = next(m for m in payload["majors"] if m["id"] == "PT-V1")
         self.assertEqual(major_v1["status"], "active")
         self.assertEqual(major_v1["health"], "on-track")
 
@@ -200,7 +200,7 @@ class BoardEndpointTests(ServerTestCase):
         # `name` out from under the UI without a server-side test noticing.
         resp = http_get(f"{self.base_url}/api/board")
         payload = json.loads(resp.read())
-        milestone_10 = next(m for m in payload["milestones"] if m["id"] == "1.0")
+        milestone_10 = next(m for m in payload["milestones"] if m["id"] == "PT-1.0")
         self.assertEqual(milestone_10["name"], "MVP")
 
     def test_sub_issue_count_is_removed_from_the_board_payload(self):

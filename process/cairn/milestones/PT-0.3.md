@@ -1,8 +1,8 @@
 ---
-id: "0.3"
+id: PT-0.3
 name: cairn
 kind: product
-major: V1
+major: PT-V1
 status: completed
 target_tag: v0.3.0
 ga: false

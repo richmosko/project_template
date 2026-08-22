@@ -28,26 +28,32 @@ def make_tree(testcase) -> Path:
     (data_dir / "milestones").mkdir(parents=True)
     (data_dir / "majors").mkdir(parents=True)
     (data_dir / "config.yml").write_text("prefix: PT\nport: 8766\ndata_dir: process/cairn\n", encoding="utf-8")
-    (data_dir / "milestones" / "1.0.md").write_text(
-        '---\nid: "1.0"\nname: MVP\nkind: product\nmajor: V1\nstatus: planned\n'
+    (data_dir / "milestones" / "PT-1.0.md").write_text(
+        '---\nid: "PT-1.0"\nname: MVP\nkind: product\nmajor: PT-V1\nstatus: planned\n'
         "target_tag: v1.0.0\nga: true\n---\n\nDoD.\n",
         encoding="utf-8",
     )
-    # PT-12: milestones/1.0.md above names major: V1 -- without a matching
-    # majors/V1.md, the PT-12 missing/dangling-major check would flag every
-    # test built on this tree the moment it lands, even tests asserting
-    # `errors == []` for something unrelated (e.g. CheckRepoPriorityTests).
-    # Keep the base tree internally consistent the same way the real fixture
-    # under tests/fixtures/ already is.
-    (data_dir / "majors" / "V1.md").write_text(
-        "---\nid: V1\nstatus: active\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n",
+    # PT-12: milestones/PT-1.0.md above names major: PT-V1 -- without a
+    # matching majors/PT-V1.md, the PT-12 missing/dangling-major check
+    # would flag every test built on this tree the moment it lands, even
+    # tests asserting `errors == []` for something unrelated (e.g.
+    # CheckRepoPriorityTests). Keep the base tree internally consistent the
+    # same way the real fixture under tests/fixtures/ already is.
+    #
+    # PT-28: ids prefixed (PT-1.0/PT-V1, was 1.0/V1) -- the id-shape lint
+    # now enforces the configured prefix: on every namespace, so an
+    # unprefixed base tree would fail lint on its own, tripping every
+    # `errors == []` assertion built on make_tree() for a reason unrelated
+    # to what each test actually exercises.
+    (data_dir / "majors" / "PT-V1.md").write_text(
+        "---\nid: PT-V1\nstatus: active\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n",
         encoding="utf-8",
     )
     return data_dir
 
 
 def write_milestone(data_dir: Path, filename: str, **overrides) -> None:
-    fields = dict(id='"1.0"', name="MVP", kind="product", major="V1", status="planned",
+    fields = dict(id='"PT-1.0"', name="MVP", kind="product", major="PT-V1", status="planned",
                   target_tag="v1.0.0", ga="true")
     fields.update(overrides)
     text = (
@@ -487,18 +493,22 @@ class CheckRepoIdShapeKindTests(unittest.TestCase):
     """
 
     def test_valid_definition_ids_pass(self):
+        # PT-28: prefixed (PT-A, not A) -- the id-shape lint now requires
+        # the configured prefix: on every namespace.
         for milestone_id in ("A", "B", "C", "Aa", "Ab", "Z"):
             with self.subTest(id=milestone_id):
+                prefixed = f"PT-{milestone_id}"
                 data_dir = make_tree(self)
-                write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind="process", major="V1")
+                write_milestone(data_dir, f"{prefixed}.md", id=_fm_id(prefixed), kind="process", major="PT-V1")
                 errors = cairn.check_repo(data_dir)
                 self.assertEqual(errors, [], errors)
 
     def test_valid_development_ids_pass(self):
         for milestone_id in ("M0", "M1", "M12", "M0a", "M0b", "0.6", "1.0", "0.5.1", "1.0.1", "10.20.30"):
             with self.subTest(id=milestone_id):
+                prefixed = f"PT-{milestone_id}"
                 data_dir = make_tree(self)
-                write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind="product", major="V1")
+                write_milestone(data_dir, f"{prefixed}.md", id=_fm_id(prefixed), kind="product", major="PT-V1")
                 errors = cairn.check_repo(data_dir)
                 self.assertEqual(errors, [], errors)
 
@@ -507,30 +517,45 @@ class CheckRepoIdShapeKindTests(unittest.TestCase):
         # M<n> milestone with target_tag: null (pre-GA, no tag cut yet) is
         # legitimate and must not be flagged by this lint.
         data_dir = make_tree(self)
-        write_milestone(data_dir, "M0.md", id="M0", kind="product", major="V1",
+        write_milestone(data_dir, "PT-M0.md", id="PT-M0", kind="product", major="PT-V1",
                          target_tag="null", ga="false")
         errors = cairn.check_repo(data_dir)
         self.assertEqual(errors, [], errors)
 
     def test_process_kind_on_development_shaped_id_is_flagged(self):
-        for milestone_id in ("M0", "1.0"):
+        # PT-28 QA fix (Validate-phase finding on c2c896f): the original
+        # bare ids ("M0", "1.0") no longer reach error 1 at all -- a bare
+        # id fails the id-shape lint FIRST (no prefix), landing in error 3
+        # ("unrecognised milestone id"), whose boilerplate text happens to
+        # contain the word "process" too ("...for kind: process, or...").
+        # The loose `any("process" in e.lower())` check therefore passed
+        # for the WRONG reason -- verified empirically: a bare "M0" milestone
+        # produces ONLY the unrecognised-id message, never the kind-mismatch
+        # one. Must use a PROPERLY PREFIXED, correctly-shaped id (PT-M0,
+        # PT-1.0) to actually reach the id-shape<->kind mismatch branch, and
+        # the assertion is tightened to the mismatch message's distinguishing
+        # phrase ("but kind is") so it can't silently degrade to matching
+        # error 3's boilerplate again.
+        for milestone_id in ("PT-M0", "PT-1.0"):
             with self.subTest(id=milestone_id):
                 data_dir = make_tree(self)
-                write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind="process", major="V1")
+                write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind="process", major="PT-V1")
                 errors = cairn.check_repo(data_dir)
                 matching = _errors_for(errors, milestone_id)
                 self.assertTrue(matching, errors)
-                self.assertTrue(any("process" in e.lower() for e in matching), errors)
+                self.assertTrue(any("but kind is" in e.lower() and "process" in e.lower() for e in matching), errors)
 
     def test_product_kind_on_definition_shaped_id_is_flagged(self):
-        for milestone_id in ("A", "Aa"):
+        # Same PT-28 QA fix as the sibling test above -- prefixed ids and a
+        # tightened, mismatch-specific assertion.
+        for milestone_id in ("PT-A", "PT-Aa"):
             with self.subTest(id=milestone_id):
                 data_dir = make_tree(self)
-                write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind="product", major="V1")
+                write_milestone(data_dir, f"{milestone_id}.md", id=_fm_id(milestone_id), kind="product", major="PT-V1")
                 errors = cairn.check_repo(data_dir)
                 matching = _errors_for(errors, milestone_id)
                 self.assertTrue(matching, errors)
-                self.assertTrue(any("product" in e.lower() for e in matching), errors)
+                self.assertTrue(any("but kind is" in e.lower() and "product" in e.lower() for e in matching), errors)
 
     def test_m_reservation_m_and_ma_are_unrecognised_not_definition_shaped(self):
         # `M` is reserved out of the definition alphabet -- `M` and `Ma` must
@@ -831,8 +856,16 @@ class CheckCliTests(unittest.TestCase):
         # PT-27 error 1: a development-shaped id (M<n> or version) with
         # kind: process must fail cairn check with the id and the
         # conflicting kind named.
+        #
+        # PT-28 QA fix (Validate-phase finding on c2c896f): a bare "M0" no
+        # longer reaches error 1 at all -- it fails the id-shape lint FIRST
+        # (no prefix) and lands in error 3 ("unrecognised milestone id"),
+        # whose boilerplate text happens to also contain "process"
+        # ("...for kind: process, or..."), so the old loose assertIn checks
+        # passed for the wrong reason. Prefixed + tightened to "but kind is"
+        # the same way the CheckRepoIdShapeKindTests sibling was.
         data_dir = make_tree(self)
-        write_milestone(data_dir, "M0.md", id="M0", kind="process", major="V1")
+        write_milestone(data_dir, "PT-M0.md", id="PT-M0", kind="process", major="PT-V1")
         result = subprocess.run(
             [str(helpers.CAIRN_BIN), "check", "--data-dir", str(data_dir)],
             capture_output=True,
@@ -840,7 +873,8 @@ class CheckCliTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         combined = result.stdout + result.stderr
-        self.assertIn("M0", combined)
+        self.assertIn("PT-M0", combined)
+        self.assertIn("but kind is", combined.lower())
         self.assertIn("process", combined.lower())
 
     def test_unrecognised_milestone_id_shape_exits_nonzero_with_pointed_message(self):

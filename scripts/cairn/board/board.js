@@ -419,8 +419,15 @@
       var span = document.createElement("span");
       var tag = ms.ga ? " · GA" : "";
       var target = ms.target_tag ? " · " + ms.target_tag : "";
-      var repoPrefix = multiRoot ? ms.repo + " · " : "";
-      span.textContent = repoPrefix + ms.id + " · " + (ms.name || "") + tag + target + " · " + progress.done + "/" + progress.total + " done";
+      // PT-28 (architect's ruling, confirmation #3): ids are now
+      // self-qualifying (ms.id is "PT-0.6", not "0.6"), so the repo
+      // qualifier this used to prepend in multi-root mode is redundant --
+      // it used to read "PT · PT-0.6 · ...", the repo id shown twice.
+      // Render ms.id alone in both modes. laneStateKey's OWN repo-scoped
+      // composite key is unrelated and untouched (board-logic.js) -- that
+      // key still needs the repo dimension for multi-root collapse-state
+      // correctness; this is purely a display string.
+      span.textContent = ms.id + " · " + (ms.name || "") + tag + target + " · " + progress.done + "/" + progress.total + " done";
       progressEl.appendChild(span);
     });
 
@@ -436,8 +443,13 @@
       function (k) {
         var p = msPairs.filter(function (x) { return x.key === k; })[0];
         if (!p) return k;
+        // PT-28: same redundancy as the progress-strip fix above -- with
+        // self-qualifying milestone ids, prepending the repo id here read
+        // "PT · PT-0.6 · ...", doubling PT. The filter VALUE (`k`, from
+        // msPairs' repo-qualified key) still disambiguates correctly across
+        // roots; only this display label drops the now-redundant prefix.
         var label = milestoneLabel(board, p.milestone, p.repo);
-        return multiRoot ? p.repo + " · " + label : label;
+        return label;
       }
     );
     populateSelect("filter-assignee", uniqueSorted(board.issues.map(function (i) { return i.assignee; })));
