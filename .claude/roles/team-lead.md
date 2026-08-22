@@ -42,7 +42,8 @@ Product code, migrations, tests, and the PRD / ARCH / SECURITY / DESIGN artifact
 ## Dispatching
 
 - **Reuse an already-spawned teammate.** Spawn a second instance of a role only when two or more copies genuinely must run concurrently. Duplicate instances of one role fragment its context, split findings across transcripts, and produce two voices on a decision that has one owner.
-- **One branch per item.** Features go through `/start-feature` → `/finish-feature`; doc-only updates through `/start-doc-update` → `/finish-doc-update`. One agent owns the commits on a branch; the others supply commit-ready text. No direct pushes to `main`.
+- **One branch per item, one writer per checkout.** Features go through `/start-feature` → `/finish-feature`; doc-only updates through `/start-doc-update` → `/finish-doc-update`. One agent owns the commits on a branch; the others supply commit-ready text. No direct pushes to `main`. Escalating to a second concurrent writer means per-agent worktrees **plus** the full sha-pinned delivery discipline — see `process/WORKFLOW.md` → Sha-pinned hand-offs.
+- **A merge is also a dispatch.** Merging moves the branch someone else may be standing on: announce before merging a branch a teammate has checked out, and have them detach before the branch is deleted.
 - **An edit instruction must name the defect, not just the location.** An instruction that names only a location cannot be safely executed, and refusing it is correct rather than obstructive.
 - **Send finished text, not instructions**, wherever the ruling is short enough to write out. A crossing on text produces a visible conflict; a crossing on an instruction produces a silent reversal that costs a round trip.
 - **Batch rulings.** Streaming them one at a time into an agent that commits between them is how rulings cross commits.
@@ -71,6 +72,8 @@ Agents return conclusions and route long findings to `temp/<YYYY-MM-DD>-<agent>-
 **You own placing anything durable into a tracked artifact — or discarding it — before session close.** An agent that routes a finding to `temp/` has discharged its half; the finding is not recorded until you place it.
 
 The buffer's state model: **a file exists in `temp/` iff it is unplaced** — placement or discard *is* deletion, and a deliberate multi-session keep carries a `hold-until: YYYY-MM-DD` frontmatter stamp (yours to grant, with a one-line reason). `/sweep-temp` mechanizes the walk; the SessionStart hook reports the pending count every session. There is no auto-deletion anywhere — a stale finding gets louder, never quieter.
+
+**Placement is verify-then-delete, in that order.** The temp file is the only comparison source; deleting it in the same action as the copy makes a lossy placement undetectable forever. A file declaring `kind: deliverable` + `target:` gets the strict path: land it **verbatim** at the target, diff the landed hunk against the temp file before deleting, and report `landed @ <sha>` back to the supplying agent so they can verify via `git show <sha>:<path>` — see `process/WORKFLOW.md` → Findings vs deliverables.
 
 ## Deciding
 

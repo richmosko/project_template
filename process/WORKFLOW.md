@@ -204,9 +204,14 @@ Three distinct mechanisms, each with a different scope. Use the right one for th
 - Just happening in this session → **shared task list**
 - Direct question or hand-off note → **SendMessage**
 
-### Sha-leading convention (build/review hand-offs)
+### Sha-pinned hand-offs (build/review/integration)
 
-When two agents commit and review against the same branch in a tight loop, their messages cross — the reviewer reports on commit X while the builder has already pushed Y, and every crossing costs a round trip to establish who saw what. **Lead any build→review or review→build hand-off message with the sha you acted against:** `built @ <sha>`, `reviewed @ <sha>`, `chrome-passed @ <sha>`. It's a one-line habit, not a workflow change, and it makes a crossing self-resolving — the recipient sees at a glance whether the message predates their latest push. (Adopted 2026-08-20 after four crossings on PT-3; applies to any tightly-coupled pair, most often an implementation lead ↔ architect/qa.)
+Async messaging guarantees crossings: idle notifications, acks, and status reports overlap in flight, so any protocol that depends on message *ordering* will eventually act on a stale premise. A description ("it's ready", "it's in my tree") is a claim about a moment that has already passed — the tree can change between the message being written and being read. The defense is to anchor every hand-off to something immutable: **a commit sha resolves to exactly one set of bytes or fails loudly; a description fails silently.** Four rules follow (adopted 2026-08-22 from a sha-pinned-handoff brief out of the fintech project, where an uncommitted deliverable was silently destroyed by a crossed-message worktree reset; see `TEMPLATE_DECISIONS.md`):
+
+- **Sha-leading messages.** Lead any build→review or review→build hand-off message with the sha you acted against: `built @ <sha>`, `reviewed @ <sha>`, `chrome-passed @ <sha>`. A crossing becomes self-resolving — the recipient sees at a glance whether the message predates their latest push. (Adopted 2026-08-20 after four crossings on PT-3; applies to any tightly-coupled pair, most often an implementation lead ↔ architect/qa.)
+- **Frozen-sha reviews.** A reviewer (qa, seceng, architect) is given one named sha and reviews `git diff <base>..<sha>`. Follow-up fixes produce a *new* sha and an explicit re-review delta — never "I updated it, look again."
+- **A merge is also a dispatch.** Merging moves the branch someone else may be standing on. Announce before merging a branch a teammate has checked out, and have them detach before the branch is deleted. (Known sharp edge: `gh pr merge --delete-branch` fails its local-delete step if any worktree holds the branch — the merge still lands; detach the holder, then delete.)
+- **One writer per checkout.** This template's default topology is one shared checkout, one branch per item, one agent owning the commits on that branch — everyone else supplies commit-ready text or reviews. That partition, not luck, is what prevents mid-edit clobbering and dirty-tree races. Escalating to a second *concurrent writer* (two features in flight, impl + validate truly in parallel) means giving each writer their own git worktree **and** adopting the full sha-pinned delivery discipline as a package: in multi-worktree operation a deliverable does not exist until it is a commit — the sender commits locally and reports the full sha, and the receiver verifies from the commit object (`git show <sha>:<path>`), never from the sender's worktree. Isolation without the protocol recreates the destroyed-delivery incident class that produced these rules.
 
 ### Anchor-task pattern
 
@@ -279,6 +284,23 @@ Every agent brief carries the same **Hand-off protocol**: deliveries return **co
 | Placed / discarded | **file deleted** — placement into a tracked artifact, or discard with a stated rationale, *is* deletion |
 
 There is no manifest and no status field — a second source of truth would drift from the directory listing. The filename's date prefix makes age visible in a bare `ls`.
+
+**Findings vs deliverables.** The default `temp/` payload is a *finding* — evidence behind a conclusion, which the lead may legitimately summarize at placement. A file carrying **commit-ready text meant to land verbatim** (a doc section, a config block, a ruling) is a *deliverable*, and it self-declares with two frontmatter lines:
+
+```markdown
+---
+kind: deliverable
+target: docs/SECURITY/index.html
+---
+```
+
+Deliverables get the strict integration path (adopted 2026-08-22, same ruling as sha-pinned hand-offs — see `TEMPLATE_DECISIONS.md`):
+
+1. **Land verbatim at the declared target** — a deliverable is not the lead's to compress or paraphrase.
+2. **Verify before delete.** The integrator diffs the landed text against the temp file *before* deleting it — never in the same action. Deleting first destroys the only comparison source; a lossy copy then becomes undetectable forever.
+3. **Author closes the loop from the commit object.** Once the placement is committed, the integrator reports `landed @ <sha>` (plus the target path) back to the supplying agent, who verifies via `git show <sha>:<path>` — against the immutable commit, never the mutable checkout. The author is the one reader guaranteed to notice a mangled placement.
+
+Files without the frontmatter keep the lighter findings flow. (Content-addressing the temp file itself — `git hash-object -w` — was considered and rejected: the sha goes stale the moment the author legitimately revises the file, recreating the stale-description problem one level down. The integrating commit is the pinning point.)
 
 **Hygiene machinery (visibility, never auto-deletion):**
 
