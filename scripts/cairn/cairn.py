@@ -1770,7 +1770,21 @@ def make_server(
         server_version = "cairn/1.0"
 
         def log_message(self, fmt, *fmt_args):  # noqa: A003
-            sys.stderr.write("  %s %s\n" % (self.command, self.path))
+            # PT-34 (architect's E0 prerequisite, ruled permanent): the
+            # prior override discarded every argument log_request/log_error
+            # pass through fmt_args, including the HTTP status code -- a
+            # request that returned 200 and one that returned 503 produced
+            # an identical server-log line. That gap is what turned this
+            # investigation into an afternoon of Chrome-side reasoning
+            # instead of a grep. BaseHTTPRequestHandler.log_request's own
+            # call shape (kept here as the reference format) is
+            # `log_message('"%s" %s %s', requestline, code, size)` --
+            # fmt_args[1] is the status code on that path. Any other call
+            # shape (log_error, etc.) doesn't carry one at that position,
+            # so this degrades to the prior terse method+path form rather
+            # than guessing.
+            status = fmt_args[1] if len(fmt_args) >= 2 else "-"
+            sys.stderr.write("  %s %s %s\n" % (self.command, self.path, status))
 
         def _send_json(self, status: int, payload: Any) -> None:
             body = json.dumps(payload).encode("utf-8")
