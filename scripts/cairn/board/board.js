@@ -443,8 +443,13 @@
       function (k) {
         var p = msPairs.filter(function (x) { return x.key === k; })[0];
         if (!p) return k;
+        // PT-28: same redundancy as the progress-strip fix above -- with
+        // self-qualifying milestone ids, prepending the repo id here read
+        // "PT · PT-0.6 · ...", doubling PT. The filter VALUE (`k`, from
+        // msPairs' repo-qualified key) still disambiguates correctly across
+        // roots; only this display label drops the now-redundant prefix.
         var label = milestoneLabel(board, p.milestone, p.repo);
-        return multiRoot ? p.repo + " · " + label : label;
+        return label;
       }
     );
     populateSelect("filter-assignee", uniqueSorted(board.issues.map(function (i) { return i.assignee; })));
