@@ -154,3 +154,22 @@ test("nextExpandedLanes: a prototype-key-shaped stateKey toggles open and closed
     assert.equal(Object.keys(closed).length, 0, `key ${JSON.stringify(key)} left a stray entry on close`);
   });
 });
+
+// PT-30 (architect's ruling § 5, red-first case 5): parseExpandedLanes must
+// return an Object.create(null) map, and a prototype-key-shaped entry in the
+// persisted `lanes` array must restore as a REAL, readable key -- not get
+// silently absorbed into/masked by the parsed map's own prototype chain.
+// This is the on-disk twin of the laneExpanded/nextExpandedLanes cases
+// above: the hazard now arrives via untrusted persisted JSON instead of a
+// live toggle.
+test("parseExpandedLanes: a prototype-key-shaped lane entry restores as a real key, readable through laneExpanded", () => {
+  PROTOTYPE_KEY_SHAPED_VALUES.concat(["__proto__"]).forEach((key) => {
+    var raw = JSON.stringify({ v: 1, lanes: [key] });
+    var restored = CairnLogic.parseExpandedLanes(raw);
+    assert.equal(
+      CairnLogic.laneExpanded(restored, key),
+      true,
+      `parseExpandedLanes lost or misrepresented prototype-key-shaped lane ${JSON.stringify(key)}`
+    );
+  });
+});

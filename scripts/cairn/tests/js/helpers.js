@@ -68,13 +68,37 @@ function loadCairnLogic() {
 // general, but it's a pure loader artifact here, not a bug in the
 // function under test. Every CairnLogic function returns plain
 // JSON-shaped data (strings, null, arrays of plain objects, or plain
-// objects) -- round-tripping through JSON.stringify/parse rehomes the
-// value into THIS realm cheaply and safely, since none of these
-// functions ever return Dates/Maps/RegExps/etc. that JSON can't
-// round-trip. Fixed once here rather than in every test file.
+// objects) -- rehoming the value into THIS realm cheaply and safely
+// closes it, since none of these functions ever return Dates/Maps/
+// RegExps/etc. that a structural copy can't reproduce. Fixed once here
+// rather than in every test file.
+//
+// PT-30 (view-state.test.js's "returns an Object.create(null) map"
+// case): NOT a JSON.stringify/parse round-trip -- that recreates every
+// object using THIS realm's normal Object.prototype regardless of the
+// sandbox value's own prototype, so a null-prototype map (parseExpandedLanes,
+// laneExpanded's/nextExpandedLanes' maps) silently grew a prototype chain
+// crossing the wrapper, the same class of gap PT-29's wrapForRealm fix
+// (below) closed for data-vs-function exports. Recursing by hand and
+// preserving "was this object's own prototype null" at each level closes
+// it structurally instead of case-by-case.
 function rehome(value) {
   if (value === null || typeof value !== "object") return value;
-  return JSON.parse(JSON.stringify(value));
+  if (Array.isArray(value)) {
+    // NOT `value.map(rehome)` -- `.map` resolves through the FOREIGN
+    // realm's own Array.prototype (that's whose object `value` is), and
+    // per spec uses `this`'s species constructor to build the result, so
+    // the "rehomed" array would still be a foreign-realm Array and fail
+    // assert.deepStrictEqual against a same-shaped current-realm literal
+    // exactly like the object case this function exists to fix. A `[]`
+    // literal + push, evaluated in THIS file's realm, sidesteps it.
+    var arr = [];
+    for (var i = 0; i < value.length; i++) arr.push(rehome(value[i]));
+    return arr;
+  }
+  var copy = Object.getPrototypeOf(value) === null ? Object.create(null) : {};
+  Object.keys(value).forEach(function (key) { copy[key] = rehome(value[key]); });
+  return copy;
 }
 
 function wrapForRealm(cairnLogic) {

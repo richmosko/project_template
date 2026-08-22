@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Board: persist expanded-lane view state across refresh + expand/collapse-all control |
+| Issue | PT-30 |
+| Milestone | 0.6.1 |
+| Branch | `feature/pt-30-view-persistence` |
+| Started | 2026-08-22 |
+| Goal | Expanded lanes survive refresh via guarded localStorage; expand/collapse-all control; collapse-all restores true default |
+| Status | In Progress — pre-approved through /merge-pr (Mosko) |
 
 ## Releases
 
