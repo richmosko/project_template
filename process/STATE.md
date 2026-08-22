@@ -17,12 +17,12 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Board: persist expanded-lane view state across refresh + expand/collapse-all control |
-| Issue | PT-30 |
+| Feature | Board: pull-down-to-refresh gesture |
+| Issue | PT-32 |
 | Milestone | 0.6.1 |
-| Branch | `feature/pt-30-view-persistence` |
+| Branch | `feature/pt-32-pull-to-refresh` |
 | Started | 2026-08-22 |
-| Goal | Expanded lanes survive refresh via guarded localStorage; expand/collapse-all control; collapse-all restores true default |
+| Goal | Pull-down past threshold at scroll-top refetches board data with visible indicator; never hijacks scroll or drag; degrades to nothing |
 | Status | In Progress — pre-approved through /merge-pr (Mosko) |
 
 ## Releases
