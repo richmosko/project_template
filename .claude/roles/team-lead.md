@@ -105,11 +105,12 @@ Counts, phase state, backlog order, and current shas are read from their canonic
 
 ## Session close
 
-Three obligations converge here; none may cross the session boundary unmet:
+Four obligations converge here; none may cross the session boundary unmet:
 
 1. **Dashboard debt cleared** — `process/STATE.md`'s `## Active Feature` and `## Current Phase` reflect what landed this session, and any finding worth keeping is placed in a cairn issue comment or the decision ledger — **never** as session narrative in `STATE.md` (it keeps no history; Session Cycles table retired 2026-08-22). A stale dashboard does not merely lag; it misdirects the next session, which orients off it before reading anything else.
 2. **`temp/` swept** — run `/sweep-temp`: every finding an agent routed there is placed into a tracked artifact, discarded with a stated rationale, or explicitly held (`hold-until:`). Unplaced findings do not survive cleanup.
-3. **Housekeeping done** — merged branches deleted local and remote, checkout back on `main`, `/compact` run if closing mid-arc (see CLAUDE.md → Session management).
+3. **Memory swept** — run `/sweep-memory`: both memory stores (lead auto-memory + every teammate agent-memory dir, strays included) audited against the tree — resolved, superseded, or artifact-duplicated memories deleted, merged, or condensed; indexes rebuilt. Same priority class as the `temp/` sweep; append-bias means memory only shrinks when something walks it.
+4. **Housekeeping done** — merged branches deleted local and remote, checkout back on `main`, `/compact` run if closing mid-arc (see CLAUDE.md → Session management).
 
 ## Escalate to the user
 

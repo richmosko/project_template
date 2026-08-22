@@ -47,7 +47,7 @@ To start a phase team, say: _"Create a team for the Plan phase"_ — the lead wi
 The conversation context isn't infinite. Use these heuristics so we don't lose continuity at the wrong moment:
 
 - **End of an I→V loop** (feature shipped): run `/compact`, push the branch, update `process/STATE.md`.
-- **Session close**: run `/sweep-temp` — every `temp/` hand-off file gets placed into a tracked artifact, discarded, or explicitly held (`hold-until:` frontmatter). `temp/` is gitignored; unplaced findings do not survive cleanup.
+- **Session close**: run `/sweep-temp` — every `temp/` hand-off file gets placed into a tracked artifact, discarded, or explicitly held (`hold-until:` frontmatter). `temp/` is gitignored; unplaced findings do not survive cleanup. Then run `/sweep-memory` (same priority class) — the persistent memory stores (lead + teammate agent-memory) are audited against the tree: resolved, superseded, or artifact-duplicated memories are deleted, merged, or condensed, and the indexes rebuilt.
 - **Phase transition** (R→P, P→I, I→V, V→R): start a fresh session. Phase artifacts (PRD/ARCH/SECURITY) are the hand-off — make sure they're up-to-date before closing.
 - **Long async gap** (you stepped away for hours/days): start fresh; let CLAUDE.md + process/STATE.md re-orient the new session. Whether to `/resume` depends on teammate mode:
   - **In-process mode** (`teammateMode: "in-process"`): teammates do **not** survive `/resume`. Start fresh; do not message ghost teammates by name. Re-spawn the phase team if needed.
