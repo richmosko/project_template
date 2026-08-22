@@ -331,6 +331,16 @@ main > .swimlane .column {
   border: 1px solid var(--border);
 }
 
+/* PT-29 architect review gap (diff review @ 0ce5647, R-gap): with
+   Swimlanes OFF, repoSectionEl appends .board directly under .repo-group
+   -- no intervening .swimlane -- so .column had no grey-well treatment
+   and sat white-on-white against the repo card. Mirrors the
+   single-root `main > .swimlane .column` rule above, one level deeper. */
+.repo-group > .board .column {
+  background: var(--bg);
+  border-color: transparent;
+}
+
 .repo-group-header {
   font-weight: 700;
   font-size: 14px;
