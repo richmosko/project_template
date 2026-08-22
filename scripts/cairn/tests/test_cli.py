@@ -266,6 +266,20 @@ class SetBlockedByTests(unittest.TestCase):
         self.assertEqual(frontmatter["blocked_by"], ["PT-1", "PT-3"])
 
 
+class InformationalOnlyBlockedByTests(unittest.TestCase):
+    """PT-26 architect's addendum: blocked_by is informational only in
+    v1 -- no exit-code effect, no stderr, no refusal, on any write path."""
+
+    def test_set_status_in_progress_on_a_blocked_issue_is_silent_and_succeeds(self):
+        data_dir = helpers.make_tmp_data_dir(self)
+        setup = run_cairn(["set", "PT-1", "blocked_by=PT-3", "--data-dir", str(data_dir)])
+        self.assertEqual(setup.returncode, 0, setup.stdout + setup.stderr)  # precondition: PT-1 is actually blocked
+        result = run_cairn(["set", "PT-1", "status=in-progress", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(result.stdout.strip(), "PT-1")
+
+
 class CommentCommandTests(unittest.TestCase):
     def test_comment_appends_from_stdin_with_correct_delimiter(self):
         data_dir = helpers.make_tmp_data_dir(self)
