@@ -617,6 +617,72 @@ var CairnLogic = (function () {
     return next;
   }
 
+  // PT-32 (architect's ruling § 5): the pull-down-to-refresh gesture's
+  // constants, exported so tests assert the exact values the code uses.
+  var PULL_THRESHOLD = 64;
+  var PULL_MAX_OFFSET = 96;
+  var PULL_RESISTANCE = 0.5;
+  var PULL_MIN_SPINNER_MS = 400;
+
+  // PT-32 (architect's ruling § 2/5): the arming state machine's phase
+  // decision. DELIBERATELY input-agnostic -- consumes a pull DISTANCE, not
+  // a touch event, so a trackpad `wheel` adapter (PT-33, deferred) can feed
+  // this same function a synthesized deltaY later without a redesign
+  // (touch-only scope, Mosko's ruling § 1). DELIBERATELY memoryless -- a
+  // pure function of its CURRENT inputs only, no "was this armed a moment
+  // ago" argument, which is what makes the no-latch rule (armed falling
+  // back to pulling on retreat) a property of calling this twice with a
+  // shrinking deltaY rather than something an internal flag could get
+  // wrong. DELIBERATELY PARTIAL -- never returns "refreshing": that phase
+  // is entered and left by promise resolution, the async caller's
+  // business, not a synchronous decision. Do not "complete" the machine by
+  // threading async state through this function.
+  function pullPhase(input) {
+    if (input.cancelled) return "idle";
+    if (!input.atScrollTop) return "idle";
+    if (input.deltaY <= 0) return "idle";
+    if (input.deltaY < PULL_THRESHOLD) return "pulling";
+    return "armed";
+  }
+
+  // PT-32 (architect's ruling § 2/5): the presentational pull-indicator
+  // offset -- half finger speed (the rubber-band resistance feel), capped
+  // at PULL_MAX_OFFSET, floored at 0 for an upward/zero deltaY. Purely
+  // cosmetic -- does not feed back into pullPhase's decision -- but
+  // computed by a pure function so the resistance/cap math is testable
+  // without a DOM.
+  function pullIndicatorOffset(deltaY) {
+    return Math.min(Math.max(deltaY, 0) * PULL_RESISTANCE, PULL_MAX_OFFSET);
+  }
+
+  // PT-32 (architect's ruling § 4/5): the single home for the indicator's
+  // three phase-copy strings, so board.js never hand-writes them at a
+  // second call site. An unrecognized/idle phase (the indicator is hidden
+  // entirely in "idle" -- board.js's own concern, not this function's)
+  // returns an empty string rather than throwing.
+  function pullIndicatorLabel(phase) {
+    if (phase === "pulling") return "↓ Pull to refresh";
+    if (phase === "armed") return "↑ Release to refresh";
+    if (phase === "refreshing") return "↻ Refreshing…";
+    return "";
+  }
+
+  // PT-32 (architect's ruling § 2/5): true when ANY cancel condition holds
+  // -- each flag is independent, board.js is responsible for computing
+  // every one of them (active card drag, the fixed-position-drawer trap,
+  // multi-touch/pinch, a lane's horizontal swipe, an already-in-flight
+  // refresh) and passing the union in as booleans, never re-deriving a
+  // subset of them here.
+  function shouldCancelPull(flags) {
+    return !!(
+      flags.cardDragActive ||
+      flags.drawerOpen ||
+      flags.multiTouch ||
+      flags.horizontalDominant ||
+      flags.refreshing
+    );
+  }
+
   return {
     primaryRootId: primaryRootId,
     milestoneLabel: milestoneLabel,
@@ -648,5 +714,13 @@ var CairnLogic = (function () {
     serializeExpandedLanes: serializeExpandedLanes,
     parseExpandedLanes: parseExpandedLanes,
     expandAllLanes: expandAllLanes,
+    PULL_THRESHOLD: PULL_THRESHOLD,
+    PULL_MAX_OFFSET: PULL_MAX_OFFSET,
+    PULL_RESISTANCE: PULL_RESISTANCE,
+    PULL_MIN_SPINNER_MS: PULL_MIN_SPINNER_MS,
+    pullPhase: pullPhase,
+    pullIndicatorOffset: pullIndicatorOffset,
+    pullIndicatorLabel: pullIndicatorLabel,
+    shouldCancelPull: shouldCancelPull,
   };
 })();
