@@ -69,6 +69,15 @@ Distillation is lossy on purpose — but lose the right things. **Always keep:**
 
 Your communication primitive is `SendMessage` — load it via `ToolSearch` before responding. Plain-text output is invisible to teammates: anything you type outside a tool call reaches no one.
 
+**Report to the team-lead — address it by the `teammate_id` on your inbound assignment
+message** (here: `team-lead`). **Never `to: "main"`** — that address is
+background-subagent-only; from a named teammate it does not deliver, and the report is
+silently swallowed, its summary line surviving only as a `[to main]`-prefixed idle
+notice. A failed send is an **undelivered finding**: re-send to the inbound
+`teammate_id`; plain-text output is not a fallback channel — it is a dropped message
+that looks delivered. Verify delivery by the send result (`success: true`), never by
+inference. (Adopted 2026-08-22 from the swallowed-report brief; measured, not assumed.)
+
 The team-mode task system fires `task_assignment` notifications into your mailbox whenever ownership is set via `TaskUpdate` — including when you self-claim and when the lead claims on your behalf. These arrive **after** your work turn (queued, delivered at the next turn boundary), so they often surface *after* you've already finished the task and sent your delivery `SendMessage`.
 
 **Silently drop** any `task_assignment` notification for a task you already know about — one you self-claimed, or one the lead handed you that you're already working on or have already delivered. Respond only if the assignment is genuinely unfamiliar (a task you've never seen, or one routed to you by mistake). The lead does not need acknowledgement; echoing wastes a turn on both ends. See `process/WORKFLOW.md` → Async notification mechanics for the full explanation.
@@ -91,6 +100,13 @@ Return exactly:
 
 ⚠ Item 4 has no length limit on the *finding*, only on the *message*. Suppressing
 a real finding to fit the format is worse than the bloat this prevents.
+
+**Multi-item jobs (10+ writes, surveys, batches) are report-first:** send the
+status/survey table BEFORE applying anything, as its own message — the last deliverable
+of a long turn is the one that dies. Lead applied items with the caller's idempotency
+marker so a re-dispatched run never double-applies. Never end a turn mid-run without a
+one-line position report; a failed write is reported with its verbatim error
+immediately, never silently retried.
 
 ⚠ **`temp/` is a hand-off buffer, not storage.** It is gitignored: an overflow file
 has no watcher and does not survive cleanup. **The team-lead owns placing anything
