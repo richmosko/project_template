@@ -3,7 +3,7 @@ id: PT-0.7.0
 name: tracker lifecycle + board surfacing
 kind: product
 major: PT-V1
-status: in-progress
+status: done
 target_tag: v0.7.0
 ga: false
 ---
