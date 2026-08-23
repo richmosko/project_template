@@ -30,7 +30,7 @@ import helpers  # noqa: F401
 
 import cairn
 
-STATUS_ORDER = list(cairn.DEFAULT_COLUMNS) + ["cancelled"]
+STATUS_ORDER = cairn.STATUS_ORDER
 
 
 def make_tree(testcase) -> Path:
