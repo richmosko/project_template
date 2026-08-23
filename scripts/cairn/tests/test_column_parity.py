@@ -325,5 +325,71 @@ class StatusOrderTests(unittest.TestCase):
         )
 
 
+def extract_record_status_labels_keys(source):
+    """The set of keys in board-logic.js's `var RECORD_STATUS_LABELS = {...}`
+    object literal.
+
+    PT-40 (joint PT-40/43/44 ruling § 2): a SEPARATE map from STATUS_LABELS
+    (deliberately not folded in -- `Object.keys(STATUS_LABELS)` is the issue
+    drawer's status `<select>` option list; adding record-only statuses
+    like `planned`/`paused` would offer invalid issue statuses). Mirrors
+    `extract_status_labels_keys` above exactly, one map over -- same
+    fail-loudly extractor contract, same reason this guard lives in the
+    Python suite (JC1, PT-36's own precedent).
+    """
+    match = re.search(r"var\s+RECORD_STATUS_LABELS\s*=\s*\{([^}]*)\}", source)
+    if not match:
+        raise ExtractionError(
+            "could not find the `var RECORD_STATUS_LABELS = {...}` declaration in the "
+            "given source -- if this declaration was renamed or restructured, this guard "
+            "needs to be updated, not silenced."
+        )
+    return set(re.findall(r'"([a-z-]+)"\s*:', match.group(1)))
+
+
+class RecordStatusLabelsCoverageTests(unittest.TestCase):
+    """implementation-lead offered this as optional (their PT-40 Pass-1
+    message: "your call, would mirror cairn.RECORD_STATUSES the same way")
+    -- taken, since it's the same one-paragraph cost as the STATUS_LABELS
+    guard above and closes the identical drift risk one map over: every
+    status a milestone/major can actually carry (cairn.RECORD_STATUSES,
+    the only vocabulary PT-39's cairn set validates against) must have a
+    real label, not silently fall back to recordStatusLabel's raw-slug
+    default the moment someone adds a status without remembering the map."""
+
+    def test_record_status_labels_keys_cover_every_record_status_value(self):
+        source = BOARD_LOGIC_PATH.read_text(encoding="utf-8")
+        js_keys = extract_record_status_labels_keys(source)
+        missing = set(cairn.RECORD_STATUSES) - js_keys
+        self.assertEqual(
+            missing, set(),
+            f"RECORD_STATUS_LABELS is missing a real label for: {sorted(missing)} -- every "
+            f"status in cairn.RECORD_STATUSES must have one",
+        )
+
+    def test_record_status_labels_and_status_labels_share_no_keys_by_accident(self):
+        # Not a hard requirement (the two vocabularies DO overlap on
+        # done/cancelled by design -- both an issue and a milestone can be
+        # "done") -- this instead pins the NEGATIVE space explicitly:
+        # RECORD_STATUS_LABELS must carry planned/paused/in-progress
+        # (issue-invalid or issue-workflow-named-differently), proving the
+        # two maps are genuinely separate declarations, not one aliased
+        # under two names (which `Object.keys(STATUS_LABELS)` -- the issue
+        # drawer's <select> options -- would then silently offer).
+        source = BOARD_LOGIC_PATH.read_text(encoding="utf-8")
+        record_keys = extract_record_status_labels_keys(source)
+        status_keys = extract_status_labels_keys(source)
+        record_only = {"planned", "paused"}
+        self.assertTrue(
+            record_only.issubset(record_keys),
+            f"RECORD_STATUS_LABELS must cover the record-only statuses {record_only}, got {record_keys}",
+        )
+        self.assertFalse(
+            record_only & status_keys,
+            f"STATUS_LABELS must NOT gain record-only statuses {record_only} -- that would offer "
+            f"an invalid status in the issue drawer's <select> (board.js's Object.keys(STATUS_LABELS))",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

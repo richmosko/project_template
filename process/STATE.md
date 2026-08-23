@@ -17,12 +17,12 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Lint: hand-mv'd milestone/major in archive dirs with live status goes undetected |
-| Issue | PT-46 (cairn) |
+| Feature | Board: Milestone/Major cards viewable + status indicators on Kanban |
+| Issue | PT-40 (cairn) |
 | Milestone | PT-0.7.0 |
-| Branch | `feature/pt-46-archived-record-status-lint` |
+| Branch | `feature/pt-40-milestone-major-cards` |
 | Started | 2026-08-23 |
-| Goal | check_repo errors on archived milestone/major records whose status isn't done/cancelled |
+| Goal | Lane headers / major tabs open a read-only card (body + fields); status pills on lanes and tabs |
 | Status | In Progress |
 
 ## Releases

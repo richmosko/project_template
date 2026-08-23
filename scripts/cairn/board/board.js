@@ -44,6 +44,11 @@
   // callers.
   var STATUS_LABELS = CairnLogic.STATUS_LABELS;
   var statusLabel = CairnLogic.statusLabel;
+  // PT-40: RECORD_STATUS_LABELS' fallback-safe accessor -- a SEPARATE
+  // vocabulary from statusLabel/STATUS_LABELS above (milestone/major
+  // lifecycle, not issue lifecycle). Never folded together -- see
+  // RECORD_STATUS_LABELS' own comment in board-logic.js.
+  var recordStatusLabel = CairnLogic.recordStatusLabel;
   // PT-29: BOARD_COLUMNS relocated into board-logic.js (architect's
   // ruling § 4) as the single canonical column-order list. PT-35 (closing
   // review finding): the bare BOARD_COLUMNS alias that used to live here is
@@ -130,7 +135,13 @@
     swimlanesOn: true,
     sortKey: "id",
     sortDir: 1,
-    openIssueId: null,
+    // PT-40 (joint PT-40/43/44 ruling § 5): generalized from openIssueId
+    // (issue-only) to {kind, id} | null so a milestone/major card can
+    // share the SAME open/close state and race-guard machinery as the
+    // issue drawer -- one encoding of "what's open," not a parallel
+    // openMilestoneId/openMajorId (the PT-29 polarity trap this ruling
+    // explicitly calls out). kind is "issue" | "milestone" | "major".
+    openRecord: null,
     // PT-29 (architect's ruling § 2, judgment call a): expandedLanes and
     // collapsedRepos have OPPOSITE polarity -- read that carefully before
     // touching either.
@@ -431,10 +442,40 @@
     // (team-lead ruling, 2026-08-21). PT-22: dedupeMajorIds (board-logic.js).
     dedupeMajorIds(board.majors).forEach(function (majorId) {
       var btn = document.createElement("button");
-      btn.textContent = majorId;
       btn.className = state.currentMajor === majorId ? "active" : "";
+      // PT-40 (ruling § 6): a status dot, colour via the SAME
+      // recordStatusLabel/RECORD_STATUS_LABELS vocabulary the card uses --
+      // no room for text on a tab, so the label lives in title/aria-label
+      // instead. First matching record wins on a dedupe collision (rare,
+      // multi-root only -- not special-cased further, same posture the
+      // ruling takes for the card itself).
+      var majorRecord = (board.majors || []).filter(function (m) { return m.id === majorId; })[0];
+      if (majorRecord) {
+        var dot = document.createElement("span");
+        dot.className = "major-status-dot";
+        dot.dataset.status = majorRecord.status;
+        dot.title = recordStatusLabel(majorRecord.status);
+        dot.setAttribute("aria-hidden", "true");
+        btn.appendChild(dot);
+      }
+      btn.appendChild(document.createTextNode(majorId));
+      // Tab click still means "filter" -- unchanged.
       btn.onclick = function () { state.currentMajor = majorId; render(); };
       majorsTabs.appendChild(btn);
+
+      // PT-40 (ruling § 6): a SIBLING open button, not nested -- a
+      // <button> inside a <button> is invalid HTML. Appended directly
+      // into #majors-tabs right after its tab, same flex container.
+      var openBtn = document.createElement("button");
+      openBtn.type = "button";
+      openBtn.className = "major-tab-open";
+      openBtn.textContent = "▸";
+      openBtn.setAttribute("aria-label", "Open " + majorId);
+      openBtn.onclick = function (e) {
+        e.stopPropagation();
+        openRecordDrawer("major", majorId);
+      };
+      majorsTabs.appendChild(openBtn);
     });
 
     document.getElementById("tab-kanban").className = isListView ? "" : "active";
@@ -782,6 +823,33 @@
     var labelSpan = document.createElement("span");
     labelSpan.className = "swimlane-label";
     labelSpan.textContent = milestoneLabel(board, key, repoId);
+    // PT-40 (joint PT-40/43/44 ruling § 2's own wording: "Clicking the
+    // label opens the milestone card"): minimal open affordance on the
+    // EXISTING lane header, this loop -- the full lane-header rewrite
+    // (every-milestone/empty lanes, GA/release chips, strip removal) is
+    // PT-44's. Guarded against the "(none)" bucket (unmilestoned issues)
+    // -- there is no record to open for it.
+    if (key !== "(none)") {
+      labelSpan.classList.add("swimlane-label-clickable");
+      labelSpan.setAttribute("role", "button");
+      labelSpan.setAttribute("tabindex", "0");
+      labelSpan.addEventListener("click", function (e) {
+        e.stopPropagation();
+        openRecordDrawer("milestone", key, repoId);
+      });
+      // Architect's PT-40 approval finding: role="button" on a <span>
+      // (not a real <button>, which synthesizes click from Enter/Space on
+      // its own) needs its OWN keydown handler -- without this, Enter/
+      // Space silently do nothing for a keyboard user, unlike the major
+      // tab's open button (a real <button>, unaffected).
+      labelSpan.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          openRecordDrawer("milestone", key, repoId);
+        }
+      });
+    }
     laneHeader.appendChild(labelSpan);
 
     // PT-31 (architect's triage ruling, item 1): ONE laneSummary call
@@ -1155,15 +1223,35 @@
   }
 
   function closeDrawer() {
-    state.openIssueId = null;
+    state.openRecord = null;
     document.getElementById("drawer-overlay").classList.remove("open");
   }
 
   function openDrawer(id) {
-    state.openIssueId = id;
+    state.openRecord = { kind: "issue", id: id };
     apiGetIssue(id).then(renderDrawer).catch(function () {
       showToast("Could not load " + id, true);
     });
+  }
+
+  // PT-40 (joint PT-40/43/44 ruling § 5): the milestone/major sibling of
+  // openDrawer. A LOOKUP against the already-fetched state.board (ruling
+  // §1 rejects a second endpoint -- record data, body included, is
+  // already in the /api/board payload), never a fetch. `repoId` scopes
+  // the lookup when given (multi-root: two records can share a bare id
+  // across repos, ruling §6) -- `undefined` matches the first record
+  // found, same permissive default primaryRootId(null) uses elsewhere.
+  function openRecordDrawer(recordKind, id, repoId) {
+    var collection = recordKind === "major" ? (state.board && state.board.majors) : (state.board && state.board.milestones);
+    var record = (collection || []).filter(function (r) {
+      return r.id === id && (repoId == null || r.repo === repoId);
+    })[0];
+    if (!record) {
+      showToast("Could not load " + id, true);
+      return;
+    }
+    state.openRecord = { kind: recordKind, id: id };
+    renderRecordDrawer(recordKind, record);
   }
 
   // PT-25/PT-26 shared drawer list renderer: Children, "Blocked by", and
@@ -1199,7 +1287,11 @@
   }
 
   function renderDrawer(issue) {
-    if (state.openIssueId !== issue.id) return; // user navigated away while fetching
+    // PT-40: race-guard widened to compare BOTH kind and id -- a fetch for
+    // issue PT-1 that resolves after the user opened milestone PT-1.0
+    // (same literal id string possible across schemas) must not render
+    // over the record that's actually open now.
+    if (!state.openRecord || state.openRecord.kind !== "issue" || state.openRecord.id !== issue.id) return; // user navigated away while fetching
     var overlay = document.getElementById("drawer-overlay");
     var drawer = document.getElementById("drawer");
     drawer.innerHTML = "";
@@ -1405,6 +1497,81 @@
     }
   }
 
+  // PT-40 (joint PT-40/43/44 ruling § 5): the milestone/major card.
+  // REUSES the existing drawer/overlay DOM (no second panel) -- same
+  // reset-innerHTML / open-overlay / close-on-overlay-click plumbing
+  // renderDrawer already has above. `recordKind` is passed explicitly by
+  // the caller (openRecordDrawer already knows it), never inferred from a
+  // field on `record` -- milestones carry their OWN `kind` field
+  // (process|product, definition vs. development), semantically
+  // unrelated to "is this a milestone or a major"; reusing it here would
+  // collide with that meaning.
+  //
+  // Read-only in 0.7.0 (ruling § 5): no inline editors -- a second
+  // mutation endpoint for a different schema, `seen` tokens for records
+  // that have none, and an interaction with archive semantics, all for a
+  // field a human changes a handful of times per release, is not free
+  // now. Names the CLI command instead of offering a control guaranteed
+  // to be rejected.
+  //
+  // Progress/release-state are the PLAIN forms for this loop
+  // (milestoneProgress unfiltered by status, no release chip yet) --
+  // PT-43 (§3, archive-aware/status-suppressed counting) and PT-44 (§4,
+  // git-tag release chips) extend this same function rather than
+  // rewriting it; do not duplicate its DOM-building shape elsewhere.
+  function renderRecordDrawer(recordKind, record) {
+    if (!state.openRecord || state.openRecord.kind !== recordKind || state.openRecord.id !== record.id) return;
+    var overlay = document.getElementById("drawer-overlay");
+    var drawer = document.getElementById("drawer");
+    drawer.innerHTML = "";
+    overlay.classList.add("open");
+    overlay.onclick = function (e) { if (e.target === overlay) closeDrawer(); };
+
+    var closeBtn = document.createElement("button");
+    closeBtn.className = "close-btn";
+    closeBtn.textContent = "×";
+    closeBtn.onclick = closeDrawer;
+    drawer.appendChild(closeBtn);
+
+    var idEl = document.createElement("div");
+    idEl.className = "drawer-id";
+    idEl.textContent = record.id;
+    drawer.appendChild(idEl);
+
+    var h2 = document.createElement("h2");
+    h2.textContent = recordKind === "major" ? record.id : (record.name || record.id);
+    drawer.appendChild(h2);
+
+    var meta = document.createElement("div");
+    meta.className = "card-meta";
+    meta.appendChild(chip("", recordKind));
+    if (record.major) meta.appendChild(chip("milestone", record.major));
+    meta.appendChild(chip("", recordStatusLabel(record.status)));
+    if (record.ga) meta.appendChild(chip("", "GA"));
+    if (record.target_tag) meta.appendChild(chip("", record.target_tag));
+    drawer.appendChild(meta);
+
+    if (recordKind === "milestone") {
+      var progress = milestoneProgress(state.board ? state.board.issues : [], record);
+      var progressEl = document.createElement("div");
+      progressEl.className = "drawer-progress";
+      progressEl.textContent = progress.done + "/" + progress.total + " done";
+      drawer.appendChild(progressEl);
+    }
+
+    renderMarkdown(drawer, record.body || "");
+
+    var fileP = document.createElement("div");
+    fileP.className = "file-link";
+    fileP.textContent = "File: " + record.path;
+    drawer.appendChild(fileP);
+
+    var readOnlyNote = document.createElement("div");
+    readOnlyNote.className = "record-readonly-note";
+    readOnlyNote.textContent = "Read-only on the board — run `cairn set " + record.id + " status=<value>` to change.";
+    drawer.appendChild(readOnlyNote);
+  }
+
   function inlineField(field, type, value, issue, isLabelsList, readOnly) {
     var wrap = document.createElement("div");
     wrap.className = "drawer-field";
@@ -1488,7 +1655,7 @@
         // drawer still refreshes via the existing refreshBoardSilently()
         // path below, unchanged.
         issue.title = result.data.title;
-        if (state.openIssueId === issue.id) {
+        if (state.openRecord && state.openRecord.kind === "issue" && state.openRecord.id === issue.id) {
           var h2 = document.querySelector("#drawer h2");
           if (h2) h2.textContent = result.data.title;
         }
@@ -1584,7 +1751,7 @@
     // -- never re-deriving a subset of the predicate here.
     return shouldCancelPull({
       cardDragActive: state.cardDragActive,
-      drawerOpen: state.openIssueId !== null,
+      drawerOpen: state.openRecord !== null,
       multiTouch: multiTouch,
       horizontalDominant: pullHorizontalDominant,
       refreshing: state.pullRefreshing,
@@ -1601,7 +1768,7 @@
   function wheelCancelFlags() {
     return shouldCancelPull({
       cardDragActive: state.cardDragActive,
-      drawerOpen: state.openIssueId !== null,
+      drawerOpen: state.openRecord !== null,
       multiTouch: false,
       horizontalDominant: false,
       refreshing: state.pullRefreshing,
