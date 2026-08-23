@@ -131,16 +131,31 @@ var CairnLogic = (function () {
     return out;
   }
 
-  // {done, total} among `issues` belonging to `milestone` -- matched by
-  // `issue.milestone === milestone.id && issue.repo === milestone.repo`
-  // (repo-scoped: the PT-3 progress-strip fix, so two repos' same-id
-  // milestones never fuse their counts into one shared, wrong number).
+  // {done, total, isComplete} among `issues` belonging to `milestone` --
+  // matched by `issue.milestone === milestone.id && issue.repo ===
+  // milestone.repo` (repo-scoped: the PT-3 progress-strip fix, so two
+  // repos' same-id milestones never fuse their counts into one shared,
+  // wrong number).
+  //
+  // PT-44 (joint PT-40/43/44 ruling § 3): `isComplete` (`milestone.status
+  // === "done" || milestone.status === "cancelled"`) is what makes
+  // PT-43's "0/0 for an archived-away milestone" bug UNREPRESENTABLE --
+  // callers render "n/m" only when isComplete is false, and a checkmark/
+  // no-ratio treatment when true ("decided by the milestone's own
+  // status, not by counting archive/", the ruling's own wording). This
+  // function's OWN job stays "count done/total" -- it does NOT suppress
+  // the ratio itself when isComplete is true; that's a rendering decision
+  // at the caller, not something a pure counting function should hide.
+  // No archive-read here either way: this function counts whatever is in
+  // `issues` (ordinary members once Show-archived is on, PT-42) -- never
+  // reaches into archive/ itself, by construction.
   function milestoneProgress(issues, milestone) {
     var msIssues = (issues || []).filter(function (i) {
       return i.milestone === milestone.id && i.repo === milestone.repo;
     });
     var done = msIssues.filter(function (i) { return i.status === "done"; }).length;
-    return { done: done, total: msIssues.length };
+    var isComplete = milestone.status === "done" || milestone.status === "cancelled";
+    return { done: done, total: msIssues.length, isComplete: isComplete };
   }
 
   // The shared "repo::milestone" key -- THE extraction that matters most
@@ -324,6 +339,45 @@ var CairnLogic = (function () {
     });
     order.sort();
     return { order: order, groups: groups };
+  }
+
+  // PT-44 (joint PT-40/43/44 ruling § 2): "render a lane for every
+  // milestone" -- groupByMilestone only ever produces a lane for a
+  // milestone with at least one issue in the current filter; an
+  // issue-less milestone (freshly created, or fully archived with
+  // Show-archived off) needs an empty, collapsed lane too, or it vanishes
+  // with no trace once the top progress strip (its only other home) is
+  // retired (§7).
+  //
+  // Non-mutating -- returns a COPY (`order`/`groups` from the caller are
+  // never touched in place), same convention as nextExpandedLanes/
+  // expandAllLanes (PT-29). `milestones` is scoped to `repoId` INSIDE
+  // this function (not assumed pre-filtered by the caller) -- a
+  // milestone from a different repo is silently skipped. Ordering: the
+  // existing issue-bearing order is left exactly as groupByMilestone
+  // produced it, milestone-only lanes are appended after (in `milestones`
+  // array order), and "(none)" -- if present at all -- is always the
+  // final entry, wherever groupByMilestone's own alphabetical sort put
+  // it.
+  function appendMilestoneOnlyLanes(order, groups, milestones, repoId) {
+    var nextOrder = order.slice();
+    var nextGroups = Object.create(null);
+    for (var k in groups) {
+      if (Object.prototype.hasOwnProperty.call(groups, k)) nextGroups[k] = groups[k];
+    }
+    (milestones || []).forEach(function (ms) {
+      if (ms.repo !== repoId) return;
+      var key = ms.id;
+      if (Object.prototype.hasOwnProperty.call(nextGroups, key)) return; // already an issue-bearing lane
+      nextGroups[key] = [];
+      nextOrder.push(key);
+    });
+    var noneIdx = nextOrder.indexOf("(none)");
+    if (noneIdx !== -1 && noneIdx !== nextOrder.length - 1) {
+      nextOrder.splice(noneIdx, 1);
+      nextOrder.push("(none)");
+    }
+    return { order: nextOrder, groups: nextGroups };
   }
 
   // PT-25: the shared "repo::parentId" key a child issue's `parent` field
@@ -539,6 +593,31 @@ var CairnLogic = (function () {
   // same prototype-pollution hazard, same fix, one vocabulary over.
   function recordStatusLabel(status) {
     return Object.prototype.hasOwnProperty.call(RECORD_STATUS_LABELS, status) ? RECORD_STATUS_LABELS[status] : status;
+  }
+
+  // PT-44 (joint PT-40/43/44 ruling § 4): the release chip's TEXT -- a
+  // named function, not two inlined ternaries, since BOTH the lane
+  // header and the card need the identical string. `released` is the
+  // server's boolean predicate (or null); this function only formats it,
+  // never re-derives it from a tag list (the ruling's "one producer"
+  // rule -- the server ships the predicate, not the raw tags).
+  function releaseChipLabel(released, targetTag) {
+    // F1 (architect's PT-44 review rejection): `== null` (loose,
+    // deliberately) -- a MAJOR record carries no `released` key at all
+    // (majors have no target_tag, ruling § 4), so `record.released` reads
+    // `undefined`, not `null`, when passed straight through. A strict
+    // `=== null` check let `undefined` fall through to the false/true
+    // branches below and render "undefined released" in production. An
+    // older server's payload (pre-PT-44, key absent everywhere) hits the
+    // same `undefined` case and must render no chip too.
+    if (released == null) return null; // caller renders no chip at all
+    // F2 (architect's PT-44 review rejection, correcting the ruling's own
+    // wording): the chip must carry `targetTag` in BOTH states -- a bare
+    // "unreleased" dropped the tag from every not-yet-shipped milestone,
+    // making them all read identically and violating zero-information-
+    // loss (the SAME defect class the strip retirement exists to close).
+    if (released === false) return targetTag + " · unreleased";
+    return targetTag + " released";
   }
 
   // PT-29 (architect's ruling § 2): the SINGLE read path for
@@ -1012,6 +1091,7 @@ var CairnLogic = (function () {
     laneStateKey: laneStateKey,
     uniqueSorted: uniqueSorted,
     groupByMilestone: groupByMilestone,
+    appendMilestoneOnlyLanes: appendMilestoneOnlyLanes,
     idSortKey: idSortKey,
     childProgress: childProgress,
     childrenOf: childrenOf,
@@ -1022,6 +1102,7 @@ var CairnLogic = (function () {
     STATUS_LABELS: STATUS_LABELS,
     RECORD_STATUS_LABELS: RECORD_STATUS_LABELS,
     recordStatusLabel: recordStatusLabel,
+    releaseChipLabel: releaseChipLabel,
     statusLabel: statusLabel,
     laneExpanded: laneExpanded,
     nextExpandedLanes: nextExpandedLanes,

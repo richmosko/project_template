@@ -17,12 +17,12 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Board: Milestone/Major cards viewable + status indicators on Kanban |
-| Issue | PT-40 (cairn) |
+| Feature | Board: retire the top progress strip — milestone progress belongs on the milestone cards |
+| Issue | PT-44 (cairn) |
 | Milestone | PT-0.7.0 |
-| Branch | `feature/pt-40-milestone-major-cards` |
+| Branch | `feature/pt-44-retire-progress-strip` |
 | Started | 2026-08-23 |
-| Goal | Lane headers / major tabs open a read-only card (body + fields); status pills on lanes and tabs |
+| Goal | Strip removed, no info loss: lane headers carry progress + release state; done milestones show ✓, never 0/0 |
 | Status | In Progress |
 
 ## Releases

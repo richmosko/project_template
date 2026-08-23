@@ -423,17 +423,32 @@ class BoardPayloadStderrWarningTests(unittest.TestCase):
         self.assertEqual(payload["swimlane"], "milestone")
         self.assertIn("bogus", stderr_output)
 
-    def test_a_valid_board_config_prints_nothing_to_stderr(self):
+    def test_a_valid_board_config_prints_no_board_columns_or_swimlane_warning(self):
+        # PT-44 (2026-08-23): build_board_payload gained an UNRELATED
+        # stderr producer of its own (read_git_tags' "git tag read failed"
+        # warning, fired here because this test's tmp fixture isn't a git
+        # repo at all -- a legitimate, orthogonal warning). This test's
+        # actual claim was always "board.columns/board.swimlane validation
+        # is silent when the config is valid", not "stderr is empty,
+        # period" -- broadened from a bare `stderr_output.strip() == ""`
+        # once a second, unrelated warning source existed to share the
+        # channel. Scoped to what this test file is actually about.
         data_dir = minimal_repo(self)
         write_config(data_dir, "  columns: [todo, done]\n  swimlane: none\n")
         payload, stderr_output = self._single_root_payload_capturing_stderr(data_dir)
-        self.assertEqual(stderr_output.strip(), "")
+        self.assertNotIn("board.columns", stderr_output)
+        self.assertNotIn("board.swimlane", stderr_output)
 
-    def test_an_absent_board_key_prints_nothing_to_stderr(self):
+    def test_an_absent_board_key_prints_no_board_columns_or_swimlane_warning(self):
         data_dir = minimal_repo(self)
         (data_dir / "config.yml").write_text("prefix: PT\nport: 8766\ndata_dir: process/cairn\n", encoding="utf-8")
         payload, stderr_output = self._single_root_payload_capturing_stderr(data_dir)
-        self.assertEqual(stderr_output.strip(), "", "an ABSENT key is not an invalid one -- no warning")
+        self.assertNotIn(
+            "board.columns", stderr_output, "an ABSENT key is not an invalid one -- no board.columns warning"
+        )
+        self.assertNotIn(
+            "board.swimlane", stderr_output, "an ABSENT key is not an invalid one -- no board.swimlane warning"
+        )
 
     def test_never_raises_on_invalid_board_config(self):
         # The server posture, pinned at the actual print site: no

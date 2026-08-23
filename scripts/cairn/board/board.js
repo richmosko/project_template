@@ -49,6 +49,11 @@
   // lifecycle, not issue lifecycle). Never folded together -- see
   // RECORD_STATUS_LABELS' own comment in board-logic.js.
   var recordStatusLabel = CairnLogic.recordStatusLabel;
+  // PT-44: releaseChipLabel (the release chip's shared text formatter)
+  // and appendMilestoneOnlyLanes (the "a lane for every milestone" fix)
+  // -- both board-logic.js pure functions, board.js supplies the DOM.
+  var releaseChipLabel = CairnLogic.releaseChipLabel;
+  var appendMilestoneOnlyLanes = CairnLogic.appendMilestoneOnlyLanes;
   // PT-29: BOARD_COLUMNS relocated into board-logic.js (architect's
   // ruling § 4) as the single canonical column-order list. PT-35 (closing
   // review finding): the bare BOARD_COLUMNS alias that used to live here is
@@ -481,29 +486,16 @@
     document.getElementById("tab-kanban").className = isListView ? "" : "active";
     document.getElementById("tab-list").className = isListView ? "active" : "";
 
-    var progressEl = document.getElementById("milestone-progress");
-    progressEl.innerHTML = "";
-    (board.milestones || []).forEach(function (ms) {
-      // PT-22: milestoneProgress (board-logic.js) scopes the issue count
-      // to THIS record's own repo -- matching on bare milestone id alone
-      // would fuse two repos' done/total into one number, shown
-      // identically on both repos' same-id entries.
-      var progress = milestoneProgress(board.issues, ms);
-      if (progress.total === 0 && ms.kind !== "product") return;
-      var span = document.createElement("span");
-      var tag = ms.ga ? " · GA" : "";
-      var target = ms.target_tag ? " · " + ms.target_tag : "";
-      // PT-28 (architect's ruling, confirmation #3): ids are now
-      // self-qualifying (ms.id is "PT-0.6", not "0.6"), so the repo
-      // qualifier this used to prepend in multi-root mode is redundant --
-      // it used to read "PT · PT-0.6 · ...", the repo id shown twice.
-      // Render ms.id alone in both modes. laneStateKey's OWN repo-scoped
-      // composite key is unrelated and untouched (board-logic.js) -- that
-      // key still needs the repo dimension for multi-root collapse-state
-      // correctness; this is purely a display string.
-      span.textContent = ms.id + " · " + (ms.name || "") + tag + target + " · " + progress.done + "/" + progress.total + " done";
-      progressEl.appendChild(span);
-    });
+    // PT-44 §7: the top progress strip's population block used to live
+    // here. Retired -- its content (id · name · GA · target_tag · n/m done) is
+    // now on the milestone's own lane header (PT-40) and card, with the
+    // lane-for-every-milestone fix (§2, below) covering the strip's old
+    // filter (`progress.total === 0 && ms.kind !== "product"`, gone with
+    // it -- an issue-less milestone gets a real lane instead of being
+    // silently dropped). milestoneProgress itself is UNCHANGED as a
+    // function -- still the single producer, now with the §3 isComplete
+    // branch (board-logic.js) -- only this strip-population call site is
+    // gone.
 
     // PT-22: milestone ids collide across roots -- the filter value is
     // always a repo-qualified composite "<repo>::<milestone>" built by
@@ -852,6 +844,36 @@
     }
     laneHeader.appendChild(labelSpan);
 
+    // PT-44 (joint PT-40/43/44 ruling § 2/§3/§4): the retired strip's
+    // content, now on the lane header itself -- status pill, progress
+    // (n/m, or a checkmark with no ratio at all once the milestone's own
+    // status is done/cancelled -- § 3's "decided by status, not by
+    // counting archive/"), release chip, and the GA chip moved off its
+    // old "· GA" text suffix. Only rendered when a real milestone record
+    // is found for this lane (the "(none)" bucket, or a dangling id with
+    // no matching record, has nothing to show here).
+    var msRecord = (board.milestones || []).filter(function (m) {
+      return m.id === key && m.repo === repoId;
+    })[0];
+    if (msRecord) {
+      var statusChip = chip("status", recordStatusLabel(msRecord.status));
+      statusChip.dataset.status = msRecord.status;
+      laneHeader.appendChild(statusChip);
+
+      var msProgress = milestoneProgress(board.issues, msRecord);
+      laneHeader.appendChild(
+        chip("progress", msProgress.isComplete ? "✓ Done" : (msProgress.done + "/" + msProgress.total))
+      );
+
+      var releaseText = releaseChipLabel(msRecord.released, msRecord.target_tag);
+      if (releaseText !== null) {
+        laneHeader.appendChild(chip("release", releaseText));
+      }
+      if (msRecord.ga) {
+        laneHeader.appendChild(chip("ga", "GA"));
+      }
+    }
+
     // PT-31 (architect's triage ruling, item 1): ONE laneSummary call
     // backs both the header count and the collapsed chips, so they
     // cannot disagree by construction -- total is the sum of byStatus
@@ -963,6 +985,17 @@
     if (!collapsed) {
       if (state.swimlanesOn) {
         var grouped = groupByMilestone(issues);
+        // PT-44 § 2: "render a lane for every milestone" -- groupByMilestone
+        // alone only produces a lane for a milestone with at least one
+        // issue in `issues` (already major-tab-filtered by this point,
+        // via filteredIssues). Milestones are filtered the SAME way here
+        // (by state.currentMajor) so an issue-less milestone under the
+        // active major still gets an empty lane; appendMilestoneOnlyLanes
+        // itself scopes to root.id.
+        var repoMilestonesForLanes = (board.milestones || []).filter(function (ms) {
+          return state.currentMajor === "all" || ms.major === state.currentMajor;
+        });
+        grouped = appendMilestoneOnlyLanes(grouped.order, grouped.groups, repoMilestonesForLanes, root.id);
         grouped.order.forEach(function (key) {
           var stateKey = laneStateKey(root.id, key);
           // PT-31 (item 3): laneId computed at the call site, same
@@ -1014,11 +1047,22 @@
         return;
       }
       var grouped = groupByMilestone(issues);
+      var soleRootId = primaryRootId(board);
+      // PT-44 § 2: same "a lane for every milestone" fix as repoSectionEl
+      // -- called BEFORE the empty-check below, since an issue-less
+      // milestone (e.g. a project with milestones defined but nothing
+      // filed yet, or PT-0.3/PT-0.4-style fully-archived-away milestones
+      // with Show-archived off) must still get an empty lane instead of
+      // silently falling into "No issues match the current filters,"
+      // which would be exactly the information loss § 2 exists to close.
+      var soleRootMilestonesForLanes = (board.milestones || []).filter(function (ms) {
+        return state.currentMajor === "all" || ms.major === state.currentMajor;
+      });
+      grouped = appendMilestoneOnlyLanes(grouped.order, grouped.groups, soleRootMilestonesForLanes, soleRootId);
       if (grouped.order.length === 0) {
         main.innerHTML = '<div class="empty-state">No issues match the current filters.</div>';
         return;
       }
-      var soleRootId = primaryRootId(board);
       grouped.order.forEach(function (key) {
         var stateKey = laneStateKey(soleRootId, key);
         // PT-31 (item 3): same laneId scheme as repoSectionEl's -- global
@@ -1033,14 +1077,29 @@
 
     // Multi-root: repo-grouped (ruling A, 2026-08-21) -- top-level
     // section per root, primary first then remaining roots by id.
-    if (issues.length === 0) {
+    //
+    // PT-44 § 2: the "no empty shells" skip below (a repo with nothing to
+    // show renders nothing) originally meant "repoIssues.length === 0" --
+    // but a repo can now have SOMETHING to show with zero live issues: a
+    // milestone-only lane (fully-archived-away, Show-archived off; or
+    // simply nothing filed against it yet). Both this top fast-path and
+    // the per-repo skip below are widened to also check for milestones
+    // under the active major tab, so a repo isn't dropped from the board
+    // entirely just because its issue count happens to be zero.
+    var anyMilestonesAtAll = (board.milestones || []).some(function (ms) {
+      return state.currentMajor === "all" || ms.major === state.currentMajor;
+    });
+    if (issues.length === 0 && !anyMilestonesAtAll) {
       main.innerHTML = '<div class="empty-state">No issues match the current filters.</div>';
       return;
     }
     var orderedRoots = orderRoots(roots);
     orderedRoots.forEach(function (root) {
       var repoIssues = issues.filter(function (issue) { return issue.repo === root.id; });
-      if (repoIssues.length === 0) return; // no empty shells -- a repo with nothing to show renders nothing
+      var repoHasMilestones = (board.milestones || []).some(function (ms) {
+        return ms.repo === root.id && (state.currentMajor === "all" || ms.major === state.currentMajor);
+      });
+      if (repoIssues.length === 0 && !repoHasMilestones) return; // truly nothing to show for this repo
       main.appendChild(repoSectionEl(board, root, repoIssues));
     });
   }
@@ -1150,7 +1209,24 @@
       row.onclick = function () { openDrawer(issue.id); };
       columns.forEach(function (col) {
         var td = document.createElement("td");
-        td.textContent = issue[col.key] || "";
+        // PT-44 § 2: the milestone cell becomes a link to the same
+        // milestone card the lane header opens -- list view lost the
+        // strip too (its only other source of milestone status/release
+        // state), so this is the list-view compensation the ruling calls
+        // for. Every other column stays plain text, unchanged.
+        if (col.key === "milestone" && issue.milestone) {
+          var link = document.createElement("a");
+          link.href = "#";
+          link.textContent = issue.milestone;
+          link.onclick = function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            openRecordDrawer("milestone", issue.milestone, issue.repo);
+          };
+          td.appendChild(link);
+        } else {
+          td.textContent = issue[col.key] || "";
+        }
         row.appendChild(td);
       });
       tbody.appendChild(row);
@@ -1548,14 +1624,22 @@
     if (record.major) meta.appendChild(chip("milestone", record.major));
     meta.appendChild(chip("", recordStatusLabel(record.status)));
     if (record.ga) meta.appendChild(chip("", "GA"));
-    if (record.target_tag) meta.appendChild(chip("", record.target_tag));
+    // PT-44 § 4: the release chip (unreleased / "<tag> released"), not
+    // the bare target_tag -- releaseChipLabel is the SAME formatter the
+    // lane header uses, so the two never drift on wording.
+    var recordReleaseText = releaseChipLabel(record.released, record.target_tag);
+    if (recordReleaseText !== null) meta.appendChild(chip("release", recordReleaseText));
     drawer.appendChild(meta);
 
     if (recordKind === "milestone") {
+      // PT-44 § 3: isComplete branch -- a done/cancelled milestone shows
+      // completion, never a ratio (the release chip above already
+      // carries the release state; a "3/3 done" ratio next to it would
+      // be redundant with the SAME fact restated two ways).
       var progress = milestoneProgress(state.board ? state.board.issues : [], record);
       var progressEl = document.createElement("div");
       progressEl.className = "drawer-progress";
-      progressEl.textContent = progress.done + "/" + progress.total + " done";
+      progressEl.textContent = progress.isComplete ? "✓ Done" : (progress.done + "/" + progress.total + " done");
       drawer.appendChild(progressEl);
     }
 
@@ -1693,6 +1777,22 @@
       if (data) { state.board = data; render(); return REFRESH_UPDATED; }
       return REFRESH_UNCHANGED;
     }).catch(function () { return REFRESH_FAILED; });
+  }
+
+  // PT-44 (ruling § 4's own wording: "one rule, not a special case"): the
+  // SINGLE producer for "a request-shaping parameter changed, so the
+  // cached etag is no longer valid for the NEXT response shape" -- an
+  // etag minted for one representation must never be sent as
+  // If-None-Match for a different one (release state, or PT-42's
+  // archived flag). Both runPullRefresh and the #filter-archived listener
+  // route through this instead of each carrying its own copy of
+  // `state.etag = null; refreshBoardSilently();` -- runPullRefresh
+  // previously did NOT clear the etag at all (a real gap: a bare `git
+  // tag` add with no file mtime change would 304 a pull-to-refresh,
+  // silently serving a stale `released` value).
+  function clearEtagAndRefresh() {
+    state.etag = null;
+    return refreshBoardSilently();
   }
 
   // ------------------------------------------------------------------
@@ -2017,7 +2117,11 @@
     state.pullRefreshing = true;
     updatePullIndicator("refreshing", deltaYAtRelease);
     var minDelay = new Promise(function (resolve) { setTimeout(resolve, PULL_MIN_SPINNER_MS); });
-    Promise.all([refreshBoardSilently(), minDelay]).then(function (results) {
+    // PT-44: routes through clearEtagAndRefresh, not the plain silent
+    // refresh helper -- a pull-to-refresh is a deliberate user ask for
+    // the LATEST state; a cached etag could otherwise 304 it against a
+    // release-state change (a bare `git tag`, no file mtime touched).
+    Promise.all([clearEtagAndRefresh(), minDelay]).then(function (results) {
       var outcome = results[0];
       state.pullRefreshing = false;
       updatePullIndicator("idle", 0);
@@ -2157,8 +2261,7 @@
     // request for the shape it hasn't served yet.
     document.getElementById("filter-archived").addEventListener("change", function (e) {
       state.showArchived = e.target.checked;
-      state.etag = null;
-      refreshBoardSilently();
+      clearEtagAndRefresh();
     });
     document.getElementById("toggle-swimlanes").addEventListener("change", function (e) {
       state.swimlanesOn = e.target.checked; render();

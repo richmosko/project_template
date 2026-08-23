@@ -30,7 +30,10 @@
     </div>
     <button id="new-issue-btn" class="new-issue-btn" type="button">+ New</button>
   </div>
-  <div class="milestone-progress" id="milestone-progress"></div>
+  <!-- PT-44 §7: the milestone-progress strip is retired -- its content
+       (id · name · GA · target_tag · n/m done) is now on the milestone's
+       own lane header (PT-40) and card, with zero information loss (a
+       lane now renders for every milestone in the payload, PT-44 §2). -->
   <div class="filters">
     <input type="text" id="filter-text" placeholder="Filter…">
     <select id="filter-milestone"><option value="">All milestones</option></select>

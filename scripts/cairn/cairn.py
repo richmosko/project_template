@@ -47,7 +47,7 @@ import tempfile
 import threading
 import urllib.parse
 from pathlib import Path
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple
 
 # --------------------------------------------------------------------------
 # Constants
@@ -1718,6 +1718,40 @@ def build_snapshot_markdown(data_dir: Path, generated_at: Optional[str] = None) 
 # Board API payloads
 # --------------------------------------------------------------------------
 
+def read_git_tags(data_dir: Path) -> Tuple[Optional[Set[str]], Optional[str]]:
+    """PT-44 (joint ruling § 4): the release-state source of truth. Reads
+    the local tag set via `git -C <data_dir> for-each-ref --format=
+    %(refname:short) refs/tags` -- measured 8ms, called once per
+    `build_board_payload` call (once per root, matching "once per payload
+    build"). `-C data_dir` still finds the repo root by walking up from
+    `data_dir` (same as any git invocation from a subdirectory) -- reads
+    no file outside `process/cairn/` directly (the subprocess's own
+    internal `.git` reads are not this engine touching a file, same
+    reasoning `_git_mv_or_rename` already relies on for the spin-off
+    constraint).
+
+    Returns `(tag_set, None)` on success, `(None, "<warning>")` when git
+    is missing or `data_dir` isn't inside a git working tree -- NEVER
+    raises (the `_git_mv_or_rename` precedent: fall back, don't crash).
+    Callers print the warning themselves (this function has no stderr
+    side effect of its own -- matches resolve_board_columns/
+    resolve_board_swimlane's "return the warning as data" convention).
+    """
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(data_dir), "for-each-ref", "--format=%(refname:short)", "refs/tags"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (FileNotFoundError, OSError) as e:
+        return None, f"git unavailable ({e}) -- every milestone's released will be null"
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"exit {result.returncode}"
+        return None, f"git tag read failed ({detail}) -- every milestone's released will be null"
+    tags = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    return tags, None
+
+
 def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any]:
     """{"majors": [...], "milestones": [...], "issues": [...]}.
 
@@ -1750,6 +1784,13 @@ def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any
     """
     data_dir = Path(data_dir)
 
+    # PT-44 (ruling § 4): read once per call (== once per root, once per
+    # payload build) -- never crashes (git missing / not a repo -> every
+    # milestone's `released` below falls back to None, one stderr line).
+    tag_set, git_tags_warning = read_git_tags(data_dir)
+    if git_tags_warning:
+        print(f"cairn: warning: {git_tags_warning}", file=sys.stderr)
+
     major_paths = list(_dir_glob(data_dir / "majors"))
     milestone_paths = list(_dir_glob(data_dir / "milestones"))
     issue_paths = list(_dir_glob(data_dir / "issues"))
@@ -1767,7 +1808,7 @@ def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any
         fm["archived"] = is_archived_path(data_dir, p)
         return fm
 
-    def _stamped_with_body(p: Path) -> Dict[str, Any]:
+    def _stamped_with_body(p: Path, include_released: bool = False) -> Dict[str, Any]:
         # PT-40 § 1: majors/milestones only -- reads via parse_frontmatter
         # (not _stamped's _read_frontmatter_dict) so the body half of its
         # (frontmatter, body) return isn't discarded. `body.strip() == ""`
@@ -1782,10 +1823,21 @@ def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any
         # issue's own "path" (PT-10) -- the record's real on-disk path,
         # correct for an archived major/milestone too.
         fm["path"] = str(p)
+        # PT-44 § 4: `released` is a MILESTONE-only key -- majors have no
+        # `target_tag` in their schema at all, so `include_released` is
+        # False for them and the key is never added (not even as `None`;
+        # a key present-but-always-null on a schema it doesn't apply to
+        # would be its own kind of confusing "always false-ish" signal).
+        if include_released:
+            target_tag = fm.get("target_tag")
+            if target_tag is None or tag_set is None:
+                fm["released"] = None
+            else:
+                fm["released"] = target_tag in tag_set
         return fm
 
     majors = [_stamped_with_body(p) for p in major_paths]
-    milestones = [_stamped_with_body(p) for p in milestone_paths]
+    milestones = [_stamped_with_body(p, include_released=True) for p in milestone_paths]
 
     # PT-25: no server-side child count -- the board's n/m badge is
     # computed client-side (board-logic.js's childProgress), mirroring
