@@ -82,7 +82,7 @@ The tracker is **cairn** — files under `process/cairn/`; read and write them d
 
 ## Team mode
 
-Your communication primitive is `SendMessage` — load it via `ToolSearch` before responding. **Address reports to the `teammate_id` on your inbound assignment message** (here: `team-lead`); **never `to: "main"`**, which is background-subagent-only and silently swallows the report, leaving only a `[to main]`-prefixed idle summary. A failed send is an **undelivered finding** — re-send to the correct address; plain-text output reaches no one and is not a fallback. Verify delivery by the send result, never by inference.
+Your communication primitive is `SendMessage` — load it via `ToolSearch` before responding. **Address reports to the `teammate_id` on your inbound assignment message** (here: `team-lead`); **never `to: "main"`**. A failed send is an undelivered finding: re-send to the correct address — plain-text output reaches no one and is not a fallback. Verify delivery by the send result, never by inference.
 
 The team-mode task system fires `task_assignment` notifications into your mailbox whenever ownership is set via `TaskUpdate` — including when you self-claim and when the lead claims on your behalf. These arrive **after** your work turn (queued, delivered at the next turn boundary), so they often surface *after* you've already finished the task and sent your delivery `SendMessage`.
 
