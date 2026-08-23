@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Cross-language column-list drift guard |
+| Issue | PT-36 |
+| Milestone | PT-0.6.2 (reopened pre-tag) |
+| Branch | `feature/pt-36-column-drift-guard` |
+| Started | 2026-08-23 |
+| Goal | Loud guard or single-source derivation for DEFAULT_COLUMNS (py) vs BOARD_COLUMNS (js) + the duplicated cancelled-append rule; zero behavior change |
+| Status | In Progress — pre-approved through /merge-pr (Mosko); merge re-closes PT-0.6.2 → v0.6.2 ping |
 
 ## Releases
 
