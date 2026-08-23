@@ -17,12 +17,12 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Milestone/Major lifecycle: mark done, unify status vocabulary, archive mechanism |
-| Issue | PT-39 (cairn) |
+| Feature | setup-tracker scaffolds unprefixed ids — fresh repo fails cairn check |
+| Issue | PT-45 (cairn) |
 | Milestone | PT-0.7.0 |
-| Branch | `feature/pt-39-milestone-major-lifecycle` |
+| Branch | `feature/pt-45-setup-tracker-prefixed-ids` |
 | Started | 2026-08-23 |
-| Goal | One status enum (done) for milestones/majors, one-command mark-done, archive with referential integrity |
+| Goal | /setup-tracker emits <PREFIX>-V1/-A/-B so a fresh bootstrap lints clean on day 0 |
 | Status | In Progress |
 
 ## Releases
