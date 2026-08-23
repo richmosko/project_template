@@ -3,7 +3,7 @@ id: PT-0.4
 name: hardening
 kind: product
 major: PT-V1
-status: completed
+status: done
 target_tag: v0.4.0
 ga: false
 ---

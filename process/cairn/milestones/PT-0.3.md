@@ -3,7 +3,7 @@ id: PT-0.3
 name: cairn
 kind: product
 major: PT-V1
-status: completed
+status: done
 target_tag: v0.3.0
 ga: false
 ---

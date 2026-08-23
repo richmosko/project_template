@@ -3,7 +3,7 @@ id: PT-0.5.1
 name: follow-ups
 kind: product
 major: PT-V1
-status: completed
+status: done
 target_tag: v0.5.1
 ga: false
 ---
