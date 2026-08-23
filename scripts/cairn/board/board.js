@@ -1552,6 +1552,19 @@
   function updatePullIndicator(phase, deltaY) {
     var el = pullIndicatorEl;
     if (!el) return; // PT-32 (ruling § 5): bail if the indicator isn't in the DOM
+    // PT-33 (architect's post-review fix, confirmed empirically in the
+    // Chrome pass @ beab54c -- R1): refuse to leave "refreshing" while a
+    // refresh is actually in flight. A wheel event arriving mid-refresh
+    // computes cancelled:true (shouldCancelPull's refreshing flag) and
+    // therefore phase:"idle" -- without this guard that call would hide the
+    // spinner before runPullRefresh's own promise settles and calls this
+    // function with "idle" itself. Fixed HERE, once, rather than at each of
+    // the (touch/wheel) call sites, which also closes the identical latent
+    // case on the touch path (a touchmove landing mid-refresh hits the same
+    // cancelled:true -> phase:"idle" path). runPullRefresh always flips
+    // state.pullRefreshing to false BEFORE it calls updatePullIndicator("idle", 0)
+    // itself, so the guard never blocks the real transition out.
+    if (state.pullRefreshing) phase = "refreshing";
     el.classList.toggle("dragging", phase === "pulling" || phase === "armed");
     if (phase === "idle") {
       el.hidden = true;
@@ -1616,9 +1629,17 @@
     if (e.touches.length !== 1) return; // starting with >1 touch: never begin tracking
     // PT-33 (ruling § 7): touch discards any in-flight wheel gesture first
     // and takes the arbiter token -- touch wins (JC7) because it has an
-    // explicit release signal and wheel only an inference.
+    // explicit release signal and wheel only an inference. PRESERVES
+    // wheelState.lastTs (architect's post-review fix -- same shape
+    // onWheelQuiesce already uses) rather than wiping it to -Infinity via
+    // wheelPullInitialState(): a full wipe would make the NEXT wheel event
+    // read as "the very first wheel event ever seen" regardless of how
+    // recently one actually fired, which errs toward OPENING a gesture too
+    // easily rather than too cautiously. Keeping lastTs errs safe (the next
+    // event is, if anything, more likely to be refused as "too soon") and
+    // removes the asymmetry between this reset path and onWheelQuiesce's.
     clearTimeout(wheelIdleTimer);
-    wheelState = wheelPullInitialState();
+    wheelState = { status: "idle", distance: 0, lastTs: wheelState.lastTs };
     updatePullIndicator("idle", 0);
     pullSource = "touch";
     pullStartY = e.touches[0].clientY;
