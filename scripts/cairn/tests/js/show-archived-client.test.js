@@ -98,6 +98,16 @@ test("PT-42: toggling showArchived clears state.etag before the next fetch", () 
   // is merely set. A bare `state.showArchived = e.target.checked;` with
   // no etag-clear anywhere nearby would defeat the ruling's requirement
   // silently (a stale etag would 304 the OTHER shape's fetch).
+  //
+  // PT-44 update (2026-08-23): the etag-clear-on-toggle rule got its own
+  // unifying function, `clearEtagAndRefresh()` (ruling §4's own wording:
+  // "one rule, not a special case" -- shared with runPullRefresh's own
+  // etag-clear need, see clear-etag-and-refresh.test.js). This listener's
+  // body therefore no longer contains the literal `state.etag = null`
+  // inline -- it now calls the shared helper instead, which is the SAME
+  // fact, better-factored. Accept EITHER shape so this test doesn't fight
+  // a refactor of a fact it's already correctly pinning: the inline form
+  // (pre-PT-44) or a clearEtagAndRefresh() call (post-PT-44).
   const source = readSource();
   const listenerMatch = source.match(
     /getElementById\(\s*"filter-archived"\s*\)\.addEventListener\(\s*"change"\s*,\s*function[\s\S]*?\{([\s\S]*?)\}\s*\)\s*;/
@@ -110,9 +120,9 @@ test("PT-42: toggling showArchived clears state.etag before the next fetch", () 
   );
   assert.match(
     listenerMatch[1],
-    /state\.etag\s*=\s*null/,
-    "the listener must clear state.etag -- an etag minted for one payload shape " +
-      "(archived on/off) must never be sent as If-None-Match for the other"
+    /state\.etag\s*=\s*null|clearEtagAndRefresh\(\)/,
+    "the listener must clear state.etag (inline, or via the shared clearEtagAndRefresh() helper) -- " +
+      "an etag minted for one payload shape (archived on/off) must never be sent as If-None-Match for the other"
   );
 });
 

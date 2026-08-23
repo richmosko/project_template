@@ -194,14 +194,6 @@ header.app-header {
   border-color: var(--accent);
 }
 
-.milestone-progress {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
 .filters {
   display: flex;
   gap: 8px;
@@ -548,6 +540,20 @@ main > .swimlane .column {
 .chip.repo { background: #eae6ff; color: #403294; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .chip.blocked { background: #ffebe6; color: #bf2600; }
 .chip.archived { background: #ebecf0; color: var(--text-dim); font-style: italic; }
+
+/* PT-44: the retired strip's content, now on the milestone lane header
+   and card -- status pill (color keyed off data-status, same
+   RECORD_STATUS_LABELS vocabulary as .major-status-dot), progress
+   (n/m or the isComplete checkmark), release state, and the GA chip
+   moved off its old "· GA" text suffix. */
+.chip.status[data-status="planned"] { background: #ebecf0; color: var(--text-dim); }
+.chip.status[data-status="in-progress"] { background: #deebff; color: var(--accent); }
+.chip.status[data-status="paused"] { background: #fffae6; color: #974f0c; }
+.chip.status[data-status="done"] { background: #e3fcef; color: #006644; }
+.chip.status[data-status="cancelled"] { background: #ffebe6; color: #bf2600; }
+.chip.progress { background: #ebecf0; color: var(--text-dim); }
+.chip.release { background: #eae6ff; color: #403294; }
+.chip.ga { background: #fffae6; color: #974f0c; font-weight: 600; }
 
 .column.drop-target {
   outline: 2px dashed var(--accent);
