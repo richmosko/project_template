@@ -45,6 +45,21 @@ as `sandbox.CairnLogic`. Fresh context per call is deliberate, not incidental: e
 bug this suite exists to catch was about stale or accidentally-shared lookup state,
 so the harness itself doesn't introduce a shared-state footgun of its own.
 
+**`loadCairnLogic()`'s `wrapForRealm` rehomes every function's return value fresh
+on each call** (PT-35 finding, `board-columns.test.js`) — necessary so a cross-realm
+plain object/array `deepEqual`s a same-realm literal, but it means a call through
+`CairnLogic.someFn()` can never be `strictEqual`/reference-identical to another
+call's result, or to a value read directly off `CairnLogic` itself, **even when the
+underlying sandboxed function returns the exact same object twice** (e.g. a
+memoized/cached branch, or a function contractually required to return a shared
+singleton like `boardColumns(false) === BOARD_COLUMNS`). A `strictEqual` assertion
+written against the wrapped API is unreliable in **both directions** for such a
+function: it fails for a correct implementation and passes for a broken one that
+wrongly copies/caches. Any test asserting object identity must instead load
+`board-logic.js` a second time, raw, into its own fresh `vm` context (skip
+`wrapForRealm` entirely) and assert on the **unwrapped** sandbox object —
+`board-columns.test.js`'s `loadRawCairnLogic()` is the pattern to copy.
+
 `board.html` must load `board-logic.js` via `<script src="/board/board-logic.js">`
 **before** `board.js`. `board.js`'s own IIFE reads the global `CairnLogic` by normal
 scope lookup (no `window.` prefix needed there either) — architect's suggested
