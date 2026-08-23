@@ -74,6 +74,14 @@
   var REFRESH_UNCHANGED = CairnLogic.REFRESH_UNCHANGED;
   var REFRESH_FAILED = CairnLogic.REFRESH_FAILED;
   var pullRefreshToast = CairnLogic.pullRefreshToast;
+  // PT-33 (architect's ruling @ e319208): the trackpad-overscroll wheel
+  // adapter -- a new input feeding the SAME pullPhase machine above, not a
+  // second one. WHEEL_PULL_IDLE_MS also doubles as the release signal (§3)
+  // and the wheel handler's own idle-timer duration (see wirePullToRefresh).
+  var WHEEL_PULL_IDLE_MS = CairnLogic.WHEEL_PULL_IDLE_MS;
+  var wheelPullInitialState = CairnLogic.wheelPullInitialState;
+  var wheelPullReduce = CairnLogic.wheelPullReduce;
+  var wheelPullShouldFire = CairnLogic.wheelPullShouldFire;
 
   var STATUS_LABELS = {
     "backlog": "Backlog",
@@ -1447,20 +1455,23 @@
   }
 
   // ------------------------------------------------------------------
-  // PT-32: pull-down-to-refresh gesture (touch only -- see board-logic.js's
-  // pullPhase comment and the architect's ruling § 1 for why trackpad
-  // `wheel` overscroll is deliberately NOT handled here; PT-33 is the
-  // deferred follow-up). The board scrolls the DOCUMENT, not a nested
-  // container (ground truth established in the ruling: nothing in
-  // board.css sets overflow-y, and header.app-header is itself
-  // position: sticky) -- "at scroll top" is window.scrollY === 0, and
-  // listeners are registered on `document`, not any particular element.
+  // PT-32/PT-33: pull-down-to-refresh gesture, touch AND trackpad wheel --
+  // two inputs feeding the SAME pullPhase machine (board-logic.js), never
+  // two independent decisions. PT-33 (architect's ruling @ e319208) added
+  // the wheel adapter below as new plumbing; `pullPhase`/`pullIndicatorOffset`/
+  // `pullIndicatorLabel`/`shouldCancelPull`/`pullRefreshToast` are untouched
+  // by that change. The board scrolls the DOCUMENT, not a nested container
+  // (ground truth established in the PT-32 ruling: nothing in board.css
+  // sets overflow-y, and header.app-header is itself position: sticky) --
+  // "at scroll top" is window.scrollY === 0, and listeners are registered
+  // on `document`, not any particular element.
   //
   // Gesture-tracking state lives in closure-local vars, not `state` --
-  // it's per-touch-sequence bookkeeping with no meaning outside an
-  // in-flight gesture, unlike state.cardDragActive/state.pullRefreshing
-  // (declared with `state`) which shouldCancelPull and rendering both
-  // need to read from outside this closure.
+  // it's per-gesture bookkeeping with no meaning outside an in-flight
+  // gesture, unlike state.cardDragActive/state.pullRefreshing (declared
+  // with `state`) which shouldCancelPull and rendering both need to read
+  // from outside this closure. `pullSource` (PT-33 § 7) is the arbiter that
+  // keeps the two inputs from ever double-firing on a device with both.
   // ------------------------------------------------------------------
 
   var pullStartY = null; // null = no gesture currently being tracked
@@ -1477,6 +1488,22 @@
   // of a getElementById on every touchmove.
   var pullIndicatorEl = null;
 
+  // PT-33 (architect's ruling § 7): the single arbiter that makes wheel and
+  // touch double-firing structurally impossible on a device with both --
+  // `null | "touch" | "wheel"`. Set to "touch" the moment touch tracking
+  // begins (onPullTouchStart) and cleared in resetPullGesture; set to
+  // "wheel" only once a wheel gesture actually reaches pulling/armed (never
+  // on every wheel event, or ordinary desktop scrolling would hold the
+  // token forever) and cleared at wheel quiescence. Touch wins when both are
+  // live (JC7) -- it has an explicit release signal, wheel only an
+  // inference.
+  var pullSource = null;
+  // PT-33: the wheel adapter's own reducer state + idle timer. Closure-local
+  // for the same reason the touch vars above are -- per-gesture bookkeeping,
+  // not `state`.
+  var wheelState = wheelPullInitialState();
+  var wheelIdleTimer = null;
+
   function pullCancelFlags(multiTouch) {
     // PT-32 (architect's ruling § 2): board.js's job is computing every
     // cancel flag and handing the union to shouldCancelPull (board-logic.js)
@@ -1486,6 +1513,23 @@
       drawerOpen: state.openIssueId !== null,
       multiTouch: multiTouch,
       horizontalDominant: pullHorizontalDominant,
+      refreshing: state.pullRefreshing,
+    });
+  }
+
+  // PT-33 (architect's ruling § 5): the wheel path's cancel-flag union --
+  // same shared shouldCancelPull, but multiTouch is always false (no wheel
+  // analogue) and horizontalDominant is always false HERE, deliberately:
+  // the axis decision for a wheel gesture is made upstream, inside
+  // wheelPullReduce's opening gate, because only the reducer knows where a
+  // wheel gesture begins -- board.js has no touchstart to latch it at.
+  // Passing the flag twice would gate the same fact in two places.
+  function wheelCancelFlags() {
+    return shouldCancelPull({
+      cardDragActive: state.cardDragActive,
+      drawerOpen: state.openIssueId !== null,
+      multiTouch: false,
+      horizontalDominant: false,
       refreshing: state.pullRefreshing,
     });
   }
@@ -1508,6 +1552,19 @@
   function updatePullIndicator(phase, deltaY) {
     var el = pullIndicatorEl;
     if (!el) return; // PT-32 (ruling § 5): bail if the indicator isn't in the DOM
+    // PT-33 (architect's post-review fix, confirmed empirically in the
+    // Chrome pass @ beab54c -- R1): refuse to leave "refreshing" while a
+    // refresh is actually in flight. A wheel event arriving mid-refresh
+    // computes cancelled:true (shouldCancelPull's refreshing flag) and
+    // therefore phase:"idle" -- without this guard that call would hide the
+    // spinner before runPullRefresh's own promise settles and calls this
+    // function with "idle" itself. Fixed HERE, once, rather than at each of
+    // the (touch/wheel) call sites, which also closes the identical latent
+    // case on the touch path (a touchmove landing mid-refresh hits the same
+    // cancelled:true -> phase:"idle" path). runPullRefresh always flips
+    // state.pullRefreshing to false BEFORE it calls updatePullIndicator("idle", 0)
+    // itself, so the guard never blocks the real transition out.
+    if (state.pullRefreshing) phase = "refreshing";
     el.classList.toggle("dragging", phase === "pulling" || phase === "armed");
     if (phase === "idle") {
       el.hidden = true;
@@ -1550,6 +1607,12 @@
     pullHorizontalDominant = false;
     pullLastDeltaY = 0;
     pullLastPhase = "idle";
+    // PT-33 (ruling § 7): cleared here, not just set at touch-start -- this
+    // is the ONE function every touch-gesture exit path (onPullTouchEnd,
+    // onPullTouchCancel, the second-finger-cancel branch below) already
+    // funnels through, so the arbiter token release can't be forgotten on
+    // any of them separately.
+    pullSource = null;
   }
 
   function onPullTouchStart(e) {
@@ -1564,6 +1627,21 @@
       return;
     }
     if (e.touches.length !== 1) return; // starting with >1 touch: never begin tracking
+    // PT-33 (ruling § 7): touch discards any in-flight wheel gesture first
+    // and takes the arbiter token -- touch wins (JC7) because it has an
+    // explicit release signal and wheel only an inference. PRESERVES
+    // wheelState.lastTs (architect's post-review fix -- same shape
+    // onWheelQuiesce already uses) rather than wiping it to -Infinity via
+    // wheelPullInitialState(): a full wipe would make the NEXT wheel event
+    // read as "the very first wheel event ever seen" regardless of how
+    // recently one actually fired, which errs toward OPENING a gesture too
+    // easily rather than too cautiously. Keeping lastTs errs safe (the next
+    // event is, if anything, more likely to be refused as "too soon") and
+    // removes the asymmetry between this reset path and onWheelQuiesce's.
+    clearTimeout(wheelIdleTimer);
+    wheelState = { status: "idle", distance: 0, lastTs: wheelState.lastTs };
+    updatePullIndicator("idle", 0);
+    pullSource = "touch";
     pullStartY = e.touches[0].clientY;
     pullStartX = e.touches[0].clientX;
     // PT-32 (ruling § 2, cancel condition 1): checked ONCE, at gesture
@@ -1623,6 +1701,57 @@
     updatePullIndicator("idle", 0);
   }
 
+  // PT-33 (architect's ruling § 6): the trackpad-overscroll adapter.
+  // `wheel` has no start/end marker the way touch does, so EVERY event
+  // (including ones the reducer will refuse) is routed through
+  // wheelPullReduce -- an early return here that skips the reducer for
+  // events it could cheaply reject would silently reopen the momentum hole
+  // this whole issue exists to close (§4 property 1, JC2).
+  function onWheel(e) {
+    // PT-33 (ruling § 7): touch holds the arbiter token -- defer entirely.
+    if (pullSource === "touch") return;
+    wheelState = wheelPullReduce(wheelState, {
+      deltaY: e.deltaY,
+      deltaX: e.deltaX,
+      deltaMode: e.deltaMode,
+      timeStamp: e.timeStamp, // NOT Date.now() -- one clock for the whole gesture
+      atScrollTop: window.scrollY === 0,
+      horizontalDominant: Math.abs(e.deltaX) > Math.abs(e.deltaY),
+    });
+    var cancelled = wheelCancelFlags();
+    var phase = wheelState.status === "pulling"
+      ? pullPhase({ atScrollTop: true, deltaY: wheelState.distance, cancelled: cancelled })
+      : "idle";
+    if (phase === "pulling" || phase === "armed") {
+      // PT-33 (ruling § 7): claim the token only once a gesture actually
+      // arms/pulls -- not on every wheel event, or ordinary desktop
+      // scrolling would hold it forever and lock out touch.
+      pullSource = "wheel";
+      e.preventDefault();
+    }
+    updatePullIndicator(phase, wheelState.distance);
+    clearTimeout(wheelIdleTimer);
+    wheelIdleTimer = setTimeout(onWheelQuiesce, WHEEL_PULL_IDLE_MS);
+  }
+
+  // PT-33 (ruling § 3): quiescence IS the release signal -- fires when the
+  // wheel stream has gone silent for WHEEL_PULL_IDLE_MS and the accumulated
+  // distance is still armed. Resets to idle but DELIBERATELY keeps
+  // wheelState.lastTs (ruling § 6 pseudocode) rather than reinitializing it
+  // to -Infinity -- the next wheel event's own opening-gap check still needs
+  // to measure against when this gesture actually last moved, not treat
+  // itself as the very first wheel event ever seen.
+  function onWheelQuiesce() {
+    var cancelled = wheelCancelFlags();
+    if (wheelPullShouldFire(wheelState, cancelled)) {
+      runPullRefresh(wheelState.distance);
+    } else {
+      updatePullIndicator("idle", 0);
+    }
+    wheelState = { status: "idle", distance: 0, lastTs: wheelState.lastTs };
+    pullSource = null;
+  }
+
   // PT-32 (ruling § 4): reuses refreshBoardSilently -- the same ETag-
   // conditional GET the poll fallback uses, satisfying AC1's "same path...
   // no full page reload" with zero new network code. Promise.all with a
@@ -1670,6 +1799,11 @@
     document.addEventListener("touchmove", onPullTouchMove, { passive: false });
     document.addEventListener("touchend", onPullTouchEnd, { passive: true });
     document.addEventListener("touchcancel", onPullTouchCancel, { passive: true });
+    // PT-33 (ruling § 6): non-passive -- preventDefault is what keeps macOS's
+    // native rubber-band from drawing alongside our own indicator (§ 8,
+    // JC3). No feature detection, consistent with PT-32 § 5: on a device
+    // that never fires `wheel`, this listener simply never runs.
+    document.addEventListener("wheel", onWheel, { passive: false });
   }
 
   // ------------------------------------------------------------------
