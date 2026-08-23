@@ -53,7 +53,7 @@ def make_empty_repo(testcase, prefix: str = "PT", config_text: str | None = None
 
 
 def write_major(data_dir: Path, filename: str, major_id: str) -> None:
-    text = f"---\nid: {major_id}\nstatus: active\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n"
+    text = f"---\nid: {major_id}\nstatus: in-progress\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n"
     (data_dir / "majors" / filename).write_text(text, encoding="utf-8")
 
 

@@ -1,6 +1,6 @@
 ---
 id: PT-V1
-status: active
+status: in-progress
 owner: mosko
 target_ship: null
 health: on-track

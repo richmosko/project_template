@@ -3,7 +3,7 @@ id: PT-A
 name: Bootstrap & Research
 kind: process
 major: PT-V1
-status: completed
+status: done
 target_tag: null
 ga: false
 ---
