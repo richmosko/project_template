@@ -474,6 +474,13 @@ main > .swimlane .column {
 
 .card.dragging { opacity: 0.4; }
 
+/* PT-42: muted treatment for an archived card -- read-only on the board
+   (not draggable: cursor stays the default, not grab), rendered in its
+   original lane/column, distinguished by opacity + a desaturated chip
+   rather than a separate lane/column (ruling § 3). */
+.card.is-archived { opacity: 0.6; cursor: default; }
+.card.is-archived:active { cursor: default; }
+
 .card-id {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
@@ -505,6 +512,7 @@ main > .swimlane .column {
 .chip.subissues { background: #fffae6; color: #974f0c; }
 .chip.repo { background: #eae6ff; color: #403294; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .chip.blocked { background: #ffebe6; color: #bf2600; }
+.chip.archived { background: #ebecf0; color: var(--text-dim); font-style: italic; }
 
 .column.drop-target {
   outline: 2px dashed var(--accent);

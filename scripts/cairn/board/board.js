@@ -119,6 +119,10 @@
     currentMajor: "all",
     filters: { text: "", milestone: "", assignee: "", label: "", repo: "" },
     showCancelled: false,
+    // PT-42: default off, in-memory only -- NOT persisted to localStorage
+    // (matches showCancelled's own convention exactly, one view-toggle
+    // pattern rather than two).
+    showArchived: false,
     // PT-38: the pre-fetch default (first paint, before init()'s
     // apiGetBoard() resolves) -- overwritten once by payload.swimlane at
     // the initial load (see init()), then owned entirely by the
@@ -203,7 +207,15 @@
   function apiGetBoard() {
     var headers = {};
     if (state.etag) headers["If-None-Match"] = state.etag;
-    return fetch("/api/board", { headers: headers }).then(function (resp) {
+    // PT-42: ?archived=1 is the ONLY accepted spelling server-side --
+    // appended only when the toggle is actually on, so the default
+    // request stays byte-identical to pre-PT-42 (AC2). The etag-clear
+    // that must accompany a showArchived flip lives at the TOGGLE site
+    // (the #filter-archived listener below), not here -- by the time
+    // apiGetBoard runs, state.etag is already correct for whichever
+    // shape state.showArchived currently says.
+    var url = state.showArchived ? "/api/board?archived=1" : "/api/board";
+    return fetch(url, { headers: headers }).then(function (resp) {
       if (resp.status === 304) return null;
       // PT-32 (architect's micro-ruling § 4, ratified prerequisite for the
       // three-state refresh outcome): without this, a non-2xx response
@@ -554,6 +566,11 @@
   function cardEl(issue) {
     var card = document.createElement("div");
     card.className = "card";
+    // PT-42: muted visual treatment for an archived card -- read-only on
+    // the board (server-side 403 on mutation, isDraggable's own widening
+    // below keeps it non-draggable), rendered in its ORIGINAL milestone
+    // lane/status column, not a separate Archive lane (ruling § 3).
+    if (issue.archived) card.className += " is-archived";
     // PT-3: a foreign-root card is not draggable -- UI courtesy only
     // (§3.3.2: "not the security boundary"), the server's 403
     // read_only_root is what actually enforces this. PT-22: isDraggable
@@ -595,6 +612,11 @@
     if (state.board && state.board.roots && state.board.roots.length > 1) {
       meta.appendChild(chip("repo", issue.repo));
     }
+    // PT-42: same chip() helper every other card badge uses -- not a
+    // bespoke element for just this one, the "two independently-
+    // duplicated expressions" drift class isDraggable's own PT-22 history
+    // is the canonical example of.
+    if (issue.archived) meta.appendChild(chip("archived", "archived"));
     if (issue.assignee) meta.appendChild(chip("assignee", issue.assignee));
     if (issue.milestone) meta.appendChild(chip("milestone", issue.milestone));
     (issue.labels || []).forEach(function (l) { meta.appendChild(chip("", l)); });
@@ -1956,6 +1978,20 @@
     });
     document.getElementById("filter-cancelled").addEventListener("change", function (e) {
       state.showCancelled = e.target.checked; render();
+    });
+    // PT-42: unlike showCancelled (a pure client-side display filter over
+    // a payload that already contains every status), showArchived changes
+    // what the SERVER sends -- archive/ is never in the response at all
+    // unless ?archived=1 is on the request. A bare render() here would
+    // re-render the SAME already-fetched board and show nothing new.
+    // state.etag is cleared BEFORE the refetch: an etag minted for one
+    // payload shape (archived on/off) must never be sent as
+    // If-None-Match for the other, or the server would wrongly 304 a
+    // request for the shape it hasn't served yet.
+    document.getElementById("filter-archived").addEventListener("change", function (e) {
+      state.showArchived = e.target.checked;
+      state.etag = null;
+      refreshBoardSilently();
     });
     document.getElementById("toggle-swimlanes").addEventListener("change", function (e) {
       state.swimlanesOn = e.target.checked; render();
