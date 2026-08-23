@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Board: STATUS_LABELS fallback for unknown status in column headers |
+| Issue | PT-37 (cairn) |
+| Milestone | PT-0.7.0 |
+| Branch | `feature/pt-37-status-labels-fallback` |
+| Started | 2026-08-23 |
+| Goal | Column headers degrade gracefully for statuses missing from STATUS_LABELS, mirroring the chip fallback |
+| Status | In Progress |
 
 ## Releases
 

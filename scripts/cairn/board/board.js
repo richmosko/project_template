@@ -36,6 +36,14 @@
   var blockersOf = CairnLogic.blockersOf;
   var blocksOf = CairnLogic.blocksOf;
   var openBlockers = CairnLogic.openBlockers;
+  // PT-37: STATUS_LABELS/statusLabel relocated into board-logic.js -- same
+  // move PT-29 made for BOARD_COLUMNS below, and for the same reason: the
+  // column header (:627) and the collapsed-lane chip (:767) had drifted to
+  // different fallback behaviour for an unknown status because each held
+  // its own copy of this lookup. One map, one fallback-safe accessor, two
+  // callers.
+  var STATUS_LABELS = CairnLogic.STATUS_LABELS;
+  var statusLabel = CairnLogic.statusLabel;
   // PT-29: BOARD_COLUMNS relocated into board-logic.js (architect's
   // ruling § 4) as the single canonical column-order list. PT-35 (closing
   // review finding): the bare BOARD_COLUMNS alias that used to live here is
@@ -88,15 +96,6 @@
   var wheelPullInitialState = CairnLogic.wheelPullInitialState;
   var wheelPullReduce = CairnLogic.wheelPullReduce;
   var wheelPullShouldFire = CairnLogic.wheelPullShouldFire;
-
-  var STATUS_LABELS = {
-    "backlog": "Backlog",
-    "todo": "Todo",
-    "in-progress": "In Progress",
-    "in-review": "In Review",
-    "done": "Done",
-    "cancelled": "Cancelled",
-  };
 
   // PT-5: "" is the sentinel option value for a null priority — inlineSelect
   // translates it to/from JSON null at the DOM boundary (see inlineSelect).
@@ -624,7 +623,19 @@
 
     var header = document.createElement("div");
     header.className = "column-header";
-    header.innerHTML = "<span>" + STATUS_LABELS[status] + "</span><span>" + issues.length + "</span>";
+    // PT-37 (architect's review finding, F2): DOM-built via textContent,
+    // not an innerHTML concat -- pre-fix, statusLabel's input was always a
+    // hardcoded STATUS_LABELS value or undefined; post-fix (and once PT-38
+    // lets a column's status come from config.yml) it can be arbitrary
+    // free text from a hand-editable file. PT-20's ruling: free text from
+    // a hand-editable file is DOM-built, never HTML-parsed, so it renders
+    // literally instead of being interpreted as markup.
+    var labelSpan = document.createElement("span");
+    labelSpan.textContent = statusLabel(status);
+    var countSpan = document.createElement("span");
+    countSpan.textContent = issues.length;
+    header.appendChild(labelSpan);
+    header.appendChild(countSpan);
     col.appendChild(header);
 
     if (issues.length === 0) {
@@ -764,7 +775,7 @@
         var summaryEl = document.createElement("span");
         summaryEl.className = "swimlane-summary";
         summary.byStatus.forEach(function (entry) {
-          summaryEl.appendChild(chip("", (STATUS_LABELS[entry.status] || entry.status) + " · " + entry.count));
+          summaryEl.appendChild(chip("", statusLabel(entry.status) + " · " + entry.count));
         });
         laneHeader.appendChild(summaryEl);
       }

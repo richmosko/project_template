@@ -465,6 +465,51 @@ var CairnLogic = (function () {
   // PT-22's extraction pass exists to close.
   var BOARD_COLUMNS = ["backlog", "todo", "in-progress", "in-review", "done"];
 
+  // PT-37: relocated from board.js verbatim -- same move PT-29 made for
+  // BOARD_COLUMNS above, and for the same reason: a second, board.js-local
+  // copy of this exact map is the drift class PT-22's extraction pass
+  // exists to close. Single source of truth for every status->label
+  // lookup (column header, collapsed-lane chip, drawer status dropdown).
+  var STATUS_LABELS = {
+    "backlog": "Backlog",
+    "todo": "Todo",
+    "in-progress": "In Progress",
+    "in-review": "In Review",
+    "done": "Done",
+    "cancelled": "Cancelled",
+  };
+
+  // PT-37 (architect's ruling on PT-36's review § "board.js:622
+  // asymmetry"): the SINGLE fallback-safe status->label lookup. board.js's
+  // column-header render (STATUS_LABELS[status], no fallback) and the
+  // collapsed-lane chip (STATUS_LABELS[entry.status] || entry.status) were
+  // the same lookup duplicated with different fallback behaviour -- a
+  // status absent from STATUS_LABELS rendered literally "undefined" as a
+  // column header. Both call sites now route through this function so a
+  // future/unknown status falls back to the raw status string everywhere,
+  // not just at the one call site someone remembered to guard.
+  //
+  // Own-property guard (architect's PT-37 review finding, F1), not a bare
+  // `STATUS_LABELS[status] || status`: the naive form reads through the
+  // prototype chain for an inherited member -- statusLabel("constructor")
+  // would return the Object function itself, and statusLabel("__proto__")
+  // returns an object that throws TypeError on string coercion at the
+  // header's "<span>" + statusLabel(status) call site, killing the whole
+  // render, not just that header. Same hazard class this file already
+  // guards elsewhere (laneExpanded's own-property check, dedupeMajorIds's
+  // Object.create(null)) -- deliberately NOT fixed by making STATUS_LABELS
+  // itself Object.create(null): this map is asserted with
+  // assert.deepEqual under node:assert/strict, which compares prototypes,
+  // so a null-proto map would fail that assertion for no safety gain (a
+  // plain {} literal never has an OWN property named "constructor" or
+  // "__proto__" to begin with -- hasOwnProperty is the correct guard for
+  // an ordinary object, unlike the Object.create(null)-keyed maps
+  // elsewhere in this file that are built incrementally from caller-
+  // supplied keys).
+  function statusLabel(status) {
+    return Object.prototype.hasOwnProperty.call(STATUS_LABELS, status) ? STATUS_LABELS[status] : status;
+  }
+
   // PT-29 (architect's ruling § 2): the SINGLE read path for
   // state.expandedLanes. Absence of `stateKey` in `expandedMap` means
   // collapsed -- there is no second encoding of "closed" (see
@@ -910,6 +955,8 @@ var CairnLogic = (function () {
     blocksOf: blocksOf,
     openBlockers: openBlockers,
     BOARD_COLUMNS: BOARD_COLUMNS,
+    STATUS_LABELS: STATUS_LABELS,
+    statusLabel: statusLabel,
     laneExpanded: laneExpanded,
     nextExpandedLanes: nextExpandedLanes,
     disclosureToken: disclosureToken,
