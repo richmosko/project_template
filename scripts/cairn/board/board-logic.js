@@ -748,6 +748,106 @@ var CairnLogic = (function () {
     return { message: "Couldn't refresh — showing last known data", isError: true };
   }
 
+  // PT-33 (architect's ruling @ e319208): the trackpad-overscroll wheel
+  // adapter feeding PT-32's pullPhase machine a synthesized deltaY. `wheel`
+  // has no start/end marker the way touch does -- the ruling's central rule
+  // is a TIME GATE, not a velocity/decay model: a gesture opens only on an
+  // event preceded by >= WHEEL_PULL_IDLE_MS of wheel silence, because
+  // momentum is never preceded by stillness but a deliberate pull is. None
+  // of pullPhase/pullIndicatorOffset/pullIndicatorLabel/shouldCancelPull/
+  // pullRefreshToast above are touched by this section -- this is a new
+  // adapter, not a state-machine redesign (ruling's ground truth, ¶1).
+  var WHEEL_PULL_IDLE_MS = 120;
+  var WHEEL_PULL_BURST_MAX = 40;
+  var WHEEL_LINE_HEIGHT = 16;
+
+  // A fresh {status:"idle", distance:0, lastTs:-Infinity} -- a FUNCTION, not
+  // a shared frozen object (ruling § 4), so no caller can accidentally
+  // mutate a module-level singleton across gestures. lastTs:-Infinity means
+  // the very first wheel event ever seen is always preceded by "silence".
+  function wheelPullInitialState() {
+    return { status: "idle", distance: 0, lastTs: -Infinity };
+  }
+
+  // Pull-down pixels for one wheel event -- ruling § 2.2. deltaMode 0
+  // (pixels): -deltaY. deltaMode 1 (lines): -deltaY * WHEEL_LINE_HEIGHT.
+  // Anything else (deltaMode 2/"pages", or an unrecognized mode) -> 0 --
+  // deliberately NOT a fabricated pixel constant; a page-granularity wheel
+  // is blocked through the ordinary "distance <= 0" gate rather than a
+  // branch of its own.
+  function wheelPullDistance(ev) {
+    if (ev.deltaMode === 0) return -ev.deltaY;
+    if (ev.deltaMode === 1) return -ev.deltaY * WHEEL_LINE_HEIGHT;
+    return 0;
+  }
+
+  // Internal: the shared "refuse this opening event" result -- ruling § 4's
+  // pseudocode "blocked(ev.timeStamp)". distance always resets to 0; lastTs
+  // is still the REJECTED event's own timestamp (the load-bearing line, § 4
+  // property 1 / QA red C14) so a momentum tail's later at-top event is
+  // correctly judged against a non-stale gap.
+  function wheelBlocked(ts) {
+    return { status: "blocked", distance: 0, lastTs: ts };
+  }
+
+  // The wheel-adapter reducer -- ruling § 4. `ev` = {deltaY, deltaX,
+  // deltaMode, timeStamp, atScrollTop, horizontalDominant}. Never mutates
+  // `prev` (QA red D22); always returns a fresh object.
+  //
+  // An "opening" evaluation (gap since prev.lastTs >= WHEEL_PULL_IDLE_MS)
+  // re-checks four gates -- atScrollTop, distance > 0, distance <=
+  // WHEEL_PULL_BURST_MAX (inclusive), !horizontalDominant -- and ONLY on
+  // open; a later in-gesture event never re-applies the burst gate (a fast
+  // finish is legal, QA red C12) or the axis gate (the reducer is the only
+  // place that knows where a wheel gesture begins; board.js has no
+  // touchstart to latch the axis decision at, ruling § 5).
+  //
+  // A non-opening event while not already "pulling" is refused the same way
+  // (wheelBlocked) WITHOUT re-running the opening gates -- QA red C10: a
+  // small gap must not re-evaluate them even with otherwise-valid params.
+  //
+  // While pulling, a later event's distance ACCUMULATES (may be negative --
+  // retreat). Crossing to <= 0 ends the gesture back to "idle" (the wheel's
+  // version of PT-32's no-latch rule, ruling § 4 property 3) rather than
+  // staying "blocked" -- blocked and idle are behaviourally identical to
+  // callers (property 4) but distinct so tests/logs can tell why a stream
+  // was refused.
+  function wheelPullReduce(prev, ev) {
+    var dist = wheelPullDistance(ev);
+    var opening = ev.timeStamp - prev.lastTs >= WHEEL_PULL_IDLE_MS;
+
+    if (opening) {
+      if (!ev.atScrollTop) return wheelBlocked(ev.timeStamp);
+      if (dist <= 0) return wheelBlocked(ev.timeStamp);
+      if (dist > WHEEL_PULL_BURST_MAX) return wheelBlocked(ev.timeStamp);
+      if (ev.horizontalDominant) return wheelBlocked(ev.timeStamp);
+      return { status: "pulling", distance: dist, lastTs: ev.timeStamp };
+    }
+
+    if (prev.status !== "pulling") return wheelBlocked(ev.timeStamp);
+
+    var next = prev.distance + dist;
+    if (next <= 0) return { status: "idle", distance: 0, lastTs: ev.timeStamp };
+    return { status: "pulling", distance: next, lastTs: ev.timeStamp };
+  }
+
+  // Whether the wheel adapter's current state should fire a refresh --
+  // ruling § 4. Delegates to the EXISTING pullPhase (never re-derives the
+  // arm threshold): "pulling" maps onto pullPhase's atScrollTop parameter,
+  // sound because the reducer above refuses to ever open off scroll-top --
+  // "pulling" *is* the wheel path's at-scroll-top predicate. "blocked"/
+  // "idle" both map to atScrollTop:false, so pullPhase can never return
+  // anything but "idle" for them regardless of distance (QA red D20).
+  function wheelPullShouldFire(state, cancelled) {
+    return (
+      pullPhase({
+        atScrollTop: state.status === "pulling",
+        deltaY: state.distance,
+        cancelled: cancelled,
+      }) === "armed"
+    );
+  }
+
   return {
     primaryRootId: primaryRootId,
     milestoneLabel: milestoneLabel,
@@ -791,5 +891,12 @@ var CairnLogic = (function () {
     REFRESH_UNCHANGED: REFRESH_UNCHANGED,
     REFRESH_FAILED: REFRESH_FAILED,
     pullRefreshToast: pullRefreshToast,
+    WHEEL_PULL_IDLE_MS: WHEEL_PULL_IDLE_MS,
+    WHEEL_PULL_BURST_MAX: WHEEL_PULL_BURST_MAX,
+    WHEEL_LINE_HEIGHT: WHEEL_LINE_HEIGHT,
+    wheelPullInitialState: wheelPullInitialState,
+    wheelPullDistance: wheelPullDistance,
+    wheelPullReduce: wheelPullReduce,
+    wheelPullShouldFire: wheelPullShouldFire,
   };
 })();
