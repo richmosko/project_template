@@ -49,11 +49,11 @@ board:
 
 ### 3. Seed the founding major and definition milestones
 
-Write `process/cairn/majors/V1.md`:
+Write `process/cairn/majors/<PREFIX>-V1.md` (PT-28: major ids are prefixed with the configured `<PREFIX>` — a bare `V1.md` fails `cairn check` on the very first lint run):
 
 ```markdown
 ---
-id: V1
+id: <PREFIX>-V1
 status: in-progress
 owner: <user>
 target_ship: null
@@ -63,21 +63,21 @@ health: on-track
 Founding major line. Starts at MAJOR 0; the GA-designated milestone tags 1.0.0.
 ```
 
-Write `process/cairn/milestones/A.md` and `B.md` (`kind: process`, `major: V1`, `target_tag: null`, `ga: false`, status per phase — the `major:` key is load-bearing: the board derives an issue's major *through* its milestone, so omitting it hides every A/B issue from the V1 tab):
+Write `process/cairn/milestones/<PREFIX>-A.md` and `<PREFIX>-B.md` (same PT-28 prefix requirement as the major above — `kind: process`, `major: <PREFIX>-V1`, `target_tag: null`, `ga: false`, status per phase — the `major:` key is load-bearing: the board derives an issue's major *through* its milestone, so omitting it hides every A/B issue from the V1 tab):
 
 | id | name | status | Definition of done (body) |
 |---|---|---|---|
-| `A` | Bootstrap & Research | `in-progress` | PRD v1 approved; user stories enumerated; product-milestone scope sketched in PRD §9. |
-| `B` | Plan | `planned` | ARCH + SECURITY approved; product milestones created in `milestones/` + GA designated; first session planned. |
+| `<PREFIX>-A` | Bootstrap & Research | `in-progress` | PRD v1 approved; user stories enumerated; product-milestone scope sketched in PRD §9. |
+| `<PREFIX>-B` | Plan | `planned` | ARCH + SECURITY approved; product milestones created in `milestones/` + GA designated; first session planned. |
 
-Development milestones (`1.0`, `1.1`, …) are **not** seeded here — the `architect` creates them during Plan, flagging exactly one per major with `ga: true` (see `process/WORKFLOW.md` → Versioning scheme).
+Development milestones (`<PREFIX>-1.0`, `<PREFIX>-1.1`, …) are **not** seeded here — the `architect` creates them during Plan, flagging exactly one per major with `ga: true` (see `process/WORKFLOW.md` → Versioning scheme).
 
 ### 4. Seed PRD user stories as issues (optional)
 
 If `docs/PRD/index.html` § User Stories has content, offer to seed each story as an issue. There is **no cap and no overflow tier** — every story becomes a real issue immediately:
 
 ```bash
-scripts/cairn/cairn new "<story title>" --status backlog --milestone <A|B|null> --assignee product-manager
+scripts/cairn/cairn new "<story title>" --status backlog --milestone <<PREFIX>-A|<PREFIX>-B|null> --assignee product-manager
 ```
 
 Show the count before writing ("Seed 14 stories from the PRD as backlog issues?"). Stories without a clear milestone get `--milestone` omitted (null = unassigned; the architect attaches them during Plan).
@@ -102,7 +102,7 @@ scripts/cairn/cairn ls           # show what was seeded
 Commit the scaffold (via the current branch flow — `/start-doc-update` if nothing is open). Print a summary:
 
 - Prefix: `<PREFIX>` · data dir: `process/cairn/`
-- Seeded: `majors/V1.md`, `milestones/A.md`, `milestones/B.md`
+- Seeded: `majors/<PREFIX>-V1.md`, `milestones/<PREFIX>-A.md`, `milestones/<PREFIX>-B.md`
 - Issues seeded: N from PRD
 - Delivery autonomy: `<choice>`
 - Board: `/cairn` starts it at `http://localhost:8766/`
