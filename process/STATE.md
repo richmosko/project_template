@@ -17,12 +17,12 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Board: Show Archived toggle — render archive/ issues on demand, default off |
-| Issue | PT-42 (cairn) |
+| Feature | Lint: hand-mv'd milestone/major in archive dirs with live status goes undetected |
+| Issue | PT-46 (cairn) |
 | Milestone | PT-0.7.0 |
-| Branch | `feature/pt-42-show-archived-toggle` |
+| Branch | `feature/pt-46-archived-record-status-lint` |
 | Started | 2026-08-23 |
-| Goal | ?archived=1 server surface + muted read-only archived cards; off-state byte-identical |
+| Goal | check_repo errors on archived milestone/major records whose status isn't done/cancelled |
 | Status | In Progress |
 
 ## Releases

@@ -158,6 +158,35 @@ def _check_record_status(errors: List[str], stem: str, status: Any) -> None:
         )
 
 
+def _check_archived_record_status(errors: List[str], stem: str, status: Any) -> None:
+    """PT-46 (architect's Pass-2 finding on PT-39 § 3 item 2): the hand-
+    `git mv` bypass, milestone/major half. `cairn archive --milestone`/
+    `--major` refuses unless the record's own status is already
+    done/cancelled (test_archive_records.py pins that precondition) --
+    but nothing stops a human from `git mv`-ing a still-in-progress
+    milestone/major file straight into archive/milestones/ or
+    archive/majors/, skipping the precondition entirely. Same defect
+    class PT-39 § 3 item 2 closed for an ARCHIVED ISSUE's milestone; this
+    closes it for the record itself.
+
+    Deliberately STRICTER than, and separate from, _check_record_status
+    above: "planned"/"paused"/"in-progress" are all valid RECORD_STATUSES
+    values (that general check passes them), but none is valid for a
+    record that is ALREADY living in an archive dir -- this is an
+    archive-location-specific rule the general check never asserted.
+    Callers must scope this to archived records only; a live, in-progress
+    milestone/major is normal and must never trip it. A missing status
+    (`None`) also fails "not in (done, cancelled)" and is caught here too,
+    not as a separately-shaped case.
+    """
+    if status not in ("done", "cancelled"):
+        errors.append(
+            f"{stem}: archived but status is {status!r}, not done/cancelled -- "
+            f"looks like it was moved into archive/ by hand, bypassing "
+            f"`cairn archive`'s precondition"
+        )
+
+
 ISSUE_FIELD_ORDER = [
     "id", "title", "status", "milestone", "parent", "blocked_by", "assignee",
     "labels", "priority", "pr", "created", "updated",
@@ -1041,11 +1070,24 @@ def check_repo(data_dir: Path) -> List[str]:
     # itself), and excluding it here would dangle every reference to it
     # the moment `cairn archive --major` runs, self-defeating for a
     # command whose whole point is a clean post-archive lint. Resolution
-    # ONLY -- id-shape/title/status validation is NOT re-run on archived
-    # files: they already passed those checks at the moment they were
-    # archived (archive_major moves files verbatim, never rewriting
+    # ONLY -- id-shape/title/GENERAL-status validation is NOT re-run on
+    # archived files: they already passed those checks at the moment they
+    # were archived (archive_major moves files verbatim, never rewriting
     # frontmatter), so re-validating here would be redundant at best.
-    known_majors.update(p.stem for p in _dir_glob(data_dir / "archive" / "majors"))
+    #
+    # PT-46 (architect's Pass-2 finding): the ONE exception -- an archived
+    # record's OWN status must be done/cancelled, a stricter,
+    # archive-location-specific rule the general check above never
+    # asserted (the hand-`git mv` bypass this file's own precondition
+    # exists to catch). This is why this loop parses frontmatter now,
+    # unlike before PT-46.
+    for p in _dir_glob(data_dir / "archive" / "majors"):
+        known_majors.add(p.stem)
+        try:
+            fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
+        except CairnError:
+            continue
+        _check_archived_record_status(errors, p.stem, fm.get("status"))
 
     known_milestones = set()
     parsed_milestones: List[Tuple[Path, Dict[str, Any]]] = []
@@ -1079,6 +1121,10 @@ def check_repo(data_dir: Path) -> List[str]:
             continue
         known_milestones.add(p.stem)
         milestone_status_by_id[p.stem] = fm.get("status")
+        # PT-46 (architect's Pass-2 finding): the same archive-location-
+        # specific done/cancelled requirement as the majors loop above --
+        # the hand-`git mv` bypass, milestone half.
+        _check_archived_record_status(errors, p.stem, fm.get("status"))
 
     for p, fm in parsed_milestones:
         major = fm.get("major")
