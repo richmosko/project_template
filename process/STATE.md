@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Board: cancelled column when Show-cancelled is on |
-| Issue | PT-35 |
-| Milestone | PT-0.6.2 |
-| Branch | `feature/pt-35-cancelled-column` |
-| Started | 2026-08-23 |
-| Goal | Conditional sixth column renders cancelled issues in kanban; counts consistent; zero change with Show-cancelled off — closes PT-0.6.2 |
-| Status | In Progress — pre-approved through /merge-pr (Mosko); milestone close + v0.6.2 ping at merge |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Releases
 
