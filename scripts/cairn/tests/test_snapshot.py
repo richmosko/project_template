@@ -15,10 +15,11 @@ the whole point of "diff cleanly" in the acceptance criteria) without
 fighting wall-clock noise. A real `cairn snapshot` invocation still sources
 a real timestamp when `generated_at` isn't given -- see SnapshotCliTests.
 
-Status grouping order pinned by these tests: cairn.DEFAULT_COLUMNS
-(backlog, todo, in-progress, in-review, done) + cancelled last -- this is
-the one existing canonical status sequence in the codebase (also
-board.js's BOARD_COLUMNS/STATUS_LABELS order), not a new invention.
+Status grouping order pinned by these tests: cairn.STATUS_ORDER (PT-36 --
+backlog, todo, in-progress, in-review, done, cancelled) -- this is the one
+existing canonical status sequence in the codebase (also board.js's
+BOARD_COLUMNS/STATUS_LABELS order, guarded against drift by
+test_column_parity.py), not a new invention.
 """
 from __future__ import annotations
 
@@ -30,7 +31,7 @@ import helpers  # noqa: F401
 
 import cairn
 
-STATUS_ORDER = list(cairn.DEFAULT_COLUMNS) + ["cancelled"]
+STATUS_ORDER = cairn.STATUS_ORDER
 
 
 def make_tree(testcase) -> Path:

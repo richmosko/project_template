@@ -55,6 +55,13 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 DEFAULT_PORT = 8766
 DEFAULT_COLUMNS = ["backlog", "todo", "in-progress", "in-review", "done"]
+# PT-36 (architect's ruling @ 49174b7, Part A): the append rule
+# (`DEFAULT_COLUMNS` + `["cancelled"]`) had THREE Python-side copies
+# (cairn.py:1277, tests/test_snapshot.py, and this constant's predecessor
+# inline expression) -- collapsed to one real derivation here. A fresh list
+# each import (`DEFAULT_COLUMNS + [...]` builds a new list, never mutates or
+# aliases DEFAULT_COLUMNS), so mutating one can never touch the other.
+STATUS_ORDER = DEFAULT_COLUMNS + ["cancelled"]
 STATUSES = {"backlog", "todo", "in-progress", "in-review", "done", "cancelled"}
 DEFAULT_STATUS = "backlog"
 PRIORITIES = {"P0", "P1", "P2", "P3"}
@@ -1274,7 +1281,7 @@ def build_snapshot_markdown(data_dir: Path, generated_at: Optional[str] = None) 
 
     lines.append("### Issues")
     lines.append("")
-    status_order = list(DEFAULT_COLUMNS) + ["cancelled"]
+    status_order = list(STATUS_ORDER)
     if issues:
         for status in status_order:
             group = sorted(
