@@ -3,7 +3,7 @@ id: PT-0.5
 name: polish
 kind: product
 major: PT-V1
-status: completed
+status: done
 target_tag: v0.5.0
 ga: false
 ---

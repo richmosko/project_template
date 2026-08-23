@@ -3,7 +3,7 @@ id: PT-0.6
 name: tracker relations + milestone conventions
 kind: product
 major: PT-V1
-status: completed
+status: done
 target_tag: v0.6.0
 ga: false
 ---

@@ -19,6 +19,15 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 
 ---
 
+### 2026-08-23 — Patch milestones are first-class: milestone ↔ target_tag is 1:1, not milestone ↔ MAJOR.MINOR (PT-39)
+**Decision:** A milestone may sit at any release granularity — a feature milestone moves MINOR, a patch milestone moves PATCH — with milestone ↔ `target_tag` 1:1 as the invariant. WORKFLOW.md's Hotfix/PATCH rows and Model A's closing clause reformulated accordingly (Model A itself survives: a single release's run-up is never split); TRACKER.md drops the MINOR-only id preference (architect's half, same PR).
+**Why:** WORKFLOW.md:582 bound PATCH to hotfix-issues-on-the-existing-milestone, but shipped reality (PT-0.5.1, PT-0.6.1, PT-0.6.2 — standalone patch milestones with their own target_tag) has contradicted that for three releases; the doc aligns with established practice. Surfaced by the architect while executing the team-lead's milestone-id-shape ruling during PT-39.
+**Alternatives considered:**
+- Keep the doctrine, rename/merge the shipped patch milestones — rewrites tracker history to save a sentence.
+- Fix only the id-shape sentence in TRACKER.md — leaves the load-bearing PATCH row contradicting practice (half-corrected doctrine is worse than the original).
+**Approved by:** team-lead under Mosko's PT-0.7.0 pre-authorization (2026-08-23); flagged for Mosko's release-time review.
+**Supersedes:** the "1:1 milestone↔version mapping" clauses as originally written (WORKFLOW.md Model A / MINOR-ordinal paragraphs).
+
 ### 2026-08-22 — Swallowed-report defenses adopted: uniform addressing block, report-first multi-item jobs, idle escalation ladder
 **Decision:** Adopt the fintech swallowed-report brief's three layers, adapted: (1) a byte-identical addressing block in all 10 agent definitions — report to the inbound `teammate_id` (here `team-lead`), never `"main"` (background-subagent-only; silently swallows the report, leaving a `[to main]`-prefixed idle summary as the only trace), failed send = undelivered finding, plain text is not a fallback, verify by the send result; (2) report-first ordering for multi-item jobs (survey table before applying, idempotency markers, position reports, verbatim-error reporting) in WORKFLOW.md's hand-off protocol + a compact echo in every agent's hand-off block; (3) the idle-without-report escalation ladder (temp/ → `[to main]` signature → one poke → direct ground-truth reads → survey-first replacement briefs) in the team-lead role. The lead memory `teammate_reply_address.md` deleted as superseded — two homes for one rule is how they diverge.
 **Why:** This repo hit the exact bug 2026-08-20 (qa-pt18's first delivery bounced addressing "main") but patched it in the weakest layer — coordinator memory + dispatch-prompt habit. The audit found no `"main"` address anywhere in tracked files; the gap was the absence of a rule where the failing reader looks: the freshly spawned agent's own definition. Report-last is additionally the measured death position for long jobs' deliverables.

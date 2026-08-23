@@ -54,7 +54,7 @@ Write `process/cairn/majors/V1.md`:
 ```markdown
 ---
 id: V1
-status: active
+status: in-progress
 owner: <user>
 target_ship: null
 health: on-track

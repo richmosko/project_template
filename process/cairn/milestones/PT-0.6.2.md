@@ -1,9 +1,9 @@
 ---
-id: "PT-0.6.2"
+id: PT-0.6.2
 name: board follow-ups — trackpad + cancelled column
 kind: product
 major: PT-V1
-status: completed
+status: done
 target_tag: v0.6.2
 ga: false
 ---

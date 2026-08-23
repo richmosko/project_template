@@ -67,6 +67,20 @@ DEFAULT_STATUS = "backlog"
 PRIORITIES = {"P0", "P1", "P2", "P3"}
 MILESTONE_KINDS = {"process", "product"}
 
+# PT-39 (architect's ruling § 1): the unified milestone/major status
+# vocabulary -- one enum for BOTH schemas, not two that overlap by four
+# values out of five. Deliberately a SEPARATE set object from STATUSES,
+# never an alias: milestones have no `in-review`, majors have no
+# `backlog` -- the issue-cycle vocabulary and the record-lifecycle
+# vocabulary are related but distinct, and a milestone must never be able
+# to carry `status: backlog` just because the two sets happened to be the
+# same object. `completed` -> `done`, `active` -> `in-progress` is the
+# migration this replaces (see migrate_lifecycle_status below); `paused`
+# was already documented for milestones and is extended to majors here.
+RECORD_STATUSES = {"planned", "in-progress", "paused", "done", "cancelled"}
+MILESTONE_FIELD_ORDER = ["id", "name", "kind", "major", "status", "target_tag", "ga"]
+MAJOR_FIELD_ORDER = ["id", "status", "owner", "target_ship", "health"]
+
 # PT-28: `prefix:` format -- the SAME regex /setup-tracker already uses for
 # the interactive path (architect's ruling § 7), now also enforced at lint
 # time so a hand-edited config.yml can't silently corrupt every id-shape
@@ -110,6 +124,38 @@ def _migrate_hint_if_bare(stem: str, prefix: str) -> str:
     if stem.startswith(prefix + "-"):
         return ""
     return "  fix: scripts/cairn/cairn migrate prefix-ids --dry-run   (then re-run without --dry-run)"
+
+
+def _lifecycle_migrate_hint_if_renamed(value: Any) -> str:
+    """PT-39 (architect's ruling § 3 item 1): the migration-hint recipe for
+    a milestone/major status lint error -- same pattern as
+    _migrate_hint_if_bare above (named once, not re-typed at each call
+    site). Only attached when `value` is literally one of the two OLD
+    vocabulary values this migration knows how to rewrite ("completed" ->
+    "done", "active" -> "in-progress") -- a garbage value ("wip") isn't
+    something `cairn migrate lifecycle-status` can fix, so pointing at it
+    there would send someone to run a tool that can't help (same
+    reasoning as _migrate_hint_if_bare's already-prefixed-stem check).
+    """
+    if value in ("completed", "active"):
+        return "  fix: scripts/cairn/cairn migrate lifecycle-status --dry-run   (then re-run without --dry-run)"
+    return ""
+
+
+def _check_record_status(errors: List[str], stem: str, status: Any) -> None:
+    """PT-39 (architect's ruling § 3 item 1): the ONE status-validity check
+    for a milestone/major record, called once per major and once per
+    milestone in check_repo -- factored out (standing duplicated-inline-
+    expression rule) so the two schemas' identical "missing or invalid
+    status" condition can't drift into two slightly different messages.
+    Appends to `errors` in place; returns nothing.
+    """
+    if status is None or status not in RECORD_STATUSES:
+        errors.append(
+            f"{stem}: missing or invalid status {status!r} -- "
+            f"expected one of {sorted(RECORD_STATUSES)}"
+            f"{_lifecycle_migrate_hint_if_renamed(status)}"
+        )
 
 
 ISSUE_FIELD_ORDER = [
@@ -673,6 +719,33 @@ def find_issue_path(data_dir: Path, issue_id: str) -> Optional[Path]:
     return None
 
 
+# PT-39 (architect's ruling § 6): the six subdirs find_record_path resolves
+# an id against, in precedence order. Issues first (the common case, and
+# the shape find_issue_path already optimizes for), then milestones, then
+# majors -- each schema's live dir before its archive dir.
+_RECORD_SEARCH_SUBDIRS = ("issues", "archive", "milestones", "archive/milestones", "majors", "archive/majors")
+
+
+def find_record_path(data_dir: Path, record_id: str) -> Optional[Path]:
+    """Resolves `record_id` against issues/archive/milestones/majors (live
+    and archived), in `_RECORD_SEARCH_SUBDIRS` order. NEW for PT-39's
+    `cairn set` extension -- CLI-only.
+
+    Deliberately a SEPARATE function from find_issue_path, not a widening
+    of it: find_issue_path stays the only resolver the HTTP write path can
+    reach (PT-3's read-only guarantee is structural, not a runtime check --
+    see find_issue_path's own callers). A milestone/major must never
+    become reachable from POST /api/issue/<id> just because this function
+    exists.
+    """
+    data_dir = Path(data_dir)
+    for sub in _RECORD_SEARCH_SUBDIRS:
+        candidate = data_dir / sub / f"{record_id}.md"
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def _read_frontmatter_dict(path: Path) -> Dict[str, Any]:
     frontmatter, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
     return frontmatter
@@ -819,7 +892,25 @@ def check_repo(data_dir: Path) -> List[str]:
             )
         if fm.get("title") is not None:
             errors.append(f"{p.stem}: unexpected title {fm['title']!r} -- title is issue-only")
+        # PT-39 (architect's ruling § 3 item 1): NEW enforcement -- a
+        # major's status: must be present and in RECORD_STATUSES. Pre-
+        # PT-39, check_repo never validated a major's status value at
+        # all, which is how "active" (not even documented anywhere)
+        # survived undetected.
+        _check_record_status(errors, p.stem, fm.get("status"))
         known_majors.add(p.stem)
+
+    # PT-39 (architect's ruling § 3 item 3): known_majors ALSO resolves
+    # against archive/majors/ -- an archived major is still a legitimate
+    # reference target (a milestone naming it, or the archive precondition
+    # itself), and excluding it here would dangle every reference to it
+    # the moment `cairn archive --major` runs, self-defeating for a
+    # command whose whole point is a clean post-archive lint. Resolution
+    # ONLY -- id-shape/title/status validation is NOT re-run on archived
+    # files: they already passed those checks at the moment they were
+    # archived (archive_major moves files verbatim, never rewriting
+    # frontmatter), so re-validating here would be redundant at best.
+    known_majors.update(p.stem for p in _dir_glob(data_dir / "archive" / "majors"))
 
     known_milestones = set()
     parsed_milestones: List[Tuple[Path, Dict[str, Any]]] = []
@@ -837,12 +928,38 @@ def check_repo(data_dir: Path) -> List[str]:
             errors.append(f"{p.stem}: unexpected title {fm['title']!r} -- title is issue-only")
         known_milestones.add(p.stem)
 
+    # PT-39 (ruling § 3 item 3, milestones half): same widening as
+    # known_majors above, and the same reason -- archive_milestone moves a
+    # milestone file into archive/milestones/ without rewriting any of the
+    # issues that still name it (its own now-archived issues included),
+    # so those refs must keep resolving. `milestone_status_by_id` is built
+    # alongside it (live status from parsed_milestones, archived status
+    # from this same scan) -- item 2 below is the one check that needs a
+    # STATUS, not just a yes/no "does this id exist".
+    milestone_status_by_id: Dict[str, Any] = {p.stem: fm.get("status") for p, fm in parsed_milestones}
+    for p in _dir_glob(data_dir / "archive" / "milestones"):
+        try:
+            fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
+        except CairnError:
+            continue
+        known_milestones.add(p.stem)
+        milestone_status_by_id[p.stem] = fm.get("status")
+
     for p, fm in parsed_milestones:
         major = fm.get("major")
         if major is None:
             errors.append(f"{p.stem}: missing major")
         elif str(major) not in known_majors:
             errors.append(f"{p.stem}: unknown major {major!r}")
+
+        # PT-39 (architect's ruling § 3 item 1): NEW enforcement -- a
+        # milestone's status: must be present and in RECORD_STATUSES.
+        # Same check as the major loop above -- routed through the one
+        # shared helper (_check_record_status) rather than a second
+        # inline copy of the condition (standing duplicated-inline-
+        # expression rule: this exact "missing or invalid status" shape
+        # would otherwise exist twice, one per schema, and could drift).
+        _check_record_status(errors, p.stem, fm.get("status"))
 
         # PT-27/PT-28: milestone id-shape <-> kind agreement, now against
         # the PREFIXED shapes (definition_re/development_re, built above --
@@ -911,6 +1028,30 @@ def check_repo(data_dir: Path) -> List[str]:
         milestone = fm.get("milestone")
         if milestone is not None and str(milestone) not in known_milestones:
             errors.append(f"{label}: unknown milestone {milestone!r}")
+        # PT-39 (architect's ruling § 3 item 2): the hand-`git mv` bypass
+        # catch. `cairn archive --milestone` refuses unless the milestone
+        # AND every issue under it are done/cancelled (test_archive_records
+        # pins that precondition) -- but nothing stops a human from
+        # `git mv`-ing ONE issue into archive/ directly, skipping the
+        # precondition entirely. Scoped to issues actually living in
+        # archive/ (p.parent.name == "archive") -- a LIVE issue under an
+        # in-progress milestone is the normal, expected shape of every
+        # unfinished milestone and must never trip this. Only fires once
+        # the milestone ref has already resolved (str(milestone) in
+        # known_milestones) -- a genuinely dangling ref is the check
+        # above's job alone, not a second, confusing error on the same ref.
+        if (
+            p.parent.name == "archive"
+            and milestone is not None
+            and str(milestone) in known_milestones
+        ):
+            ms_status = milestone_status_by_id.get(str(milestone))
+            if ms_status not in ("done", "cancelled"):
+                errors.append(
+                    f"{label}: archived issue's milestone {milestone!r} is not done/cancelled "
+                    f"(status: {ms_status!r}) -- looks like it was moved into archive/ by hand, "
+                    f"bypassing `cairn archive`'s precondition"
+                )
         parent = fm.get("parent")
         if parent is not None and parent not in known_ids:
             errors.append(f"{label}: dangling parent {parent!r}")
@@ -1090,6 +1231,80 @@ def _format_migration_report(report: Dict[str, Any], dry_run: bool) -> str:
         )
     if not lines:
         return "nothing to do -- every id is already prefixed"
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
+# PT-39: `cairn migrate lifecycle-status` -- unify milestone/major status
+# vocabulary onto RECORD_STATUSES.
+#
+# Architect's ruling (temp/arch-ruling-pt39-lifecycle.md § 2): PT-28's
+# named-migration precedent verbatim -- a NAMED migration, not a bare
+# "migrate", same reasoning as prefix-ids (an invocation in a runbook
+# still means one specific thing a year later).
+# --------------------------------------------------------------------------
+
+_LIFECYCLE_STATUS_RENAMES = {"completed": "done", "active": "in-progress"}
+
+
+def migrate_lifecycle_status(data_dir: Path, dry_run: bool = False) -> Dict[str, Any]:
+    """Run (`dry_run=False`) or preview (`dry_run=True`) the
+    lifecycle-status migration. Returns a report describing every change
+    made or planned -- {"majors": [...], "milestones": [...]} -- which
+    cmd_migrate_lifecycle_status renders for both --dry-run and a real
+    run (the plan IS the report, same convention as migrate_prefix_ids).
+
+    Rewrites `status:` in majors/*.md and milestones/*.md ONLY -- never
+    archive/majors/ or archive/milestones/ (those subdirs don't predate
+    PT-39; nothing there could carry the old vocabulary that wasn't
+    already caught by a live-tree migration first) and never issues/ or
+    archive/ (issues already use STATUSES, untouched by this migration).
+
+    `completed` -> `done`, `active` -> `in-progress`; any other value
+    (including an already-migrated one, or a garbage value like "wip")
+    is left byte-for-byte untouched -- value-keyed, so idempotent by
+    construction with no crash-recovery phase needed (unlike
+    migrate_prefix_ids's filename-keyed phase 1, there is no
+    old-name/new-name pair here to leave half-renamed).
+
+    Does NOT gate on `check_repo` first (same reasoning as prefix-ids:
+    that would deadlock the exact situation this command exists to
+    resolve -- a repo whose lint is already failing on the old
+    vocabulary). Single-writer rule: rewrites go through
+    parse_frontmatter/dump_frontmatter/_atomic_write, the same path
+    apply_patch uses -- no second writer.
+    """
+    data_dir = Path(data_dir)
+    report: Dict[str, Any] = {"majors": [], "milestones": []}
+    for subdir, report_key in (("majors", "majors"), ("milestones", "milestones")):
+        for p in _dir_glob(data_dir / subdir):
+            fm, body = parse_frontmatter(p.read_text(encoding="utf-8"))
+            old_status = fm.get("status")
+            new_status = _LIFECYCLE_STATUS_RENAMES.get(old_status)
+            if new_status is None:
+                continue  # not one of the two known old values -- a lint concern, not this command's
+            report[report_key].append({"file": p.name, "old_status": old_status, "new_status": new_status})
+            if not dry_run:
+                fm = dict(fm)
+                fm["status"] = new_status
+                _atomic_write(p, dump_frontmatter(fm) + body)
+    return report
+
+
+def _format_lifecycle_migration_report(report: Dict[str, Any], dry_run: bool) -> str:
+    """Human-legible plan/summary for cmd_migrate_lifecycle_status -- same
+    shape as _format_migration_report (INTERFACE.md convention: pin
+    content, not exact wording).
+    """
+    verb = "would rewrite" if dry_run else "rewrote"
+    lines = []
+    for key, label in (("majors", "major"), ("milestones", "milestone")):
+        for entry in report[key]:
+            lines.append(
+                f"{verb} {label} {entry['file']}: status {entry['old_status']!r} -> {entry['new_status']!r}"
+            )
+    if not lines:
+        return "nothing to do -- every major/milestone already uses the unified vocabulary"
     return "\n".join(lines)
 
 
@@ -1597,7 +1812,14 @@ def find_issue_in_roots(roots: List[Root], issue_id: str) -> Optional[Root]:
 # lens, unchanged).
 # --------------------------------------------------------------------------
 
-_WATCHED_SUBDIRS = ("majors", "milestones", "issues", "archive")
+_WATCHED_SUBDIRS = (
+    "majors", "milestones", "issues", "archive",
+    # PT-39 (architect's ruling § 4): additive -- the two new archive
+    # subdirs, else the SSE watcher never notices a milestone/major
+    # getting archived. _dir_glob/scan_data_dir already handle a
+    # multi-segment subdir string fine (Path / str splits on "/").
+    "archive/milestones", "archive/majors",
+)
 
 
 def scan_data_dir(data_dir: Path) -> Dict[str, int]:
@@ -2144,12 +2366,36 @@ def cmd_ls(args: argparse.Namespace) -> int:
     return 0
 
 
+_RECORD_FIELD_ORDER = {"issue": ISSUE_FIELD_ORDER, "milestone": MILESTONE_FIELD_ORDER, "major": MAJOR_FIELD_ORDER}
+
+
+def _record_schema_for_path(data_dir: Path, path: Path) -> str:
+    """"issue" | "milestone" | "major", by which subdir `path` resolved
+    under (PT-39 § 6) -- the classifier cmd_set uses to pick
+    ISSUE_FIELD_ORDER/MILESTONE_FIELD_ORDER/MAJOR_FIELD_ORDER and
+    STATUSES/RECORD_STATUSES. Checked via relative-path PARTS membership,
+    not just the immediate parent dir name: "milestones" is the immediate
+    parent for BOTH milestones/<id>.md and archive/milestones/<id>.md, so
+    parts-membership handles the live and archived cases identically with
+    no separate archive branch.
+    """
+    parts = Path(path).relative_to(Path(data_dir)).parts
+    if "milestones" in parts:
+        return "milestone"
+    if "majors" in parts:
+        return "major"
+    return "issue"
+
+
 def cmd_set(args: argparse.Namespace) -> int:
     data_dir = resolve_data_dir(args)
-    path = find_issue_path(data_dir, args.id)
+    path = find_record_path(data_dir, args.id)
     if path is None:
-        print(f"error: no such issue: {args.id}", file=sys.stderr)
+        print(f"error: no such record: {args.id}", file=sys.stderr)
         return 1
+    schema = _record_schema_for_path(data_dir, path)
+    field_order = _RECORD_FIELD_ORDER[schema]
+    valid_statuses = STATUSES if schema == "issue" else RECORD_STATUSES
     prefix = load_config(data_dir)["prefix"]
     patch: Dict[str, Any] = {}
     for kv in args.assignments:
@@ -2157,17 +2403,34 @@ def cmd_set(args: argparse.Namespace) -> int:
             print(f"error: expected key=value, got {kv!r}", file=sys.stderr)
             return 1
         key, _, value = kv.partition("=")
-        if key not in ISSUE_FIELD_ORDER:
-            print(f"error: unknown field {key!r}", file=sys.stderr)
+        if key not in field_order:
+            print(f"error: unknown field {key!r} for {schema} {args.id}", file=sys.stderr)
             return 1
         coerced = _coerce_cli_value(key, value)
         # PT-28 (Validate-phase fix): `milestone=0.6` must normalize the
         # same way `cairn ls --milestone 0.6` does -- _coerce_cli_value
         # already turned "" / "null" into None (clear the field), which
         # _normalize_milestone_input passes through unchanged (falsy is
-        # not "a bare value").
+        # not "a bare value"). Only reachable for the issue schema --
+        # "milestone" isn't a MILESTONE_FIELD_ORDER/MAJOR_FIELD_ORDER key,
+        # so the field_order check above already excludes it there.
         if key == "milestone" and coerced is not None:
             coerced = _normalize_milestone_input(coerced, prefix)
+        # PT-39 (architect's ruling § 6): status= is now validated inline
+        # against the resolved schema's vocabulary -- cmd_set previously
+        # did zero status-value validation, relying entirely on a later
+        # `cairn check` to catch a bad value. Checked before `patch` is
+        # written to (not just before apply_patch is called) so a
+        # multi-assignment invocation with an early valid key and a later
+        # invalid status writes NOTHING, same all-or-nothing contract as
+        # the unknown-field check above.
+        if key == "status" and coerced not in valid_statuses:
+            print(
+                f"error: invalid status {coerced!r} for {schema} {args.id} -- "
+                f"expected one of {sorted(valid_statuses)}",
+                file=sys.stderr,
+            )
+            return 1
         patch[key] = coerced
     try:
         apply_patch(path, patch)
@@ -2292,6 +2555,127 @@ def _git_mv_or_rename(src: Path, dest: Path) -> None:
     os.replace(str(src), str(dest))
 
 
+# --------------------------------------------------------------------------
+# PT-39 (architect's ruling § 5): milestone/major archiving. "Archive never
+# sweeps issues out from under a live milestone" is the load-bearing
+# invariant -- a milestone/major can only be archived when IT and every
+# issue/milestone under it is already done/cancelled. This is what lets
+# the board compute an honest n/m progress count from issues/ alone, with
+# zero archive reads (PT-40/43/44 ruling § 3).
+# --------------------------------------------------------------------------
+
+def _issues_for_milestone(data_dir: Path, milestone_id: str) -> List[Tuple[Path, Dict[str, Any]]]:
+    """Every LIVE issue (issues/ only) whose `milestone:` resolves to
+    `milestone_id`. Never reads archive/ -- an already-archived issue, by
+    construction, already passed this exact precondition at the moment it
+    was archived; re-checking it here would be redundant at best and,
+    for --milestone/--major's refuse-on-failure semantics, could wrongly
+    block a valid archive on an issue this operation was never going to
+    touch again.
+    """
+    data_dir = Path(data_dir)
+    out: List[Tuple[Path, Dict[str, Any]]] = []
+    for p in _dir_glob(data_dir / "issues"):
+        try:
+            fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
+        except CairnError:
+            continue
+        if str(fm.get("milestone")) == milestone_id:
+            out.append((p, fm))
+    return out
+
+
+def _milestone_precondition(data_dir: Path, milestone_fm: Dict[str, Any]) -> None:
+    """Raises CairnError (nothing written -- callers check this BEFORE
+    moving any file) unless `milestone_fm`'s own status AND every live
+    issue under it are done/cancelled. Silent (no return value) when
+    clear -- callers call this for its raise-or-not effect only.
+    """
+    milestone_id = milestone_fm.get("id")
+    status = milestone_fm.get("status")
+    if status not in ("done", "cancelled"):
+        raise CairnError(
+            f"milestone {milestone_id} is not done/cancelled (status: {status!r}) -- refusing to archive"
+        )
+    for _, ifm in _issues_for_milestone(data_dir, milestone_id):
+        if ifm.get("status") not in ("done", "cancelled"):
+            raise CairnError(
+                f"milestone {milestone_id} has an issue that is not done/cancelled "
+                f"({ifm.get('id')}: status {ifm.get('status')!r}) -- refusing to archive"
+            )
+
+
+def archive_milestone(data_dir: Path, milestone_id: str, dry_run: bool = False) -> Dict[str, Any]:
+    """Archive `milestone_id`: moves its done/cancelled issues (no date
+    filter) then the milestone file itself into archive/ / archive/
+    milestones/ respectively. Raises CairnError (nothing written) if the
+    milestone is unknown or fails `_milestone_precondition`. Returns
+    `{"milestone": id, "issues": [ids moved]}` -- the report is still
+    returned in `dry_run` mode, just without touching disk.
+    """
+    data_dir = Path(data_dir)
+    ms_path = data_dir / "milestones" / f"{milestone_id}.md"
+    if not ms_path.exists():
+        raise CairnError(f"unknown milestone {milestone_id!r} -- nothing archived")
+    fm, _body = parse_frontmatter(ms_path.read_text(encoding="utf-8"))
+    _milestone_precondition(data_dir, fm)
+    issues = _issues_for_milestone(data_dir, milestone_id)
+    report: Dict[str, Any] = {"milestone": milestone_id, "issues": [ifm.get("id") for _, ifm in issues]}
+    if not dry_run:
+        archive_dir = data_dir / "archive"
+        archive_ms_dir = archive_dir / "milestones"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        archive_ms_dir.mkdir(parents=True, exist_ok=True)
+        for p, _ in issues:
+            _git_mv_or_rename(p, archive_dir / p.name)
+        _git_mv_or_rename(ms_path, archive_ms_dir / ms_path.name)
+    return report
+
+
+def archive_major(data_dir: Path, major_id: str, dry_run: bool = False) -> Dict[str, Any]:
+    """Archive `major_id`: archives each of its milestones (per
+    archive_milestone above) then the major file itself into archive/
+    majors/. Two-phase, all-or-nothing: validates the major's OWN status
+    AND every one of its milestones' `_milestone_precondition` BEFORE
+    moving anything -- a partially-archived major (some milestones moved,
+    one refused) must never be a reachable state. Raises CairnError
+    (nothing written) if the major is unknown or any precondition fails.
+    Returns `{"major": id, "milestones": [archive_milestone's report, ...]}`.
+    """
+    data_dir = Path(data_dir)
+    major_path = data_dir / "majors" / f"{major_id}.md"
+    if not major_path.exists():
+        raise CairnError(f"unknown major {major_id!r} -- nothing archived")
+    mfm, _mbody = parse_frontmatter(major_path.read_text(encoding="utf-8"))
+    if mfm.get("status") not in ("done", "cancelled"):
+        raise CairnError(
+            f"major {major_id} is not done/cancelled (status: {mfm.get('status')!r}) -- refusing to archive"
+        )
+    milestones: List[Dict[str, Any]] = []
+    for p in _dir_glob(data_dir / "milestones"):
+        try:
+            fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
+        except CairnError:
+            continue
+        if str(fm.get("major")) == major_id:
+            milestones.append(fm)
+    # Phase 1: validate every milestone's own precondition first -- nothing
+    # written yet. A failure here must leave the tree byte-identical to
+    # how it started, even if an earlier milestone in this same major
+    # would otherwise have archived cleanly on its own.
+    for fm in milestones:
+        _milestone_precondition(data_dir, fm)
+    # Phase 2: every precondition passed -- now it's safe to move files.
+    report: Dict[str, Any] = {"major": major_id, "milestones": []}
+    for fm in milestones:
+        report["milestones"].append(archive_milestone(data_dir, fm.get("id"), dry_run=dry_run))
+    if not dry_run:
+        archive_major_dir = data_dir / "archive" / "majors"
+        archive_major_dir.mkdir(parents=True, exist_ok=True)
+        _git_mv_or_rename(major_path, archive_major_dir / major_path.name)
+    return report
+
+
 _DONE_BEFORE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -2316,12 +2700,67 @@ def _validate_done_before(value: str) -> str:
     return value
 
 
+def _print_archive_milestone_report(report: Dict[str, Any], dry_run: bool) -> None:
+    """Shared print body for a single archive_milestone report -- used both
+    directly (--milestone) and once per entry from archive_major's report
+    (--major), so the two selectors render identically for the same unit
+    of work (PT-39 standing dedupe convention).
+    """
+    verb = "would archive" if dry_run else "archived"
+    print(f"{verb} milestone {report['milestone']}")
+    for issue_id in sorted(report["issues"]):
+        print(f"  {verb} issue {issue_id}")
+
+
 def cmd_archive(args: argparse.Namespace) -> int:
-    _validate_done_before(args.done_before)
     data_dir = resolve_data_dir(args)
+
+    # PT-39 (architect's ruling § 5): --milestone/--major are new,
+    # mutually-exclusive-with-each-other-and-with---done-before selectors
+    # (enforced by argparse's mutually exclusive group at parse time --
+    # by the time we're here, exactly one of the three is set).
+    if args.milestone is not None:
+        report = archive_milestone(data_dir, args.milestone, dry_run=args.dry_run)
+        _print_archive_milestone_report(report, args.dry_run)
+        return 0
+    if args.major is not None:
+        report = archive_major(data_dir, args.major, dry_run=args.dry_run)
+        verb = "would archive" if args.dry_run else "archived"
+        print(f"{verb} major {report['major']}")
+        for ms_report in report["milestones"]:
+            _print_archive_milestone_report(ms_report, args.dry_run)
+        return 0
+
+    # Existing --done-before path.
+    _validate_done_before(args.done_before)
     archive_dir = Path(data_dir) / "archive"
-    archive_dir.mkdir(parents=True, exist_ok=True)
+    if not args.dry_run:
+        archive_dir.mkdir(parents=True, exist_ok=True)
+
+    # PT-39 (ruling § 5 table, NEW column): an issue whose milestone isn't
+    # done/cancelled is SKIPPED, not archived -- "archive never sweeps
+    # issues out from under a live milestone" applies here too, not just
+    # to the new selectors. Milestone statuses looked up once into a dict
+    # rather than re-parsed per issue.
+    #
+    # Architect's review finding (PT-39 Slice C, post-§3-items-2/3): reads
+    # BOTH milestones/ and archive/milestones/ -- once a milestone can
+    # live in archive/milestones/ (§4), an issue whose milestone was
+    # already archived would otherwise miss this dict entirely and print
+    # the FALSE "milestone X is not done/cancelled" skip reason for a
+    # milestone that's actually done (that's WHY it was archived).
+    milestone_status: Dict[str, Any] = {}
+    for sub in ("milestones", "archive/milestones"):
+        for p in _dir_glob(Path(data_dir) / sub):
+            try:
+                mfm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
+            except CairnError:
+                continue
+            milestone_status[str(mfm.get("id"))] = mfm.get("status")
+
+    verb = "would archive" if args.dry_run else "archived"
     moved = 0
+    skipped = 0
     for p in _dir_glob(Path(data_dir) / "issues"):
         try:
             fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
@@ -2332,11 +2771,19 @@ def cmd_archive(args: argparse.Namespace) -> int:
         updated = fm.get("updated")
         if not updated or str(updated) >= args.done_before:
             continue
-        dest = archive_dir / p.name
-        _git_mv_or_rename(p, dest)
+        milestone = fm.get("milestone")
+        if milestone is not None and milestone_status.get(str(milestone)) not in ("done", "cancelled"):
+            print(f"skipped {fm.get('id', p.stem)}: milestone {milestone} is not done/cancelled")
+            skipped += 1
+            continue
+        if not args.dry_run:
+            _git_mv_or_rename(p, archive_dir / p.name)
         moved += 1
-        print(f"archived {fm.get('id', p.stem)}")
-    print(f"{moved} issue(s) archived")
+        print(f"{verb} {fm.get('id', p.stem)}")
+    summary = f"{moved} issue(s) {verb}"
+    if skipped:
+        summary += f", {skipped} skipped (non-done/cancelled milestone)"
+    print(summary)
     return 0
 
 
@@ -2369,6 +2816,32 @@ def cmd_migrate_prefix_ids(args: argparse.Namespace) -> int:
     data_dir = resolve_data_dir(args)
     report = migrate_prefix_ids(data_dir, dry_run=args.dry_run)
     print(_format_migration_report(report, args.dry_run))
+    if args.dry_run:
+        return 0
+    errors = check_repo(data_dir)
+    if errors:
+        print(f"\nwarning: {len(errors)} lint error(s) remain after migration:", file=sys.stderr)
+        for e in errors:
+            print(f"  {e}", file=sys.stderr)
+    else:
+        print("\nok")
+    return 0
+
+
+def cmd_migrate_lifecycle_status(args: argparse.Namespace) -> int:
+    """`cairn migrate lifecycle-status [--dry-run]` (PT-39, architect's
+    ruling § 2).
+
+    Same posture as cmd_migrate_prefix_ids: does NOT gate on a clean
+    `cairn check` first -- that would deadlock the exact old-vocabulary
+    situation this command exists to resolve. Exit code is 0 for any
+    completed run (dry or real, migrated or "nothing to do") -- an
+    UNRELATED lint error surviving the migration is reported, not treated
+    as this command's own failure.
+    """
+    data_dir = resolve_data_dir(args)
+    report = migrate_lifecycle_status(data_dir, dry_run=args.dry_run)
+    print(_format_lifecycle_migration_report(report, args.dry_run))
     if args.dry_run:
         return 0
     errors = check_repo(data_dir)
@@ -2487,8 +2960,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_show.add_argument("id")
     p_show.set_defaults(func=cmd_show)
 
-    p_archive = sub.add_parser("archive", parents=[common], help="move done/cancelled issues to archive/")
-    p_archive.add_argument("--done-before", required=True, help="YYYY-MM-DD")
+    p_archive = sub.add_parser(
+        "archive", parents=[common],
+        help="move done/cancelled issues (or a done/cancelled milestone/major) to archive/",
+    )
+    # PT-39 (architect's ruling § 5): exactly one selector, required,
+    # mutually exclusive -- --milestone/--major are new, --done-before is
+    # the pre-existing (previously standalone-required) flag.
+    archive_selector = p_archive.add_mutually_exclusive_group(required=True)
+    archive_selector.add_argument("--done-before", default=None, help="YYYY-MM-DD")
+    archive_selector.add_argument(
+        "--milestone", default=None, help="archive a done/cancelled milestone and its done/cancelled issues",
+    )
+    archive_selector.add_argument(
+        "--major", default=None, help="archive a done/cancelled major and its milestones (each per --milestone)",
+    )
+    p_archive.add_argument(
+        "--dry-run", action="store_true", help="preview without moving anything (all three selectors)",
+    )
     p_archive.set_defaults(func=cmd_archive)
 
     p_check = sub.add_parser("check", parents=[common], help="lint the data dir")
@@ -2509,6 +2998,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="preview the plan without writing or renaming anything",
     )
     p_migrate_prefix_ids.set_defaults(func=cmd_migrate_prefix_ids)
+    p_migrate_lifecycle_status = migrate_sub.add_parser(
+        "lifecycle-status", parents=[common],
+        help="unify milestone/major status onto RECORD_STATUSES: completed->done, active->in-progress (PT-39)",
+    )
+    p_migrate_lifecycle_status.add_argument(
+        "--dry-run", action="store_true", help="preview the plan without writing anything",
+    )
+    p_migrate_lifecycle_status.set_defaults(func=cmd_migrate_lifecycle_status)
 
     p_snapshot = sub.add_parser(
         "snapshot", parents=[common],

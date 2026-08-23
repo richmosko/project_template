@@ -42,7 +42,7 @@ git commit -m "chore(<ID>): tracker → done"   # + standard trailer
 git push
 ```
 
-**If this merge closes the milestone** (this issue was its last open one — check `cairn ls --milestone <m>`), fold the milestone flip into the same commit: edit `process/cairn/milestones/<name>.md` → `status: completed` and `git add` it alongside the issue file. This is the only branch the flip can legally ride — after the merge there is no branch, and a direct push to `main` is forbidden.
+**If this merge closes the milestone** (this issue was its last open one — check `cairn ls --milestone <m>`), fold the milestone flip into the same commit: `scripts/cairn/cairn set <milestone-id> status=done` and `git add` the milestone file alongside the issue file. This is the only branch the flip can legally ride — after the merge there is no branch, and a direct push to `main` is forbidden.
 
 Then squash-merge (one PR = one logical commit on main; override only if the user has set a different convention):
 
@@ -58,7 +58,7 @@ git pull --ff-only
 git branch -d feature/<id>-<slug>
 ```
 
-Major-line completion isn't auto-tracked: when a line EOLs, the lead sets `majors/<id>.md` → `status: completed` on a doc-update branch.
+Major-line completion isn't auto-tracked: when a line EOLs, the lead runs `scripts/cairn/cairn set <major-id> status=done` on a doc-update branch.
 
 ### 4. Update process/STATE.md
 

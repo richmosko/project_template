@@ -46,7 +46,7 @@ def make_tree(testcase) -> Path:
     # `errors == []` assertion built on make_tree() for a reason unrelated
     # to what each test actually exercises.
     (data_dir / "majors" / "PT-V1.md").write_text(
-        "---\nid: PT-V1\nstatus: active\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n",
+        "---\nid: PT-V1\nstatus: in-progress\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n",
         encoding="utf-8",
     )
     return data_dir
@@ -79,7 +79,7 @@ def write_milestone_major_field_omitted(data_dir: Path, filename: str, milestone
 
 
 def write_major(data_dir: Path, filename: str, major_id: str) -> None:
-    text = f"---\nid: {major_id}\nstatus: active\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n"
+    text = f"---\nid: {major_id}\nstatus: in-progress\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n"
     (data_dir / "majors" / filename).write_text(text, encoding="utf-8")
 
 
@@ -123,7 +123,7 @@ def write_major_with_stray_title(data_dir: Path, filename: str, major_id: str) -
     """Mirror of write_milestone_with_stray_title for majors/ -- same gap,
     same fix, same lint pass."""
     text = (
-        f"---\nid: {major_id}\ntitle: Stray Title\nstatus: active\nowner: mosko\n"
+        f"---\nid: {major_id}\ntitle: Stray Title\nstatus: in-progress\nowner: mosko\n"
         "target_ship: null\nhealth: on-track\n---\n\nBody.\n"
     )
     (data_dir / "majors" / filename).write_text(text, encoding="utf-8")

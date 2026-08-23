@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Board: STATUS_LABELS fallback for unknown status in column headers |
-| Issue | PT-37 (cairn) |
+| Feature | Milestone/Major lifecycle: mark done, unify status vocabulary, archive mechanism |
+| Issue | PT-39 (cairn) |
 | Milestone | PT-0.7.0 |
-| Branch | `feature/pt-37-status-labels-fallback` |
+| Branch | `feature/pt-39-milestone-major-lifecycle` |
 | Started | 2026-08-23 |
-| Goal | Column headers degrade gracefully for statuses missing from STATUS_LABELS, mirroring the chip fallback |
-| Status | In Review — [PR #94](https://github.com/richmosko/project_template/pull/94) |
+| Goal | One status enum (done) for milestones/majors, one-command mark-done, archive with referential integrity |
+| Status | In Progress |
 
 ## Releases
 

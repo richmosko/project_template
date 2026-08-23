@@ -189,7 +189,11 @@ class BoardEndpointTests(ServerTestCase):
         self.assertFalse(milestone_a["ga"])
 
         major_v1 = next(m for m in payload["majors"] if m["id"] == "PT-V1")
-        self.assertEqual(major_v1["status"], "active")
+        # PT-39: RECORD_STATUSES unifies the vocabulary onto the issue
+        # cycle's `in-progress` (was `active`) -- this pins the checked-in
+        # fixture's real value (tests/fixtures/process/cairn/majors/PT-V1.md,
+        # migrated alongside this change), not new behaviour under test.
+        self.assertEqual(major_v1["status"], "in-progress")
         self.assertEqual(major_v1["health"], "on-track")
 
     def test_milestone_payload_carries_name_for_id_dot_name_rendering(self):

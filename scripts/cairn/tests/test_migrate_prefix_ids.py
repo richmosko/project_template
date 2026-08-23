@@ -56,7 +56,7 @@ def make_bare_repo(testcase, prefix: str = "PT") -> Path:
     (data_dir / "config.yml").write_text(f"prefix: {prefix}\nport: 8766\ndata_dir: process/cairn\n", encoding="utf-8")
 
     (data_dir / "majors" / "V1.md").write_text(
-        "---\nid: V1\nstatus: active\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n",
+        "---\nid: V1\nstatus: in-progress\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n",
         encoding="utf-8",
     )
     (data_dir / "milestones" / "1.0.md").write_text(
@@ -196,8 +196,14 @@ class MigrationCorrectnessTests(unittest.TestCase):
         # archived history could then never reach a clean post-migration
         # state. This test is the regression guard that gap was missing.
         data_dir = make_bare_repo(self)
+        # PT-39 (§3 item 2): an archived issue's milestone must resolve to
+        # a done/cancelled status, or check_repo's new hand-`git mv`-bypass
+        # guard flags it -- "A" (done) is used here rather than "1.0"
+        # (in-progress in this fixture) so this test keeps pinning ONLY
+        # the prefix-rewrite behaviour it's named for, not accidentally
+        # tripping an unrelated lint rule that postdates it.
         (data_dir / "archive" / "PT-9.md").write_text(
-            '---\nid: PT-9\ntitle: Long done\nstatus: done\nmilestone: "1.0"\nparent: null\n'
+            "---\nid: PT-9\ntitle: Long done\nstatus: done\nmilestone: A\nparent: null\n"
             "assignee: null\nlabels: []\npriority: null\npr: null\n"
             "created: 2026-08-01\nupdated: 2026-08-01\n---\n\nBody.\n",
             encoding="utf-8",
@@ -205,7 +211,7 @@ class MigrationCorrectnessTests(unittest.TestCase):
         result = run_cairn(["migrate", "prefix-ids", "--data-dir", str(data_dir)])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         fm, _ = cairn.parse_frontmatter((data_dir / "archive" / "PT-9.md").read_text(encoding="utf-8"))
-        self.assertEqual(fm["milestone"], "PT-1.0")
+        self.assertEqual(fm["milestone"], "PT-A")
         self.assertEqual(cairn.check_repo(data_dir), [])
 
     def test_archived_issue_with_null_milestone_survives_untouched(self):
@@ -316,7 +322,7 @@ class InterruptedStateRecoveryTests(unittest.TestCase):
 
     def _write_major(self, data_dir, filename, major_id):
         (data_dir / "majors" / filename).write_text(
-            f"---\nid: {major_id}\nstatus: active\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n",
+            f"---\nid: {major_id}\nstatus: in-progress\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n",
             encoding="utf-8",
         )
 
@@ -489,7 +495,7 @@ class ExitCodeTests(unittest.TestCase):
         (data_dir / "majors").mkdir(parents=True)
         (data_dir / "milestones").mkdir(parents=True)
         (data_dir / "majors" / "V1.md").write_text(
-            "---\nid: V1\nstatus: active\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n",
+            "---\nid: V1\nstatus: in-progress\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n",
             encoding="utf-8",
         )
         result = run_cairn(["migrate", "prefix-ids", "--data-dir", str(data_dir)])
