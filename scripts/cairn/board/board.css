@@ -148,6 +148,31 @@ header.app-header {
   border-color: var(--accent);
 }
 
+/* PT-40 (ruling § 6): status dot inside a major tab button -- color via
+   data-status, same RECORD_STATUS_LABELS vocabulary the card uses. */
+.major-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 4px;
+  background: #97a0af; /* default: unknown/no-record */
+}
+.major-status-dot[data-status="planned"] { background: #97a0af; }
+.major-status-dot[data-status="in-progress"] { background: var(--accent); }
+.major-status-dot[data-status="paused"] { background: #ff991f; }
+.major-status-dot[data-status="done"] { background: #00875a; }
+.major-status-dot[data-status="cancelled"] { background: #bf2600; }
+
+/* PT-40: the sibling "open card" button after each major tab -- smaller
+   and icon-only, distinct from the filter-tab styling it shares
+   `.majors-tabs button`'s base rule with. */
+.major-tab-open {
+  padding: 4px 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 .view-tabs {
   display: flex;
   gap: 4px;
@@ -383,6 +408,16 @@ main > .swimlane .column {
 
 .swimlane-count {
   font-weight: 400;
+}
+
+/* PT-40 (ruling § 2's own wording: "Clicking the label opens the
+   milestone card") -- minimal affordance on the existing label, not a
+   new element. */
+.swimlane-label-clickable {
+  cursor: pointer;
+}
+.swimlane-label-clickable:hover {
+  text-decoration: underline;
 }
 
 /* PT-29 (architect's ruling § 1, judgment call): the collapsed-lane
@@ -751,6 +786,21 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
 
 .pr-link, .file-link, .parent-link {
   font-size: 12px;
+}
+
+/* PT-40: the record drawer's (milestone/major card) progress line and
+   read-only note -- same font sizing as the issue drawer's file/PR/parent
+   lines above, distinct classes since they're record-card-only. */
+.drawer-progress {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 4px 0;
+}
+.record-readonly-note {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-style: italic;
+  margin-top: 8px;
 }
 
 .children-list {

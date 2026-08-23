@@ -1723,6 +1723,15 @@ def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any
 
     Board issues carry no "comments" key (spec: "without comment bodies").
 
+    PT-40 (joint PT-40/43/44 ruling § 1): majors/milestones ALSO carry a
+    `body` key -- the markdown after the closing frontmatter fence, so the
+    client can render a viewable card (name, status, DoD text, ...) with
+    NO second fetch/endpoint (`GET /api/milestone/<id>` was considered and
+    rejected -- a second read path for data already in this payload).
+    Issues are deliberately UNCHANGED: the issue drawer already has its
+    own separate body-carrying fetch (`build_issue_payload`/`parse_issue`),
+    and this ruling is milestone/major-only.
+
     PT-42 (architect's ruling § 0/1): `archived=False` (the default) is
     THE IDENTICAL code path that existed before this parameter -- a
     synthetic 1400-issue archive/ tree measured a 28x cost parsing it
@@ -1758,8 +1767,25 @@ def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any
         fm["archived"] = is_archived_path(data_dir, p)
         return fm
 
-    majors = [_stamped(p) for p in major_paths]
-    milestones = [_stamped(p) for p in milestone_paths]
+    def _stamped_with_body(p: Path) -> Dict[str, Any]:
+        # PT-40 § 1: majors/milestones only -- reads via parse_frontmatter
+        # (not _stamped's _read_frontmatter_dict) so the body half of its
+        # (frontmatter, body) return isn't discarded. `body.strip() == ""`
+        # for a record with no text after the fence is a real, present
+        # empty string, never a missing key (PT-3 no-conditional-shape
+        # precedent, same posture `archived` already gets on every record).
+        fm, body = parse_frontmatter(p.read_text(encoding="utf-8"))
+        fm = dict(fm)
+        fm["archived"] = is_archived_path(data_dir, p)
+        fm["body"] = body
+        # PT-40 § 5: the card's file-path line, same contract as an
+        # issue's own "path" (PT-10) -- the record's real on-disk path,
+        # correct for an archived major/milestone too.
+        fm["path"] = str(p)
+        return fm
+
+    majors = [_stamped_with_body(p) for p in major_paths]
+    milestones = [_stamped_with_body(p) for p in milestone_paths]
 
     # PT-25: no server-side child count -- the board's n/m badge is
     # computed client-side (board-logic.js's childProgress), mirroring

@@ -520,6 +520,27 @@ var CairnLogic = (function () {
     return Object.prototype.hasOwnProperty.call(STATUS_LABELS, status) ? STATUS_LABELS[status] : status;
   }
 
+  // PT-40 (joint PT-40/43/44 ruling § 2): a SEPARATE map from
+  // STATUS_LABELS, deliberately not folded in -- Object.keys(STATUS_LABELS)
+  // is the issue drawer's status <select> option list (board.js), so
+  // adding record-only statuses (planned/paused) there would offer
+  // invalid issue statuses. Covers RECORD_STATUSES (milestone/major
+  // lifecycle), not STATUSES (issue lifecycle) -- two vocabularies, two
+  // maps, never one aliased under two names.
+  var RECORD_STATUS_LABELS = {
+    "planned": "Planned",
+    "in-progress": "In Progress",
+    "paused": "Paused",
+    "done": "Done",
+    "cancelled": "Cancelled",
+  };
+
+  // PT-40: mirrors statusLabel's own-property guard exactly (PT-37 F1) --
+  // same prototype-pollution hazard, same fix, one vocabulary over.
+  function recordStatusLabel(status) {
+    return Object.prototype.hasOwnProperty.call(RECORD_STATUS_LABELS, status) ? RECORD_STATUS_LABELS[status] : status;
+  }
+
   // PT-29 (architect's ruling § 2): the SINGLE read path for
   // state.expandedLanes. Absence of `stateKey` in `expandedMap` means
   // collapsed -- there is no second encoding of "closed" (see
@@ -999,6 +1020,8 @@ var CairnLogic = (function () {
     openBlockers: openBlockers,
     BOARD_COLUMNS: BOARD_COLUMNS,
     STATUS_LABELS: STATUS_LABELS,
+    RECORD_STATUS_LABELS: RECORD_STATUS_LABELS,
+    recordStatusLabel: recordStatusLabel,
     statusLabel: statusLabel,
     laneExpanded: laneExpanded,
     nextExpandedLanes: nextExpandedLanes,
