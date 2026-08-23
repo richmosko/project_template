@@ -87,11 +87,10 @@ Return exactly:
 a real finding to fit the format is worse than the bloat this prevents.
 
 **Multi-item jobs (10+ writes, surveys, batches) are report-first:** send the
-status/survey table BEFORE applying anything, as its own message — the last deliverable
-of a long turn is the one that dies. Lead applied items with the caller's idempotency
-marker so a re-dispatched run never double-applies. Never end a turn mid-run without a
-one-line position report; a failed write is reported with its verbatim error
-immediately, never silently retried.
+status/survey table BEFORE applying anything, as its own message. Lead applied items
+with the caller's idempotency marker so a re-dispatched run never double-applies. Never
+end a turn mid-run without a one-line position report; report a failed write with its
+verbatim error immediately, never silently retried.
 
 ⚠ **`temp/` is a hand-off buffer, not storage.** It is gitignored: an overflow file
 has no watcher and does not survive cleanup. **The team-lead owns placing anything
