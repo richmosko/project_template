@@ -162,16 +162,22 @@ test("C12: a delta > WHEEL_PULL_BURST_MAX mid-gesture does NOT block -- gates ar
 });
 
 test("C13: retreat -- a downward delta decrements; decrementing to <= 0 ends the gesture (idle, distance 0)", () => {
+  // Opening magnitude deliberately <= WHEEL_PULL_BURST_MAX (30, not 50) --
+  // an opening event's distance is gated by the burst max (B7/B9/D21 pin it
+  // at 40, inclusive) with no first-event exception. A 50px opener would be
+  // refused at open (blocked, distance 0), never reaching "pulling" at all,
+  // which would make this fixture test nothing about retreat. Caught by
+  // implementation-lead cross-checking this case against its own siblings.
   var initial = CairnLogic.wheelPullInitialState();
-  var opened = CairnLogic.wheelPullReduce(initial, ev({ deltaY: -50, timeStamp: 1000 }));
+  var opened = CairnLogic.wheelPullReduce(initial, ev({ deltaY: -30, timeStamp: 1000 }));
   assert.equal(opened.status, "pulling");
-  assert.equal(opened.distance, 50);
+  assert.equal(opened.distance, 30);
 
-  var partialRetreat = CairnLogic.wheelPullReduce(opened, ev({ deltaY: 20, timeStamp: 1016 }));
+  var partialRetreat = CairnLogic.wheelPullReduce(opened, ev({ deltaY: 10, timeStamp: 1016 }));
   assert.equal(partialRetreat.status, "pulling", "a retreat that doesn't cross zero stays pulling -- the no-latch rule");
-  assert.equal(partialRetreat.distance, 30);
+  assert.equal(partialRetreat.distance, 20);
 
-  var fullRetreat = CairnLogic.wheelPullReduce(partialRetreat, ev({ deltaY: 40, timeStamp: 1032 }));
+  var fullRetreat = CairnLogic.wheelPullReduce(partialRetreat, ev({ deltaY: 25, timeStamp: 1032 }));
   assert.equal(fullRetreat.status, "idle", "a retreat past zero must end the gesture, not just zero the distance");
   assert.equal(fullRetreat.distance, 0);
 });
