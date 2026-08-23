@@ -17,12 +17,12 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Board: retire the top progress strip — milestone progress belongs on the milestone cards |
-| Issue | PT-44 (cairn) |
+| Feature | Major naming semantics — Option A: keep PT-V1, define it + ga-lint riders |
+| Issue | PT-41 (cairn) |
 | Milestone | PT-0.7.0 |
-| Branch | `feature/pt-44-retire-progress-strip` |
+| Branch | `feature/pt-41-major-naming-option-a` |
 | Started | 2026-08-23 |
-| Goal | Strip removed, no info loss: lane headers carry progress + release state; done milestones show ✓, never 0/0 |
+| Goal | Docs define PT-V<N> = "line culminating in vN.0.0 GA"; lint ≤1 ga:true per major with target_tag v<N>.0.0 |
 | Status | In Progress |
 
 ## Releases

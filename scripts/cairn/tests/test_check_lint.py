@@ -53,8 +53,17 @@ def make_tree(testcase) -> Path:
 
 
 def write_milestone(data_dir: Path, filename: str, **overrides) -> None:
+    # PT-41: default flipped false->true->false (2026-08-23) -- this
+    # helper's ga:true default collided with make_tree()'s own base
+    # milestone (PT-1.0.md, also ga:true under the same major PT-V1) the
+    # moment check_repo gained the "at most one ga:true per major" rule.
+    # None of this file's id-shape/kind tests are about GA at all; they
+    # just inherited a true default via write_milestone(..., major="PT-V1").
+    # Callers that DO need ga:true already pass it explicitly as an
+    # override (the function's own **overrides pattern) -- same collateral
+    # class as every other "unmigrated fixture default" this session.
     fields = dict(id='"PT-1.0"', name="MVP", kind="product", major="PT-V1", status="planned",
-                  target_tag="v1.0.0", ga="true")
+                  target_tag="v1.0.0", ga="false")
     fields.update(overrides)
     text = (
         "---\n"

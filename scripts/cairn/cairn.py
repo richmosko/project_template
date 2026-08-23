@@ -99,6 +99,33 @@ def _major_id_re(prefix: str) -> "re.Pattern[str]":
     return re.compile(rf"^{re.escape(prefix)}-V\d+$")
 
 
+# PT-41 (architect's Option A ruling, review finding #2): "V<n> means the
+# line that culminates in v<n>.0.0". Extracts N only AFTER `major_re`
+# (the caller's already-built, PREFIX-SCOPED `_major_id_re(prefix)`
+# pattern -- PT-28's rule, same as the other three id-shape regexes)
+# confirms `major_id` matches THIS repo's configured shape -- a
+# prefix-agnostic literal regex could match a foreign-prefix or
+# otherwise-malformed id (e.g. a stray "XX-V1" in a multi-root payload)
+# and derive a meaningless N from it. Handles multi-digit N correctly
+# (`PT-V10` -> `v10.0.0`, not a single-digit assumption).
+_MAJOR_N_RE = re.compile(r"-V(\d+)$")
+
+
+def _ga_target_tag_for_major(major_id: Any, major_re: Optional["re.Pattern[str]"]) -> Optional[str]:
+    """The expected `v<N>.0.0` GA target_tag for `major_id`, or `None`
+    when `major_re` is unavailable (the prefix itself didn't validate) or
+    `major_id` doesn't match it -- a malformed/foreign-prefix major id is
+    a DIFFERENT, already-reported lint error (the id-shape check above);
+    this rider has nothing safe to check a GA milestone's target_tag
+    against in that case, so it silently skips rather than raising a
+    second, confusing error on the same root cause.
+    """
+    if major_re is None or not major_re.match(str(major_id)):
+        return None
+    m = _MAJOR_N_RE.search(str(major_id))
+    return f"v{m.group(1)}.0.0" if m else None
+
+
 def _definition_milestone_id_re(prefix: str) -> "re.Pattern[str]":
     return re.compile(rf"^{re.escape(prefix)}-(?!M|V)[A-Z][a-z]?$")
 
@@ -1114,6 +1141,13 @@ def check_repo(data_dir: Path) -> List[str]:
     # from this same scan) -- item 2 below is the one check that needs a
     # STATUS, not just a yes/no "does this id exist".
     milestone_status_by_id: Dict[str, Any] = {p.stem: fm.get("status") for p, fm in parsed_milestones}
+    # PT-41 (architect's review finding #3): archived ga:true milestones
+    # count toward their major's "at most one GA" cap too -- populated in
+    # THIS SAME archive/milestones scan (not a second one -- the standing
+    # duplicated-directory-read rule) alongside the two things PT-39/PT-46
+    # already collect here. The live half is added to this dict further
+    # down, once parsed_milestones' own loop runs.
+    ga_milestones_by_major: Dict[str, List[str]] = {}
     for p in _dir_glob(data_dir / "archive" / "milestones"):
         try:
             fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
@@ -1125,6 +1159,10 @@ def check_repo(data_dir: Path) -> List[str]:
         # specific done/cancelled requirement as the majors loop above --
         # the hand-`git mv` bypass, milestone half.
         _check_archived_record_status(errors, p.stem, fm.get("status"))
+        if fm.get("ga") is True:
+            major_id = str(fm.get("major"))
+            if major_id in known_majors:
+                ga_milestones_by_major.setdefault(major_id, []).append(p.stem)
 
     for p, fm in parsed_milestones:
         major = fm.get("major")
@@ -1176,6 +1214,66 @@ def check_repo(data_dir: Path) -> List[str]:
                     f"{stem}: id shape {stem!r} is a definition milestone but kind is 'product' -- "
                     f"development milestones use a version id ({prefix}-1.0) or {prefix}-M<n>"
                 )
+
+    # PT-41 (architect's Option A ruling, refined by their PT-41 review):
+    # binds "V<n> means the line that culminates in v<n>.0.0" to the DATA
+    # rather than leaving it as prose nobody enforces. Two riders, both
+    # scoped PER MAJOR (two different major lines each designating their
+    # own GA milestone is the normal concurrent-majors shape, not a
+    # conflict):
+    #
+    #   1. At most one ga: true milestone per major -- counting an
+    #      ARCHIVED ga:true milestone too (review finding #3): a shipped
+    #      GA milestone that got archived is still that major's GA;
+    #      ignoring it would let a second one be silently designated.
+    #      Scoped only to milestones whose major ref actually RESOLVES
+    #      (a dangling ref already produces "unknown major" elsewhere --
+    #      not counted here, one broken field, one error).
+    #   2. A LIVE ga: true milestone's target_tag must be EXACTLY
+    #      v<N>.0.0 for its own major's N (a v1.1.0/v1.0.1/null
+    #      target_tag all fail this). Also skipped for a dangling major
+    #      ref (review finding #1) -- and N is derived only once
+    #      major_re (this repo's configured-prefix shape, review finding
+    #      #2) confirms the major id actually matches it, never from a
+    #      prefix-agnostic literal. Not re-run on an ALREADY-ARCHIVED
+    #      milestone -- same "don't re-validate archived files" posture
+    #      PT-39 §3 item 1 already established (it passed this check at
+    #      the moment it was archived; archive_milestone moves files
+    #      verbatim, never rewriting frontmatter).
+    #
+    # ZERO ga: true milestones for a major is explicitly NOT an error --
+    # a young major legitimately hasn't designated its GA milestone yet
+    # (this repo's own PT-V1, today). The ARCHIVED half of
+    # ga_milestones_by_major was already collected above, in the same
+    # archive/milestones scan PT-39/PT-46 already read this directory
+    # for -- this loop adds the LIVE half.
+    for p, fm in parsed_milestones:
+        if fm.get("ga") is True:
+            major_id = str(fm.get("major"))
+            if major_id in known_majors:
+                ga_milestones_by_major.setdefault(major_id, []).append(p.stem)
+    for major_id, ga_stems in ga_milestones_by_major.items():
+        if len(ga_stems) > 1:
+            sibling_list = ", ".join(sorted(ga_stems))
+            for stem in ga_stems:
+                errors.append(
+                    f"{stem}: more than one ga: true milestone under major {major_id!r} "
+                    f"({sibling_list}) -- exactly one GA milestone per major"
+                )
+    for p, fm in parsed_milestones:
+        if fm.get("ga") is not True:
+            continue
+        major_id = str(fm.get("major"))
+        if major_id not in known_majors:
+            continue  # dangling major ref -- already reported above, not this rider's job
+        expected_tag = _ga_target_tag_for_major(major_id, major_re)
+        if expected_tag is None:
+            continue  # major id doesn't match this repo's configured shape -- already reported elsewhere
+        if fm.get("target_tag") != expected_tag:
+            errors.append(
+                f"{p.stem}: ga: true milestone's target_tag {fm.get('target_tag')!r} must be "
+                f"{expected_tag!r} for major {major_id!r} (V<N> means the line that culminates in v<N>.0.0)"
+            )
 
     known_ids = set()
     parsed_issues: List[Tuple[Path, Dict[str, Any]]] = []

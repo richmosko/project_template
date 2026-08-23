@@ -565,7 +565,7 @@ Sections that already have comments show a `💬 N` count badge next to the head
 
 | Our concept | cairn artifact | Version digit |
 |---|---|---|
-| **Major version line** (`V1`, `V2`, …) | `majors/<id>.md` (one per major; concurrent; owner, health, target ship; `status: done` when the line is EOL'd) | **MAJOR** (`x`) |
+| **Major version line** (`V1`, `V2`, …) | `majors/<id>.md` — one per major; concurrent; owner, health, target ship; `status: done` when the line is EOL'd. **`V<N>` names the line by the version it culminates in**, so a `V1` line shipping `0.x` is pre-GA, not mislabelled ([TRACKER.md → Major file](TRACKER.md#major-file)). | **MAJOR** (`x`) |
 | **Milestone** | `milestones/<id>.md` (development milestones **named by target version**, `kind: product`, carry `target_tag` + `ga`; definition milestones use letter ids, `kind: process`) | **MINOR** (`y`), or **PATCH** for a patch milestone — the digit its `target_tag` moves |
 | **Feature** | `issues/<ID>.md` (one issue = one PR = one I→V loop) | — (identity via issue ID + release notes) |
 | **Hotfix** | `issues/<ID>.md` on the milestone it patches, or a **patch milestone** grouping a batch of them (own `target_tag`) | **PATCH** (`z`) |
@@ -588,7 +588,7 @@ Releases follow **strict [semver](https://semver.org)** — `MAJOR.MINOR.PATCH` 
 
 **One milestone per release (Model A).** The run-up to any release — `N.0.0` above all — is a *single* milestone, internally subdivided via the [subdivision mechanism](#definition-milestones-vs-development-milestones) when it's large. Pre-release checkpoints inside it are cut as semver pre-release tags (`N.0.0-alpha.1`, `-beta.1`, `-rc.1`), which sort *before* `N.0.0`. This keeps **milestone ↔ `target_tag` 1:1**: no two milestones claim one tag, and a single release's run-up is never split across milestones. (A post-release patch milestone is a separate release with its own tag — not a split.)
 
-**GA is designated at planning time, never inferred.** During Plan (`B`), the `architect` flags exactly one milestone per major line as **GA** — `ga: true` in its milestone file, the one that tags `N.0.0` — and records target versions in each file's `target_tag`. Don't assume "first product milestone = `N.0.0`."
+**GA is designated at planning time, never inferred.** During Plan (`B`), the `architect` flags **at most one** milestone per major line as **GA** — `ga: true` in its milestone file, the one that tags `N.0.0` — and records target versions in each file's `target_tag`. Designation may be **deferred**: a major with no GA milestone yet is legal and lints clean (`cairn check` enforces *at most* one, never *at least* one), because committing to which release is `N.0.0` before the shape of the product is known is a guess, not a plan. Don't assume "first product milestone = `N.0.0`."
 
 **The `0.y.z` → `1.0.0` transition.** The founding Initiative starts at MAJOR `0`, semver's reserved "no compatibility promise" zone, so its pre-GA milestones get **real minor numbers** — `0.1.0`, `0.2.0`, `0.3.0`. Cutting `1.0.0` is the human act of *declaring the line stable*; you create a milestone literally named `1.0` and the MINOR counter resets there. Later majors (`V2`+) have no reserved zone, so their pre-GA run-up uses **pre-release identifiers** (`2.0.0-rc.1`) or stays untagged while `V1.x` keeps shipping to users.
 
