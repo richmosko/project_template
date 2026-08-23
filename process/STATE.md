@@ -17,12 +17,12 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | setup-tracker scaffolds unprefixed ids — fresh repo fails cairn check |
-| Issue | PT-45 (cairn) |
+| Feature | Board: implement board.columns config — per-project column customization |
+| Issue | PT-38 (cairn) |
 | Milestone | PT-0.7.0 |
-| Branch | `feature/pt-45-setup-tracker-prefixed-ids` |
+| Branch | `feature/pt-38-board-columns-config` |
 | Started | 2026-08-23 |
-| Goal | /setup-tracker emits <PREFIX>-V1/-A/-B so a fresh bootstrap lints clean on day 0 |
+| Goal | config.yml board.columns (+ swimlane) actually consumed, server→client; default byte-identical |
 | Status | In Progress |
 
 ## Releases

@@ -563,13 +563,34 @@ var CairnLogic = (function () {
     return expanded ? "▼" : "▶";
   }
 
+  // PT-38 (architect's ruling § 4): payload `columns` -> the active BASE
+  // list (before the Show-cancelled append boardColumns handles below).
+  // REFERENCE IDENTITY carries the byte-identical guarantee, same PT-35
+  // precedent boardColumns itself already relies on (AC3): returns
+  // BOARD_COLUMNS ITSELF when `configured` is absent/null OR element-wise
+  // equal to it -- an older server's payload (no `columns` key at all,
+  // forward/backward compat) and a payload that carries the default
+  // explicitly must BOTH hit the identity path, not just the absent-key
+  // case. Only a genuinely different configured list gets a fresh array.
+  // Does NOT re-validate `configured` -- the server is the one validator
+  // (ruling § 4: "one validator, not two that must agree"); this function
+  // renders whatever it's given, with statusLabel's fallback (PT-37)
+  // covering an unlabeled slug at render time.
+  function resolveColumns(configured) {
+    if (configured == null) return BOARD_COLUMNS;
+    if (configured.length === BOARD_COLUMNS.length && configured.every(function (v, i) { return v === BOARD_COLUMNS[i]; })) {
+      return BOARD_COLUMNS;
+    }
+    return configured;
+  }
+
   // PT-35 (architect's ruling § 1): the pure derivation of the ACTIVE
   // column set from the Show-cancelled checkbox. BOARD_COLUMNS itself stays
   // exactly as it is -- never mutated, never a second exported constant
   // (BOARD_COLUMNS_WITH_CANCELLED was considered and rejected: two exported
   // lists is the drift class PT-22/PT-29 exist to close).
   //
-  // showCancelled:false returns BOARD_COLUMNS ITSELF -- the SAME array
+  // showCancelled:false returns `columns` ITSELF -- the SAME array
   // object, not a copy (§ 3's structural enforcement of AC3 "Show-cancelled
   // off = zero behavioral or DOM change": the off path threads the
   // identical array through the identical loops the pre-PT-35 code did,
@@ -584,8 +605,20 @@ var CairnLogic = (function () {
   // per call, paid only when the flag is on (JC4). Cancelled is appended
   // LAST, mirroring cairn.py:1277's `list(DEFAULT_COLUMNS) + ["cancelled"]`
   // rather than inventing a second ordering convention in this language.
-  function boardColumns(showCancelled) {
-    return showCancelled ? BOARD_COLUMNS.concat(["cancelled"]) : BOARD_COLUMNS;
+  //
+  // PT-38 (architect's ruling § 4): `columns` is now a REQUIRED first
+  // argument, no default -- was `boardColumns(showCancelled)`, reading the
+  // module-level BOARD_COLUMNS directly; now `boardColumns(columns,
+  // showCancelled)`. A missing/non-array argument THROWS a TypeError
+  // (JC1, same "loud-and-total over quiet-and-wrong" posture PT-35
+  // established for laneSummary's own `columns` argument -- an undercount
+  // is exactly the defect PT-31 shipped a fix for). Callers pass
+  // `resolveColumns(...)` above, never a bare `state.board.columns`.
+  function boardColumns(columns, showCancelled) {
+    if (!Array.isArray(columns)) {
+      throw new TypeError("boardColumns: `columns` is required — pass resolveColumns(...)");
+    }
+    return showCancelled ? columns.concat(["cancelled"]) : columns;
   }
 
   // PT-29 (architect's ruling § 1/4), signature changed by PT-35 (ruling
@@ -961,6 +994,7 @@ var CairnLogic = (function () {
     nextExpandedLanes: nextExpandedLanes,
     disclosureToken: disclosureToken,
     boardColumns: boardColumns,
+    resolveColumns: resolveColumns,
     laneSummary: laneSummary,
     VIEW_STATE_VERSION: VIEW_STATE_VERSION,
     VIEW_STATE_MAX_LANES: VIEW_STATE_MAX_LANES,

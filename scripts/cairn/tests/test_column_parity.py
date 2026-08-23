@@ -98,15 +98,31 @@ def extract_board_columns(source):
 def extract_cancelled_append(source):
     """The array literal appended inside `boardColumns`'s `.concat([...])`.
 
-    Anchored on `BOARD_COLUMNS.concat(...)` specifically -- the append RULE
-    PT-35 introduced and PT-36 exists to guard, not just the base list (a
-    guard on the base list alone would leave the actual duplicated rule free
-    to drift, per the ruling's § 3 item 2).
+    Anchored on `columns.concat(...)` -- the append RULE PT-35 introduced
+    and PT-36 exists to guard, not just the base list (a guard on the base
+    list alone would leave the actual duplicated rule free to drift, per
+    the ruling's § 3 item 2).
+
+    PT-38 (architect's ruling § 4) changed `boardColumns`'s signature from
+    `boardColumns(showCancelled)` to `boardColumns(columns, showCancelled)`
+    -- the ruling's own pseudocode shows the body reading `columns.concat(
+    ["cancelled"])`, the now-required PARAMETER, not the closed-over
+    `BOARD_COLUMNS` module constant (which the pre-PT-38 single-argument
+    form read directly, since it had no parameter to prefer). This
+    extractor's anchor moves with it -- `BOARD_COLUMNS.concat(` would
+    correctly ExtractionError once implementation-lead's PT-38 diff lands
+    (the literal text this anchor used to match is gone), which is the
+    fail-loudly contract working as designed, not a bug to route around.
+    Updated here PROACTIVELY (before the implementation diff, alongside
+    every other red PT-38 test) so this guard doesn't spuriously break the
+    moment PT-38 lands -- it goes from "anchors on old code" (currently
+    RED, since board-logic.js still reads `BOARD_COLUMNS.concat` today) to
+    "anchors on the code PT-38 is about to write" (GREEN once it does).
     """
     return _extract_json_array(
         source,
-        r"BOARD_COLUMNS\.concat\((\[[^\]]*\])\)",
-        "the `BOARD_COLUMNS.concat([...])` append literal inside boardColumns",
+        r"columns\.concat\((\[[^\]]*\])\)",
+        "the `columns.concat([...])` append literal inside boardColumns",
     )
 
 
@@ -136,6 +152,31 @@ class ColumnParityTests(unittest.TestCase):
             "-- the APPEND RULE is what PT-35 actually duplicated, not just "
             "the base list",
         )
+
+
+def extract_status_labels_keys(source):
+    """The set of keys in board-logic.js's `var STATUS_LABELS = {...}` object
+    literal.
+
+    PT-38 (architect's ruling § 5 item 2): once columns are configurable,
+    an admin can put ANY STATUSES-minus-cancelled value into `board.columns`
+    -- PT-37's `statusLabel` fallback (raw status string) covers the
+    RENDER-time case, but the underlying contract this guard pins is
+    stronger: `STATUS_LABELS` should carry a real, human-legible label for
+    every status `cairn.STATUS_ORDER` (the Python-side single source of
+    truth, PT-36) knows about, not just silently degrade to the slug for
+    anything beyond the original five hardcoded columns. Cross-language,
+    so it lives in the Python suite (same reasoning as PT-36's own home),
+    read as source text with the same fail-loudly extractor contract.
+    """
+    match = re.search(r"var\s+STATUS_LABELS\s*=\s*\{([^}]*)\}", source)
+    if not match:
+        raise ExtractionError(
+            "could not find the `var STATUS_LABELS = {...}` declaration in the given "
+            "source -- if this declaration was renamed or restructured, this guard "
+            "needs to be updated, not silenced."
+        )
+    return set(re.findall(r'"([a-z-]+)"\s*:', match.group(1)))
 
 
 class ExtractorSelfTests(unittest.TestCase):
@@ -174,6 +215,76 @@ class ExtractorSelfTests(unittest.TestCase):
         with self.assertRaises(ExtractionError) as ctx:
             extract_cancelled_append(fake_source)
         self.assertIn("concat", str(ctx.exception))
+
+    def test_4c_status_labels_extractor_negative_control(self):
+        fake_source = 'var STATUS_LABELS = {"backlog": "Backlog"};'
+        self.assertEqual(extract_status_labels_keys(fake_source), {"backlog"})
+        self.assertNotEqual(
+            extract_status_labels_keys(fake_source),
+            set(cairn.STATUS_ORDER),
+            "sanity: this fixture is deliberately incomplete and must be caught as such",
+        )
+
+    def test_4d_status_labels_missing_declaration_raises_loudly(self):
+        fake_source = "function noop() {}\n"
+        with self.assertRaises(ExtractionError) as ctx:
+            extract_status_labels_keys(fake_source)
+        self.assertIn("STATUS_LABELS", str(ctx.exception))
+
+
+class StatusLabelsCoverageTests(unittest.TestCase):
+    """Red 7 (§5 item 2): board-logic.js's STATUS_LABELS key set must be a
+    SUPERSET of cairn.STATUS_ORDER -- every status the Python side knows
+    about (the only vocabulary `board.columns` can select from, PT-38 § 1)
+    has a real label, not a fallback-to-slug default."""
+
+    def test_7_status_labels_keys_cover_every_status_order_value(self):
+        source = BOARD_LOGIC_PATH.read_text(encoding="utf-8")
+        js_keys = extract_status_labels_keys(source)
+        missing = set(cairn.STATUS_ORDER) - js_keys
+        self.assertEqual(
+            missing, set(),
+            f"STATUS_LABELS is missing a real label for: {sorted(missing)} -- every "
+            f"status in cairn.STATUS_ORDER must have one, not silently fall back "
+            f"to statusLabel's raw-slug behavior (PT-37)",
+        )
+
+
+class UnpinnedInvariantTests(unittest.TestCase):
+    """PT-38 architect review (pre-PR ask, 2026-08-23): two more vocabulary
+    literals that must agree but were never pinned against each other --
+    same drift class as every other guard in this file, caught only
+    because the review looked for it rather than by an existing test.
+
+    - `cairn.STATUSES` (the issue-only vocabulary) and `cairn.STATUS_ORDER`
+      (DEFAULT_COLUMNS + ["cancelled"]) are two SEPARATELY-DERIVED literals
+      that happen to contain the same six values today -- nothing pins
+      that they stay the same set if either one is edited independently.
+    - `cairn._VALID_COLUMN_STATUSES` (PT-38's board.columns validator,
+      `frozenset(DEFAULT_COLUMNS)`) must equal `STATUSES - {"cancelled"}`
+      (the ruling's own § 1 wording for what a configured column may be) --
+      again two independently-built literals, not one derived from the
+      other.
+    """
+
+    def test_statuses_equals_status_order_as_a_set(self):
+        self.assertEqual(
+            cairn.STATUSES,
+            set(cairn.STATUS_ORDER),
+            "STATUSES and STATUS_ORDER are built independently (STATUSES is a literal "
+            "set; STATUS_ORDER is DEFAULT_COLUMNS + ['cancelled']) -- they must still "
+            "agree as sets, or an issue could carry a status board.columns/STATUS_ORDER "
+            "doesn't know about",
+        )
+
+    def test_valid_column_statuses_equals_statuses_minus_cancelled(self):
+        self.assertEqual(
+            cairn._VALID_COLUMN_STATUSES,
+            cairn.STATUSES - {"cancelled"},
+            "PT-38 ruling § 1: board.columns' valid vocabulary is STATUSES minus "
+            "cancelled, by definition -- _VALID_COLUMN_STATUSES (frozenset(DEFAULT_COLUMNS)) "
+            "must equal that computation, not just happen to match it today",
+        )
 
 
 class StatusOrderTests(unittest.TestCase):
