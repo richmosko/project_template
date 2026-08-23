@@ -150,7 +150,7 @@ id: PT-1.0
 name: MVP
 kind: product          # product | process
 major: PT-V1
-status: planned        # planned | in-progress | paused | completed | cancelled
+status: planned        # planned | in-progress | paused | done | cancelled
 target_tag: v1.0.0
 ga: true               # exactly one development milestone per major carries ga: true
 ---
@@ -174,7 +174,9 @@ A fresh project bootstraps with `PT-A — Bootstrap & Research` and `PT-B — Pl
 
 **`M` and `V` are reserved.** `M<n>` means development, always, and `V<n>` is a major line — so both letters are skipped in the definition sequence (`… K`, `L`, `N` … `U`, `W` …), making "M means development" and "V means major" absolute at the cost of two letters out of 26. `V` joined `M` in 0.6.1 (PT-28), when prefixing put majors and milestones in one namespace: without it, `PT-V` (a definition milestone) sits one character from `PT-V1` (a major). The four shapes never formally collide even without the reservation, but formally-unambiguous and readable-at-a-glance are different properties, and the second one is what prefixing is for.
 
-**Prefer version-named ids for anything that tags.** `M<n>` is an ordinal carrying no version information, so a milestone that will cut a release is named for the release (`PT-1.0` → `v1.0.0`) — that is what keeps milestone ↔ `MAJOR.MINOR` 1:1 ([WORKFLOW.md → Versioning scheme](WORKFLOW.md#versioning-scheme)). `M<n>` is for development milestones that don't tag one.
+**Prefer version-named ids for anything that tags.** `M<n>` is an ordinal carrying no version information, so a milestone that will cut a release is named for the release (`PT-1.0` → `v1.0.0`) — that is what keeps **milestone ↔ `target_tag` 1:1** ([WORKFLOW.md → Versioning scheme](WORKFLOW.md#versioning-scheme)). `M<n>` is for development milestones that don't tag one.
+
+**Any release granularity is legitimate** (ruled 2026-08-23). A development milestone's id sits at whatever granularity the release it cuts does — `PT-0.6` → `v0.6.0` (a feature milestone, moving MINOR) and `PT-0.6.1` → `v0.6.1` (a patch milestone, moving PATCH) are both correct, and the id-shape regex accepts both. What is 1:1 is milestone ↔ tag, never milestone ↔ `MAJOR.MINOR`: the earlier wording said the latter, which the `0.5.1` / `0.6.1` / `0.6.2` milestones had already outgrown. A patch milestone is a separate release with its own tag, not a split of one release across two milestones — the thing [Model A](WORKFLOW.md#versioning-scheme) actually forbids.
 
 **Subdivision** works the same in both flavours: append one lowercase letter — `PT-Aa` / `PT-Ab`, `PT-M0a` / `PT-M0b`. Each subdivision is its own file.
 
@@ -202,7 +204,7 @@ Four errors: (1) `kind: process` on a development-shaped id; (2) `kind: product`
 ```markdown
 ---
 id: PT-V1
-status: active         # planned | active | completed
+status: in-progress    # planned | in-progress | paused | done | cancelled
 owner: mosko
 target_ship: null
 health: on-track       # on-track | at-risk | off-track
@@ -210,6 +212,33 @@ health: on-track       # on-track | at-risk | off-track
 
 Founding major line. Starts at MAJOR 0; `1.0` is the GA-designated milestone.
 ```
+
+### Milestone / major status vocabulary
+
+**One enum for both, sharing the issue cycle's `done` (ruled 2026-08-23, PT-39):**
+
+```
+planned | in-progress | paused | done | cancelled
+```
+
+Milestones and majors are the same kind of thing at different scales — a scope container with a
+lifecycle — so they take one vocabulary, not two that overlap by four values out of five. It
+shares `done` and `cancelled` with the [issue vocabulary](#status-vocabulary) deliberately: two
+records meaning "finished" must not spell it two ways. It does **not** share `backlog`,
+`todo`, or `in-review`, none of which a container has.
+
+Before 0.7.0 the two schemas disagreed with each other *and* with reality: milestones documented
+`completed` while majors documented `active`, and nothing linted either — which is how a live
+milestone came to carry `status: active`, a value its own documented enum never contained.
+`cairn check` now validates both against this enum, and `cairn set <milestone-or-major-id>
+status=done` is the one way to mark one finished.
+
+**No grandfather clause**, the same call as [prefixed ids](#milestone-ids--definition-vs-development):
+`completed` and `active` fail the lint. **Migration is a command, not a recipe** —
+`cairn migrate lifecycle-status --dry-run` to review, then without the flag to apply; it is
+idempotent and safe to re-run after an interruption. The break is lint-only: an unmigrated repo's
+board and CLI keep working (the board renders an unknown status via its label fallback, never
+`undefined`), only `cairn check` fails.
 
 ### Status vocabulary
 
@@ -252,13 +281,27 @@ An issue may declare others as blocking it: `blocked_by: [PT-9, PT-12]`. The rel
 
 ### Archive
 
-`process/cairn/archive/` holds the same files, moved. The board reads `issues/` only. Archiving is invoked explicitly:
+`process/cairn/archive/` holds the same files, moved. The board reads the live directories only. Layout:
 
 ```
-scripts/cairn/cairn archive --done-before 2026-06-01
+archive/PT-14.md              issues
+archive/milestones/PT-0.4.md  milestones   (PT-39)
+archive/majors/PT-V0.md       majors       (PT-39)
 ```
 
-It exists so a three-year-old project doesn't parse 1,400 files per request — **not** because anything expires. Archived issues remain in git, remain greppable, and can be moved back with `git mv`. Their IDs are never reused, and `cairn check` resolves `parent` / `blocked_by` references against `archive/` as well as `issues/`.
+Issues stay at the top level rather than moving to `archive/issues/`: `_dir_glob` is non-recursive, so the two subdirectories are invisible to every existing glob and cost no migration. Archiving is invoked explicitly — **exactly one selector, always**, and `--dry-run` previews any of them:
+
+```
+scripts/cairn/cairn archive --done-before 2026-06-01   # issues, by date
+scripts/cairn/cairn archive --milestone PT-0.4         # a milestone + its issues
+scripts/cairn/cairn archive --major PT-V0              # a major + its milestones
+```
+
+It exists so a three-year-old project doesn't parse 1,400 files per request — **not** because anything expires. (Measured 2026-08-23: 1,400 archived issues cost ~83 ms to parse, against ~3 ms for a live-only board payload. That 28× gap is why the default board payload never opens `archive/`.) Archived records remain in git, remain greppable, and can be moved back with `git mv`. Their IDs are never reused, and `cairn check` resolves `parent` / `blocked_by` / `milestone:` / `major:` references against the archive directories as well as the live ones — archiving a record never dangles a reference to it.
+
+**Archiving never sweeps issues out from under a live milestone (ruled 2026-08-23, PT-39).** Every selector enforces it: `--done-before` *skips* an issue whose milestone isn't `done`/`cancelled` (printing why), and `--milestone` / `--major` *refuse* outright unless the record itself and everything under it is `done`/`cancelled` — validated before any file moves, so a partially-archived major is not a reachable state. `cairn check` errors on an archived issue whose milestone is not `done`/`cancelled`, which closes the hand-`git mv` bypass.
+
+That invariant is not hygiene — it is what lets the board's arithmetic stay honest without paying the 83 ms above. Because a non-done milestone's live issues *are* all of its issues, `n/m done` computed from the live tree alone is the whole count, so the board never has to open `archive/` to be correct. A **done** milestone is the other half: it has no meaningful ratio left to show, so it reports completion and release state instead of a count — which is why a fully-archived milestone can never report `0/0 done`. That rendering is the board's side of the same ruling and lands with it.
 
 ---
 
@@ -285,15 +328,15 @@ A major owns milestones; a milestone owns issues; an issue owns sub-issues. **On
 | Concept | Cairn artifact | Version digit |
 |---|---|---|
 | Major version line (`PT-V1`, `PT-V2`, concurrent) | `majors/<prefix>-V<n>.md` | **MAJOR** |
-| Milestone (development, named by target version) | `milestones/<prefix>-<version>.md`, `kind: product` | **MINOR** |
+| Milestone (development, named by target version) | `milestones/<prefix>-<version>.md`, `kind: product` | **MINOR**, or **PATCH** for a patch milestone — the digit its `target_tag` moves |
 | Milestone (development, unversioned ordinal) | `milestones/<prefix>-M<n>.md`, `kind: product` | — (untagged unless `target_tag` is set) |
 | Milestone (definition: Bootstrap & Research, Plan) | `milestones/<prefix>-<letter>.md`, `kind: process` | — (untagged) |
 | Feature | `issues/<ID>.md` | — (identity = ID + PR + release notes) |
 | Sub-issue | `issues/<ID>.md` with `parent:` | — |
-| Hotfix | `issues/<ID>.md` on the milestone it patches | **PATCH** |
+| Hotfix | `issues/<ID>.md` on the milestone it patches, or a patch milestone grouping a batch of them | **PATCH** |
 | Session Cycle | **none, by design** | — |
 
-Concurrent majors fall out for free: `majors/PT-V1.md` and `majors/PT-V2.md` both `status: active`, each with its own milestones, in one repo, on one board with a major selector.
+Concurrent majors fall out for free: `majors/PT-V1.md` and `majors/PT-V2.md` both `status: in-progress`, each with its own milestones, in one repo, on one board with a major selector.
 
 ---
 
@@ -385,12 +428,13 @@ Board edits **rewrite only the frontmatter block**, re-emitted in canonical key 
 |---|---|
 | `cairn new "<title>" [--milestone 1.0 --assignee backend-lead --status backlog --parent PT-14]` | Atomic `O_EXCL` ID allocation. |
 | `cairn ls [--status todo --milestone 1.0 --assignee qa-engineer]` | One line per issue instead of reading N files into context. Context economy is the whole point. |
-| `cairn set PT-14 status=in-review pr=<url>` | Frontmatter-only rewrite that can't corrupt the body. |
+| `cairn set PT-14 status=in-review pr=<url>` · `cairn set PT-0.7.0 status=done` · `cairn set PT-V1 status=done` | Frontmatter-only rewrite that can't corrupt the body. Resolves **any** record id — issue, milestone or major, live or archived (PT-39) — and validates the field name and `status=` value against *that* schema's vocabulary ([issue](#status-vocabulary) vs [record](#milestone--major-status-vocabulary)). This is the one way to mark a milestone or major done; a bad value is refused before anything is written. |
 | `cairn comment PT-14 --author qa-engineer --body -` | Correct delimiter + date, from stdin. |
 | `cairn show PT-14` | Rendered single issue, plus its children when it has any. |
-| `cairn archive --done-before <date>` | Bulk `git mv`. |
-| `cairn check` | Lint: id/filename mismatch, dangling `parent`, unknown `milestone`, bad `status`, milestone id-shape ↔ `kind` agreement (see [Milestone ids](#milestone-ids--definition-vs-development)), `blocked_by` dependency integrity (dangling ref, self-reference, cycles — see [Dependencies](#dependencies)), unsupported YAML, `config.yml`'s `roots:` shape (list of non-empty relative-path strings — reachability is a runtime concern, not lint, see [Multi-root](#multi-root-pt-3-2026-08-21)), milestone/major/issue id **prefix shape** (see [Milestone ids](#milestone-ids--definition-vs-development)), `config.yml`'s `prefix:` (present and matching `^[A-Z]{2,5}$` — every id regex is derived from it). |
+| `cairn archive (--done-before <date> \| --milestone <id> \| --major <id>) [--dry-run]` | Bulk `git mv`, with the preconditions in [Archive](#archive) — exactly one selector, and `--dry-run` previews without moving anything. |
+| `cairn check` | Lint: id/filename mismatch, dangling `parent`, unknown `milestone`, bad `status` (issues **and** milestones/majors, each against its own vocabulary — see [Milestone / major status vocabulary](#milestone--major-status-vocabulary)), an archived issue whose milestone isn't `done`/`cancelled` (see [Archive](#archive)), milestone id-shape ↔ `kind` agreement (see [Milestone ids](#milestone-ids--definition-vs-development)), `blocked_by` dependency integrity (dangling ref, self-reference, cycles — see [Dependencies](#dependencies)), unsupported YAML, `config.yml`'s `roots:` shape (list of non-empty relative-path strings — reachability is a runtime concern, not lint, see [Multi-root](#multi-root-pt-3-2026-08-21)), milestone/major/issue id **prefix shape** (see [Milestone ids](#milestone-ids--definition-vs-development)), `config.yml`'s `prefix:` (present and matching `^[A-Z]{2,5}$` — every id regex is derived from it). |
 | `cairn migrate prefix-ids [--dry-run]` | One-shot 0.6.1 migration: prefixes bare major/milestone ids and retargets every `major:`/`milestone:` reference. Idempotent — safe to re-run after an interruption. Runs on a repo whose lint is failing; that is its purpose. |
+| `cairn migrate lifecycle-status [--dry-run]` | One-shot 0.7.0 migration: rewrites milestone/major `status:` onto the [unified vocabulary](#milestone--major-status-vocabulary) — `completed` → `done`, `active` → `in-progress`. Value-keyed, so idempotent by construction; any other value is left untouched for the lint to report. Same posture as `prefix-ids`: runs on a repo whose lint is already failing. |
 | `cairn serve [--repos a,b]` | The board. `--repos` (PT-3) replaces `config.yml`'s `roots:` for that invocation — read-only cross-project aggregation, see [Multi-root](#multi-root-pt-3-2026-08-21). |
 
 **The CLI is legitimate under "agents never need a server" (ruled 2026-08-19)** — that constraint reads as *no MCP, no HTTP, no JSON payloads in context*, which a local script printing one line satisfies.
