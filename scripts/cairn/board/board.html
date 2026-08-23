@@ -40,6 +40,10 @@
          more than one root (renderHeader toggles the hidden attribute). -->
     <select id="filter-repo" hidden><option value="">All repos</option></select>
     <label><input type="checkbox" id="filter-cancelled"> Show cancelled</label>
+    <!-- PT-42: default off, adjacent to Show cancelled -- see board.js's
+         #filter-archived listener for the etag-clear + refetch it triggers
+         (unlike Show cancelled, this changes what the SERVER sends). -->
+    <label><input type="checkbox" id="filter-archived"> Show archived</label>
     <label><input type="checkbox" id="toggle-swimlanes" checked> Swimlanes</label>
     <!-- PT-30: hidden (not disabled) whenever Swimlanes is off -- renderHeader
          toggles the hidden attribute, same precedent as #filter-repo above. -->

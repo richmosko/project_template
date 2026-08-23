@@ -17,12 +17,12 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Board: implement board.columns config — per-project column customization |
-| Issue | PT-38 (cairn) |
+| Feature | Board: Show Archived toggle — render archive/ issues on demand, default off |
+| Issue | PT-42 (cairn) |
 | Milestone | PT-0.7.0 |
-| Branch | `feature/pt-38-board-columns-config` |
+| Branch | `feature/pt-42-show-archived-toggle` |
 | Started | 2026-08-23 |
-| Goal | config.yml board.columns (+ swimlane) actually consumed, server→client; default byte-identical |
+| Goal | ?archived=1 server surface + muted read-only archived cards; off-state byte-identical |
 | Status | In Progress |
 
 ## Releases

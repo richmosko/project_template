@@ -228,8 +228,18 @@ var CairnLogic = (function () {
   // separately when a roots-less payload made the naive comparison
   // `undefined === null` (false), silently killing drag on every card
   // and refusing every drop with a toast that blamed the wrong thing.
+  // PT-42 (architect's ruling § 5): widened with `&& !issue.archived` --
+  // an archived issue is read-only on the board (server-side 403 on
+  // mutation), so it must not be draggable either. `!issue.archived`
+  // treats a MISSING key as "not archived" (every real payload record
+  // always carries it, PT-3's no-conditional-shape precedent -- this is
+  // just the predicate's own behavior for a hand-built fixture that
+  // omits it), only an explicit `true` disables dragging. Both cardEl
+  // (card.draggable) and handleDrop's refusal-guard already call this ONE
+  // shared predicate (PT-22), so the drag-disable falls out at both call
+  // sites with no new call site to audit.
   function isDraggable(issue, primaryId) {
-    return primaryId == null || issue.repo === primaryId;
+    return (primaryId == null || issue.repo === primaryId) && !issue.archived;
   }
 
   // `roots` sorted primary-first, then remaining roots by id ascending.

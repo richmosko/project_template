@@ -291,7 +291,7 @@ An issue may declare others as blocking it: `blocked_by: [PT-9, PT-12]`. The rel
 
 ### Archive
 
-`process/cairn/archive/` holds the same files, moved. The board reads the live directories only. Layout:
+`process/cairn/archive/` holds the same files, moved. The board reads the live directories only, unless you ask for more — **Show archived** (default off) refetches with `?archived=1` and folds archived records back in. Layout:
 
 ```
 archive/PT-14.md              issues
@@ -394,11 +394,11 @@ Five endpoints. All bind `127.0.0.1`, no auth — same posture as `serve-docs.py
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/board` | Full parsed state: majors, milestones, all non-archived issues (without comment bodies). Supports `ETag`/`If-None-Match`. |
+| `GET` | `/api/board` | Full parsed state: majors, milestones, issues (without comment bodies), plus the resolved `columns` / `swimlane`. **`?archived=1`** (the only accepted spelling — anything else is off) additionally reads all three archive directories; without it, `archive/` is never opened at all. Every record always carries `archived: true\|false`. Supports `ETag`/`If-None-Match` — the flag is folded into the hash, so the two representations can never share an etag. |
 | `GET` | `/api/issue/<id>` | One issue: frontmatter, description, acceptance criteria, full comment list, `seen` token. |
 | `GET` | `/api/events` | SSE stream (`text/event-stream`). A background thread `os.scandir`s the data dir every 500 ms and diffs `(path, mtime_ns)` — not a kernel fs-watch, since `kqueue`/`inotify` have no portable stdlib wrapper. Emits `{"type":"changed"\|"created"\|"removed","ids":[…]}`; the client refetches only the named issues. |
 | `POST` | `/api/issue` | Create. Body `{title, …}`. Allocates an ID via the same `O_EXCL` path as `cairn new`. **Primary root only** — there is no way to create an issue in a secondary root through the board. |
-| `POST` | `/api/issue/<id>` | Mutate. Body `{seen, patch?, comment?}`. Handles the drag-to-column case (`patch: {status: …}`), inline field edits, and comment append through one code path. **Primary root only** — an id that resolves to a secondary root is refused with `403 {"error": "read_only_root", "message": "…"}`, file left untouched. |
+| `POST` | `/api/issue/<id>` | Mutate. Body `{seen, patch?, comment?}`. Handles the drag-to-column case (`patch: {status: …}`), inline field edits, and comment append through one code path. **Primary root only** — an id that resolves to a secondary root is refused with `403 {"error": "read_only_root", "message": "…"}`, file left untouched. An **archived** id is refused the same way with `403 {"error": "archived", …}`, checked before the `seen` comparison so it holds regardless of the request body. |
 
 Plus static routes: `/` (Kanban), `/list` (list view), `/board/*` (assets).
 
@@ -459,6 +459,7 @@ Board edits **rewrite only the frontmatter block**, re-emitted in canonical key 
 - **Swimlanes by milestone**, collapsible, toggleable to flat. One swimlane dimension only — assignee/label swimlanes are a filter away and don't earn a second layout mode.
 - **Header:** major tabs (concurrent majors are first-class), then per-milestone progress — `1.0 · GA · v1.0.0 · 7/12 done`.
 - **Filters** (client-side over the one `/api/board` payload): milestone, assignee, label, major, free-text. Keeping filtering in the browser is what keeps the API at one read endpoint.
+- **Show archived** (default off) is the one toggle that is *not* a client-side filter — archived records aren't in the payload at all until it's on, so flipping it refetches rather than re-renders. Archived cards appear in their **original milestone lane and status column**, muted and badged, never in a separate Archive lane: the point is to see the work where it happened. They are read-only — not draggable, inline editors suppressed via the same `read_only` flag a foreign-root issue uses, and the server refuses a mutation with `403 archived`. The CLI can still write them; un-archiving is `git mv`, deliberately.
 - **Drag** a card between columns → `POST /api/issue/<id>`.
 
 **List view (`/list`)** — same data and filters, sortable table (ID, title, status, milestone, assignee, priority, updated). **Read-only**; click a row to open the drawer and edit there.

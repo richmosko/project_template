@@ -847,6 +847,25 @@ def _read_frontmatter_dict(path: Path) -> Dict[str, Any]:
     return frontmatter
 
 
+def is_archived_path(data_dir: Path, path: Path) -> bool:
+    """Whether `path` lives under `data_dir`'s archive tree -- archive/
+    (issues), archive/milestones/, or archive/majors/ alike. PT-42
+    (architect's pre-PR extraction, security-relevant): the SINGLE
+    predicate every "is this record archived" check routes through --
+    four independently-typed spellings existed before this (three as
+    `path.parent.name == "archive"`, one already as this parts-based
+    form), and the parent-name spelling is a live correctness gap: it
+    silently reads an issue under archive/milestones/ or archive/majors/
+    as NOT archived (wrong directory depth), and would do the same for a
+    hypothetical archive/issues/ -- for the HTTP-mutation 403 check
+    specifically, that gap means an archived issue one directory level
+    deeper than plain archive/ would stay wrongly writable over HTTP.
+    Parts-based (`"archive" in path.relative_to(data_dir).parts`) is
+    correct at any depth under archive/, not just one level in.
+    """
+    return "archive" in Path(path).relative_to(Path(data_dir)).parts
+
+
 # --------------------------------------------------------------------------
 # ID allocation — O_CREAT|O_EXCL atomic claim, retry on race
 # --------------------------------------------------------------------------
@@ -1150,14 +1169,14 @@ def check_repo(data_dir: Path) -> List[str]:
         # pins that precondition) -- but nothing stops a human from
         # `git mv`-ing ONE issue into archive/ directly, skipping the
         # precondition entirely. Scoped to issues actually living in
-        # archive/ (p.parent.name == "archive") -- a LIVE issue under an
+        # archive/ (is_archived_path) -- a LIVE issue under an
         # in-progress milestone is the normal, expected shape of every
         # unfinished milestone and must never trip this. Only fires once
         # the milestone ref has already resolved (str(milestone) in
         # known_milestones) -- a genuinely dangling ref is the check
         # above's job alone, not a second, confusing error on the same ref.
         if (
-            p.parent.name == "archive"
+            is_archived_path(data_dir, p)
             and milestone is not None
             and str(milestone) in known_milestones
         ):
@@ -1653,16 +1672,48 @@ def build_snapshot_markdown(data_dir: Path, generated_at: Optional[str] = None) 
 # Board API payloads
 # --------------------------------------------------------------------------
 
-def build_board_payload(data_dir: Path) -> Dict[str, Any]:
+def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any]:
     """{"majors": [...], "milestones": [...], "issues": [...]}.
 
     Board issues carry no "comments" key (spec: "without comment bodies").
+
+    PT-42 (architect's ruling § 0/1): `archived=False` (the default) is
+    THE IDENTICAL code path that existed before this parameter -- a
+    synthetic 1400-issue archive/ tree measured a 28x cost parsing it
+    unconditionally, so it is paid only when a caller explicitly asks.
+    Every major/milestone/issue ALWAYS carries an `archived` key (never
+    absent -- PT-3's no-conditional-payload-shape precedent): `False` for
+    every live record regardless of the flag. When `archived=True`, ALSO
+    reads archive/ (issues), archive/milestones/, archive/majors/ -- ONE
+    archive read path for all three record types via `_dir_glob`, exactly
+    like the live dirs -- and every record from those three is stamped
+    `archived: True`. Archived issues land in the SAME `issues` list,
+    never a parallel array: a second array would need a second counting
+    path, degrading PT-31/PT-35's "visible must equal counted" from a
+    structural property of one producer to a hand-maintained agreement
+    between two.
     """
     data_dir = Path(data_dir)
-    majors = [_read_frontmatter_dict(p) for p in _dir_glob(data_dir / "majors")]
-    milestones = [_read_frontmatter_dict(p) for p in _dir_glob(data_dir / "milestones")]
 
-    pairs = [(p, _read_frontmatter_dict(p)) for p in _dir_glob(data_dir / "issues")]
+    major_paths = list(_dir_glob(data_dir / "majors"))
+    milestone_paths = list(_dir_glob(data_dir / "milestones"))
+    issue_paths = list(_dir_glob(data_dir / "issues"))
+    if archived:
+        major_paths += _dir_glob(data_dir / "archive" / "majors")
+        milestone_paths += _dir_glob(data_dir / "archive" / "milestones")
+        issue_paths += _dir_glob(data_dir / "archive")
+
+    def _stamped(p: Path) -> Dict[str, Any]:
+        fm = dict(_read_frontmatter_dict(p))
+        # is_archived_path (PT-42's pre-PR extraction) is True for all
+        # three archive shapes (archive/<id>.md, archive/milestones/
+        # <id>.md, archive/majors/<id>.md) and none of the three live
+        # shapes -- one derivation, not a per-record-type branch.
+        fm["archived"] = is_archived_path(data_dir, p)
+        return fm
+
+    majors = [_stamped(p) for p in major_paths]
+    milestones = [_stamped(p) for p in milestone_paths]
 
     # PT-25: no server-side child count -- the board's n/m badge is
     # computed client-side (board-logic.js's childProgress), mirroring
@@ -1672,10 +1723,10 @@ def build_board_payload(data_dir: Path) -> Dict[str, Any]:
     # duplicated-expression class the standing Validate criterion exists
     # to catch, so there is one producer, not two.
     issues = []
-    for path, fm in pairs:
-        issue = dict(fm)
-        issue["seen"] = get_seen(path)
-        issue["path"] = str(path)  # PT-10: same contract as build_issue_payload's "path"
+    for p in issue_paths:
+        issue = _stamped(p)
+        issue["seen"] = get_seen(p)
+        issue["path"] = str(p)  # PT-10: same contract as build_issue_payload's "path"
         issues.append(issue)
 
     return {"majors": majors, "milestones": milestones, "issues": issues}
@@ -1701,13 +1752,31 @@ def build_issue_payload(data_dir: Path, issue_id: str) -> Optional[Dict[str, Any
     issue = parse_issue(path.read_text(encoding="utf-8"))
     issue["seen"] = get_seen(path)
     issue["path"] = str(path)
+    # PT-42 (ruling § 5): so the HTTP handler can fold "this issue is
+    # archived" into the SAME `read_only` stamp a foreign-root issue
+    # already gets (do not invent a second read-only flag) -- the drawer's
+    # inline editors already suppress on `read_only`, no client change
+    # needed beyond that one flag's computation widening.
+    issue["archived"] = is_archived_path(data_dir, path)
     return issue
 
 
-def compute_etag(data_dir: Path) -> str:
+def compute_etag(data_dir: Path, archived: bool = False) -> str:
+    """PT-42 (ruling § 1): folds `archived` into the hash input, and --
+    only when it's True -- ALSO hashes the three archive dirs' (path,
+    mtime_ns) pairs, mirroring the live-dir loop below. Two representations
+    (with/without archive/ data) must never collide on one etag; hashing
+    the literal flag first (not just conditionally adding more input)
+    means even an archive/ tree that happens to produce the same combined
+    mtime-hash as some live tree still can't collide across the two modes.
+    """
     data_dir = Path(data_dir)
     hasher = hashlib.sha256()
-    for sub in ("majors", "milestones", "issues"):
+    hasher.update(f"archived:{archived}\n".encode("utf-8"))
+    subdirs = ("majors", "milestones", "issues")
+    if archived:
+        subdirs += ("archive", "archive/milestones", "archive/majors")
+    for sub in subdirs:
         for p in _dir_glob(data_dir / sub):
             try:
                 st = p.stat()
@@ -1840,9 +1909,15 @@ def resolve_roots(
     return roots, warnings
 
 
-def build_multi_board_payload(roots: List[Root], warnings: List[Dict[str, str]]) -> Dict[str, Any]:
+def build_multi_board_payload(
+    roots: List[Root], warnings: List[Dict[str, str]], archived: bool = False
+) -> Dict[str, Any]:
     """Aggregate `build_board_payload` across every root, stamping
     `record["repo"] = root.id` on every major/milestone/issue.
+
+    PT-42 (ruling § 1): `archived` threads straight through to every
+    per-root `build_board_payload(root.path, archived=archived)` call --
+    applied per root, same as everything else this function aggregates.
 
     A per-root `CairnError` (any file in that root fails to parse) is
     caught here and converted into a `parse_error` warning -- that root
@@ -1887,7 +1962,7 @@ def build_multi_board_payload(roots: List[Root], warnings: List[Dict[str, str]])
 
     for root in roots:
         try:
-            payload = build_board_payload(root.path)
+            payload = build_board_payload(root.path, archived=archived)
         except CairnError as e:
             all_warnings.append({"root": root.id, "reason": "parse_error", "detail": str(e)})
             continue
@@ -1915,13 +1990,18 @@ def build_multi_board_payload(roots: List[Root], warnings: List[Dict[str, str]])
     }
 
 
-def compute_multi_etag(roots: List[Root]) -> str:
+def compute_multi_etag(roots: List[Root], archived: bool = False) -> str:
     """Fold `compute_etag` over every root -- correct with no key-collision
     risk, since `compute_etag` already hashes each file's full path (which
-    differs across roots) plus its mtime."""
+    differs across roots) plus its mtime.
+
+    PT-42 (ruling § 1): `archived` threads through to each per-root
+    `compute_etag` call, same as build_multi_board_payload above -- the
+    two representations get two etags, never one shared between them.
+    """
     hasher = hashlib.sha256()
     for root in roots:
-        hasher.update(compute_etag(root.path).encode("utf-8"))
+        hasher.update(compute_etag(root.path, archived=archived).encode("utf-8"))
         hasher.update(b"\n")
     return hasher.hexdigest()[:16]
 
@@ -2246,13 +2326,23 @@ def make_server(
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
             if path == "/api/board":
-                etag = compute_multi_etag(roots)
+                # PT-42 (ruling § 1): `?archived=1` is the ONLY accepted
+                # spelling -- absent, empty, or any other value is OFF, so
+                # a typo'd/garbage query param can never accidentally
+                # trigger the 28x-cost archive/ read. `parse_qs` (not a
+                # hand-split on "&"/"="): stdlib, handles the usual query-
+                # string edge cases (repeated keys, missing values, url-
+                # decoding) this endpoint doesn't otherwise need to worry
+                # about the first time it grows a query param at all.
+                query = urllib.parse.parse_qs(parsed.query)
+                archived = query.get("archived", [""])[0] == "1"
+                etag = compute_multi_etag(roots, archived=archived)
                 if self.headers.get("If-None-Match") == etag:
                     self.send_response(304)
                     self.send_header("ETag", etag)
                     self.end_headers()
                     return
-                payload = build_multi_board_payload(roots, root_warnings)
+                payload = build_multi_board_payload(roots, root_warnings, archived=archived)
                 body = json.dumps(payload).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -2275,7 +2365,13 @@ def make_server(
                     return
                 payload = build_issue_payload(owning_root.path, issue_id)
                 payload["repo"] = owning_root.id
-                payload["read_only"] = not owning_root.primary
+                # PT-42 (ruling § 5): folds the archived stamp
+                # build_issue_payload already computes into the SAME
+                # read_only flag a foreign-root issue gets -- the drawer's
+                # inline editors already suppress on this one flag (PT-3),
+                # so an archived issue's read-only-ness needs no second
+                # client-side flag to check.
+                payload["read_only"] = (not owning_root.primary) or payload["archived"]
                 self._send_json(200, payload)
                 return
             if path == "/api/events":
@@ -2346,6 +2442,23 @@ def make_server(
                     })
                     return
                 self._send_json(404, {"error": "not_found", "message": f"no such issue: {issue_id}"})
+                return
+
+            # PT-42 (ruling § 5): an id that resolves in archive/ is
+            # refused 403, file untouched -- mirrors read_only_root's
+            # shape exactly. find_issue_path itself is UNCHANGED (still
+            # resolves archive/, same PT-3/PT-39 precedent) -- this check
+            # is HTTP-only; the CLI (`cairn set`/`cairn comment`, which
+            # calls find_issue_path directly, never through here) stays
+            # deliberately able to write an archived issue. A drag is a
+            # one-pixel gesture that would leave a live-looking issue
+            # sitting in archive/, invisible the moment Show-archived goes
+            # off -- un-archiving is `git mv`, deliberately.
+            if is_archived_path(data_dir, issue_path):
+                self._send_json(403, {
+                    "error": "archived",
+                    "message": f"{issue_id} is archived — read-only on the board; use the CLI instead",
+                })
                 return
 
             if "seen" not in payload:
