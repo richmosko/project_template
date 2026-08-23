@@ -681,8 +681,77 @@ def find_data_dir() -> Path:
     return cwd / "process" / "cairn"
 
 
+# PT-38 (architect's ruling § 1): board.columns is an ORDERED SUBSET of the
+# known column statuses -- STATUSES minus "cancelled" (cancelled is owned
+# by the Show-cancelled toggle, PT-35; two mechanisms producing one column
+# is the drift class this ruling exists to avoid, not a feature to add).
+# DEFAULT_COLUMNS already *is* exactly that five-status set, in the
+# canonical order -- no second, separately-maintained set literal.
+_VALID_COLUMN_STATUSES = frozenset(DEFAULT_COLUMNS)
+# A tuple, not a frozenset -- `x in _VALID_SWIMLANE_VALUES` must stay safe
+# for an UNHASHABLE `x` (a list, a dict -- both real inputs
+# validate_board_swimlane's never-raises contract is tested against). `in`
+# on a set/frozenset hashes its left operand before comparing, which
+# raises TypeError for an unhashable value regardless of set membership;
+# `in` on a tuple does a plain elementwise `==` scan, never hashes.
+_VALID_SWIMLANE_VALUES = ("milestone", "none")
+
+
+def validate_board_columns(value: Any) -> Tuple[bool, str]:
+    """The ONE validity check for a `board.columns` config value (PT-38
+    ruling § 1). Returns `(True, "")` when valid, `(False, <pointed
+    reason>)` otherwise. This single function backs BOTH `cairn check`'s
+    hard lint error and `load_config`'s soft fall-back-to-default warning
+    -- one validator, two callers/postures, never two copies of the same
+    condition that could drift apart (the ruling § 4's "one validator, not
+    two that must agree" principle, applied server-side too).
+    """
+    if not isinstance(value, list):
+        return False, f"board.columns must be a list, got {type(value).__name__}"
+    if not value:
+        return False, "board.columns must not be empty"
+    seen: set = set()
+    for entry in value:
+        if not isinstance(entry, str):
+            return False, f"board.columns entries must be strings, got {entry!r} ({type(entry).__name__})"
+        if entry == "cancelled":
+            return False, (
+                "board.columns must not include \"cancelled\" -- it is owned by the "
+                "Show-cancelled toggle, not column config"
+            )
+        if entry not in _VALID_COLUMN_STATUSES:
+            return False, (
+                f"board.columns entry {entry!r} is not a known status "
+                f"(expected one of {sorted(_VALID_COLUMN_STATUSES)})"
+            )
+        if entry in seen:
+            return False, f"board.columns contains a duplicate entry {entry!r}"
+        seen.add(entry)
+    return True, ""
+
+
+def validate_board_swimlane(value: Any) -> Tuple[bool, str]:
+    """The ONE validity check for a `board.swimlane` config value (PT-38
+    ruling § 6, folded in by team-lead's ruling). Same one-validator,
+    two-caller shape as validate_board_columns above.
+    """
+    if value not in _VALID_SWIMLANE_VALUES:
+        return False, f"board.swimlane must be one of {sorted(_VALID_SWIMLANE_VALUES)}, got {value!r}"
+    return True, ""
+
+
 def load_config(data_dir: Path) -> Dict[str, Any]:
-    """Read and parse data_dir/config.yml. Missing keys fall back to defaults."""
+    """Read and parse data_dir/config.yml. Missing keys fall back to defaults.
+
+    Defaulting only -- does NOT validate a present-but-invalid
+    board.columns/board.swimlane value (that value is passed through
+    UNCHANGED; `resolve_board_columns`/`resolve_board_swimlane` below are
+    where a bad value actually gets caught). Called from many CLI paths
+    that have nothing to do with the board (`cairn new`, `cairn ls`, ...),
+    so it is deliberately NOT the validation/fallback/stderr entry point --
+    that would print PT-38's warning on every unrelated invocation of a
+    repo with a stale bad config, not just the ones that render a board.
+    """
     data_dir = Path(data_dir)
     config_path = data_dir / "config.yml"
     parsed: Dict[str, Any] = {}
@@ -698,6 +767,33 @@ def load_config(data_dir: Path) -> Dict[str, Any]:
     board.setdefault("swimlane", "milestone")
     config["board"] = board
     return config
+
+
+def resolve_board_columns(config: Dict[str, Any]) -> Tuple[List[str], Optional[str]]:
+    """The RESOLVED `board.columns` for `config` (already `load_config`-
+    defaulted, so `config["board"]["columns"]` is always present -- may
+    still carry a raw invalid value, since `load_config` itself never
+    validates). Returns `(value, None)` when valid, `(list(DEFAULT_COLUMNS),
+    "<pointed warning>")` otherwise. PURE -- never prints, never raises;
+    the warning is returned as DATA. `build_multi_board_payload` is the
+    actual stderr print site (PT-38 ruling § 2), not this function.
+    """
+    value = (config.get("board") or {}).get("columns")
+    ok, reason = validate_board_columns(value)
+    if ok:
+        return list(value), None
+    return list(DEFAULT_COLUMNS), f"board.columns invalid ({reason}) -- falling back to the default column set"
+
+
+def resolve_board_swimlane(config: Dict[str, Any]) -> Tuple[str, Optional[str]]:
+    """Mirror of resolve_board_columns for `board.swimlane` -- falls back
+    to `"milestone"`. Same PURE, never-prints, never-raises contract.
+    """
+    value = (config.get("board") or {}).get("swimlane")
+    ok, reason = validate_board_swimlane(value)
+    if ok:
+        return value, None
+    return "milestone", f"board.swimlane invalid ({reason}) -- falling back to \"milestone\""
 
 
 # --------------------------------------------------------------------------
@@ -863,6 +959,26 @@ def check_repo(data_dir: Path) -> List[str]:
             errors.append(f"config.yml: prefix {raw_prefix!r} must match {PREFIX_RE.pattern}")
         else:
             prefix = str(raw_prefix)
+
+        # PT-38 (ruling § 2): the HARD-error posture -- an explicitly
+        # present but invalid board.columns/board.swimlane value is a lint
+        # error, the opposite posture from load_config's silent fallback
+        # for the SAME bad input (by design, not a discrepancy -- see
+        # load_config's own docstring). An ABSENT key is not an error;
+        # defaulting is fine, so these only run when the key is actually
+        # present in the RAW parsed config (pre-load_config-defaulting).
+        board_val = cfg.get("board")
+        if isinstance(board_val, dict):
+            if "columns" in board_val:
+                ok, reason = validate_board_columns(board_val["columns"])
+                if not ok:
+                    errors.append(f"config.yml: board.columns invalid -- {reason}")
+            if "swimlane" in board_val:
+                ok, reason = validate_board_swimlane(board_val["swimlane"])
+                if not ok:
+                    errors.append(f"config.yml: board.swimlane invalid -- {reason}")
+        elif board_val is not None:
+            errors.append(f"config.yml: board must be a mapping, got {type(board_val).__name__}")
 
     # PT-28: built once per call, only when the prefix validated -- every
     # id-shape check below reads through these four, never rebuilding its
@@ -1739,11 +1855,35 @@ def build_multi_board_payload(roots: List[Root], warnings: List[Dict[str, str]])
     includes it plus any parse_error entries discovered here -- callers
     must use the returned `payload["warnings"]`, not assume their input
     list was mutated in place.
+
+    PT-38 (ruling § 3): also carries `columns`/`swimlane`, the RESOLVED
+    (config-or-default) values -- always present, single-root included (no
+    conditional payload shape, the PT-3 precedent). Sourced from
+    `load_config(roots[0].path)` ONLY -- the PRIMARY root's config governs;
+    a secondary root's own `board.*` config is read (nothing stops a
+    secondary root having one) but never reaches this payload. `roots[0]`
+    is always the primary by `resolve_roots`'s own contract, so no
+    `root.primary` scan is needed here.
+
+    THE stderr print site for an invalid board.columns/board.swimlane
+    (ruling § 2's server posture): `resolve_board_columns`/
+    `resolve_board_swimlane` only return a warning as data; this function
+    -- called fresh on every `/api/board` request, no caching, matching
+    this whole module's stateless-lens design -- is where it actually
+    reaches stderr, one line per field, naming the offending value.
     """
     all_warnings = list(warnings)
     majors: List[Dict[str, Any]] = []
     milestones: List[Dict[str, Any]] = []
     issues: List[Dict[str, Any]] = []
+
+    primary_config = load_config(roots[0].path) if roots else load_config(Path("."))
+    resolved_columns, columns_warning = resolve_board_columns(primary_config)
+    resolved_swimlane, swimlane_warning = resolve_board_swimlane(primary_config)
+    if columns_warning:
+        print(f"cairn: warning: {columns_warning}", file=sys.stderr)
+    if swimlane_warning:
+        print(f"cairn: warning: {swimlane_warning}", file=sys.stderr)
 
     for root in roots:
         try:
@@ -1767,6 +1907,8 @@ def build_multi_board_payload(roots: List[Root], warnings: List[Dict[str, str]])
     return {
         "roots": [{"id": r.id, "label": r.label, "primary": r.primary} for r in roots],
         "warnings": all_warnings,
+        "columns": resolved_columns,
+        "swimlane": resolved_swimlane,
         "majors": majors,
         "milestones": milestones,
         "issues": issues,

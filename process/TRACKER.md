@@ -68,7 +68,9 @@ prefix: PT              # issue ID prefix; derived from the repo name at setup,
 port: 8766              # board server port
 board:
   columns: [backlog, todo, in-progress, in-review, done]
-  swimlane: milestone   # milestone | none
+                        # Kanban columns: which, and in what order.
+  swimlane: milestone   # milestone | none -- the Swimlanes checkbox's
+                        # STARTING value, not a lock
 roots:                  # optional -- sibling repos to aggregate into a
                         # read-only cross-project board. Flat list of paths
                         # relative to the repo root; mapping entries are
@@ -78,7 +80,15 @@ roots:                  # optional -- sibling repos to aggregate into a
   - ../cairn-ui
 ```
 
-Status vocabulary is deliberately **not** configurable in v1 — the skills hard-code the transitions, and a per-project vocabulary would fork them.
+**`board.columns` selects and orders columns; it does not invent statuses (PT-38).** Each entry must be one of the five column statuses — `backlog`, `todo`, `in-progress`, `in-review`, `done` — with no duplicates and at least one entry. `cancelled` is **rejected**: it is owned by the board's Show-cancelled toggle, and two mechanisms producing one column is exactly the drift this spec keeps closing elsewhere. Omitting a status is legitimate and means what it says — a board configured `[todo, in-progress, done]` does not render backlog issues, and (by the [visible-equals-counted rule](#board)) does not count them either.
+
+**`board.swimlane` sets the Swimlanes checkbox's initial state, then gets out of the way.** `none` starts the board flat; the checkbox still works, and a user's toggle owns the setting for the rest of the session. It is a default, not a lock.
+
+**Invalid config is loud in the lint and soft at runtime — deliberately, not inconsistently.** `cairn check` **errors** on a present-but-invalid `board.columns` / `board.swimlane` (an *absent* key is fine — that is what defaults are for), while the server **falls back** to the default and prints one warning line to stderr naming the offending value. A typo in a config file should stop a lint, not stop you seeing your board. Both postures read the same validator, so they cannot disagree about what "invalid" means.
+
+**Scope, so it isn't re-proposed:** the **primary root's** config governs in [multi-root](#multi-root-pt-3-2026-08-21) — secondary roots are read-only lenses and their `board.*` never reaches the payload. And `cairn snapshot` ignores `board.columns` entirely, always rendering the full status order: a snapshot silently missing a project's hidden statuses would be data loss in the one artifact that exists for reading offline. Board view and canonical rendering are different jobs.
+
+Status vocabulary itself is deliberately **not** configurable in v1 — the skills hard-code the transitions, and a per-project vocabulary would fork them. (This is also why `board.columns` is a *selection* from the fixed vocabulary rather than a place to define new statuses: the issue drawer's status picker is built from that same vocabulary, so a project-defined status would be renderable but not settable.)
 
 ### Issue file — complete example
 
@@ -444,7 +454,7 @@ Board edits **rewrite only the frontmatter block**, re-emitted in canonical key 
 ### Board
 
 **Kanban view (`/`)**
-- Five columns (`backlog` → `done`); `cancelled` behind a filter toggle.
+- Columns per [`board.columns`](#configyml) — the five defaults (`backlog` → `done`) unless the project narrows or reorders them; `cancelled` behind a filter toggle.
 - **Card:** ID · title · assignee chip · label chips · milestone chip · `2/3` sub-issue badge (or a `↳ parent` badge on a child) · a blocked chip when the issue has **open** blockers.
 - **Swimlanes by milestone**, collapsible, toggleable to flat. One swimlane dimension only — assignee/label swimlanes are a filter away and don't earn a second layout mode.
 - **Header:** major tabs (concurrent majors are first-class), then per-milestone progress — `1.0 · GA · v1.0.0 · 7/12 done`.

@@ -59,6 +59,10 @@
   var disclosureToken = CairnLogic.disclosureToken;
   var laneSummary = CairnLogic.laneSummary;
   var boardColumns = CairnLogic.boardColumns;
+  // PT-38 (architect's ruling § 4): resolveColumns is the payload-columns
+  // -> active-base-list step activeColumns() now threads through before
+  // boardColumns's own Show-cancelled append -- see activeColumns() below.
+  var resolveColumns = CairnLogic.resolveColumns;
   // PT-30: the localStorage schema's pure half -- board.js supplies the
   // three guarded primitives that actually touch the `localStorage`
   // global (readViewState/writeViewState/clearViewState, below); every
@@ -115,6 +119,10 @@
     currentMajor: "all",
     filters: { text: "", milestone: "", assignee: "", label: "", repo: "" },
     showCancelled: false,
+    // PT-38: the pre-fetch default (first paint, before init()'s
+    // apiGetBoard() resolves) -- overwritten once by payload.swimlane at
+    // the initial load (see init()), then owned entirely by the
+    // Swimlanes checkbox for the rest of the session.
     swimlanesOn: true,
     sortKey: "id",
     sortDir: 1,
@@ -671,8 +679,14 @@
   // of the five call sites below computes this SAME function of the SAME
   // input, so "counted iff rendered" holds by construction (AC2) rather
   // than as a convention someone has to keep re-deriving correctly.
+  // PT-38 (architect's ruling § 4): now threads resolveColumns(payload
+  // columns) as boardColumns's required first argument, instead of
+  // boardColumns reading module-level BOARD_COLUMNS directly -- a
+  // board-config'd column subset flows through the SAME single read path
+  // every existing call site already goes through, no new call sites to
+  // audit.
   function activeColumns() {
-    return boardColumns(state.showCancelled);
+    return boardColumns(resolveColumns(state.board && state.board.columns), state.showCancelled);
   }
 
   function columnsFor(issues) {
@@ -2002,6 +2016,17 @@
     wirePullToRefresh();
     apiGetBoard().then(function (data) {
       state.board = data;
+      // PT-38 (architect's ruling § 6): swimlanesOn's payload-driven
+      // initial value -- ONLY here, the one-time initial-load path, never
+      // in refreshBoardSilently's recurring poll/SSE-refresh path. Config
+      // sets the STARTING value; the Swimlanes checkbox owns it for the
+      // rest of the session (state.swimlanesOn = e.target.checked, below)
+      // -- re-deriving from every subsequent payload would silently
+      // overwrite a user's manual toggle the next time the board polls.
+      // An older server's payload (no `swimlane` key) reads `undefined`,
+      // and `undefined !== "none"` is `true` -- the pre-PT-38 hardcoded
+      // default, preserved for forward/backward compat.
+      state.swimlanesOn = data.swimlane !== "none";
       // PT-30: the ONE call site on the board-load path -- restoreViewStateOnce
       // is a no-op on every subsequent apiGetBoard resolution (refreshBoardSilently's
       // 4s poll, SSE push, focus/visibilitychange), guarded by state.viewStateRestored.

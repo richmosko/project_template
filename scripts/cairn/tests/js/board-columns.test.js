@@ -1,5 +1,20 @@
 "use strict";
 
+// PT-38 (architect's ruling, temp/arch-ruling-pt38-board-columns.md § 4):
+// boardColumns gains `columns` as a REQUIRED FIRST argument (no default) --
+// `boardColumns(showCancelled)` becomes `boardColumns(columns, showCancelled)`.
+// Every PT-35 call site below is updated to thread `CairnLogic.BOARD_COLUMNS`
+// (or `raw.BOARD_COLUMNS` for the raw-realm identity checks) explicitly as
+// that first argument -- a mechanical argument-threading diff only, per this
+// file's own PT-35-era convention (see the "lane-summary.test.js edited
+// SEPARATELY" note below, now itself superseded by the same principle one
+// ruling later): the PT-35 assertions these tests pin are UNCHANGED, only
+// the call shape moves. Expected RED against the current one-argument
+// boardColumns(showCancelled) until implementation-lead's PT-38 slice lands
+// -- a stray second positional argument is silently ignored by the old
+// signature (showCancelled binds to the ARRAY, always truthy), so these
+// calls fail with wrong-shaped results, not a clean "not a function" error.
+//
 // PT-35 (architect's ruling @ 189dbf4): the conditional sixth "cancelled"
 // column. boardColumns(showCancelled) is the pure derivation (board-logic.js
 // § 1); laneSummary's signature changes from `laneSummary(issues)` to
@@ -68,27 +83,27 @@ function loadRawCairnLogic() {
 test("1: boardColumns(false) IS BOARD_COLUMNS -- reference identity, not a copy (§3, raw-realm check)", () => {
   var raw = loadRawCairnLogic();
   assert.strictEqual(
-    raw.boardColumns(false),
+    raw.boardColumns(raw.BOARD_COLUMNS, false),
     raw.BOARD_COLUMNS,
     "boardColumns(false) must return the SAME array object as BOARD_COLUMNS, not an equal copy -- this identity is AC3's structural enforcement"
   );
 });
 
 test("2: boardColumns(true) deep-equals the six columns, cancelled LAST, mirroring cairn.py:1277", () => {
-  assert.deepEqual(CairnLogic.boardColumns(true), [
+  assert.deepEqual(CairnLogic.boardColumns(CairnLogic.BOARD_COLUMNS, true), [
     "backlog", "todo", "in-progress", "in-review", "done", "cancelled",
   ]);
 });
 
 test("3: boardColumns(true) does not mutate BOARD_COLUMNS", () => {
-  CairnLogic.boardColumns(true);
+  CairnLogic.boardColumns(CairnLogic.BOARD_COLUMNS, true);
   assert.deepEqual(CairnLogic.BOARD_COLUMNS, ["backlog", "todo", "in-progress", "in-review", "done"]);
 });
 
 test("4: boardColumns(true) returns a FRESH array on each call, not a cached/memoized one (raw-realm check)", () => {
   var raw = loadRawCairnLogic();
-  var a = raw.boardColumns(true);
-  var b = raw.boardColumns(true);
+  var a = raw.boardColumns(raw.BOARD_COLUMNS, true);
+  var b = raw.boardColumns(raw.BOARD_COLUMNS, true);
   assert.notEqual(a, b, "two separate calls must not return the identical array object -- a memoized 'true' branch would violate this without violating deepEqual");
   assert.deepEqual(a, b, "sanity: they must still be equal in VALUE");
 });
@@ -118,7 +133,7 @@ test("5: laneSummary throws TypeError when columns is missing or not an array (�
 
 test("6: laneSummary(issues, boardColumns(false)) excludes cancelled -- PT-31 behavior, unchanged", () => {
   var issues = [issue("PT-1", "cancelled"), issue("PT-2", "done")];
-  var summary = CairnLogic.laneSummary(issues, CairnLogic.boardColumns(false));
+  var summary = CairnLogic.laneSummary(issues, CairnLogic.boardColumns(CairnLogic.BOARD_COLUMNS, false));
   assert.equal(summary.total, 1);
   assert.deepEqual(summary.byStatus, [{ status: "done", count: 1 }]);
 });
@@ -130,7 +145,7 @@ test("7: laneSummary(issues, boardColumns(true)) includes cancelled, entry LAST 
     issue("PT-3", "todo"),
     issue("PT-4", "cancelled"),
   ];
-  var summary = CairnLogic.laneSummary(issues, CairnLogic.boardColumns(true));
+  var summary = CairnLogic.laneSummary(issues, CairnLogic.boardColumns(CairnLogic.BOARD_COLUMNS, true));
   assert.equal(summary.total, 4, "all four issues are column-backed once cancelled is in the set");
   assert.deepEqual(summary.byStatus, [
     { status: "todo", count: 1 },
@@ -147,7 +162,7 @@ test("8: chip-sum invariant (total === sum of byStatus) holds for BOTH column se
     issue("PT-4", "cancelled"),
     issue("PT-5", "cancelled"),
   ];
-  [CairnLogic.boardColumns(false), CairnLogic.boardColumns(true)].forEach((columns) => {
+  [CairnLogic.boardColumns(CairnLogic.BOARD_COLUMNS, false), CairnLogic.boardColumns(CairnLogic.BOARD_COLUMNS, true)].forEach((columns) => {
     var summary = CairnLogic.laneSummary(issues, columns);
     var chipSum = summary.byStatus.reduce((sum, entry) => sum + entry.count, 0);
     assert.equal(summary.total, chipSum, `total must equal the chip sum for columns=${JSON.stringify(columns)}`);
@@ -156,7 +171,7 @@ test("8: chip-sum invariant (total === sum of byStatus) holds for BOTH column se
 
 test("9: zero cancelled issues + boardColumns(true) -- NO {status:'cancelled', count:0} entry (§4, omit-zero applies to the new column too)", () => {
   var issues = [issue("PT-1", "todo"), issue("PT-2", "done")];
-  var summary = CairnLogic.laneSummary(issues, CairnLogic.boardColumns(true));
+  var summary = CairnLogic.laneSummary(issues, CairnLogic.boardColumns(CairnLogic.BOARD_COLUMNS, true));
   assert.deepEqual(summary.byStatus, [
     { status: "todo", count: 1 },
     { status: "done", count: 1 },
@@ -170,7 +185,7 @@ test("9: zero cancelled issues + boardColumns(true) -- NO {status:'cancelled', c
 
 test("10: a status in NEITHER set (e.g. 'archived') is excluded from total under boardColumns(true) too -- the rule is column-backed, not not-cancelled", () => {
   var issues = [issue("PT-1", "archived"), issue("PT-2", "done")];
-  var summary = CairnLogic.laneSummary(issues, CairnLogic.boardColumns(true));
+  var summary = CairnLogic.laneSummary(issues, CairnLogic.boardColumns(CairnLogic.BOARD_COLUMNS, true));
   assert.equal(summary.total, 1, "the 'archived' issue is backed by neither the five base columns nor cancelled");
   assert.deepEqual(summary.byStatus, [{ status: "done", count: 1 }]);
 });
