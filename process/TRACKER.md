@@ -223,6 +223,12 @@ health: on-track       # on-track | at-risk | off-track
 Founding major line. Starts at MAJOR 0; `1.0` is the GA-designated milestone.
 ```
 
+**`<PREFIX>-V<N>` names the line by the major version it culminates in (ruled 2026-08-23, PT-41).** A line is `V1` from its very first `0.x` commit — the name states where it is *going*, not where it is. `PT-V1` shipping `v0.6.2` is therefore correct and expected, not a mislabel: `V1` is precisely "the line whose GA milestone tags `v1.0.0`", and `0.x` releases are its pre-GA scope chunks (semver's reserved no-compatibility-promise zone — [WORKFLOW.md → Versioning scheme](WORKFLOW.md#versioning-scheme)).
+
+Two alternatives were considered and rejected. **`PT-V0` now, renamed to `PT-V1` at GA** makes the id honest at a glance, but pays a full id migration *twice* — including one at the most delicate moment in a line's life — destroys the stability that makes ids safe to reference from every milestone file, and leaves a line named `V0` cutting `1.0.0`, contradicting the GA convention. **`PT-V1.x`** reads as a range but needs a literal `x` inside an id shape, sits one character from a development-milestone id (`PT-1.0`), and is arguably *less* accurate — the `V1` line contains every `0.x` release too, not only the `1.x` ones. Keeping the id stable and defining it in one sentence beats renaming the thing every other file points at.
+
+**Exactly one milestone per major may carry `ga: true`, and its `target_tag` must be `v<N>.0.0`** for that major's `N`. `cairn check` enforces both. **Zero is legal** — a young major that hasn't designated GA yet is a normal state, not an error; the designation is a planning act (WORKFLOW.md → GA is designated at planning time), and a lint that demanded it would fire on every repo the day it was created.
+
 ### Milestone / major status vocabulary
 
 **One enum for both, sharing the issue cycle's `done` (ruled 2026-08-23, PT-39):**
