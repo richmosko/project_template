@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Board: trackpad-overscroll adapter for pull-to-refresh |
-| Issue | PT-33 |
+| Feature | Board: cancelled column when Show-cancelled is on |
+| Issue | PT-35 |
 | Milestone | PT-0.6.2 |
-| Branch | `feature/pt-33-trackpad-adapter` |
+| Branch | `feature/pt-35-cancelled-column` |
 | Started | 2026-08-23 |
-| Goal | Wheel adapter on PT-32's distance-based state machine; momentum-decay heuristic designed and red-tested against flick-to-top false positives |
-| Status | In Progress — pre-approved through /merge-pr (Mosko); v0.6.2 tag = Mosko ping at milestone close |
+| Goal | Conditional sixth column renders cancelled issues in kanban; counts consistent; zero change with Show-cancelled off — closes PT-0.6.2 |
+| Status | In Progress — pre-approved through /merge-pr (Mosko); milestone close + v0.6.2 ping at merge |
 
 ## Releases
 
