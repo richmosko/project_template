@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-37-status-labels-fallback` |
 | Started | 2026-08-23 |
 | Goal | Column headers degrade gracefully for statuses missing from STATUS_LABELS, mirroring the chip fallback |
-| Status | In Progress |
+| Status | In Review — [PR #94](https://github.com/richmosko/project_template/pull/94) |
 
 ## Releases
 
