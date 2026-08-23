@@ -37,10 +37,15 @@
   var blocksOf = CairnLogic.blocksOf;
   var openBlockers = CairnLogic.openBlockers;
   // PT-29: BOARD_COLUMNS relocated into board-logic.js (architect's
-  // ruling § 4) as the single canonical column-order list -- laneSummary
-  // iterates the SAME array makeColumn's column set is built from, not a
-  // second board.js-local copy.
-  var BOARD_COLUMNS = CairnLogic.BOARD_COLUMNS;
+  // ruling § 4) as the single canonical column-order list. PT-35 (closing
+  // review finding): the bare BOARD_COLUMNS alias that used to live here is
+  // deleted -- board.js has no direct consumer left (columnsFor/laneSummary
+  // both go through activeColumns()/boardColumns() now), and keeping the
+  // alias around would let a future call site reach for the raw five-column
+  // list and pass it where activeColumns() belongs, sailing straight past
+  // laneSummary's Array.isArray guard (JC1 catches a MISSING columns
+  // argument, not a WRONG one) and silently reproducing the undercount this
+  // issue exists to fix.
   var laneExpanded = CairnLogic.laneExpanded;
   var nextExpandedLanes = CairnLogic.nextExpandedLanes;
   var disclosureToken = CairnLogic.disclosureToken;
