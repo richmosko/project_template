@@ -518,16 +518,54 @@ var CairnLogic = (function () {
     return expanded ? "▼" : "▶";
   }
 
-  // PT-29 (architect's ruling § 1/4): the collapsed-card status-breakdown
-  // -- `{ total, byStatus: [{status, count}] }`. `total` is
-  // `issues.length`, unchanged from the pre-existing `.swimlane-count`
-  // semantics. `byStatus` iterates BOARD_COLUMNS in order and OMITS a
-  // zero-count status entirely (never a `{status, count: 0}` entry) --
-  // an issue whose status isn't one of BOARD_COLUMNS still counts toward
-  // `total` but contributes no byStatus entry (QA's pinned contract,
-  // 2026-08-22: byStatus enumerates known columns only, it does not
-  // discover statuses from the data).
-  function laneSummary(issues) {
+  // PT-35 (architect's ruling § 1): the pure derivation of the ACTIVE
+  // column set from the Show-cancelled checkbox. BOARD_COLUMNS itself stays
+  // exactly as it is -- never mutated, never a second exported constant
+  // (BOARD_COLUMNS_WITH_CANCELLED was considered and rejected: two exported
+  // lists is the drift class PT-22/PT-29 exist to close).
+  //
+  // showCancelled:false returns BOARD_COLUMNS ITSELF -- the SAME array
+  // object, not a copy (§ 3's structural enforcement of AC3 "Show-cancelled
+  // off = zero behavioral or DOM change": the off path threads the
+  // identical array through the identical loops the pre-PT-35 code did,
+  // there is no code path in which "off" and "before this change" CAN
+  // differ). Pinned by board-columns.test.js item 1 with a raw-realm
+  // strictEqual, not deepEqual -- a deepEqual would pass for a
+  // well-meaning `.slice()` copy, silently degrading the guarantee from
+  // "identical" to "equal today".
+  //
+  // showCancelled:true returns a FRESH array each call (item 4) -- do not
+  // memoize/cache the true branch; the cost is one six-element allocation
+  // per call, paid only when the flag is on (JC4). Cancelled is appended
+  // LAST, mirroring cairn.py:1277's `list(DEFAULT_COLUMNS) + ["cancelled"]`
+  // rather than inventing a second ordering convention in this language.
+  function boardColumns(showCancelled) {
+    return showCancelled ? BOARD_COLUMNS.concat(["cancelled"]) : BOARD_COLUMNS;
+  }
+
+  // PT-29 (architect's ruling § 1/4), signature changed by PT-35 (ruling
+  // § 2): the collapsed-card status-breakdown -- `{ total, byStatus:
+  // [{status, count}] }`. `columns` is now an EXPLICIT, REQUIRED second
+  // argument -- board.js's activeColumns() -- rather than always reading
+  // module-level BOARD_COLUMNS, so a lane's count can include the
+  // conditional "cancelled" column when Show-cancelled is on. `byStatus`
+  // iterates `columns` in order and OMITS a zero-count status entirely
+  // (never a `{status, count: 0}` entry) -- a status not present in
+  // `columns` still isn't counted toward `total` (see PT-31 below); the
+  // rule is "column-backed", not "not-cancelled".
+  //
+  // PT-35 (ruling § 2, JC1): `columns` has NO DEFAULT. A call site that
+  // forgets the argument THROWS a TypeError rather than silently counting
+  // five columns while the board renders six -- an undercount is exactly
+  // the defect PT-31 shipped a fix for and exactly what AC2 forbids, and a
+  // default would make it invisible until someone counted cards by hand.
+  // Loud-and-total over quiet-and-wrong: every call site is in this repo,
+  // the failure is a programmer error reachable only at development time,
+  // and the node suite catches a missing argument on the first run.
+  function laneSummary(issues, columns) {
+    if (!Array.isArray(columns)) {
+      throw new TypeError("laneSummary: `columns` is required — pass activeColumns()");
+    }
     var list = issues || [];
     var counts = Object.create(null);
     list.forEach(function (issue) {
@@ -537,7 +575,7 @@ var CairnLogic = (function () {
     });
     var byStatus = [];
     var total = 0;
-    BOARD_COLUMNS.forEach(function (status) {
+    columns.forEach(function (status) {
       var count = counts[status] || 0;
       if (count > 0) {
         byStatus.push({ status: status, count: count });
@@ -547,13 +585,16 @@ var CairnLogic = (function () {
     // PT-31 (architect's triage ruling, item 1 -- supersedes PT-29's
     // `total: list.length`): total is the SUM of byStatus, i.e. only
     // column-backed statuses count. Measured, not assumed: columnsFor
-    // builds columns for BOARD_COLUMNS only, so an issue whose status
-    // (e.g. "cancelled") has no column renders in NO column, expanded or
-    // collapsed -- issues.length let an expanded lane's header read "5"
-    // over four visible cards with Show-cancelled on. One source
-    // (byStatus) now backs both the header count and the collapsed-lane
-    // chips, so "chips sum to total" holds by construction, not as a
-    // second invariant someone has to keep in sync.
+    // builds columns for the passed `columns` set only, so an issue whose
+    // status (e.g. "cancelled", when the flag is off) has no column
+    // renders in NO column, expanded or collapsed -- issues.length let an
+    // expanded lane's header read "5" over four visible cards with
+    // Show-cancelled on. One source (byStatus) now backs both the header
+    // count and the collapsed-lane chips, so "chips sum to total" holds by
+    // construction, not as a second invariant someone has to keep in sync.
+    // PT-35 preserves this rule rather than reverting it: cancelled is now
+    // column-backed when `columns` includes it, so the same rule yields a
+    // different, still-correct answer.
     return { total: total, byStatus: byStatus };
   }
 
@@ -872,6 +913,7 @@ var CairnLogic = (function () {
     laneExpanded: laneExpanded,
     nextExpandedLanes: nextExpandedLanes,
     disclosureToken: disclosureToken,
+    boardColumns: boardColumns,
     laneSummary: laneSummary,
     VIEW_STATE_VERSION: VIEW_STATE_VERSION,
     VIEW_STATE_MAX_LANES: VIEW_STATE_MAX_LANES,
