@@ -52,7 +52,7 @@ test("BOARD_COLUMNS is exported from CairnLogic, relocated verbatim from board.j
 });
 
 test("laneSummary: empty input yields zero total and an empty byStatus list", () => {
-  var summary = CairnLogic.laneSummary([]);
+  var summary = CairnLogic.laneSummary([], CairnLogic.BOARD_COLUMNS);
   assert.deepEqual(summary, { total: 0, byStatus: [] });
 });
 
@@ -62,12 +62,12 @@ test("laneSummary: total counts every issue when every status is column-backed",
   // this case still passes unchanged since all three statuses here ARE
   // column-backed, which is the point -- the common case is unaffected.
   var issues = [issue("PT-1", "todo"), issue("PT-2", "done"), issue("PT-3", "backlog")];
-  assert.equal(CairnLogic.laneSummary(issues).total, 3);
+  assert.equal(CairnLogic.laneSummary(issues, CairnLogic.BOARD_COLUMNS).total, 3);
 });
 
 test("laneSummary: byStatus follows board-column order, not input order", () => {
   var issues = [issue("PT-1", "done"), issue("PT-2", "backlog"), issue("PT-3", "in-progress")];
-  var summary = CairnLogic.laneSummary(issues);
+  var summary = CairnLogic.laneSummary(issues, CairnLogic.BOARD_COLUMNS);
   assert.deepEqual(
     summary.byStatus.map(function (s) { return s.status; }),
     ["backlog", "in-progress", "done"]
@@ -76,7 +76,7 @@ test("laneSummary: byStatus follows board-column order, not input order", () => 
 
 test("laneSummary: a status with zero issues is omitted entirely, never a count:0 entry", () => {
   var issues = [issue("PT-1", "todo"), issue("PT-2", "todo")];
-  var summary = CairnLogic.laneSummary(issues);
+  var summary = CairnLogic.laneSummary(issues, CairnLogic.BOARD_COLUMNS);
   assert.deepEqual(summary.byStatus, [{ status: "todo", count: 2 }]);
 });
 
@@ -89,7 +89,7 @@ test("laneSummary: counts are correct per status", () => {
     issue("PT-5", "in-review"),
     issue("PT-6", "in-review"),
   ];
-  var summary = CairnLogic.laneSummary(issues);
+  var summary = CairnLogic.laneSummary(issues, CairnLogic.BOARD_COLUMNS);
   assert.deepEqual(summary.byStatus, [
     { status: "todo", count: 2 },
     { status: "in-review", count: 3 },
@@ -105,7 +105,7 @@ test("laneSummary: a status value not in BOARD_COLUMNS is excluded from total to
   // to NEITHER -- an expanded lane's header count must equal what's
   // actually rendered, and a cancelled issue renders in no column.
   var issues = [issue("PT-1", "cancelled"), issue("PT-2", "done")];
-  var summary = CairnLogic.laneSummary(issues);
+  var summary = CairnLogic.laneSummary(issues, CairnLogic.BOARD_COLUMNS);
   assert.equal(summary.total, 1, "total must exclude the cancelled issue -- it renders in no column, expanded or collapsed");
   assert.deepEqual(summary.byStatus, [{ status: "done", count: 1 }], "byStatus must not invent an entry for a non-column status");
 });
@@ -124,7 +124,7 @@ test("laneSummary: total is exactly the sum of byStatus counts -- the chip-sum-e
     issue("PT-4", "cancelled"),
     issue("PT-5", "cancelled"),
   ];
-  var summary = CairnLogic.laneSummary(issues);
+  var summary = CairnLogic.laneSummary(issues, CairnLogic.BOARD_COLUMNS);
   var chipSum = summary.byStatus.reduce(function (sum, entry) { return sum + entry.count; }, 0);
   assert.equal(summary.total, chipSum, "total must equal the sum of the chips -- one source, not two that must agree");
   assert.equal(summary.total, 3, "sanity: 3 column-backed issues (2 todo + 1 done), 2 cancelled excluded");
@@ -132,6 +132,6 @@ test("laneSummary: total is exactly the sum of byStatus counts -- the chip-sum-e
 
 test("laneSummary: an all-cancelled lane has total 0 and an empty byStatus, not a phantom count", () => {
   var issues = [issue("PT-1", "cancelled"), issue("PT-2", "cancelled")];
-  var summary = CairnLogic.laneSummary(issues);
+  var summary = CairnLogic.laneSummary(issues, CairnLogic.BOARD_COLUMNS);
   assert.deepEqual(summary, { total: 0, byStatus: [] });
 });

@@ -37,14 +37,20 @@
   var blocksOf = CairnLogic.blocksOf;
   var openBlockers = CairnLogic.openBlockers;
   // PT-29: BOARD_COLUMNS relocated into board-logic.js (architect's
-  // ruling § 4) as the single canonical column-order list -- laneSummary
-  // iterates the SAME array makeColumn's column set is built from, not a
-  // second board.js-local copy.
-  var BOARD_COLUMNS = CairnLogic.BOARD_COLUMNS;
+  // ruling § 4) as the single canonical column-order list. PT-35 (closing
+  // review finding): the bare BOARD_COLUMNS alias that used to live here is
+  // deleted -- board.js has no direct consumer left (columnsFor/laneSummary
+  // both go through activeColumns()/boardColumns() now), and keeping the
+  // alias around would let a future call site reach for the raw five-column
+  // list and pass it where activeColumns() belongs, sailing straight past
+  // laneSummary's Array.isArray guard (JC1 catches a MISSING columns
+  // argument, not a WRONG one) and silently reproducing the undercount this
+  // issue exists to fix.
   var laneExpanded = CairnLogic.laneExpanded;
   var nextExpandedLanes = CairnLogic.nextExpandedLanes;
   var disclosureToken = CairnLogic.disclosureToken;
   var laneSummary = CairnLogic.laneSummary;
+  var boardColumns = CairnLogic.boardColumns;
   // PT-30: the localStorage schema's pure half -- board.js supplies the
   // three guarded primitives that actually touch the `localStorage`
   // global (readViewState/writeViewState/clearViewState, below); every
@@ -644,8 +650,22 @@
     return col;
   }
 
+  // PT-35 (architect's ruling § 1): the SINGLE read path for the active
+  // column set, same pattern PT-29 established for laneExpanded/
+  // state.expandedLanes. A FUNCTION of state.showCancelled, not a
+  // render-scoped cached variable (JC4) -- a `var activeColumns` assigned
+  // once at the top of render() is one derivation today, but it is also a
+  // stale-cache surface and a rule ("remember to set this at the top of
+  // every render path") a new render path can quietly violate. Every one
+  // of the five call sites below computes this SAME function of the SAME
+  // input, so "counted iff rendered" holds by construction (AC2) rather
+  // than as a convention someone has to keep re-deriving correctly.
+  function activeColumns() {
+    return boardColumns(state.showCancelled);
+  }
+
   function columnsFor(issues) {
-    var columns = BOARD_COLUMNS;
+    var columns = activeColumns();
     var wrap = document.createElement("div");
     wrap.className = "board";
     columns.forEach(function (status) {
@@ -721,9 +741,13 @@
     // backs both the header count and the collapsed chips, so they
     // cannot disagree by construction -- total is the sum of byStatus
     // (column-backed statuses only), not issues.length, since an issue
-    // whose status has no BOARD_COLUMNS entry (e.g. "cancelled") renders
-    // in no column, expanded or collapsed.
-    var summary = laneSummary(issues);
+    // whose status has no active-column entry (e.g. "cancelled" when
+    // Show-cancelled is off) renders in no column, expanded or collapsed.
+    // PT-35 (ruling § 1/§6): activeColumns() threaded through explicitly --
+    // laneSummary's columns argument is required (no default), so this
+    // lane's count includes the sixth "cancelled" column exactly when the
+    // board itself renders it.
+    var summary = laneSummary(issues, activeColumns());
     var countSpan = document.createElement("span");
     countSpan.className = "swimlane-count";
     countSpan.textContent = summary.total;
@@ -808,12 +832,15 @@
     header.appendChild(idSpan);
 
     // PT-31 (architect's triage ruling, item 1): same fix as
-    // milestoneLaneEl's swimlane-count -- laneSummary(issues).total,
+    // milestoneLaneEl's swimlane-count -- laneSummary(issues, ...).total,
     // not issues.length, so this section's count also excludes issues
-    // that render in no column (e.g. "cancelled" with Show-cancelled on).
+    // that render in no active column. PT-35: activeColumns() threaded
+    // through the same way, so this count includes "cancelled" exactly
+    // when Show-cancelled is on -- both the swimlane sub-path (above) and
+    // this flat/repo-section sub-path get the sixth column identically.
     var countSpan = document.createElement("span");
     countSpan.className = "repo-group-count";
-    countSpan.textContent = laneSummary(issues).total;
+    countSpan.textContent = laneSummary(issues, activeColumns()).total;
     header.appendChild(countSpan);
 
     section.appendChild(header);
