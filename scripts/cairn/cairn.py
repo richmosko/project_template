@@ -1281,7 +1281,7 @@ def build_snapshot_markdown(data_dir: Path, generated_at: Optional[str] = None) 
 
     lines.append("### Issues")
     lines.append("")
-    status_order = STATUS_ORDER
+    status_order = list(STATUS_ORDER)
     if issues:
         for status in status_order:
             group = sorted(
