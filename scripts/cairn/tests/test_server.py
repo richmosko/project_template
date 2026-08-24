@@ -275,9 +275,9 @@ class PT10IssuePathFieldTests(ServerTestCase):
     fixture copies live under a temp dir with no "process/" segment
     (helpers.copy_fixture_data_dir names the copy just "cairn") -- any
     implementation that's correct in production will still produce a
-    string ending in ".../issues/PT-1.md" or ".../archive/PT-9.md" here.
-    PT-9 is the fixture's pre-archived issue (tests/fixtures/process/cairn/
-    archive/PT-9.md).
+    string ending in ".../issues/PT-1.md" or ".../archive/issues/PT-9.md"
+    here. PT-9 is the fixture's pre-archived issue (tests/fixtures/process/
+    cairn/archive/issues/PT-9.md -- PT-50).
     """
 
     def test_active_issue_path_names_the_issues_subdir(self):
@@ -294,7 +294,7 @@ class PT10IssuePathFieldTests(ServerTestCase):
         payload = json.loads(resp.read())
         self.assertIn("path", payload)
         self.assertTrue(
-            payload["path"].replace("\\", "/").endswith("archive/PT-9.md"),
+            payload["path"].replace("\\", "/").endswith("archive/issues/PT-9.md"),
             payload["path"],
         )
 

@@ -122,10 +122,32 @@ class WatchedSubdirsTests(unittest.TestCase):
         self.assertIn("archive/milestones", cairn._WATCHED_SUBDIRS)
         self.assertIn("archive/majors", cairn._WATCHED_SUBDIRS)
 
-    def test_watched_subdirs_still_includes_the_original_four(self):
+    def test_watched_subdirs_still_includes_majors_milestones_issues(self):
         # Regression guard -- this is an ADDITIVE change (ruling §4).
-        for sub in ("majors", "milestones", "issues", "archive"):
+        #
+        # PT-50: bare "archive" (issues, legacy layout) is deliberately no
+        # longer a literal _WATCHED_SUBDIRS entry -- archived-issue
+        # watching (BOTH layouts) moved into scan_data_dir's own
+        # archived_issue_paths() call (§2 site 8), the single read site
+        # every other archived-issue consumer routes through. Functional
+        # coverage of both layouts is pinned below, at the scan_data_dir
+        # level, not by asserting on this tuple's literal contents.
+        for sub in ("majors", "milestones", "issues"):
             self.assertIn(sub, cairn._WATCHED_SUBDIRS)
+
+    def test_scan_data_dir_still_picks_up_a_legacy_flat_archived_issue(self):
+        data_dir = helpers.make_empty_tmp_dir(self)
+        (data_dir / "archive").mkdir(parents=True)
+        (data_dir / "archive" / "PT-9.md").write_text("content", encoding="utf-8")
+        snapshot = cairn.scan_data_dir(data_dir)
+        self.assertIn("archive/PT-9.md", snapshot)
+
+    def test_scan_data_dir_picks_up_a_new_layout_archived_issue(self):
+        data_dir = helpers.make_empty_tmp_dir(self)
+        (data_dir / "archive" / "issues").mkdir(parents=True)
+        (data_dir / "archive" / "issues" / "PT-9.md").write_text("content", encoding="utf-8")
+        snapshot = cairn.scan_data_dir(data_dir)
+        self.assertIn("archive/issues/PT-9.md", snapshot)
 
 
 class ArchiveMilestoneEngineTests(unittest.TestCase):
@@ -168,8 +190,8 @@ class ArchiveMilestoneEngineTests(unittest.TestCase):
         cairn.archive_milestone(data_dir, "PT-A")
         self.assertFalse((data_dir / "issues" / "PT-1.md").exists())
         self.assertFalse((data_dir / "issues" / "PT-2.md").exists())
-        self.assertTrue((data_dir / "archive" / "PT-1.md").exists())
-        self.assertTrue((data_dir / "archive" / "PT-2.md").exists())
+        self.assertTrue((data_dir / "archive" / "issues" / "PT-1.md").exists())
+        self.assertTrue((data_dir / "archive" / "issues" / "PT-2.md").exists())
 
     def test_successful_archive_does_not_touch_an_unrelated_milestones_issues(self):
         data_dir = make_repo(self)
@@ -255,9 +277,9 @@ class ArchiveMajorEngineTests(unittest.TestCase):
         self.assertTrue((data_dir / "archive" / "majors" / "PT-V1.md").exists())
         self.assertTrue((data_dir / "archive" / "milestones" / "PT-A.md").exists())
         self.assertTrue((data_dir / "archive" / "milestones" / "PT-1.0.md").exists())
-        self.assertTrue((data_dir / "archive" / "PT-1.md").exists())
-        self.assertTrue((data_dir / "archive" / "PT-2.md").exists())
-        self.assertTrue((data_dir / "archive" / "PT-3.md").exists())
+        self.assertTrue((data_dir / "archive" / "issues" / "PT-1.md").exists())
+        self.assertTrue((data_dir / "archive" / "issues" / "PT-2.md").exists())
+        self.assertTrue((data_dir / "archive" / "issues" / "PT-3.md").exists())
 
     def test_dry_run_writes_nothing(self):
         data_dir = make_repo(self)
@@ -391,7 +413,7 @@ class DoneBeforeSkipNonDoneMilestoneTests(unittest.TestCase):
             (data_dir / "issues" / "PT-3.md").exists(),
             "an issue under a non-done milestone must be SKIPPED (stays in issues/), not archived",
         )
-        self.assertFalse((data_dir / "archive" / "PT-3.md").exists())
+        self.assertFalse((data_dir / "archive" / "issues" / "PT-3.md").exists())
 
     def test_done_before_still_archives_issues_under_a_done_milestone(self):
         # Regression guard -- the existing behaviour for the normal case
@@ -405,7 +427,7 @@ class DoneBeforeSkipNonDoneMilestoneTests(unittest.TestCase):
         )
         result = run_cairn(["archive", "--done-before", "2026-08-01", "--data-dir", str(data_dir)])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertTrue((data_dir / "archive" / "PT-1.md").exists())
+        self.assertTrue((data_dir / "archive" / "issues" / "PT-1.md").exists())
 
     def test_done_before_still_archives_a_null_milestone_issue_unaffected(self):
         # An issue with no milestone at all has no precondition to check
@@ -419,7 +441,7 @@ class DoneBeforeSkipNonDoneMilestoneTests(unittest.TestCase):
         )
         result = run_cairn(["archive", "--done-before", "2026-08-01", "--data-dir", str(data_dir)])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertTrue((data_dir / "archive" / "PT-5.md").exists())
+        self.assertTrue((data_dir / "archive" / "issues" / "PT-5.md").exists())
 
 
 if __name__ == "__main__":

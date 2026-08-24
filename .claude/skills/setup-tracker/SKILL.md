@@ -34,7 +34,7 @@ Validate a custom answer against `^[A-Z]{2,5}$`.
 ### 2. Scaffold the data directory
 
 ```bash
-mkdir -p process/cairn/{issues,archive,milestones,majors}
+mkdir -p process/cairn/{issues,archive/issues,milestones,majors}
 ```
 
 Write `process/cairn/config.yml` (committed — no secrets; every clone must agree on the prefix):

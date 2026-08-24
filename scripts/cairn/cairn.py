@@ -860,9 +860,33 @@ def _dir_glob(d: Path) -> List[Path]:
     return sorted(d.glob("*.md")) if d.exists() else []
 
 
+def archived_issue_paths(data_dir: Path) -> List[Path]:
+    """Every archived issue .md file, BOTH layouts -- PT-50's destination
+    `archive/issues/` (listed FIRST: in a half-migrated tree the new
+    location is authoritative, same precedent as find_issue_path/
+    _RECORD_SEARCH_SUBDIRS below) and the legacy flat `archive/*.md`
+    (transition-only -- PT-50 §4: reads accept both layouts, writes only
+    ever produce the new one, `cairn check` errors on anything still at
+    the legacy path). `_dir_glob` is non-recursive, so this never touches
+    `archive/milestones/` or `archive/majors/`.
+
+    THE single point every archived-issue READ site routes through (§3):
+    the dual-read has exactly one deletion point, for the follow-up MINOR
+    that removes the legacy leg (see the follow-up issue filed alongside
+    PT-50).
+    """
+    data_dir = Path(data_dir)
+    return _dir_glob(data_dir / "archive" / "issues") + _dir_glob(data_dir / "archive")
+
+
 def find_issue_path(data_dir: Path, issue_id: str) -> Optional[Path]:
     data_dir = Path(data_dir)
     candidate = data_dir / "issues" / f"{issue_id}.md"
+    if candidate.exists():
+        return candidate
+    # PT-50: new layout checked before legacy -- in a half-migrated tree
+    # the destination is authoritative (§3).
+    candidate = data_dir / "archive" / "issues" / f"{issue_id}.md"
     if candidate.exists():
         return candidate
     candidate = data_dir / "archive" / f"{issue_id}.md"
@@ -875,7 +899,12 @@ def find_issue_path(data_dir: Path, issue_id: str) -> Optional[Path]:
 # an id against, in precedence order. Issues first (the common case, and
 # the shape find_issue_path already optimizes for), then milestones, then
 # majors -- each schema's live dir before its archive dir.
-_RECORD_SEARCH_SUBDIRS = ("issues", "archive", "milestones", "archive/milestones", "majors", "archive/majors")
+#
+# PT-50: "archive/issues" inserted before the legacy "archive" -- same
+# new-location-first precedent as find_issue_path above.
+_RECORD_SEARCH_SUBDIRS = (
+    "issues", "archive/issues", "archive", "milestones", "archive/milestones", "majors", "archive/majors",
+)
 
 
 def find_record_path(data_dir: Path, record_id: str) -> Optional[Path]:
@@ -927,15 +956,19 @@ def is_archived_path(data_dir: Path, path: Path) -> bool:
 # --------------------------------------------------------------------------
 
 def _next_id_candidate(data_dir: Path, prefix: str) -> int:
+    # PT-50: archived ids come from archived_issue_paths -- BOTH layouts,
+    # so a half-migrated (or never-migrated) tree can't let `cairn new`
+    # re-allocate an id an archived issue already holds (the one invariant
+    # the id scheme exists to protect).
+    data_dir = Path(data_dir)
     max_n = 0
-    for sub in ("issues", "archive"):
-        d = Path(data_dir) / sub
-        if not d.exists():
-            continue
-        for p in d.glob(f"{prefix}-*.md"):
-            m = ID_RE.match(p.stem)
-            if m and m.group(1) == prefix:
-                max_n = max(max_n, int(m.group(2)))
+    live_dir = data_dir / "issues"
+    candidates: List[Path] = (list(live_dir.glob(f"{prefix}-*.md")) if live_dir.exists() else [])
+    candidates += [p for p in archived_issue_paths(data_dir) if p.stem.startswith(f"{prefix}-")]
+    for p in candidates:
+        m = ID_RE.match(p.stem)
+        if m and m.group(1) == prefix:
+            max_n = max(max_n, int(m.group(2)))
     return max_n + 1
 
 
@@ -1289,7 +1322,7 @@ def check_repo(data_dir: Path) -> List[str]:
 
     known_ids = set()
     parsed_issues: List[Tuple[Path, Dict[str, Any]]] = []
-    for p in list(_dir_glob(data_dir / "issues")) + list(_dir_glob(data_dir / "archive")):
+    for p in list(_dir_glob(data_dir / "issues")) + archived_issue_paths(data_dir):
         try:
             fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
         except CairnError as e:
@@ -1380,6 +1413,22 @@ def check_repo(data_dir: Path) -> List[str]:
             f"{cycle[0]}: dependency cycle {path_str} -- an issue cannot "
             f"transitively block itself; break the loop by removing one "
             f"blocked_by entry along that path"
+        )
+
+    # PT-50 §4: transition posture is "read both, write one, lint one" --
+    # reads accept both archive/*.md and archive/issues/*.md (this
+    # function's own scan above, via archived_issue_paths), but `cairn
+    # check` ERRORS on any survivor at the legacy flat path (not a
+    # warning: check_repo has no warning tier, and inventing one for this
+    # would be a larger change than the migration itself). One error
+    # carries the count and the exact fix command -- `_dir_glob` is
+    # non-recursive, so this can never double-count archive/issues/,
+    # archive/milestones/, or archive/majors/.
+    legacy_archived = _dir_glob(data_dir / "archive")
+    if legacy_archived:
+        errors.append(
+            f"{len(legacy_archived)} archived issue(s) still at the legacy archive/*.md layout -- "
+            f"fix: scripts/cairn/cairn migrate archive-issues --dry-run   (then re-run without --dry-run)"
         )
 
     return errors
@@ -1487,7 +1536,7 @@ def migrate_prefix_ids(data_dir: Path, dry_run: bool = False) -> Dict[str, Any]:
     # archived issue with a bare ref that lints dangling the moment its
     # milestone file is renamed -- a repo with archived history could never
     # reach a clean post-migration state.
-    for p in list(_dir_glob(data_dir / "issues")) + list(_dir_glob(data_dir / "archive")):
+    for p in list(_dir_glob(data_dir / "issues")) + archived_issue_paths(data_dir):
         fm, body = parse_frontmatter(p.read_text(encoding="utf-8"))
         milestone = fm.get("milestone")
         if milestone is None or str(milestone).startswith(stamp):
@@ -1596,6 +1645,107 @@ def _format_lifecycle_migration_report(report: Dict[str, Any], dry_run: bool) ->
             )
     if not lines:
         return "nothing to do -- every major/milestone already uses the unified vocabulary"
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
+# PT-50: `cairn migrate archive-issues` -- move every legacy flat
+# `archive/*.md` issue into `archive/issues/`, matching milestones/majors'
+# existing archive/<schema>/ shape and closing the asymmetry PT-39 left
+# behind.
+#
+# Architect's ruling (process/cairn/issues/PT-50.md, § 1): a NAMED
+# migration, not a bare "migrate" -- same PT-28 precedent as prefix-ids/
+# lifecycle-status (an invocation in a shell history means one specific
+# thing forever). Filesystem-only: unlike the other two migrations, this
+# one touches zero bytes inside any file, only paths.
+# --------------------------------------------------------------------------
+
+def migrate_archive_issues(data_dir: Path, dry_run: bool = False) -> Dict[str, Any]:
+    """Run (`dry_run=False`) or preview (`dry_run=True`) the
+    archive-issues migration. Returns a report describing every change
+    made or planned -- {"issues": [{"old", "new", "resumed"}, ...]} --
+    which cmd_migrate_archive_issues renders for both --dry-run and a
+    real run (the plan IS the report, same convention as the other two
+    migrations).
+
+    Moves every `archive/*.md` file to `archive/issues/<name>` via
+    `_git_mv_or_rename`, so git records a rename. Never touches
+    `archive/milestones/` or `archive/majors/` -- `_dir_glob` is
+    non-recursive, so those two subdirs are invisible to the `archive/`
+    glob this function reads from.
+
+    Does NOT gate on `check_repo` first -- same reasoning as the other
+    two migrations: it must run on the repo whose lint it is fixing (the
+    legacy-layout error this migration exists to resolve).
+
+    Idempotency and crash-recovery: keyed on the SOURCE file's presence
+    (prefix-ids' filename-keyed precedent) -- "archive/<id>.md exists" is
+    the whole unit of work, so a crash before or after a single rename
+    always leaves a well-defined next state. If the destination already
+    exists on entry (a prior run wrote it and crashed before unlinking
+    the source): byte-identical content means the prior run completed
+    that file's work -- report `resumed: True` and unlink the stale
+    source, never re-copy. Differing content means a human put a
+    genuinely different file at the destination; a rename can never
+    produce that on its own, so this command has no basis to pick a
+    winner and REFUSES THE ENTIRE RUN, naming the offending file, moving
+    nothing (archive_major's two-phase all-or-nothing precedent: the
+    whole set is validated -- reads only -- before any file moves).
+    """
+    data_dir = Path(data_dir)
+    archive_dir = data_dir / "archive"
+    archive_issues_dir = archive_dir / "issues"
+    sources = _dir_glob(archive_dir)  # legacy flat layout only -- non-recursive glob
+
+    # Phase 1 (reads only): validate the WHOLE set before moving anything.
+    plan: List[Dict[str, Any]] = []
+    for p in sources:
+        dest = archive_issues_dir / p.name
+        if dest.exists():
+            if dest.read_bytes() == p.read_bytes():
+                plan.append({"old": p.name, "new": dest.name, "resumed": True, "_src": p, "_dest": dest})
+            else:
+                raise CairnError(
+                    f"{p.name}: already exists at archive/issues/{p.name} with different content -- "
+                    f"refusing to overwrite; nothing moved"
+                )
+        else:
+            plan.append({"old": p.name, "new": dest.name, "resumed": False, "_src": p, "_dest": dest})
+
+    report: Dict[str, Any] = {
+        "issues": [{"old": e["old"], "new": e["new"], "resumed": e["resumed"]} for e in plan]
+    }
+    if dry_run:
+        return report
+
+    # Phase 2: every entry validated above -- now safe to move files.
+    if plan:
+        archive_issues_dir.mkdir(parents=True, exist_ok=True)
+    for e in plan:
+        if e["resumed"]:
+            e["_src"].unlink()
+        else:
+            _git_mv_or_rename(e["_src"], e["_dest"])
+    return report
+
+
+def _format_archive_issues_migration_report(report: Dict[str, Any], dry_run: bool) -> str:
+    """Human-legible plan/summary for cmd_migrate_archive_issues -- same
+    shape as the other two migrations' formatters (INTERFACE.md
+    convention: pin content, not exact wording).
+    """
+    verb = "would move" if dry_run else "moved"
+    lines = []
+    for entry in report["issues"]:
+        if entry["resumed"]:
+            lines.append(
+                f"issue {entry['old']} -> archive/issues/{entry['new']} (already written by a prior run, resuming)"
+            )
+        else:
+            lines.append(f"{verb} issue {entry['old']} -> archive/issues/{entry['new']}")
+    if not lines:
+        return "nothing to do -- no archived issues at the legacy archive/*.md layout"
     return "\n".join(lines)
 
 
@@ -1907,7 +2057,7 @@ def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any
     if archived:
         major_paths += _dir_glob(data_dir / "archive" / "majors")
         milestone_paths += _dir_glob(data_dir / "archive" / "milestones")
-        issue_paths += _dir_glob(data_dir / "archive")
+        issue_paths += archived_issue_paths(data_dir)  # PT-50: both layouts
 
     def _stamped(p: Path) -> Dict[str, Any]:
         fm = dict(_read_frontmatter_dict(p))
@@ -2007,16 +2157,19 @@ def compute_etag(data_dir: Path, archived: bool = False) -> str:
     data_dir = Path(data_dir)
     hasher = hashlib.sha256()
     hasher.update(f"archived:{archived}\n".encode("utf-8"))
-    subdirs = ("majors", "milestones", "issues")
+    paths: List[Path] = (
+        _dir_glob(data_dir / "majors") + _dir_glob(data_dir / "milestones") + _dir_glob(data_dir / "issues")
+    )
     if archived:
-        subdirs += ("archive", "archive/milestones", "archive/majors")
-    for sub in subdirs:
-        for p in _dir_glob(data_dir / sub):
-            try:
-                st = p.stat()
-            except FileNotFoundError:
-                continue
-            hasher.update(f"{p}:{st.st_mtime_ns}\n".encode("utf-8"))
+        paths += _dir_glob(data_dir / "archive" / "majors")
+        paths += _dir_glob(data_dir / "archive" / "milestones")
+        paths += archived_issue_paths(data_dir)  # PT-50: both layouts
+    for p in paths:
+        try:
+            st = p.stat()
+        except FileNotFoundError:
+            continue
+        hasher.update(f"{p}:{st.st_mtime_ns}\n".encode("utf-8"))
     return hasher.hexdigest()[:16]
 
 
@@ -2269,22 +2422,26 @@ def find_issue_in_roots(roots: List[Root], issue_id: str) -> Optional[Root]:
 # --------------------------------------------------------------------------
 
 _WATCHED_SUBDIRS = (
-    "majors", "milestones", "issues", "archive",
+    "majors", "milestones", "issues",
     # PT-39 (architect's ruling § 4): additive -- the two new archive
     # subdirs, else the SSE watcher never notices a milestone/major
     # getting archived. _dir_glob/scan_data_dir already handle a
     # multi-segment subdir string fine (Path / str splits on "/").
     "archive/milestones", "archive/majors",
+    # PT-50: bare "archive" (issues, legacy layout) deliberately removed
+    # from this tuple -- archived-issue watching (BOTH layouts) is handled
+    # below via archived_issue_paths, the single read site every other
+    # archived-issue consumer routes through (§3).
 )
 
 
 def scan_data_dir(data_dir: Path) -> Dict[str, int]:
-    """{"<subdir>/<file>.md": mtime_ns} across majors/milestones/issues/
-    archive -- the same directory set check_repo and build_board_payload
-    already walk, via the same _dir_glob (so mkstemp's hidden ".*.tmp"
-    temp files, which don't match "*.md", never show up as a false
-    "change" mid-write). Missing subdirs are tolerated, mirroring
-    _dir_glob's "if d.exists() else []".
+    """{"<relative path>": mtime_ns} across majors/milestones/issues/
+    archive/{issues,milestones,majors} -- the same directory set
+    check_repo and build_board_payload already walk, via the same
+    _dir_glob (so mkstemp's hidden ".*.tmp" temp files, which don't match
+    "*.md", never show up as a false "change" mid-write). Missing subdirs
+    are tolerated, mirroring _dir_glob's "if d.exists() else []".
     """
     data_dir = Path(data_dir)
     snapshot: Dict[str, int] = {}
@@ -2294,6 +2451,14 @@ def scan_data_dir(data_dir: Path) -> Dict[str, int]:
                 snapshot[f"{sub}/{p.name}"] = p.stat().st_mtime_ns
             except FileNotFoundError:
                 continue  # raced with a delete between the glob and the stat
+    # PT-50: archived issues, both layouts -- keys land as "archive/<id>.md"
+    # (legacy) or "archive/issues/<id>.md" (new), matching the pre-existing
+    # "<sub>/<file>.md" key shape above (p is already under data_dir/archive/...).
+    for p in archived_issue_paths(data_dir):
+        try:
+            snapshot[str(p.relative_to(data_dir))] = p.stat().st_mtime_ns
+        except FileNotFoundError:
+            continue  # raced with a delete between the glob and the stat
     return snapshot
 
 
@@ -3111,12 +3276,14 @@ def archive_milestone(data_dir: Path, milestone_id: str, dry_run: bool = False) 
     issues = _issues_for_milestone(data_dir, milestone_id)
     report: Dict[str, Any] = {"milestone": milestone_id, "issues": [ifm.get("id") for _, ifm in issues]}
     if not dry_run:
-        archive_dir = data_dir / "archive"
-        archive_ms_dir = archive_dir / "milestones"
-        archive_dir.mkdir(parents=True, exist_ok=True)
+        # PT-50 (§2 write target #10): issues land in archive/issues/, NOT
+        # bare archive/ -- writes only ever produce the new layout.
+        archive_issues_dir = data_dir / "archive" / "issues"
+        archive_ms_dir = data_dir / "archive" / "milestones"
+        archive_issues_dir.mkdir(parents=True, exist_ok=True)
         archive_ms_dir.mkdir(parents=True, exist_ok=True)
         for p, _ in issues:
-            _git_mv_or_rename(p, archive_dir / p.name)
+            _git_mv_or_rename(p, archive_issues_dir / p.name)
         _git_mv_or_rename(ms_path, archive_ms_dir / ms_path.name)
     return report
 
@@ -3222,7 +3389,9 @@ def cmd_archive(args: argparse.Namespace) -> int:
 
     # Existing --done-before path.
     _validate_done_before(args.done_before)
-    archive_dir = Path(data_dir) / "archive"
+    # PT-50 (§2 write target #9): issues land in archive/issues/, NOT bare
+    # archive/ -- writes only ever produce the new layout.
+    archive_dir = Path(data_dir) / "archive" / "issues"
     if not args.dry_run:
         archive_dir.mkdir(parents=True, exist_ok=True)
 
@@ -3331,6 +3500,34 @@ def cmd_migrate_lifecycle_status(args: argparse.Namespace) -> int:
     data_dir = resolve_data_dir(args)
     report = migrate_lifecycle_status(data_dir, dry_run=args.dry_run)
     print(_format_lifecycle_migration_report(report, args.dry_run))
+    if args.dry_run:
+        return 0
+    errors = check_repo(data_dir)
+    if errors:
+        print(f"\nwarning: {len(errors)} lint error(s) remain after migration:", file=sys.stderr)
+        for e in errors:
+            print(f"  {e}", file=sys.stderr)
+    else:
+        print("\nok")
+    return 0
+
+
+def cmd_migrate_archive_issues(args: argparse.Namespace) -> int:
+    """`cairn migrate archive-issues [--dry-run]` (PT-50, architect's
+    ruling § 1).
+
+    Same posture as the other two migrations: does NOT gate on a clean
+    `cairn check` first -- that would deadlock the exact legacy-layout
+    situation this command exists to resolve. Exit code is 0 for any
+    COMPLETED run (dry or real, migrated or "nothing to do") -- a
+    surviving UNRELATED lint error is reported as a warning, not treated
+    as this command's own failure. A differing-destination refusal raises
+    CairnError (main() turns that into a nonzero exit, nothing written --
+    same posture as a missing/malformed prefix in migrate_prefix_ids).
+    """
+    data_dir = resolve_data_dir(args)
+    report = migrate_archive_issues(data_dir, dry_run=args.dry_run)
+    print(_format_archive_issues_migration_report(report, args.dry_run))
     if args.dry_run:
         return 0
     errors = check_repo(data_dir)
@@ -3495,6 +3692,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="preview the plan without writing anything",
     )
     p_migrate_lifecycle_status.set_defaults(func=cmd_migrate_lifecycle_status)
+    p_migrate_archive_issues = migrate_sub.add_parser(
+        "archive-issues", parents=[common],
+        help="move legacy flat archive/*.md issues into archive/issues/ (PT-50)",
+    )
+    p_migrate_archive_issues.add_argument(
+        "--dry-run", action="store_true", help="preview the plan without moving anything",
+    )
+    p_migrate_archive_issues.set_defaults(func=cmd_migrate_archive_issues)
 
     p_snapshot = sub.add_parser(
         "snapshot", parents=[common],

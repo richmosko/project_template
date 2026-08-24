@@ -202,7 +202,13 @@ class MigrationCorrectnessTests(unittest.TestCase):
         # (in-progress in this fixture) so this test keeps pinning ONLY
         # the prefix-rewrite behaviour it's named for, not accidentally
         # tripping an unrelated lint rule that postdates it.
-        (data_dir / "archive" / "PT-9.md").write_text(
+        #
+        # PT-50: fixture built at the NEW archive/issues/ layout (not the
+        # legacy flat archive/) for the same reason -- the legacy-layout
+        # lint error is a separate, deliberately-pinned concern (see
+        # test_migrate_archive_issues.py), not this test's.
+        (data_dir / "archive" / "issues").mkdir(parents=True)
+        (data_dir / "archive" / "issues" / "PT-9.md").write_text(
             "---\nid: PT-9\ntitle: Long done\nstatus: done\nmilestone: A\nparent: null\n"
             "assignee: null\nlabels: []\npriority: null\npr: null\n"
             "created: 2026-08-01\nupdated: 2026-08-01\n---\n\nBody.\n",
@@ -210,7 +216,7 @@ class MigrationCorrectnessTests(unittest.TestCase):
         )
         result = run_cairn(["migrate", "prefix-ids", "--data-dir", str(data_dir)])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        fm, _ = cairn.parse_frontmatter((data_dir / "archive" / "PT-9.md").read_text(encoding="utf-8"))
+        fm, _ = cairn.parse_frontmatter((data_dir / "archive" / "issues" / "PT-9.md").read_text(encoding="utf-8"))
         self.assertEqual(fm["milestone"], "PT-A")
         self.assertEqual(cairn.check_repo(data_dir), [])
 

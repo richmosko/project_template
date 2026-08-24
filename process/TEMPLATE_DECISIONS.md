@@ -19,6 +19,15 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 
 ---
 
+### 2026-08-24 — Archived issues move to `archive/issues/`; lint-only break in a PATCH (PT-50)
+**Decision:** Flat archived issues (`archive/*.md`) migrate to `archive/issues/` via the new `cairn migrate archive-issues [--dry-run]` (filesystem-only, git-mv, source-keyed idempotent, all-or-nothing). Transition posture: **read both, write one, lint one** — all reads go through one `archived_issue_paths()` helper (new location first), writes only produce `archive/issues/`, and `cairn check` errors on the legacy layout with the literal migrate command. The legacy read leg is scheduled for deletion next MINOR (PT-52), not in 0.7.1. BREAKING (lint-only) in a PATCH release, on the 0.6.1/PT-28 precedent.
+**Why:** Reverses PT-39 §4's accepted asymmetry per Mosko's 2026-08-24 walkthrough ruling. Dual-read is what keeps the break lint-only — a read-new-only engine would re-allocate archived ids and dangle refs (data breakage, not a lint break). Eleven glob sites, not the five in the brief; three of the extras are correctness-critical (`_next_id_candidate`, `migrate_prefix_ids` phase 2, `compute_etag`).
+**Alternatives considered:**
+- Lint *warning* tier — `check_repo` has no warning tier; inventing one is a larger change than the migration.
+- Read new layout only — data breakage on unmigrated repos (see Why).
+**Approved by:** team-lead under Mosko's PT-0.7.1 pre-authorization (2026-08-24); flagged for Mosko's release-time review.
+**Supersedes:** PT-39 §4's flat-archive-layout acceptance.
+
 ### 2026-08-23 — Patch milestones are first-class: milestone ↔ target_tag is 1:1, not milestone ↔ MAJOR.MINOR (PT-39)
 **Decision:** A milestone may sit at any release granularity — a feature milestone moves MINOR, a patch milestone moves PATCH — with milestone ↔ `target_tag` 1:1 as the invariant. WORKFLOW.md's Hotfix/PATCH rows and Model A's closing clause reformulated accordingly (Model A itself survives: a single release's run-up is never split); TRACKER.md drops the MINOR-only id preference (architect's half, same PR).
 **Why:** WORKFLOW.md:582 bound PATCH to hotfix-issues-on-the-existing-milestone, but shipped reality (PT-0.5.1, PT-0.6.1, PT-0.6.2 — standalone patch milestones with their own target_tag) has contradicted that for three releases; the doc aligns with established practice. Surfaced by the architect while executing the team-lead's milestone-id-shape ruling during PT-39.
