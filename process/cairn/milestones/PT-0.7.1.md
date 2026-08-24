@@ -3,7 +3,7 @@ id: PT-0.7.1
 name: board + archive follow-ups
 kind: product
 major: PT-V1
-status: done
+status: in-progress
 target_tag: v0.7.1
 ga: false
 ---
