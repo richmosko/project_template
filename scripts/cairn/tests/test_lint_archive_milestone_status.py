@@ -60,6 +60,7 @@ def make_repo(testcase) -> Path:
     data_dir = tmp / "cairn"
     for sub in ("issues", "archive", "milestones", "majors"):
         (data_dir / sub).mkdir(parents=True)
+    (data_dir / "archive" / "issues").mkdir(parents=True)
     (data_dir / "archive" / "milestones").mkdir(parents=True)
     (data_dir / "archive" / "majors").mkdir(parents=True)
     (data_dir / "config.yml").write_text("prefix: PT\nport: 8766\ndata_dir: process/cairn\n", encoding="utf-8")
@@ -83,7 +84,7 @@ class KnownMilestonesResolveAgainstArchiveTests(unittest.TestCase):
                                    status="done", target_tag="null", ga="false"),
             encoding="utf-8",
         )
-        (data_dir / "archive" / "PT-1.md").write_text(
+        (data_dir / "archive" / "issues" / "PT-1.md").write_text(
             ISSUE_TMPL.format(id="PT-1", title="Old bootstrap task", status="done", milestone="PT-A"),
             encoding="utf-8",
         )
@@ -175,7 +176,7 @@ class ArchivedIssueMilestoneMustBeDoneTests(unittest.TestCase):
                                    status="in-progress", target_tag="v1.0.0", ga="true"),
             encoding="utf-8",
         )
-        (data_dir / "archive" / "PT-1.md").write_text(
+        (data_dir / "archive" / "issues" / "PT-1.md").write_text(
             ISSUE_TMPL.format(id="PT-1", title="Hand-mv'd out from under a live milestone",
                                status="done", milestone="PT-1.0"),
             encoding="utf-8",
@@ -193,7 +194,7 @@ class ArchivedIssueMilestoneMustBeDoneTests(unittest.TestCase):
                                    status="done", target_tag="null", ga="false"),
             encoding="utf-8",
         )
-        (data_dir / "archive" / "PT-1.md").write_text(
+        (data_dir / "archive" / "issues" / "PT-1.md").write_text(
             ISSUE_TMPL.format(id="PT-1", title="Properly archived", status="done", milestone="PT-A"),
             encoding="utf-8",
         )
@@ -207,7 +208,7 @@ class ArchivedIssueMilestoneMustBeDoneTests(unittest.TestCase):
                                    status="cancelled", target_tag="null", ga="false"),
             encoding="utf-8",
         )
-        (data_dir / "archive" / "PT-1.md").write_text(
+        (data_dir / "archive" / "issues" / "PT-1.md").write_text(
             ISSUE_TMPL.format(id="PT-1", title="Archived alongside a cancelled milestone",
                                status="cancelled", milestone="PT-A"),
             encoding="utf-8",
@@ -217,7 +218,7 @@ class ArchivedIssueMilestoneMustBeDoneTests(unittest.TestCase):
 
     def test_archived_issue_with_null_milestone_is_unaffected(self):
         data_dir = make_repo(self)
-        (data_dir / "archive" / "PT-1.md").write_text(
+        (data_dir / "archive" / "issues" / "PT-1.md").write_text(
             ISSUE_TMPL.format(id="PT-1", title="Never milestoned", status="done", milestone="null"),
             encoding="utf-8",
         )
@@ -233,7 +234,7 @@ class ArchivedIssueMilestoneMustBeDoneTests(unittest.TestCase):
                                    status="done", target_tag="null", ga="false"),
             encoding="utf-8",
         )
-        (data_dir / "archive" / "PT-1.md").write_text(
+        (data_dir / "archive" / "issues" / "PT-1.md").write_text(
             ISSUE_TMPL.format(id="PT-1", title="Properly archived, milestone too", status="done",
                                milestone="PT-A"),
             encoding="utf-8",

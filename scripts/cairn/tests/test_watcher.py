@@ -53,15 +53,25 @@ class ScanDataDirTests(unittest.TestCase):
         self.assertEqual(snapshot, {})
 
     def test_scan_picks_up_files_in_every_tracked_subdir(self):
+        # PT-52: archived-issue coverage moved from bare archive/ to
+        # archive/issues/ -- the legacy leg is no longer watched at all
+        # (see test_scan_ignores_a_legacy_flat_archived_issue below).
         _write(self.tmp / "issues" / "PT-1.md")
-        _write(self.tmp / "archive" / "PT-9.md")
+        _write(self.tmp / "archive" / "issues" / "PT-9.md")
         _write(self.tmp / "milestones" / "1.0.md")
         _write(self.tmp / "majors" / "V1.md")
         snapshot = cairn.scan_data_dir(self.tmp)
         self.assertEqual(
             set(snapshot.keys()),
-            {"issues/PT-1.md", "archive/PT-9.md", "milestones/1.0.md", "majors/V1.md"},
+            {"issues/PT-1.md", "archive/issues/PT-9.md", "milestones/1.0.md", "majors/V1.md"},
         )
+
+    def test_scan_ignores_a_legacy_flat_archived_issue(self):
+        # PT-52: INVERTED from the legacy-layout coverage this file used
+        # to pin above -- the engine no longer reads archive/*.md at all.
+        _write(self.tmp / "archive" / "PT-9.md")
+        snapshot = cairn.scan_data_dir(self.tmp)
+        self.assertNotIn("archive/PT-9.md", snapshot)
 
     def test_scan_value_is_the_real_mtime_ns(self):
         path = self.tmp / "issues" / "PT-1.md"

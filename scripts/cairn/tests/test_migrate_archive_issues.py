@@ -4,6 +4,13 @@ into `archive/issues/`, matching milestones/majors' existing
 `archive/<schema>/` shape. Architect's ruling: process/cairn/issues/
 PT-50.md (`### @architect -- 2026-08-24` comment), § 1/§ 3/§ 4/§ 6.
 
+PT-52 (same day, pulled into 0.7.1) deleted the transition-era dual-read:
+the engine no longer reads the legacy flat layout at all.
+LegacyLayoutFixtureBehaviorTests below is INVERTED from its PT-50 shape
+(same fixtures, flipped assertions -- process/cairn/issues/PT-52.md,
+`### @architect -- 2026-08-24` mini-ruling, § 6); LegacyLayoutGuardTests
+is new (§ 3's required companion guard + § 2's lint/migration lockstep).
+
     cairn migrate archive-issues [--dry-run] [--data-dir DIR]
 
 Unlike prefix-ids/lifecycle-status, this migration touches ZERO bytes
@@ -261,52 +268,59 @@ class DifferingDestinationRefusalTests(unittest.TestCase):
 
 
 class LegacyLayoutFixtureBehaviorTests(unittest.TestCase):
-    """§ 6 (b): a repo carrying a legacy flat archive/*.md issue -- these
-    pin that, absent the migration, the four archived-issue-aware read
-    sites still see it correctly (both layouts accepted during the
-    transition, per § 4). Built via make_legacy_repo (this file's own
-    self-contained fixture), not the shared tests/fixtures/process/cairn
-    tree -- that tree is itself migrated to archive/issues/ in this same
-    PR (see the hand-off report), so it can no longer stand in for "a
-    repo that hasn't migrated yet"."""
+    """PT-52 (architect's ruling § 6): INVERTED from PT-50's dual-read
+    pins -- same make_legacy_repo fixture, flipped assertions. The engine
+    no longer reads the legacy flat archive/*.md layout at all; these
+    prove the leg is actually gone, not merely unused. (The fifth PT-50
+    pin, "cairn new must not re-allocate a legacy-held id", is now the
+    stronger §3 guard -- see LegacyLayoutGuardTests below, not inverted
+    here.)
 
-    def test_a_next_id_allocation_skips_a_legacy_archived_id(self):
+    Built via make_legacy_repo (this file's own self-contained fixture),
+    not the shared tests/fixtures/process/cairn tree -- that tree was
+    itself migrated to archive/issues/ in PT-50's PR, so it can no longer
+    stand in for "a repo that hasn't migrated yet"."""
+
+    def test_archived_issue_paths_omits_a_legacy_only_issue(self):
         data_dir = make_legacy_repo(self)  # archive/PT-9.md, archive/PT-10.md, issues/PT-1.md
         self.assertTrue((data_dir / "archive" / "PT-9.md").exists(), "test sanity: fixture is still legacy-layout")
-        path = cairn.allocate_and_create_issue(
-            data_dir,
-            {
-                "title": "New", "status": "backlog", "milestone": None, "parent": None,
-                "assignee": None, "labels": [], "priority": None, "pr": None,
-            },
-        )
-        self.assertEqual(path.name, "PT-11.md", "must not re-allocate PT-9/PT-10, held by legacy-archived issues")
+        ids = {p.stem for p in cairn.archived_issue_paths(data_dir)}
+        self.assertNotIn("PT-9", ids, "the legacy leg must be invisible to archived_issue_paths")
+        self.assertNotIn("PT-10", ids)
 
-    def test_b_check_repo_resolves_refs_against_a_legacy_archived_issue(self):
+    def test_find_issue_path_returns_none_for_a_legacy_only_id(self):
+        data_dir = make_legacy_repo(self)
+        self.assertIsNone(cairn.find_issue_path(data_dir, "PT-9"))
+
+    def test_board_archived_param_omits_a_legacy_only_issue(self):
+        data_dir = make_legacy_repo(self)
+        payload = cairn.build_board_payload(data_dir, archived=True)
+        ids = {issue["id"] for issue in payload["issues"]}
+        self.assertNotIn("PT-9", ids, "?archived=1 must not surface a legacy-only issue")
+
+    def test_check_repo_lists_the_legacy_error_first(self):
         data_dir = make_legacy_repo(self)
         (data_dir / "issues" / "PT-2.md").write_text(
-            ISSUE_TEMPLATE.format(id="PT-2", title="Blocks on archived", status="todo", milestone="null", body="Body."),
+            ISSUE_TEMPLATE.format(id="PT-2", title="Bad ref", status="todo", milestone="null", body="Body."),
             encoding="utf-8",
         )
         fm, body = cairn.parse_frontmatter((data_dir / "issues" / "PT-2.md").read_text(encoding="utf-8"))
         fm = dict(fm)
-        fm["parent"] = "PT-9"  # PT-9 lives ONLY at the legacy archive/PT-9.md path
+        fm["parent"] = "PT-9"  # PT-9 now resolves NOWHERE -- a legacy-only id is invisible
         (data_dir / "issues" / "PT-2.md").write_text(cairn.dump_frontmatter(fm) + body, encoding="utf-8")
         errors = cairn.check_repo(data_dir)
-        self.assertFalse(
-            any("PT-2" in e and "dangling parent" in e for e in errors),
-            f"a legacy-archived issue must still resolve as a valid parent ref: {errors}",
-        )
+        # A dangling-parent cascade error is now EXPECTED (PT-9 is truly
+        # invisible), but the root-cause legacy-layout error must be
+        # reported, and it must lead the list (§2: insert(0, ...)).
+        self.assertTrue(errors, "test sanity: this tree must fail lint")
+        self.assertIn("scripts/cairn/cairn migrate archive-issues --dry-run", errors[0])
+        self.assertTrue(any("PT-2" in e and "dangling parent" in e for e in errors))
 
-    def test_c_legacy_archived_issue_renders_under_archived_true(self):
-        data_dir = make_legacy_repo(self)
-        payload = cairn.build_board_payload(data_dir, archived=True)
-        ids = {issue["id"] for issue in payload["issues"]}
-        self.assertIn("PT-9", ids)
-        archived_flags = {issue["id"]: issue["archived"] for issue in payload["issues"]}
-        self.assertTrue(archived_flags["PT-9"])
-
-    def test_d_etag_changes_when_a_legacy_archived_file_changes(self):
+    def test_etag_is_unaffected_by_a_legacy_only_file_changing(self):
+        # PT-50 pinned the OPPOSITE: the etag changed when a legacy-only
+        # archive file was edited. Inverted -- compute_etag's archived
+        # branch now routes through archived_issue_paths (archive/issues/
+        # only), so a legacy-only edit must be invisible to it too.
         import time
 
         data_dir = make_legacy_repo(self)
@@ -315,7 +329,7 @@ class LegacyLayoutFixtureBehaviorTests(unittest.TestCase):
         p = data_dir / "archive" / "PT-9.md"
         p.write_text(p.read_text(encoding="utf-8") + "\nedited.\n", encoding="utf-8")
         after = cairn.compute_etag(data_dir, archived=True)
-        self.assertNotEqual(before, after)
+        self.assertEqual(before, after)
 
 
 class CheckLegacyLayoutErrorTests(unittest.TestCase):
@@ -346,9 +360,89 @@ class CheckLegacyLayoutErrorTests(unittest.TestCase):
         self.assertFalse(any("archive-issues" in e for e in errors), errors)
 
 
+class LegacyLayoutGuardTests(unittest.TestCase):
+    """PT-52 §3/§6 new pins: the required companion guard at the single
+    allocation path, and §2's "the lint and the migration can never
+    disagree about what counts as legacy" property."""
+
+    def test_cairn_new_raises_on_a_legacy_bearing_repo_and_creates_nothing(self):
+        data_dir = make_legacy_repo(self)
+        before = sorted(p.name for p in (data_dir / "issues").glob("*.md"))
+        result = run_cairn(["new", "A new issue", "--data-dir", str(data_dir)])
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("scripts/cairn/cairn migrate archive-issues --dry-run", result.stdout + result.stderr)
+        after = sorted(p.name for p in (data_dir / "issues").glob("*.md"))
+        self.assertEqual(before, after, "a refused allocation must create nothing")
+
+    def test_post_api_issue_returns_400_legacy_archive_on_a_legacy_bearing_repo(self):
+        import json
+        import threading
+        import urllib.error
+        import urllib.request
+
+        data_dir = make_legacy_repo(self)
+        server = cairn.make_server(data_dir, port=0)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join(timeout=5)))
+        body = json.dumps({"title": "A new issue"}).encode("utf-8")
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/issue", data=body,
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+        self.assertEqual(ctx.exception.code, 400)
+        response = json.loads(ctx.exception.read())
+        self.assertEqual(response.get("error"), "legacy_archive")
+
+    def test_cairn_new_is_unaffected_on_an_already_migrated_repo(self):
+        # Regression guard -- the guard must be self-clearing, not a
+        # permanent regression on `cairn new`.
+        data_dir = make_legacy_repo(self)
+        run_cairn(["migrate", "archive-issues", "--data-dir", str(data_dir)])
+        result = run_cairn(["new", "A new issue", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_check_repo_and_migration_report_the_identical_file_set_on_a_mixed_tree(self):
+        # A "mixed" tree: some issues already migrated to archive/issues/,
+        # some still at the legacy flat path. §2's two callers of
+        # legacy_archived_issue_paths (check_repo's scan, the migration's
+        # source glob) must never disagree about what counts as legacy.
+        data_dir = make_legacy_repo(self)
+        run_cairn(["migrate", "archive-issues", "--data-dir", str(data_dir)])  # PT-9, PT-10 -> archive/issues/
+        (data_dir / "archive" / "PT-99.md").write_text(
+            ISSUE_TEMPLATE.format(id="PT-99", title="Still legacy", status="done", milestone="null", body="Body."),
+            encoding="utf-8",
+        )
+        errors = cairn.check_repo(data_dir)
+        matching = [e for e in errors if "scripts/cairn/cairn migrate archive-issues --dry-run" in e]
+        self.assertEqual(len(matching), 1)
+        self.assertIn("1", matching[0], "exactly one legacy file remains (PT-99)")
+
+        report = cairn.migrate_archive_issues(data_dir, dry_run=True)
+        self.assertEqual(
+            {entry["old"] for entry in report["issues"]}, {"PT-99.md"},
+            "the migration's own source glob must report the identical file set the lint counted",
+        )
+
+    def test_migration_still_succeeds_on_a_repo_whose_lint_is_failing(self):
+        # Regression guard for §4: the deletion must not gate the
+        # migration behind a clean cairn check -- same posture as the
+        # other two migrations, re-confirmed post-PT-52.
+        data_dir = make_legacy_repo(self)
+        pre_errors = cairn.check_repo(data_dir)
+        self.assertTrue(pre_errors, "test sanity: the pre-migration tree must fail lint")
+        result = run_cairn(["migrate", "archive-issues", "--data-dir", str(data_dir)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(cairn.check_repo(data_dir), [])
+
+
 class WriteTargetTests(unittest.TestCase):
     """§ 6: both write selectors land in archive/issues/, never bare
-    archive/, even though reads still accept the legacy layout too."""
+    archive/ -- unaffected by PT-52 (reads never accepted the legacy
+    layout for --done-before/--milestone's targets to begin with)."""
 
     def _repo_with_done_issue(self, testcase) -> Path:
         tmp = helpers.make_empty_tmp_dir(testcase)
