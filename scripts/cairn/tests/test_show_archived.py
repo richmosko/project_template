@@ -124,8 +124,9 @@ class DefaultOffByteIdenticalTests(ServerTestCase):
         self.assertEqual(before, after, "the DEFAULT /api/board response must never change based on archive/ contents")
 
     def test_default_board_excludes_existing_archived_issue(self):
-        # The shared fixture already ships archive/PT-9.md (test_server.py's
-        # own comment: "PT-9 is archived, excluded") -- regression pin.
+        # The shared fixture already ships archive/issues/PT-9.md (PT-50;
+        # test_server.py's own comment: "PT-9 is archived, excluded") --
+        # regression pin.
         resp = http_get(f"{self.base_url}/api/board")
         payload = json.loads(resp.read())
         ids = {i["id"] for i in payload["issues"]}
@@ -137,7 +138,7 @@ class ArchivedParamServesArchiveDataTests(ServerTestCase):
         resp = http_get(f"{self.base_url}/api/board?archived=1")
         payload = json.loads(resp.read())
         ids = {i["id"] for i in payload["issues"]}
-        self.assertIn("PT-9", ids, "PT-9 (archive/PT-9.md in the shared fixture) must appear once ?archived=1")
+        self.assertIn("PT-9", ids, "PT-9 (archive/issues/PT-9.md in the shared fixture) must appear once ?archived=1")
         # Load-bearing: NOT a parallel array.
         self.assertNotIn("archivedIssues", payload)
 
@@ -286,12 +287,14 @@ class ArchivedIssueWriteRefusedTests(ServerTestCase):
         self.assertEqual(body.get("error"), "archived")
 
     def test_post_to_an_archived_issue_leaves_the_file_untouched(self):
-        before = (self.data_dir / "archive" / "PT-9.md").read_bytes()
+        # PT-50: shared fixture's PT-9 now lives at archive/issues/, not
+        # the legacy flat archive/.
+        before = (self.data_dir / "archive" / "issues" / "PT-9.md").read_bytes()
         try:
             http_post(f"{self.base_url}/api/issue/PT-9", {"seen": None, "patch": {"status": "todo"}})
         except urllib.error.HTTPError:
             pass
-        after = (self.data_dir / "archive" / "PT-9.md").read_bytes()
+        after = (self.data_dir / "archive" / "issues" / "PT-9.md").read_bytes()
         self.assertEqual(before, after)
 
     def test_post_to_a_live_issue_is_unaffected_regression_guard(self):
@@ -340,9 +343,11 @@ class CliStillAllowedOnArchivedIssuesTests(unittest.TestCase):
     stay completely unchanged (same PT-3/PT-39 precedent)."""
 
     def test_find_issue_path_still_resolves_an_archived_issue(self):
+        # PT-50: shared fixture's PT-9 now lives at archive/issues/, not
+        # the legacy flat archive/.
         data_dir = helpers.make_tmp_data_dir(self)
         self.assertEqual(
-            cairn.find_issue_path(data_dir, "PT-9"), data_dir / "archive" / "PT-9.md"
+            cairn.find_issue_path(data_dir, "PT-9"), data_dir / "archive" / "issues" / "PT-9.md"
         )
 
     def test_cairn_set_cli_can_still_write_an_archived_issue(self):
@@ -353,7 +358,7 @@ class CliStillAllowedOnArchivedIssuesTests(unittest.TestCase):
             capture_output=True, text=True,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        fm, _ = cairn.parse_frontmatter((data_dir / "archive" / "PT-9.md").read_text(encoding="utf-8"))
+        fm, _ = cairn.parse_frontmatter((data_dir / "archive" / "issues" / "PT-9.md").read_text(encoding="utf-8"))
         self.assertEqual(fm["status"], "cancelled")
 
 

@@ -82,7 +82,7 @@ def build_shipped_and_archived_milestone(testcase) -> Path:
     own wording: 'it shipped 13'). 13 issues, matching the report."""
     tmp = helpers.make_empty_tmp_dir(testcase)
     data_dir = tmp / "cairn"
-    for sub in ("issues", "archive", "milestones", "majors"):
+    for sub in ("issues", "archive/issues", "milestones", "majors"):
         (data_dir / sub).mkdir(parents=True)
     (data_dir / "config.yml").write_text("prefix: PT\nport: 8766\ndata_dir: process/cairn\n", encoding="utf-8")
     (data_dir / "majors" / "PT-V1.md").write_text(MAJOR_TMPL.format(id="PT-V1", status="in-progress"), encoding="utf-8")
@@ -91,8 +91,12 @@ def build_shipped_and_archived_milestone(testcase) -> Path:
                                status="done", target_tag="v0.4.0", ga="false"),
         encoding="utf-8",
     )
+    # PT-50: archive/issues/ (not the legacy flat archive/) -- this
+    # fixture's own docstring requires it to be a state `cairn archive
+    # --milestone` can actually produce, and that command now writes the
+    # new layout exclusively.
     for n in range(1, 14):  # 13 issues, all archived, all done -- "it shipped 13"
-        (data_dir / "archive" / f"PT-{n}.md").write_text(
+        (data_dir / "archive" / "issues" / f"PT-{n}.md").write_text(
             ISSUE_TMPL.format(id=f"PT-{n}", title=f"Shipped task {n}", status="done", milestone="PT-0.4"),
             encoding="utf-8",
         )

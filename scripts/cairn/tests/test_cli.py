@@ -514,7 +514,7 @@ class ArchiveCommandTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
         self.assertFalse((data_dir / "issues" / "PT-1.md").exists())
-        self.assertTrue((data_dir / "archive" / "PT-1.md").exists())
+        self.assertTrue((data_dir / "archive" / "issues" / "PT-1.md").exists())
 
         self.assertTrue((data_dir / "issues" / "PT-3.md").exists(), "done but updated after cutoff should stay")
         self.assertTrue((data_dir / "issues" / "PT-4.md").exists(), "not done should never be archived")
@@ -544,7 +544,7 @@ class PT8DoneBeforeValidationTests(unittest.TestCase):
         result = run_cairn(["archive", "--done-before", "02/01/2026", "--data-dir", str(data_dir)])
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue((data_dir / "issues" / "PT-1.md").exists(), "file must not move when validation fails")
-        self.assertFalse((data_dir / "archive" / "PT-1.md").exists())
+        self.assertFalse((data_dir / "archive" / "issues" / "PT-1.md").exists())
 
     def test_out_of_range_calendar_date_is_rejected(self):
         # Right shape (YYYY-MM-DD), not a real calendar date -- Feb 30
@@ -554,14 +554,14 @@ class PT8DoneBeforeValidationTests(unittest.TestCase):
         result = run_cairn(["archive", "--done-before", "2026-02-30", "--data-dir", str(data_dir)])
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue((data_dir / "issues" / "PT-1.md").exists())
-        self.assertFalse((data_dir / "archive" / "PT-1.md").exists())
+        self.assertFalse((data_dir / "archive" / "issues" / "PT-1.md").exists())
 
     def test_garbage_string_is_rejected(self):
         data_dir = self._data_dir_with_a_done_issue()
         result = run_cairn(["archive", "--done-before", "not-a-date", "--data-dir", str(data_dir)])
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue((data_dir / "issues" / "PT-1.md").exists())
-        self.assertFalse((data_dir / "archive" / "PT-1.md").exists())
+        self.assertFalse((data_dir / "archive" / "issues" / "PT-1.md").exists())
 
     def test_valid_date_is_unaffected(self):
         # Regression guard -- a real date must keep behaving exactly as it
@@ -570,7 +570,7 @@ class PT8DoneBeforeValidationTests(unittest.TestCase):
         data_dir = self._data_dir_with_a_done_issue()
         result = run_cairn(["archive", "--done-before", "2026-02-01", "--data-dir", str(data_dir)])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertTrue((data_dir / "archive" / "PT-1.md").exists())
+        self.assertTrue((data_dir / "archive" / "issues" / "PT-1.md").exists())
 
 
 class PT9DataDirTopLevelOptionTests(unittest.TestCase):
@@ -661,7 +661,7 @@ class ArchiveGitMoveTests(unittest.TestCase):
         result = run_cairn(["archive", "--done-before", "2026-02-01", "--data-dir", str(data_dir)])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse((data_dir / "issues" / "PT-1.md").exists())
-        self.assertTrue((data_dir / "archive" / "PT-1.md").exists())
+        self.assertTrue((data_dir / "archive" / "issues" / "PT-1.md").exists())
 
         status = subprocess.run(
             ["git", "status", "--porcelain"], cwd=tmp_root, capture_output=True, text=True, check=True
@@ -686,7 +686,7 @@ class ArchiveGitMoveTests(unittest.TestCase):
         )
         result = run_cairn(["archive", "--done-before", "2026-02-01", "--data-dir", str(data_dir)])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertTrue((data_dir / "archive" / "PT-1.md").exists())
+        self.assertTrue((data_dir / "archive" / "issues" / "PT-1.md").exists())
 
 
 class DiscoveryErrorTests(unittest.TestCase):

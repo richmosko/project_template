@@ -715,10 +715,14 @@ class CheckRepoBlockedByTests(unittest.TestCase):
         self.assertEqual(errors, [], errors)
 
     def test_blocked_by_referencing_an_archived_issue_is_not_dangling(self):
-        # known_ids already spans issues/ AND archive/ -- falls out for
-        # free, per the ruling.
+        # known_ids already spans issues/ AND archive/{issues,} -- falls
+        # out for free, per the ruling. PT-50: archived fixture built at
+        # the NEW layout (archive/issues/) here so this test stays scoped
+        # to the blocked_by-resolution concern, not the (separately
+        # pinned, test_migrate_archive_issues.py) legacy-layout lint error.
         data_dir = make_tree(self)
-        (data_dir / "archive" / "PT-9.md").write_text(
+        (data_dir / "archive" / "issues").mkdir(parents=True)
+        (data_dir / "archive" / "issues" / "PT-9.md").write_text(
             "---\nid: PT-9\ntitle: Archived\nstatus: done\nmilestone: null\nparent: null\n"
             "assignee: null\nlabels: []\npriority: null\npr: null\n"
             "created: 2026-08-01\nupdated: 2026-08-01\n---\n\nBody.\n",
