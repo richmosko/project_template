@@ -19,6 +19,15 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 
 ---
 
+### 2026-08-24 — Legacy archive read leg deleted in 0.7.1 after all; `cairn new` gains an unmigrated-repo guard (PT-52)
+**Decision:** The dual-read transition leg (`archived_issue_paths()` reading both `archive/*.md` and `archive/issues/`) is deleted in v0.7.1 rather than next MINOR: the helper collapses to the new layout only, a dedicated `legacy_archived_issue_paths()` (exactly two callers: the lint scan and the migration's source glob) keeps flat files loudly detected, the lint error leads the report and names the invisibility, and `cairn new` refuses to allocate on an unmigrated repo (CLI error + HTTP `400 legacy_archive`) rather than silently reusing an archived id.
+**Why:** Mosko's roll-in (2026-08-24), overriding the PT-50 entry's next-MINOR schedule — the population of unmigrated repos is effectively this repo's own instances, and carrying the debt across a release costs more than the transition protects. The write-path guard neutralizes the PT-50 entry's "data breakage" objection: the roll-in now costs invisibility (loud, lint-reported, self-clears on migration) but not id reuse.
+**Alternatives considered:**
+- Keep dual-read to next MINOR as scheduled — protects a population that doesn't exist here.
+- Delete without the allocation guard — silent id reuse on unmigrated repos, unrepairable after the fact.
+**Approved by:** Mosko (roll-in, 2026-08-24); guard design by architect, accepted by team-lead.
+**Supersedes:** the PT-50 entry's "legacy read leg scheduled for deletion next MINOR (PT-52), not in 0.7.1" clause.
+
 ### 2026-08-24 — Milestone/major records: board-editable + comments; `POST /api/record/<id>` (PT-51)
 **Decision:** Three coupled calls, one design (architect's PT-51 ruling): (1) milestone/major files gain an optional `## Comments` section — identical format, parser, and author vocabulary as issues — and `cairn comment` widens from issue-only to any record; (2) 0.7.0's "records are read-only on the board / no second mutation endpoint" ruling is reversed — a new `POST /api/record/<id>` (same `{seen, patch?, comment?}` body, fixed six-check order, 400 on issue ids so the issue write path stays single) makes records editable in the drawer (milestone: name/status/major/target_tag/ga; major: status/health/owner/target_ship; `id` and `kind` stay CLI-only); (3) the record write path validates fields only — cross-record invariants (GA cap, target_tag shape) remain lint-side.
 **Why:** (1)+(2) are Mosko's 2026-08-24 asks; the endpoint design (separate endpoint, not a widened issue path — structural single-resolver guarantee preserved) and (3) are the architect's. Enforcing sibling-record invariants at the write path would duplicate a lint rule in a surface with nowhere to report a *sibling* record's failure.
