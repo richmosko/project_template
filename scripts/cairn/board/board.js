@@ -49,6 +49,11 @@
   // lifecycle, not issue lifecycle). Never folded together -- see
   // RECORD_STATUS_LABELS' own comment in board-logic.js.
   var recordStatusLabel = CairnLogic.recordStatusLabel;
+  // PT-51: the record drawer's status <select> option list (mirrors
+  // STATUS_LABELS' role for the issue drawer, line above) -- Object.keys
+  // order is this dict's own insertion order (board-logic.js), not
+  // re-sorted here.
+  var RECORD_STATUS_LABELS = CairnLogic.RECORD_STATUS_LABELS;
   // PT-44: releaseChipLabel (the release chip's shared text formatter)
   // and appendMilestoneOnlyLanes (the "a lane for every milestone" fix)
   // -- both board-logic.js pure functions, board.js supplies the DOM.
@@ -269,6 +274,22 @@
 
   function apiMutateIssue(id, payload) {
     return fetch("/api/issue/" + encodeURIComponent(id), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then(function (resp) {
+      return resp.json().then(function (data) {
+        return { ok: resp.ok, status: resp.status, data: data };
+      });
+    });
+  }
+
+  // PT-51 §1: the milestone/major sibling of apiMutateIssue -- identical
+  // shape, posts to the NEW /api/record/<id> endpoint (never a widening
+  // of /api/issue/<id> -- see cairn.py's find_record_path docstring for
+  // why that separation is structural).
+  function apiMutateRecord(id, payload) {
+    return fetch("/api/record/" + encodeURIComponent(id), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -1538,55 +1559,11 @@
       drawer.appendChild(ul);
     }
 
-    var commentsHeading = document.createElement("div");
-    commentsHeading.className = "section-heading";
-    commentsHeading.textContent = "Comments";
-    drawer.appendChild(commentsHeading);
-    var log = document.createElement("div");
-    log.className = "comment-log";
-    (issue.comments || []).forEach(function (c) {
-      var div = document.createElement("div");
-      div.className = "comment";
-      var meta = document.createElement("div");
-      meta.className = "comment-meta";
-      meta.textContent = "@" + c.author + " — " + c.date;
-      div.appendChild(meta);
-      renderMarkdown(div, c.body);
-      log.appendChild(div);
-    });
-    if (!issue.comments || !issue.comments.length) {
-      var noneEl = document.createElement("div");
-      noneEl.className = "empty-state";
-      noneEl.textContent = "No comments yet.";
-      log.appendChild(noneEl);
-    }
-    drawer.appendChild(log);
-
-    if (!readOnly) {
-      var addComment = document.createElement("div");
-      addComment.className = "add-comment";
-      var textarea = document.createElement("textarea");
-      textarea.placeholder = "Add a comment…";
-      addComment.appendChild(textarea);
-      var postBtn = document.createElement("button");
-      postBtn.textContent = "Comment";
-      postBtn.onclick = function () {
-        var body = textarea.value.trim();
-        if (!body) return;
-        apiMutateIssue(issue.id, { seen: issue.seen, comment: { author: "board", body: body } }).then(function (result) {
-          if (result.status === 409) {
-            showToast(issue.id + " changed on disk — refreshed.", true);
-            openDrawer(issue.id);
-            return;
-          }
-          if (!result.ok) { showToast("Failed to add comment", true); return; }
-          openDrawer(issue.id);
-          refreshBoardSilently();
-        });
-      };
-      addComment.appendChild(postBtn);
-      drawer.appendChild(addComment);
-    }
+    // PT-51 §4: shared with the record drawer via commentSectionEl --
+    // every default (apiMutateIssue, openDrawer(issue.id) on stale/post)
+    // is exactly this function's pre-extraction behavior, so passing
+    // only `readOnly` here changes nothing about the issue drawer.
+    drawer.appendChild(commentSectionEl(issue, { readOnly: readOnly }));
   }
 
   // PT-40 (joint PT-40/43/44 ruling § 5): the milestone/major card.
@@ -1650,6 +1627,59 @@
     if (record.archived) meta.appendChild(chip("archived", "archived"));
     drawer.appendChild(meta);
 
+    // PT-51 §5: the SAME disjunction the issue path folds into its own
+    // server-side `read_only` -- archived, or living in a non-primary
+    // root. Courtesy only here (as inlineField's own note says); the
+    // server's 403 archived / 403 read_only_root is the real boundary.
+    var primaryId = primaryRootId(state.board);
+    var readOnly = !!record.archived || (primaryId != null && record.repo !== primaryId);
+    // PT-51 §1/§4: every record editor/comment posts through the SAME
+    // POST /api/record/<id> endpoint and re-opens THIS drawer (not
+    // openDrawer -- that's the issue drawer's own re-open) on both a
+    // stale-seen conflict and a successful post -- one options object,
+    // reused by every editor call below and by commentSectionEl.
+    var recordOpts = {
+      mutate: apiMutateRecord,
+      onStale: function () { openRecordDrawer(recordKind, record.id, record.repo); },
+      onPosted: function () { openRecordDrawer(recordKind, record.id, record.repo); },
+    };
+
+    // PT-51 §3: board-editable fields only -- `id` (filename-authoritative,
+    // a rename is a `git mv`) and milestone `kind` (pinned to the id
+    // shape by lint, itself not board-editable) are CLI-only by design,
+    // so neither gets an editor here at all, not just a disabled one.
+    if (recordKind === "milestone") {
+      drawer.appendChild(inlineField("name", "text", record.name || "", record, false, readOnly, recordOpts));
+      drawer.appendChild(inlineSelect(
+        "status", Object.keys(RECORD_STATUS_LABELS), record.status, record, RECORD_STATUS_LABELS, readOnly, recordOpts
+      ));
+      drawer.appendChild(inlineSelect(
+        "major", dedupeMajorIds(state.board ? state.board.majors : []), record.major, record, null, readOnly, recordOpts
+      ));
+      drawer.appendChild(inlineField("target_tag", "text", record.target_tag || "", record, false, readOnly, recordOpts));
+      // `ga` needs a real JSON bool server-side (§3) -- inlineSelect's
+      // opts.boolean flag (added alongside this feature) does the DOM-
+      // boundary "true"/"false" string -> real bool coercion; the SAME
+      // spot the "" -> null sentinel already lives, not a new mechanism.
+      var gaOpts = { mutate: recordOpts.mutate, onStale: recordOpts.onStale, onPosted: recordOpts.onPosted, boolean: true };
+      drawer.appendChild(inlineSelect(
+        "ga", ["false", "true"], String(!!record.ga), record, { "true": "GA", "false": "Not GA" }, readOnly, gaOpts
+      ));
+    } else {
+      drawer.appendChild(inlineSelect(
+        "status", Object.keys(RECORD_STATUS_LABELS), record.status, record, RECORD_STATUS_LABELS, readOnly, recordOpts
+      ));
+      // MAJOR_HEALTH_VALUES mirrors cairn.py's own enum of the same name
+      // (process/TRACKER.md's major-file health vocabulary) -- no shared
+      // board-logic.js constant for it since, unlike RECORD_STATUS_LABELS,
+      // nothing else in board.js needs this vocabulary yet.
+      drawer.appendChild(inlineSelect(
+        "health", ["on-track", "at-risk", "off-track"], record.health, record, null, readOnly, recordOpts
+      ));
+      drawer.appendChild(inlineField("owner", "text", record.owner || "", record, false, readOnly, recordOpts));
+      drawer.appendChild(inlineField("target_ship", "text", record.target_ship || "", record, false, readOnly, recordOpts));
+    }
+
     if (recordKind === "milestone") {
       // PT-44 § 3: isComplete branch -- a done/cancelled milestone shows
       // completion, never a ratio (the release chip above already
@@ -1669,13 +1699,35 @@
     fileP.textContent = "File: " + record.path;
     drawer.appendChild(fileP);
 
-    var readOnlyNote = document.createElement("div");
-    readOnlyNote.className = "record-readonly-note";
-    readOnlyNote.textContent = "Read-only on the board — run `cairn set " + record.id + " status=<value>` to change.";
-    drawer.appendChild(readOnlyNote);
+    // PT-51 §5: re-scoped -- the note's old claim ("read-only on the
+    // board", unconditionally) stopped being true the moment records
+    // became editable. Archived and foreign-root records are STILL
+    // genuinely read-only and keep a note (worded per which); a live
+    // primary-root record gets NO note at all -- it's editable now, so
+    // a leftover "read-only" note would be actively wrong, not just stale.
+    if (record.archived) {
+      var archivedNote = document.createElement("div");
+      archivedNote.className = "record-readonly-note";
+      archivedNote.textContent = "Archived — read-only on the board; use `cairn set` / `cairn comment`.";
+      drawer.appendChild(archivedNote);
+    } else if (readOnly) {
+      var foreignNote = document.createElement("div");
+      foreignNote.className = "record-readonly-note";
+      foreignNote.textContent = record.id + " lives in a different root — read-only on the board.";
+      drawer.appendChild(foreignNote);
+    }
+
+    // PT-51 §4: same commentSectionEl the issue drawer uses, endpoint-
+    // and re-open swapped via recordOpts (mutate/onStale/onPosted).
+    drawer.appendChild(commentSectionEl(record, {
+      mutate: recordOpts.mutate,
+      readOnly: readOnly,
+      onStale: recordOpts.onStale,
+      onPosted: recordOpts.onPosted,
+    }));
   }
 
-  function inlineField(field, type, value, issue, isLabelsList, readOnly) {
+  function inlineField(field, type, value, entity, isLabelsList, readOnly, opts) {
     var wrap = document.createElement("div");
     wrap.className = "drawer-field";
     var label = document.createElement("label");
@@ -1696,14 +1748,14 @@
         var newValue = isLabelsList
           ? input.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean)
           : input.value;
-        submitPatch(issue, field, newValue, input, value);
+        submitPatch(entity, field, newValue, input, value, opts);
       });
     }
     wrap.appendChild(input);
     return wrap;
   }
 
-  function inlineSelect(field, options, value, issue, labels, readOnly) {
+  function inlineSelect(field, options, value, entity, labels, readOnly, opts) {
     // "" is the sentinel option value for a null field (e.g. priority's
     // none option) — translated to/from JSON null here at the DOM boundary,
     // since <select>.value is always a string and JS null stringifies to
@@ -1726,22 +1778,30 @@
       select.disabled = true; // PT-3: UI courtesy only -- see inlineField's note
     } else {
       select.addEventListener("change", function () {
-        var newValue = select.value === "" ? null : select.value;
-        submitPatch(issue, field, newValue, select, initialSelectValue);
+        var raw = select.value === "" ? null : select.value;
+        // PT-51 §3: `ga` must reach the server as a real JSON bool, not
+        // the string "true"/"false" every <select>.value always is --
+        // opts.boolean (set only by the record drawer's ga select) is
+        // the DOM-boundary coercion, same spot the "" -> null sentinel
+        // above already lives at, not a field-name special-case.
+        var newValue = (opts && opts.boolean && raw !== null) ? (raw === "true") : raw;
+        submitPatch(entity, field, newValue, select, initialSelectValue, opts);
       });
     }
     wrap.appendChild(select);
     return wrap;
   }
 
-  function submitPatch(issue, field, newValue, el, previousValue) {
+  function submitPatch(entity, field, newValue, el, previousValue, opts) {
+    opts = opts || {};
+    var mutate = opts.mutate || apiMutateIssue;
     var patch = {};
     patch[field] = newValue;
-    apiMutateIssue(issue.id, { seen: issue.seen, patch: patch }).then(function (result) {
+    mutate(entity.id, { seen: entity.seen, patch: patch }).then(function (result) {
       if (result.status === 409) {
         el.value = previousValue;
-        showToast(issue.id + " changed on disk — refreshed.", true);
-        openDrawer(issue.id);
+        showToast(entity.id + " changed on disk — refreshed.", true);
+        if (opts.onStale) opts.onStale(); else openDrawer(entity.id);
         return;
       }
       if (!result.ok) {
@@ -1749,22 +1809,90 @@
         showToast("Failed to update " + field, true);
         return;
       }
-      issue.seen = result.data.seen;
+      entity.seen = result.data.seen;
       if (field === "title") {
         // PT-11: reflect the new title in the open drawer's h2 straight
         // from this response, not the next poll -- gated on `field` so a
         // different field's response (e.g. status, landing before or
         // after a title edit) never touches the h2. The card behind the
         // drawer still refreshes via the existing refreshBoardSilently()
-        // path below, unchanged.
-        issue.title = result.data.title;
-        if (state.openRecord && state.openRecord.kind === "issue" && state.openRecord.id === issue.id) {
+        // path below, unchanged. `field === "title"` is issue-only in
+        // practice (the record drawer's name-equivalent field is called
+        // `name`, never `title`), so this needs no entity-kind guard.
+        entity.title = result.data.title;
+        if (state.openRecord && state.openRecord.kind === "issue" && state.openRecord.id === entity.id) {
           var h2 = document.querySelector("#drawer h2");
           if (h2) h2.textContent = result.data.title;
         }
       }
       refreshBoardSilently();
     });
+  }
+
+  // PT-51 §4: extracted from the issue drawer's own comment log + add-
+  // comment box (the ONLY prior instance) at the second use (the record
+  // drawer) -- the issueLinkListEl precedent stated at its own top
+  // comment. `opts.mutate` is the submit callback per endpoint (issue ->
+  // apiMutateIssue, the default; record -> apiMutateRecord); `opts.
+  // onStale`/`opts.onPosted` default to `openDrawer(record.id)` (the
+  // issue drawer's original behavior) and are overridden by the record
+  // drawer to re-open the record drawer instead.
+  function commentSectionEl(record, opts) {
+    opts = opts || {};
+    var mutate = opts.mutate || apiMutateIssue;
+    var readOnly = !!opts.readOnly;
+
+    var frag = document.createDocumentFragment();
+    var commentsHeading = document.createElement("div");
+    commentsHeading.className = "section-heading";
+    commentsHeading.textContent = "Comments";
+    frag.appendChild(commentsHeading);
+    var log = document.createElement("div");
+    log.className = "comment-log";
+    (record.comments || []).forEach(function (c) {
+      var div = document.createElement("div");
+      div.className = "comment";
+      var meta = document.createElement("div");
+      meta.className = "comment-meta";
+      meta.textContent = "@" + c.author + " — " + c.date;
+      div.appendChild(meta);
+      renderMarkdown(div, c.body);
+      log.appendChild(div);
+    });
+    if (!record.comments || !record.comments.length) {
+      var noneEl = document.createElement("div");
+      noneEl.className = "empty-state";
+      noneEl.textContent = "No comments yet.";
+      log.appendChild(noneEl);
+    }
+    frag.appendChild(log);
+
+    if (!readOnly) {
+      var addComment = document.createElement("div");
+      addComment.className = "add-comment";
+      var textarea = document.createElement("textarea");
+      textarea.placeholder = "Add a comment…";
+      addComment.appendChild(textarea);
+      var postBtn = document.createElement("button");
+      postBtn.textContent = "Comment";
+      postBtn.onclick = function () {
+        var body = textarea.value.trim();
+        if (!body) return;
+        mutate(record.id, { seen: record.seen, comment: { author: "board", body: body } }).then(function (result) {
+          if (result.status === 409) {
+            showToast(record.id + " changed on disk — refreshed.", true);
+            if (opts.onStale) opts.onStale(); else openDrawer(record.id);
+            return;
+          }
+          if (!result.ok) { showToast("Failed to add comment", true); return; }
+          if (opts.onPosted) opts.onPosted(); else openDrawer(record.id);
+          refreshBoardSilently();
+        });
+      };
+      addComment.appendChild(postBtn);
+      frag.appendChild(addComment);
+    }
+    return frag;
   }
 
   // ------------------------------------------------------------------

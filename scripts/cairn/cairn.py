@@ -81,6 +81,24 @@ RECORD_STATUSES = {"planned", "in-progress", "paused", "done", "cancelled"}
 MILESTONE_FIELD_ORDER = ["id", "name", "kind", "major", "status", "target_tag", "ga"]
 MAJOR_FIELD_ORDER = ["id", "status", "owner", "target_ship", "health"]
 
+# PT-51 §3: the major schema's `health` vocabulary (process/TRACKER.md's
+# major-file example: "on-track | at-risk | off-track") -- validated at
+# the record write path since it's a single-field syntactic check, unlike
+# the cross-record invariants (GA cap, target_tag shape, major: resolves)
+# this same section explicitly leaves to `cairn check`.
+MAJOR_HEALTH_VALUES = {"on-track", "at-risk", "off-track"}
+
+# PT-51 §3: board-editable fields per schema -- the ruling's "Editable in
+# the drawer" list, encoded. Deliberately NARROWER than _RECORD_FIELD_ORDER
+# (below): `id` (filename-authoritative; a rename is a `git mv`) and
+# milestone `kind` (pinned to the id shape by lint, itself not board-
+# editable) are legal CLI fields but excluded here on purpose, not
+# special-cased in the validator -- "not in this set" already covers them.
+_RECORD_BOARD_EDITABLE_FIELDS = {
+    "milestone": {"name", "status", "major", "target_tag", "ga"},
+    "major": {"status", "health", "owner", "target_ship"},
+}
+
 # PT-28: `prefix:` format -- the SAME regex /setup-tracker already uses for
 # the interactive path (architect's ruling § 7), now also enforced at lint
 # time so a hand-edited config.yml can't silently corrupt every id-shape
@@ -638,7 +656,16 @@ def get_seen(path: Path) -> str:
     return str(Path(path).stat().st_mtime_ns)
 
 
-NULLABLE_FIELDS = ("milestone", "assignee", "parent", "priority", "pr")
+NULLABLE_FIELDS = (
+    "milestone", "assignee", "parent", "priority", "pr",
+    # PT-51 §3: the record schema's own "(text, nullable)" board-editable
+    # fields (milestone target_tag; major owner/target_ship) -- same "" ->
+    # None coercion the issue fields above already get, same mechanism
+    # (apply_patch is the one place both schemas funnel through), just
+    # extended to cover the record-only field names. Safe to share one
+    # tuple: none of these three names collides with an issue field.
+    "target_tag", "owner", "target_ship",
+)
 
 # PT-26: list-valued fields never join NULLABLE_FIELDS -- clearing one
 # writes `[]`, never `null` (labels already worked this way; blocked_by
@@ -694,8 +721,15 @@ def apply_patch(path: Path, patch: Dict[str, Any]) -> Dict[str, Any]:
 
 def append_comment(path: Path, author: str, body: str, comment_date: Optional[str] = None) -> Dict[str, Any]:
     """Append one comment to the tail of `path` (adding a '## Comments'
-    heading first if absent), and bump `updated` to today. Returns the new
-    frontmatter dict.
+    heading first if absent), and bump `updated` to today -- issue-shaped
+    files only. Returns the new frontmatter dict.
+
+    PT-51 §4 prerequisite: gated on `_is_issue_shaped`, the same guard
+    `apply_patch` already uses. Records (milestone/major) have no
+    `updated` field in their schema (PT-13) -- an unconditional bump
+    would inject an off-schema key the first time anyone comments on one,
+    which `dump_frontmatter`'s non-issue branch would then faithfully
+    (and wrongly) emit forever after.
     """
     path = Path(path)
     text = path.read_text(encoding="utf-8")
@@ -714,7 +748,8 @@ def append_comment(path: Path, author: str, body: str, comment_date: Optional[st
     else:
         new_body += "## Comments\n\n" + comment_block
 
-    frontmatter["updated"] = _today()
+    if _is_issue_shaped(frontmatter):
+        frontmatter["updated"] = _today()
     new_text = dump_frontmatter(frontmatter) + new_body
     _atomic_write(path, new_text)
     return frontmatter
@@ -2012,6 +2047,20 @@ def read_git_tags(data_dir: Path) -> Tuple[Optional[Set[str]], Optional[str]]:
     return tags, None
 
 
+def _release_status(target_tag: Optional[str], tag_set: Optional[Set[str]]) -> Optional[bool]:
+    """Whether `target_tag` has shipped, per `tag_set` (PT-44 §4's
+    formula) -- extracted so `build_board_payload`'s milestone loop and
+    `build_record_payload` (PT-51, the POST /api/record/<id> response)
+    compute it identically, one derivation rather than two copies that
+    could drift. `None` when there's nothing to check: no `target_tag`
+    (a definition milestone) or `tag_set` itself is `None` (a git read
+    failure -- degrades to "unknown", never a false `False`).
+    """
+    if target_tag is None or tag_set is None:
+        return None
+    return target_tag in tag_set
+
+
 def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any]:
     """{"majors": [...], "milestones": [...], "issues": [...]}.
 
@@ -2075,10 +2124,22 @@ def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any
         # for a record with no text after the fence is a real, present
         # empty string, never a missing key (PT-3 no-conditional-shape
         # precedent, same posture `archived` already gets on every record).
-        fm, body = parse_frontmatter(p.read_text(encoding="utf-8"))
+        fm, raw_body = parse_frontmatter(p.read_text(encoding="utf-8"))
         fm = dict(fm)
         fm["archived"] = is_archived_path(data_dir, p)
-        fm["body"] = body
+        # PT-51 §2: `body` becomes the PRE-`## Comments` half, via the
+        # SAME split_comments issues already use -- one parser, not a
+        # second body-vs-comments convention. For every record that
+        # exists today (none has a Comments section yet) this is
+        # byte-identical to the old `body` value: split_comments returns
+        # `(body, [])` verbatim when there's no heading to split on.
+        pre_comments_body, comments = split_comments(raw_body)
+        fm["body"] = pre_comments_body
+        fm["comments"] = comments
+        # PT-51 §2: `seen` -- exactly `get_seen(p)`, the same mtime token
+        # the issue loop below already stamps, so a record's inline
+        # editors/comment box has a real seen to send back on write.
+        fm["seen"] = get_seen(p)
         # PT-40 § 5: the card's file-path line, same contract as an
         # issue's own "path" (PT-10) -- the record's real on-disk path,
         # correct for an archived major/milestone too.
@@ -2089,11 +2150,7 @@ def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any
         # a key present-but-always-null on a schema it doesn't apply to
         # would be its own kind of confusing "always false-ish" signal).
         if include_released:
-            target_tag = fm.get("target_tag")
-            if target_tag is None or tag_set is None:
-                fm["released"] = None
-            else:
-                fm["released"] = target_tag in tag_set
+            fm["released"] = _release_status(fm.get("target_tag"), tag_set)
         return fm
 
     majors = [_stamped_with_body(p) for p in major_paths]
@@ -2143,6 +2200,84 @@ def build_issue_payload(data_dir: Path, issue_id: str) -> Optional[Dict[str, Any
     # needed beyond that one flag's computation widening.
     issue["archived"] = is_archived_path(data_dir, path)
     return issue
+
+
+def build_record_payload(data_dir: Path, record_id: str) -> Optional[Dict[str, Any]]:
+    """The milestone/major analog of `build_issue_payload` -- single-file,
+    O(1) in the tree size. Backs `POST /api/record/<id>`'s 200/409
+    response body (PT-51 §1/§2): "the fresh record payload, same shape as
+    the 409's `current`".
+
+    Resolves via `find_record_path`, which ALSO resolves issue ids (it's
+    the shared six-subdir resolver PT-39 built for `cairn set`/`cairn
+    comment`) -- but the HTTP handler rejects an issue id with `400
+    wrong_endpoint` before ever calling this, so in practice this is only
+    ever reached for a milestone or major. None if `record_id` resolves
+    nowhere at all.
+
+    Same fields `build_board_payload`'s per-record stamping adds (§2):
+    `archived`, `body` (the PRE-`## Comments` half via `split_comments`),
+    `comments`, `seen`, `path`, and -- milestones only -- `released`
+    (`_release_status`, the SAME derivation the board payload's milestone
+    loop uses, not a second copy).
+    """
+    data_dir = Path(data_dir)
+    path = find_record_path(data_dir, record_id)
+    if path is None:
+        return None
+    fm, raw_body = parse_frontmatter(path.read_text(encoding="utf-8"))
+    fm = dict(fm)
+    fm["archived"] = is_archived_path(data_dir, path)
+    pre_comments_body, comments = split_comments(raw_body)
+    fm["body"] = pre_comments_body
+    fm["comments"] = comments
+    fm["seen"] = get_seen(path)
+    fm["path"] = str(path)
+    if _record_schema_for_path(data_dir, path) == "milestone":
+        tag_set, git_tags_warning = read_git_tags(data_dir)
+        if git_tags_warning:
+            print(f"cairn: warning: {git_tags_warning}", file=sys.stderr)
+        fm["released"] = _release_status(fm.get("target_tag"), tag_set)
+    return fm
+
+
+def _validate_record_patch(schema: str, patch: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """PT-51 §3: the record write path's field policy. Returns a 400
+    error body (`{"error": "bad_request", "message": ...}`), or `None`
+    when `patch` is clean.
+
+    `id`/`kind` are legal CLI fields (`_RECORD_FIELD_ORDER`) but
+    deliberately NOT board-editable -- both are simply absent from
+    `_RECORD_BOARD_EDITABLE_FIELDS`, not special-cased here; "unknown
+    field for the resolved schema" and "id/kind rejected" are the SAME
+    check by construction, not two.
+
+    Cross-record invariants (one `ga: true` per major, `target_tag ==
+    v<N>.0.0`, `major:` resolves) are explicitly NOT checked here --
+    `cairn check` is the backstop, the same posture `cairn set` and
+    `blocked_by` already take (a write-path re-implementation of a lint
+    rule has nowhere to report a SIBLING record's failure).
+    """
+    editable = _RECORD_BOARD_EDITABLE_FIELDS[schema]
+    for key in patch:
+        if key not in editable:
+            return {
+                "error": "bad_request",
+                "message": f"{key!r} is not board-editable for a {schema} -- use `cairn set` instead",
+            }
+    if "status" in patch and patch["status"] not in RECORD_STATUSES:
+        return {
+            "error": "bad_request",
+            "message": f"invalid status {patch['status']!r} -- expected one of {sorted(RECORD_STATUSES)}",
+        }
+    if schema == "major" and "health" in patch and patch["health"] not in MAJOR_HEALTH_VALUES:
+        return {
+            "error": "bad_request",
+            "message": f"invalid health {patch['health']!r} -- expected one of {sorted(MAJOR_HEALTH_VALUES)}",
+        }
+    if schema == "milestone" and "ga" in patch and not isinstance(patch["ga"], bool):
+        return {"error": "bad_request", "message": "ga must be a boolean"}
+    return None
 
 
 def compute_etag(data_dir: Path, archived: bool = False) -> str:
@@ -2442,6 +2577,21 @@ def find_issue_in_roots(roots: List[Root], issue_id: str) -> Optional[Root]:
     """
     for root in roots:
         if find_issue_path(root.path, issue_id) is not None:
+            return root
+    return None
+
+
+def find_record_in_roots(roots: List[Root], record_id: str) -> Optional[Root]:
+    """The `find_issue_in_roots` sibling for `POST /api/record/<id>`
+    (PT-51 §1 step 1). Same contract, one resolver over: used ONLY to
+    tell `403 read_only_root` from a genuine `404` for the HTTP mutation
+    handler, NEVER to locate a file to write -- `find_record_path`
+    (`data_dir`-scoped, i.e. primary-root-only by construction) stays the
+    only resolver `_mutate_record` can reach, exactly like
+    `find_issue_path`/`_mutate_issue`.
+    """
+    for root in roots:
+        if find_record_path(root.path, record_id) is not None:
             return root
     return None
 
@@ -2924,6 +3074,10 @@ def make_server(
                 issue_id = urllib.parse.unquote(path[len("/api/issue/"):])
                 self._mutate_issue(issue_id, payload)
                 return
+            if path.startswith("/api/record/"):
+                record_id = urllib.parse.unquote(path[len("/api/record/"):])
+                self._mutate_record(record_id, payload)
+                return
             self.send_error(404)
 
         def _create_issue(self, payload: Dict[str, Any]) -> None:
@@ -3012,6 +3166,99 @@ def make_server(
                     append_comment(issue_path, comment.get("author", "board"), comment.get("body", ""))
 
                 self._send_json(200, build_issue_payload(data_dir, issue_id))
+
+        def _mutate_record(self, record_id: str, payload: Dict[str, Any]) -> None:
+            """`POST /api/record/<id>` -- the milestone/major sibling of
+            `_mutate_issue` (PT-51 §1). A NEW endpoint, not a widening of
+            `/api/issue/<id>`: `find_issue_path` stays the only resolver
+            THAT path can reach (PT-3/PT-39's structural read-only/single-
+            write-path guarantee), and this one is scoped to
+            `find_record_path` the same way. Six checks, in the ruled
+            order -- the order is part of the ruling, not an
+            implementation detail:
+              1. resolve (403 read_only_root / 404 not_found)
+              2. an issue id -> 400 wrong_endpoint (this is NOT a second
+                 write path to issues)
+              3. archived -> 403, BEFORE the seen comparison
+              4. seen missing -> 400; then the critical section + 409 stale
+              5. patch -> field policy (§3) -> apply_patch
+              6. comment -> append_comment (§4)
+            """
+            # Step 1 -- same distinguishing pattern as _mutate_issue:
+            # find_record_path is data_dir- (primary root-) scoped by
+            # construction; find_record_in_roots is ONLY ever called here
+            # to tell 403 from 404, never to locate a file to write.
+            record_path = find_record_path(data_dir, record_id)
+            if record_path is None:
+                foreign_root = find_record_in_roots(roots, record_id)
+                if foreign_root is not None and not foreign_root.primary:
+                    self._send_json(403, {
+                        "error": "read_only_root",
+                        "message": f"{record_id} lives in root {foreign_root.id} — "
+                                   "the board is read-only across roots",
+                    })
+                    return
+                self._send_json(404, {"error": "not_found", "message": f"no such record: {record_id}"})
+                return
+
+            # Step 2 -- an issue id resolves here too (find_record_path
+            # searches issues/ first); rejecting it is what stops this
+            # endpoint from becoming a second write path to issues with a
+            # different field policy, the exact drift the single-write-
+            # path rule exists to prevent.
+            schema = _record_schema_for_path(data_dir, record_path)
+            if schema == "issue":
+                self._send_json(400, {
+                    "error": "wrong_endpoint",
+                    "message": f"{record_id} is an issue — use /api/issue/{record_id}",
+                })
+                return
+
+            # Step 3 -- verbatim _mutate_issue's archived rule, checked
+            # BEFORE the seen comparison so it holds regardless of body
+            # (proven by the archived-with-a-garbage-body test).
+            if is_archived_path(data_dir, record_path):
+                self._send_json(403, {
+                    "error": "archived",
+                    "message": f"{record_id} is archived — read-only on the board; use the CLI instead",
+                })
+                return
+
+            # Step 4a
+            if "seen" not in payload:
+                self._send_json(400, {
+                    "error": "bad_request",
+                    "message": "seen is required (send the loaded token, or explicit null to override)",
+                })
+                return
+
+            # Step 4b/5/6 -- same write_lock critical section _mutate_issue
+            # uses (write_lock serializes across BOTH endpoints; it's one
+            # lock for the whole write surface, not per-endpoint).
+            with write_lock:
+                seen = payload["seen"]
+                current_seen = get_seen(record_path)
+                if seen is not None and str(seen) != current_seen:
+                    current = build_record_payload(data_dir, record_id)
+                    self._send_json(409, {
+                        "error": "stale",
+                        "message": f"{record_id} changed on disk since you loaded it",
+                        "current": current,
+                    })
+                    return
+
+                patch = payload.get("patch")
+                if patch:
+                    error = _validate_record_patch(schema, patch)
+                    if error is not None:
+                        self._send_json(400, error)
+                        return
+                    apply_patch(record_path, patch)
+                comment = payload.get("comment")
+                if comment:
+                    append_comment(record_path, comment.get("author", "board"), comment.get("body", ""))
+
+                self._send_json(200, build_record_payload(data_dir, record_id))
 
     # PT-1: ThreadingMixIn -- one thread per connection, so a long-held
     # SSE stream can't block the accept loop for every other client
@@ -3218,10 +3465,17 @@ def cmd_set(args: argparse.Namespace) -> int:
 
 
 def cmd_comment(args: argparse.Namespace) -> int:
+    # PT-51 §4: find_issue_path -> find_record_path -- records may now
+    # carry a '## Comments' section too (identical format/parser/author
+    # vocabulary as issues, no second convention), so `cairn comment`
+    # works uniformly on issues, milestones, majors, and archived records
+    # -- matching what `cairn set` (PT-39) already does. append_comment
+    # itself already gates its `updated` bump on _is_issue_shaped, so a
+    # record comment injects no off-schema key.
     data_dir = resolve_data_dir(args)
-    path = find_issue_path(data_dir, args.id)
+    path = find_record_path(data_dir, args.id)
     if path is None:
-        print(f"error: no such issue: {args.id}", file=sys.stderr)
+        print(f"error: no such record: {args.id}", file=sys.stderr)
         return 1
     body = sys.stdin.read() if args.body == "-" else args.body
     append_comment(path, args.author, body)
