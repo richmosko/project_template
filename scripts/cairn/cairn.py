@@ -3572,7 +3572,30 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 
 def _git_mv_or_rename(src: Path, dest: Path) -> None:
+    """`git mv src dest`, falling back to a plain filesystem move when
+    git isn't applicable (no git binary, or `src`/`dest` aren't inside a
+    git worktree at all -- both legitimate, expected outcomes for a
+    non-git data dir, never an error).
+
+    PT-53: `src`/`dest` are resolved to ABSOLUTE paths before the
+    subprocess call. The subprocess's `cwd=src.parent` is unchanged --
+    still needed so a relative `--data-dir` invocation's git command runs
+    from somewhere that exists -- but the ARGUMENT strings used to be
+    whatever `src`/`dest` were handed as (relative, when `--data-dir` is
+    relative -- `resolve_data_dir` never calls `.resolve()`), which
+    `git mv` then read relative to the WRONG base once the subprocess's
+    cwd had already changed to `src.parent`. `git mv` looked for a
+    source file that didn't exist there, failed, and the failure was
+    swallowed (only `returncode == 0` was ever checked, stderr never
+    surfaced) -- silently downgrading a real invocation to the plain-move
+    fallback, which leaves an untracked add + unstaged delete instead of
+    a staged rename. Resolving both paths up front makes the argument
+    correct regardless of the caller's cwd or the relativity of what it
+    was given; `.resolve()` doesn't require either path to already exist.
+    """
     import subprocess
+    src = Path(src).resolve()
+    dest = Path(dest).resolve()
     try:
         result = subprocess.run(
             ["git", "mv", str(src), str(dest)],
@@ -3580,6 +3603,15 @@ def _git_mv_or_rename(src: Path, dest: Path) -> None:
         )
         if result.returncode == 0:
             return
+        # PT-53: surfaced, not swallowed -- this fallback stays
+        # LEGITIMATE for a non-git data dir ("fatal: not a git
+        # repository" is exactly what a plain move should silently
+        # absorb), but a genuine failure for a data dir that IS a git
+        # repo (a dirty index mid-merge, permissions, ...) was previously
+        # indistinguishable from that case. One warning line, never
+        # raised -- the operation still completes via the fallback below.
+        if result.stderr:
+            print(f"cairn: warning: git mv fell back to a plain move ({result.stderr.strip()})", file=sys.stderr)
     except FileNotFoundError:
         pass
     os.replace(str(src), str(dest))
