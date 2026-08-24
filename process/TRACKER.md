@@ -394,13 +394,15 @@ CAIRN_PORT=8899 … serve   # port override
 
 **Separate server and port from `serve-docs`** — docs on `8765`, cairn on `8766`. Merging them would couple the docs review loop to the tracker and drag `docs/` into any future cairn spin-off. Both are one-line skills, and the board header links to `:8765` when it responds.
 
+**Engine staleness (PT-49).** The data half of "the board is a stateless lens" was always true — `/api/board` re-parses `process/cairn/` on every request. The **process** half wasn't: a server started before a `cairn.py` upgrade keeps running the old code until it's restarted, silently. At server construction, `make_server` fingerprints `cairn.py` itself (content sha256, not a git hash — an uncommitted edit has no commit to name) and holds that as the boot stamp. Every `/api/board` build re-stats the file and, only on a stat mismatch, re-hashes it; `/api/board` always carries a top-level `engine: {source_sha, started_at, stale}`, folded into the response's `ETag` so a stale flip is never masked by a `304`. The `/cairn` skill auto-restarts a server it detects as stale (safe: the server holds no state); a server started outside the skill instead shows a persistent banner on the board naming the fix (`/cairn stop`, then `/cairn`) — the board keeps serving real data throughout, since only the process's *behaviour*, not the data it reads, can be stale.
+
 ### API surface
 
 Five endpoints. All bind `127.0.0.1`, no auth — same posture as `serve-docs.py`.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/board` | Full parsed state: majors, milestones, issues (without comment bodies), plus the resolved `columns` / `swimlane`. **`?archived=1`** (the only accepted spelling — anything else is off) additionally reads all three archive directories; without it, `archive/` is never opened at all. Every record always carries `archived: true\|false`. Supports `ETag`/`If-None-Match` — the flag is folded into the hash, so the two representations can never share an etag. |
+| `GET` | `/api/board` | Full parsed state: majors, milestones, issues (without comment bodies), plus the resolved `columns` / `swimlane`. **`?archived=1`** (the only accepted spelling — anything else is off) additionally reads all three archive directories; without it, `archive/` is never opened at all. Every record always carries `archived: true\|false`. A top-level `engine: {source_sha, started_at, stale}` (PT-49 — see Lifecycle above) is always present too. Supports `ETag`/`If-None-Match` — the archived flag AND the engine identity are both folded into the hash, so neither representation nor a stale flip can hide behind a `304`. |
 | `GET` | `/api/issue/<id>` | One issue: frontmatter, description, acceptance criteria, full comment list, `seen` token. |
 | `GET` | `/api/events` | SSE stream (`text/event-stream`). A background thread `os.scandir`s the data dir every 500 ms and diffs `(path, mtime_ns)` — not a kernel fs-watch, since `kqueue`/`inotify` have no portable stdlib wrapper. Emits `{"type":"changed"\|"created"\|"removed","ids":[…]}`; the client refetches only the named issues. |
 | `POST` | `/api/issue` | Create. Body `{title, …}`. Allocates an ID via the same `O_EXCL` path as `cairn new`. **Primary root only** — there is no way to create an issue in a secondary root through the board. |

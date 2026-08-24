@@ -27,10 +27,10 @@ The server is a **lens, not a source of truth**: it parses `process/cairn/` at r
 ### 2. Detect a running instance
 
 ```bash
-curl -sf --max-time 1 -o /dev/null "http://127.0.0.1:${CAIRN_PORT:-8766}/api/board"
+curl -sf --max-time 1 "http://127.0.0.1:${CAIRN_PORT:-8766}/api/board"
 ```
 
-Exit 0 → already up (skip launch). For `status`: report `connected` / `offline` + port, then exit.
+Exit 0 → already up. **PT-49: read `engine.stale` off that same response** (no second request) — `true` means this instance is running an older `cairn.py` than what's checked out (the common cause: `cairn.py` was edited/upgraded after the server was started). When `true`: kill it (step 3's pid logic) and fall through to step 4 to relaunch — auto-restart is safe here because the server is stateless (principle 4: killing it loses nothing) — then prefix step 5's report with **"restarted (stale engine)"** before the normal URL block. When `false` (or the response has no `engine` key at all — an old server predating this field), skip launch as before. For `status`: report `connected` / `offline` + port (+ `stale` when true), then exit.
 
 ### 3. Handle `stop`
 
@@ -72,6 +72,7 @@ open -a "Google Chrome" "http://localhost:${CAIRN_PORT:-8766}/" 2>/dev/null \
 - **`/setup-tracker` never ran** — the server exits loudly naming the missing `config.yml`; relay that and suggest `/setup-tracker`.
 - **Port 8766 taken by something else** — the readiness probe hits a non-cairn responder; `/api/board` 404s → treat as offline and surface the collision (override: `CAIRN_PORT=8899 ./scripts/cairn/cairn serve`).
 - **Server start times out** — surface it; suggest running `./scripts/cairn/cairn serve` in a terminal for live logs.
+- **A stale server started outside this skill** (own terminal, `launchd`) — step 2's auto-restart only fires for an instance this skill itself detects and controls; a server the user started by hand is left running. Its board still shows a red **persistent banner** ("Board server is running older code...") naming the fix — relay that if the user reports odd/old behavior and `/cairn status` shows `stale: true`.
 
 ## Notes
 

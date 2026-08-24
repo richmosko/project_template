@@ -92,6 +92,20 @@ body {
   to { transform: rotate(360deg); }
 }
 
+/* PT-49 §6: persistent, in-flow (NOT fixed/overlay like .pull-indicator
+   above) -- it never covers or blocks anything, it just sits at the top
+   of the document and pushes the header down while shown. Warning color
+   (--danger), not the toast's transient styling -- this state doesn't
+   self-resolve. */
+.engine-stale-banner {
+  background: var(--danger);
+  color: #fff;
+  text-align: center;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 header.app-header {
   background: var(--panel);
   border-bottom: 1px solid var(--border);
