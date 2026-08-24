@@ -17,6 +17,15 @@
      design, which measured out as never visible at any real viewport). -->
 <div class="pull-indicator" id="pull-indicator" hidden></div>
 
+<!-- PT-49 §6: a PERSISTENT banner, not a toast -- the condition (the
+     server process is running older code than the checked-out cairn.py)
+     does not self-resolve on its own, and a toast auto-dismisses in
+     3.5s. board.js's renderEngineBanner drives the hidden attribute/text;
+     shown when board.engine.stale, removed the moment a later payload
+     reports false. Never disables anything below it -- a stale server
+     still serves true data, only its behaviour is old. -->
+<div class="engine-stale-banner" id="engine-stale-banner" hidden></div>
+
 <header class="app-header">
   <div class="app-header-row">
     <span class="app-title">cairn</span>

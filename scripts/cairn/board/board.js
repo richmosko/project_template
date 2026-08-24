@@ -1771,7 +1771,27 @@
   // Top-level render + polling
   // ------------------------------------------------------------------
 
+  // PT-49 §6: a persistent banner, not a toast (showToast above always
+  // auto-dismisses in 3.5s -- wrong for a condition that doesn't self-
+  // resolve). Reads state.board.engine.stale fresh on every render() pass
+  // -- shown when true, removed the moment a later payload reports false
+  // (no separate "was it shown before" state to track). Never touches
+  // #main/the header/interaction -- a stale server still serves true
+  // data, only its behaviour is old (§6's own wording).
+  function renderEngineBanner() {
+    var el = document.getElementById("engine-stale-banner");
+    var engine = state.board && state.board.engine;
+    if (engine && engine.stale) {
+      el.textContent =
+        "Board server is running older code than scripts/cairn/cairn.py — restart it (`/cairn stop`, then `/cairn`).";
+      el.hidden = false;
+    } else {
+      el.hidden = true;
+    }
+  }
+
   function render() {
+    renderEngineBanner();
     renderHeader();
     if (isListView) renderList(); else renderKanban();
   }

@@ -2297,7 +2297,10 @@ def resolve_roots(
 
 
 def build_multi_board_payload(
-    roots: List[Root], warnings: List[Dict[str, str]], archived: bool = False
+    roots: List[Root],
+    warnings: List[Dict[str, str]],
+    archived: bool = False,
+    engine: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Aggregate `build_board_payload` across every root, stamping
     `record["repo"] = root.id` on every major/milestone/issue.
@@ -2333,6 +2336,15 @@ def build_multi_board_payload(
     -- called fresh on every `/api/board` request, no caching, matching
     this whole module's stateless-lens design -- is where it actually
     reaches stderr, one line per field, naming the offending value.
+
+    PT-49 (ruling § 4): `engine`, when given, is embedded VERBATIM under
+    the top-level `engine` key -- `{source_sha, started_at, stale}`,
+    per-process (belongs beside `roots`/`warnings`, never on a record,
+    never per root). Computing that dict (the boot fingerprint, the §3
+    self-check) is the caller's job (`do_GET`'s `/api/board` handler) --
+    this function only places it, same posture it already takes with
+    `warnings`. `None` (every pre-PT-49 caller/test) omits the key
+    entirely rather than a fabricated placeholder.
     """
     all_warnings = list(warnings)
     majors: List[Dict[str, Any]] = []
@@ -2366,7 +2378,7 @@ def build_multi_board_payload(
             i["repo"] = root.id
             issues.append(i)
 
-    return {
+    result = {
         "roots": [{"id": r.id, "label": r.label, "primary": r.primary} for r in roots],
         "warnings": all_warnings,
         "columns": resolved_columns,
@@ -2375,9 +2387,17 @@ def build_multi_board_payload(
         "milestones": milestones,
         "issues": issues,
     }
+    if engine is not None:
+        result["engine"] = engine
+    return result
 
 
-def compute_multi_etag(roots: List[Root], archived: bool = False) -> str:
+def compute_multi_etag(
+    roots: List[Root],
+    archived: bool = False,
+    boot_sha: Optional[str] = None,
+    source_path: Optional[Path] = None,
+) -> str:
     """Fold `compute_etag` over every root -- correct with no key-collision
     risk, since `compute_etag` already hashes each file's full path (which
     differs across roots) plus its mtime.
@@ -2385,8 +2405,26 @@ def compute_multi_etag(roots: List[Root], archived: bool = False) -> str:
     PT-42 (ruling § 1): `archived` threads through to each per-root
     `compute_etag` call, same as build_multi_board_payload above -- the
     two representations get two etags, never one shared between them.
+
+    PT-49 (ruling § 5, the part that would otherwise silently defeat the
+    whole feature): `boot_sha` + the CURRENT `(mtime_ns, size)` of
+    `source_path` are folded in ONCE, at the top -- not per root. Without
+    this, a stale flip with no data-file change leaves every per-root
+    etag unchanged, the client 304s, and the banner never appears. Both
+    args default to `None` (opt-in, back-compat with every pre-PT-49
+    caller/test): `None` skips the fold entirely rather than hashing a
+    literal "None" string, so an omitted engine identity can never
+    collide with a real one.
     """
     hasher = hashlib.sha256()
+    if boot_sha is not None or source_path is not None:
+        hasher.update(f"engine_boot_sha:{boot_sha}\n".encode("utf-8"))
+        if source_path is not None:
+            try:
+                st = Path(source_path).stat()
+                hasher.update(f"engine_source:{st.st_mtime_ns}:{st.st_size}\n".encode("utf-8"))
+            except OSError:
+                hasher.update(b"engine_source:missing\n")
     for root in roots:
         hasher.update(compute_etag(root.path, archived=archived).encode("utf-8"))
         hasher.update(b"\n")
@@ -2556,6 +2594,55 @@ class DataDirWatcher:
 
 
 # --------------------------------------------------------------------------
+# Engine staleness detection (PT-49, architect's ruling in the issue file).
+#
+# The running Python PROCESS, not the data files it re-reads on every
+# request, is the thing that can go stale: `_send_static`/`build_board_
+# payload` already re-parse disk on every call, so an upgraded cairn.py
+# is invisible to a server that was started before the upgrade landed --
+# exactly the "?archived=1 does nothing" bug this closes. Fingerprints
+# `cairn.py` ONLY (§1) -- a content hash, not a git hash (§2): git names
+# the checked-out commit, not which bytes the running process imported,
+# and an uncommitted edit (the actual incident) has no commit at all.
+# --------------------------------------------------------------------------
+
+def engine_fingerprint(source_path: Path) -> Dict[str, Any]:
+    """`{"sha": sha256(bytes)[:12], "mtime_ns": ..., "size": ...}` for
+    `source_path` (§2). Captured ONCE, at server construction
+    (`make_server`), and held on the handler closure as the immutable
+    "boot" fingerprint every later `engine_is_stale` call compares
+    against -- never recomputed mid-process."""
+    source_path = Path(source_path)
+    data = source_path.read_bytes()
+    st = source_path.stat()
+    return {"sha": hashlib.sha256(data).hexdigest()[:12], "mtime_ns": st.st_mtime_ns, "size": st.st_size}
+
+
+def engine_is_stale(source_path: Path, boot: Dict[str, Any]) -> bool:
+    """§3's two-tier self-check, run fresh on each `/api/board` build.
+    `os.stat` first: `(mtime_ns, size)` equal to `boot` -> not stale, no
+    read at all (the common case, one stat). Different -> hash the file
+    and compare shas; only a DIFFERING sha is stale -- a `git checkout`
+    that touches mtime without changing bytes must never raise a false
+    alarm. Source missing/unreadable -> not stale (never invent an
+    alarm from a read failure), one stderr line."""
+    source_path = Path(source_path)
+    try:
+        st = source_path.stat()
+    except OSError as e:
+        print(f"cairn: warning: engine staleness check could not stat {source_path}: {e}", file=sys.stderr)
+        return False
+    if st.st_mtime_ns == boot["mtime_ns"] and st.st_size == boot["size"]:
+        return False
+    try:
+        current_sha = hashlib.sha256(source_path.read_bytes()).hexdigest()[:12]
+    except OSError as e:
+        print(f"cairn: warning: engine staleness check could not read {source_path}: {e}", file=sys.stderr)
+        return False
+    return current_sha != boot["sha"]
+
+
+# --------------------------------------------------------------------------
 # HTTP server — a lens, not a source of truth. No state held here.
 # --------------------------------------------------------------------------
 
@@ -2564,6 +2651,7 @@ def make_server(
     config: Optional[Dict[str, Any]] = None,
     port: Optional[int] = None,
     roots: Optional[List[Root]] = None,
+    source_path: Path = Path(__file__),
 ):
     """Build (but do not start) the board's HTTPServer, bound to 127.0.0.1.
 
@@ -2578,6 +2666,14 @@ def make_server(
     exercised by the *same* code path multi-root uses, not a separate one
     that could silently drift. `cmd_serve` resolves roots itself (for its
     startup banner) and passes the result in explicitly.
+
+    PT-49 (§9's required test seam): `source_path` defaults to THIS
+    module's own file -- a real server fingerprints the actual running
+    `cairn.py` with zero caller effort -- but is overridable so a test can
+    point it at a throwaway file and rewrite THAT, never the live,
+    imported `cairn.py`. Fingerprinted exactly once here, at construction
+    (§2's "boot" fingerprint); every later `/api/board` build re-checks
+    against it via `engine_is_stale`, never re-fingerprints from scratch.
     """
     data_dir = Path(data_dir)
     if config is None:
@@ -2589,6 +2685,11 @@ def make_server(
     else:
         root_warnings = []
     host = "127.0.0.1"
+
+    # PT-49 §2: captured once, held on the handler closure below, compared
+    # against on every /api/board build (§3) -- never recomputed here.
+    engine_boot = engine_fingerprint(source_path)
+    engine_started_at = datetime.datetime.now().isoformat()
 
     # PT-1: Server is per-connection threaded (ThreadingMixIn below) so a
     # held-open SSE connection can't starve the accept loop for every
@@ -2677,6 +2778,12 @@ def make_server(
             self.send_response(200)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(data)))
+            # PT-49 §7: closes the browser-cache half of staleness cheaply
+            # -- matches what /api/board already sends. No client-side
+            # asset-version handshake: with no-store, a stale board.js/
+            # board.css is not a reachable state, so there is nothing left
+            # for a handshake to protect against.
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(data)
 
@@ -2735,13 +2842,28 @@ def make_server(
                 # about the first time it grows a query param at all.
                 query = urllib.parse.parse_qs(parsed.query)
                 archived = query.get("archived", [""])[0] == "1"
-                etag = compute_multi_etag(roots, archived=archived)
+                # PT-49 §3/§5: the self-check runs on EVERY build (cheap:
+                # one stat in the common case), folded into the etag (§5,
+                # the part that would otherwise silently defeat the whole
+                # feature -- without it a stale flip with no data change
+                # 304s forever and the banner never appears).
+                engine_stale = engine_is_stale(source_path, engine_boot)
+                engine_status = {
+                    "source_sha": engine_boot["sha"],
+                    "started_at": engine_started_at,
+                    "stale": engine_stale,
+                }
+                etag = compute_multi_etag(
+                    roots, archived=archived, boot_sha=engine_boot["sha"], source_path=source_path
+                )
                 if self.headers.get("If-None-Match") == etag:
                     self.send_response(304)
                     self.send_header("ETag", etag)
                     self.end_headers()
                     return
-                payload = build_multi_board_payload(roots, root_warnings, archived=archived)
+                payload = build_multi_board_payload(
+                    roots, root_warnings, archived=archived, engine=engine_status
+                )
                 body = json.dumps(payload).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")

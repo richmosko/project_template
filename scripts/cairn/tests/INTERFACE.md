@@ -74,6 +74,17 @@ Full design: `temp/2026-08-21-architect-pt3-design.md` (architect) — that note
 
 Swimlane/major-tab grouping when milestone ids collide across roots (§7-A) is ruled (repo-grouped, nested) but not yet server-testable — it's a `board.js`-only concern, out of this file's scope by construction.
 
+## Engine staleness (PT-49)
+
+Design + full rationale: `process/cairn/issues/PT-49.md`'s `@architect` ruling comment — authoritative; this entry is just the bits tests import directly.
+
+- `engine_fingerprint(source_path: Path) -> dict` — `{"sha": sha256(bytes)[:12], "mtime_ns": int, "size": int}` for `source_path`. Content hash, not a git hash. Raises `OSError` if `source_path` can't be read (only called on a path expected to exist — the boot call in `make_server`, or a test's own fixture file).
+- `engine_is_stale(source_path: Path, boot: dict) -> bool` — the two-tier self-check: `os.stat` first, `(mtime_ns, size)` equal to `boot` → `False` with no read; different → hash and compare `sha`; only a differing `sha` is `True`. Missing/unreadable `source_path` → `False` (never raises, never invents an alarm), one stderr line.
+- `build_multi_board_payload(roots, warnings, archived=False, engine=None) -> dict` — new `engine` param, embedded verbatim under the `"engine"` key when not `None` (omitted entirely when `None` — every pre-PT-49 caller/test keeps working unmodified). The real `/api/board` handler always supplies it; computing the dict (fingerprint + `engine_is_stale`) is the caller's job, not this function's.
+- `compute_multi_etag(roots, archived=False, boot_sha=None, source_path=None) -> str` — new `boot_sha`/`source_path` params, folded into the hasher ONCE at the top (not per root) when either is given; both `None` (back-compat default) skips the fold entirely, byte-identical to the pre-PT-49 etag. This fold is why a stale flip with no data-file change still changes the etag — without it the client would 304 forever and the banner would never appear.
+- `make_server(data_dir, config=None, port=None, roots=None, source_path=Path(__file__)) -> HTTPServer` — new `source_path` param (§9's required test seam): defaults to `cairn.py`'s own file so a real server needs no caller effort, but overridable so a test can fingerprint/rewrite a throwaway file instead of the live, imported module. Fingerprinted exactly once at construction (the "boot" fingerprint); `/api/board`'s handler re-checks it via `engine_is_stale` on every build.
+- `Handler._send_static` now sends `Cache-Control: no-store` on every static asset (`/board/*`) — matches what `/api/board` already sent. No client-side asset-version handshake; not testable as a separate unit, covered via `ServerTestCase`-style HTTP tests only.
+
 ## CLI
 
 - `main(argv: list[str]) -> int` — argparse-based. Global `--data-dir PATH` flag (tests always pass it explicitly). Subcommands: `new`, `ls`, `set`, `comment`, `show`, `archive`, `check`, `serve` — flags per the CLI table in the spec. Returns a process exit code.
