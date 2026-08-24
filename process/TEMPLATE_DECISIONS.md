@@ -19,6 +19,16 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 
 ---
 
+### 2026-08-24 — Milestone/major records: board-editable + comments; `POST /api/record/<id>` (PT-51)
+**Decision:** Three coupled calls, one design (architect's PT-51 ruling): (1) milestone/major files gain an optional `## Comments` section — identical format, parser, and author vocabulary as issues — and `cairn comment` widens from issue-only to any record; (2) 0.7.0's "records are read-only on the board / no second mutation endpoint" ruling is reversed — a new `POST /api/record/<id>` (same `{seen, patch?, comment?}` body, fixed six-check order, 400 on issue ids so the issue write path stays single) makes records editable in the drawer (milestone: name/status/major/target_tag/ga; major: status/health/owner/target_ship; `id` and `kind` stay CLI-only); (3) the record write path validates fields only — cross-record invariants (GA cap, target_tag shape) remain lint-side.
+**Why:** (1)+(2) are Mosko's 2026-08-24 asks; the endpoint design (separate endpoint, not a widened issue path — structural single-resolver guarantee preserved) and (3) are the architect's. Enforcing sibling-record invariants at the write path would duplicate a lint rule in a surface with nowhere to report a *sibling* record's failure.
+**Alternatives considered:**
+- Widen `/api/issue/<id>` — converts a structural guarantee into a forgettable branch.
+- A second comment convention for records — two parsers to drift.
+- GA-cap enforcement in the write path — see Why.
+**Approved by:** team-lead under Mosko's PT-0.7.1 pre-authorization (2026-08-24); flagged for Mosko's release-time review.
+**Supersedes:** 0.7.0's records-read-only-on-the-board ruling.
+
 ### 2026-08-24 — Archived issues move to `archive/issues/`; lint-only break in a PATCH (PT-50)
 **Decision:** Flat archived issues (`archive/*.md`) migrate to `archive/issues/` via the new `cairn migrate archive-issues [--dry-run]` (filesystem-only, git-mv, source-keyed idempotent, all-or-nothing). Transition posture: **read both, write one, lint one** — all reads go through one `archived_issue_paths()` helper (new location first), writes only produce `archive/issues/`, and `cairn check` errors on the legacy layout with the literal migrate command. The legacy read leg is scheduled for deletion next MINOR (PT-52), not in 0.7.1. BREAKING (lint-only) in a PATCH release, on the 0.6.1/PT-28 precedent.
 **Why:** Reverses PT-39 §4's accepted asymmetry per Mosko's 2026-08-24 walkthrough ruling. Dual-read is what keeps the break lint-only — a read-new-only engine would re-allocate archived ids and dangle refs (data breakage, not a lint break). Eleven glob sites, not the five in the brief; three of the extras are correctness-critical (`_next_id_candidate`, `migrate_prefix_ids` phase 2, `compute_etag`).
