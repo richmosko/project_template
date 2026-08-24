@@ -1148,6 +1148,11 @@ def check_repo(data_dir: Path) -> List[str]:
     # already collect here. The live half is added to this dict further
     # down, once parsed_milestones' own loop runs.
     ga_milestones_by_major: Dict[str, List[str]] = {}
+    # PT-47: which ga_milestones_by_major entries came from THIS (archived)
+    # scan vs. the live one further down -- collected here, not a second
+    # directory read, so the cap error below can mark siblings instead of
+    # rendering an unlabeled stem list a reader has to go re-derive by hand.
+    ga_milestones_archived: Set[str] = set()
     for p in _dir_glob(data_dir / "archive" / "milestones"):
         try:
             fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
@@ -1163,6 +1168,7 @@ def check_repo(data_dir: Path) -> List[str]:
             major_id = str(fm.get("major"))
             if major_id in known_majors:
                 ga_milestones_by_major.setdefault(major_id, []).append(p.stem)
+                ga_milestones_archived.add(p.stem)
 
     for p, fm in parsed_milestones:
         major = fm.get("major")
@@ -1254,7 +1260,13 @@ def check_repo(data_dir: Path) -> List[str]:
                 ga_milestones_by_major.setdefault(major_id, []).append(p.stem)
     for major_id, ga_stems in ga_milestones_by_major.items():
         if len(ga_stems) > 1:
-            sibling_list = ", ".join(sorted(ga_stems))
+            # PT-47: mark archived siblings inline -- an unlabeled stem
+            # list left a reader guessing which sibling was the (legit,
+            # shipped) archived GA and which one is the actual conflict.
+            sibling_list = ", ".join(
+                f"{stem} (archived)" if stem in ga_milestones_archived else stem
+                for stem in sorted(ga_stems)
+            )
             for stem in ga_stems:
                 errors.append(
                     f"{stem}: more than one ga: true milestone under major {major_id!r} "
