@@ -386,6 +386,26 @@ class AppendCommentTests(unittest.TestCase):
         _, comments = cairn.split_comments(body)
         self.assertEqual(comments[-1]["date"], datetime.date.today().isoformat())
 
+    def test_append_comment_on_a_record_injects_no_updated_key(self):
+        # PT-51 §4's prerequisite engine fix: records (milestone/major) have
+        # no `updated` field in their schema (PT-13 deliberately kept it
+        # off them) -- append_comment unconditionally bumping it would
+        # inject an off-schema key the first time anyone comments on a
+        # record. Gate the bump on _is_issue_shaped, the same guard
+        # apply_patch already uses.
+        record_path = self.tmp / "PT-1.0.md"
+        record_path.write_bytes((
+            "---\nid: PT-1.0\nname: MVP\nkind: product\nmajor: PT-V1\nstatus: planned\n"
+            "target_tag: v1.0.0\nga: false\n---\n\nDoD.\n"
+        ).encode("utf-8"))
+        cairn.append_comment(record_path, "mosko", "A record comment.", comment_date="2026-08-24")
+        frontmatter, body = cairn.parse_frontmatter(record_path.read_text(encoding="utf-8"))
+        self.assertNotIn("updated", frontmatter, "a record frontmatter must never gain an updated key")
+        _, comments = cairn.split_comments(body)
+        self.assertEqual(len(comments), 1)
+        self.assertEqual(comments[0]["author"], "mosko")
+        self.assertEqual(comments[0]["date"], "2026-08-24")
+
 
 class PT7FileModePreservationTests(unittest.TestCase):
     """PT-7: a frontmatter rewrite must preserve the original file's mode.

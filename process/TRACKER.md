@@ -167,6 +167,14 @@ ga: true               # exactly one development milestone per major carries ga:
 
 **Definition of done:** a new user can sign up, log in, and complete the core loop
 end to end on staging, with the acceptance suite green.
+
+## Comments
+
+### @mosko — 2026-08-24
+
+A milestone/major file MAY carry a `## Comments` section (PT-51) — identical
+format, parser, and author vocabulary as an issue's (see [Comment
+format](#comment-format) below). No second convention.
 ```
 
 Definition milestones (`A — Bootstrap & Research`, `B — Plan`) use `kind: process`, `target_tag: null`, `ga: false`.
@@ -223,6 +231,8 @@ health: on-track       # on-track | at-risk | off-track
 Founding major line. Starts at MAJOR 0; `1.0` is the GA-designated milestone.
 ```
 
+A major file, too, may carry a `## Comments` section (PT-51) — same schema as the milestone example above, one convention for both record types.
+
 **`<PREFIX>-V<N>` names the line by the major version it culminates in (ruled 2026-08-23, PT-41).** A line is `V1` from its very first `0.x` commit — the name states where it is *going*, not where it is. `PT-V1` shipping `v0.6.2` is therefore correct and expected, not a mislabel: `V1` is precisely "the line whose GA milestone tags `v1.0.0`", and `0.x` releases are its pre-GA scope chunks (semver's reserved no-compatibility-promise zone — [WORKFLOW.md → Versioning scheme](WORKFLOW.md#versioning-scheme)).
 
 Two alternatives were considered and rejected. **`PT-V0` now, renamed to `PT-V1` at GA** makes the id honest at a glance, but pays a full id migration *twice* — including one at the most delicate moment in a line's life — destroys the stability that makes ids safe to reference from every milestone file, and leaves a line named `V0` cutting `1.0.0`, contradicting the GA convention. **`PT-V1.x`** reads as a range but needs a literal `x` inside an id shape, sits one character from a development-milestone id (`PT-1.0`), and is arguably *less* accurate — the `V1` line contains every `0.x` release too, not only the `1.x` ones. Keeping the id stable and defining it in one sentence beats renaming the thing every other file points at.
@@ -272,6 +282,8 @@ board and CLI keep working (the board renders an unknown status via its label fa
 ### Comment format
 
 Comments append to the end of the file, under a single `## Comments` heading, oldest first — see the issue-file example above.
+
+**Not issue-only.** Milestone and major files use the identical `## Comments` schema, parser (`split_comments`), and author vocabulary (PT-51) — there is no second comment convention for records. `cairn comment <id>` resolves any id (issue, milestone, major, live or archived) via the same six-subdir lookup `cairn set` already uses. One difference: `append_comment` bumps an issue's `updated` field on every comment, but never a record's — records have no `updated` field in their schema at all (see [Frontmatter schema](#frontmatter-schema)), so the bump is gated on "is this an issue-shaped file", not applied unconditionally.
 
 **Parser rule:** everything after the first line matching `^## Comments\s*$` is the comment log. A new comment starts at a line matching **exactly** `^### @([a-z0-9][a-z0-9-]*) — (\d{4}-\d{2}-\d{2})\s*$`; its body runs to the next such line or EOF. Any other `###` line is body content, including `###` headings inside a comment body. The em dash is required — it is what makes the delimiter unambiguous against ordinary headings.
 
@@ -398,15 +410,16 @@ CAIRN_PORT=8899 … serve   # port override
 
 ### API surface
 
-Five endpoints. All bind `127.0.0.1`, no auth — same posture as `serve-docs.py`.
+Six endpoints. All bind `127.0.0.1`, no auth — same posture as `serve-docs.py`.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/board` | Full parsed state: majors, milestones, issues (without comment bodies), plus the resolved `columns` / `swimlane`. **`?archived=1`** (the only accepted spelling — anything else is off) additionally reads all three archive directories; without it, `archive/` is never opened at all. Every record always carries `archived: true\|false`. A top-level `engine: {source_sha, started_at, stale}` (PT-49 — see Lifecycle above) is always present too. Supports `ETag`/`If-None-Match` — the archived flag AND the engine identity are both folded into the hash, so neither representation nor a stale flip can hide behind a `304`. |
+| `GET` | `/api/board` | Full parsed state: majors, milestones, issues (without comment bodies), plus the resolved `columns` / `swimlane`. **`?archived=1`** (the only accepted spelling — anything else is off) additionally reads all three archive directories; without it, `archive/` is never opened at all. Every record always carries `archived: true\|false`. A top-level `engine: {source_sha, started_at, stale}` (PT-49 — see Lifecycle above) is always present too. Every milestone/major record ALSO carries `seen` and `comments` (PT-51) — `body` is the pre-`## Comments` half of the file, via the same `split_comments` an issue's own read path uses. Issues still carry no `comments` key here (unchanged). Supports `ETag`/`If-None-Match` — the archived flag AND the engine identity are both folded into the hash, so neither representation nor a stale flip can hide behind a `304`. |
 | `GET` | `/api/issue/<id>` | One issue: frontmatter, description, acceptance criteria, full comment list, `seen` token. |
 | `GET` | `/api/events` | SSE stream (`text/event-stream`). A background thread `os.scandir`s the data dir every 500 ms and diffs `(path, mtime_ns)` — not a kernel fs-watch, since `kqueue`/`inotify` have no portable stdlib wrapper. Emits `{"type":"changed"\|"created"\|"removed","ids":[…]}`; the client refetches only the named issues. |
 | `POST` | `/api/issue` | Create. Body `{title, …}`. Allocates an ID via the same `O_EXCL` path as `cairn new`. **Primary root only** — there is no way to create an issue in a secondary root through the board. |
 | `POST` | `/api/issue/<id>` | Mutate. Body `{seen, patch?, comment?}`. Handles the drag-to-column case (`patch: {status: …}`), inline field edits, and comment append through one code path. **Primary root only** — an id that resolves to a secondary root is refused with `403 {"error": "read_only_root", "message": "…"}`, file left untouched. An **archived** id is refused the same way with `403 {"error": "archived", …}`, checked before the `seen` comparison so it holds regardless of the request body. |
+| `POST` | `/api/record/<id>` | The milestone/major sibling of `POST /api/issue/<id>` (PT-51) — **a separate endpoint, not a widening** of the issue one, so the two field policies (below) can never drift onto each other. Same body shape `{seen, patch?, comment?}`, same `read_only_root`/`archived`/`stale` semantics, checked in that order (archived before the seen comparison). An issue id is refused `400 {"error": "wrong_endpoint", …}` naming `/api/issue/<id>` — this is not a second write path to issues. `patch` is validated against a **narrower, board-editable** field set per schema — milestone: `name`/`status`/`major`/`target_tag`/`ga`; major: `status`/`health`/`owner`/`target_ship` — `id` and milestone `kind` are legal `cairn set` fields but CLI-only (id is filename-authoritative; kind is pinned to the id shape by lint), so both 400 here. Cross-record invariants (GA cap, `target_tag` shape, `major:` resolving) are **not** re-checked at the write path — `cairn check` is the backstop, same posture `cairn set` already takes. |
 
 Plus static routes: `/` (Kanban), `/list` (list view), `/board/*` (assets).
 
