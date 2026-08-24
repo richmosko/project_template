@@ -99,6 +99,32 @@ class AtMostOneGaMilestonePerMajorTests(unittest.TestCase):
         self.assertEqual([e for e in errors if "ga" in e.lower()], [], errors)
 
 
+class GaCapErrorMarksArchivedSiblingTests(unittest.TestCase):
+    """PT-47: when the "at most one ga: true per major" cap trips because
+    one sibling is a shipped-then-archived GA milestone and the other is
+    live, the error's sibling list must say which is which -- otherwise it
+    reads as two live milestones fighting over the same major, which is
+    the wrong incident to chase."""
+
+    def test_ga_cap_error_marks_the_archived_sibling_and_not_the_live_one(self):
+        data_dir = make_repo(self)
+        (data_dir / "archive" / "milestones").mkdir(parents=True)
+        (data_dir / "archive" / "milestones" / "PT-1.0.md").write_text(
+            MILESTONE_TMPL.format(id="PT-1.0", name="Shipped", kind="product", major="PT-V1",
+                                   status="done", target_tag="v1.0.0", ga="true"),
+            encoding="utf-8",
+        )
+        write_milestone(data_dir, "PT-2.0.md", target_tag="v1.0.0", ga="true")
+        errors = cairn.check_repo(data_dir)
+        cap_errors = [e for e in ga_errors_for(errors, "PT-V1") if "more than one ga" in e]
+        self.assertTrue(cap_errors, f"expected a GA-conflict error, got: {errors}")
+        self.assertTrue(
+            all("PT-1.0 (archived)" in e and "PT-2.0" in e and "PT-2.0 (archived)" not in e
+                for e in cap_errors),
+            f"expected the archived sibling marked and the live one unmarked, got: {cap_errors}",
+        )
+
+
 class GaTargetTagMatchesMajorNTests(unittest.TestCase):
     def test_ga_milestone_target_tag_matching_its_majors_n_is_legal(self):
         data_dir = make_repo(self, major_id="PT-V1")
