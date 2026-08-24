@@ -157,7 +157,7 @@ class ArchivedParamServesArchiveDataTests(ServerTestCase):
         # This pins the server's half of that claim directly: archived and
         # cancelled must be two orthogonal facts on the SAME record, not
         # something the server filters/conflates based on one or the other.
-        (self.data_dir / "archive" / "PT-88.md").write_text(
+        (self.data_dir / "archive" / "issues" / "PT-88.md").write_text(
             ISSUE_TMPL.format(id="PT-88", title="Archived and cancelled", status="cancelled", milestone="null"),
             encoding="utf-8",
         )
@@ -176,7 +176,7 @@ class ArchivedParamServesArchiveDataTests(ServerTestCase):
         # its STATUS rather than its archive/ location -- guarded by the
         # sibling test above pinning cancelled's independent presence
         # when archived=1).
-        (self.data_dir / "archive" / "PT-88.md").write_text(
+        (self.data_dir / "archive" / "issues" / "PT-88.md").write_text(
             ISSUE_TMPL.format(id="PT-88", title="Archived and cancelled", status="cancelled", milestone="null"),
             encoding="utf-8",
         )
@@ -258,7 +258,7 @@ class ETagTests(ServerTestCase):
 
     def test_archived_etag_changes_when_an_archive_file_is_added(self):
         etag_before = http_get(f"{self.base_url}/api/board?archived=1").headers.get("ETag")
-        (self.data_dir / "archive" / "PT-99.md").write_text(
+        (self.data_dir / "archive" / "issues" / "PT-99.md").write_text(
             ISSUE_TMPL.format(id="PT-99", title="New archive add", status="done", milestone="null"),
             encoding="utf-8",
         )
@@ -267,7 +267,7 @@ class ETagTests(ServerTestCase):
 
     def test_default_etag_is_unaffected_by_an_archive_file_being_added(self):
         etag_before = http_get(f"{self.base_url}/api/board").headers.get("ETag")
-        (self.data_dir / "archive" / "PT-99.md").write_text(
+        (self.data_dir / "archive" / "issues" / "PT-99.md").write_text(
             ISSUE_TMPL.format(id="PT-99", title="New archive add", status="done", milestone="null"),
             encoding="utf-8",
         )

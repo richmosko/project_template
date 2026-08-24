@@ -64,6 +64,7 @@ def make_repo(testcase) -> Path:
     data_dir = tmp / "cairn"
     for sub in ("issues", "archive", "milestones", "majors"):
         (data_dir / sub).mkdir(parents=True)
+    (data_dir / "archive" / "issues").mkdir(parents=True)
     (data_dir / "archive" / "milestones").mkdir(parents=True)
     (data_dir / "archive" / "majors").mkdir(parents=True)
     (data_dir / "config.yml").write_text("prefix: PT\nport: 8766\ndata_dir: process/cairn\n", encoding="utf-8")
@@ -89,7 +90,7 @@ def make_repo(testcase) -> Path:
     (data_dir / "archive" / "majors" / "PT-V0.md").write_text(
         MAJOR_TMPL.format(id="PT-V0", status="done", target_ship="2026-01-01"), encoding="utf-8"
     )
-    (data_dir / "archive" / "PT-9.md").write_text(
+    (data_dir / "archive" / "issues" / "PT-9.md").write_text(
         ISSUE_TMPL.format(id="PT-9", title="A long-done issue", status="done", milestone="null"),
         encoding="utf-8",
     )
@@ -103,7 +104,7 @@ class FindRecordPathResolutionOrderTests(unittest.TestCase):
 
     def test_resolves_an_archived_issue(self):
         data_dir = make_repo(self)
-        self.assertEqual(cairn.find_record_path(data_dir, "PT-9"), data_dir / "archive" / "PT-9.md")
+        self.assertEqual(cairn.find_record_path(data_dir, "PT-9"), data_dir / "archive" / "issues" / "PT-9.md")
 
     def test_resolves_a_live_milestone(self):
         data_dir = make_repo(self)
@@ -128,11 +129,13 @@ class FindRecordPathResolutionOrderTests(unittest.TestCase):
         self.assertIsNone(cairn.find_record_path(data_dir, "PT-9999"))
 
     def test_a_live_issue_shadows_a_same_named_archived_milestone_per_the_documented_order(self):
-        # Pathological but pins the ORDER explicitly: issues/ -> archive/
-        # -> milestones/ -> archive/milestones/ -> majors/ -> archive/majors/.
-        # Real ids never collide across schemas in practice, but the
-        # resolution order is a real contract worth pinning directly
-        # rather than only trusting it holds by construction.
+        # Pathological but pins the ORDER explicitly: issues/ ->
+        # archive/issues/ -> milestones/ -> archive/milestones/ -> majors/
+        # -> archive/majors/ (PT-52: the legacy bare "archive" leg dropped
+        # from _RECORD_SEARCH_SUBDIRS). Real ids never collide across
+        # schemas in practice, but the resolution order is a real contract
+        # worth pinning directly rather than only trusting it holds by
+        # construction.
         data_dir = make_repo(self)
         (data_dir / "issues" / "PT-A.md").write_text(
             ISSUE_TMPL.format(id="PT-A", title="Collides with archived milestone PT-A", status="todo",
@@ -144,13 +147,14 @@ class FindRecordPathResolutionOrderTests(unittest.TestCase):
 
 class FindIssuePathUnaffectedTests(unittest.TestCase):
     """PT-3's read-only guarantee is structural: find_issue_path must stay
-    exactly as it is (issues/ -> archive/ only), never widened to resolve
-    milestones/majors -- that's the boundary the HTTP write path can reach."""
+    resolving issues/ and archive/issues/ only (PT-52: the legacy bare
+    archive/ leg is gone), never widened to resolve milestones/majors --
+    that's the boundary the HTTP write path can reach."""
 
-    def test_find_issue_path_still_resolves_only_issues_and_archive(self):
+    def test_find_issue_path_still_resolves_only_issues_and_archive_issues(self):
         data_dir = make_repo(self)
         self.assertEqual(cairn.find_issue_path(data_dir, "PT-1"), data_dir / "issues" / "PT-1.md")
-        self.assertEqual(cairn.find_issue_path(data_dir, "PT-9"), data_dir / "archive" / "PT-9.md")
+        self.assertEqual(cairn.find_issue_path(data_dir, "PT-9"), data_dir / "archive" / "issues" / "PT-9.md")
 
     def test_find_issue_path_does_not_resolve_a_milestone_id(self):
         data_dir = make_repo(self)

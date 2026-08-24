@@ -896,22 +896,36 @@ def _dir_glob(d: Path) -> List[Path]:
 
 
 def archived_issue_paths(data_dir: Path) -> List[Path]:
-    """Every archived issue .md file, BOTH layouts -- PT-50's destination
-    `archive/issues/` (listed FIRST: in a half-migrated tree the new
-    location is authoritative, same precedent as find_issue_path/
-    _RECORD_SEARCH_SUBDIRS below) and the legacy flat `archive/*.md`
-    (transition-only -- PT-50 §4: reads accept both layouts, writes only
-    ever produce the new one, `cairn check` errors on anything still at
-    the legacy path). `_dir_glob` is non-recursive, so this never touches
-    `archive/milestones/` or `archive/majors/`.
+    """Every archived issue .md file -- `archive/issues/` ONLY (PT-52:
+    the legacy flat `archive/*.md` leg PT-50 kept for the transition is
+    gone; the engine no longer reads it at all). `_dir_glob` is
+    non-recursive, so this never touches `archive/milestones/` or
+    `archive/majors/`.
 
-    THE single point every archived-issue READ site routes through (§3):
-    the dual-read has exactly one deletion point, for the follow-up MINOR
-    that removes the legacy leg (see the follow-up issue filed alongside
-    PT-50).
+    Kept as a named helper rather than inlined at its 8 call sites (PT-52
+    §1, architect's ruling): the property that made PT-50 tractable --
+    one place that answers "where do archived issues live" -- is worth
+    keeping in reverse too, so a future layout change touches one line,
+    not eight. See `legacy_archived_issue_paths` below for the (now
+    lint-only) legacy path.
     """
     data_dir = Path(data_dir)
-    return _dir_glob(data_dir / "archive" / "issues") + _dir_glob(data_dir / "archive")
+    return _dir_glob(data_dir / "archive" / "issues")
+
+
+def legacy_archived_issue_paths(data_dir: Path) -> List[Path]:
+    """The legacy flat `archive/*.md` layout PT-52 stopped reading -- NOT
+    a general-purpose helper; it exists for exactly two callers, and both
+    must stay in lockstep: `check_repo`'s legacy-layout lint scan (so the
+    reported count is accurate) and `migrate_archive_issues`'s source glob
+    (so the migration moves precisely the files the lint complained
+    about). If the lint ever reported a file the migration didn't move,
+    the error would be unactionable -- one definition point is what keeps
+    that impossible. `_dir_glob` is non-recursive, so this never touches
+    `archive/issues/`, `archive/milestones/`, or `archive/majors/`.
+    """
+    data_dir = Path(data_dir)
+    return _dir_glob(data_dir / "archive")
 
 
 def find_issue_path(data_dir: Path, issue_id: str) -> Optional[Path]:
@@ -919,12 +933,7 @@ def find_issue_path(data_dir: Path, issue_id: str) -> Optional[Path]:
     candidate = data_dir / "issues" / f"{issue_id}.md"
     if candidate.exists():
         return candidate
-    # PT-50: new layout checked before legacy -- in a half-migrated tree
-    # the destination is authoritative (§3).
     candidate = data_dir / "archive" / "issues" / f"{issue_id}.md"
-    if candidate.exists():
-        return candidate
-    candidate = data_dir / "archive" / f"{issue_id}.md"
     if candidate.exists():
         return candidate
     return None
@@ -934,11 +943,8 @@ def find_issue_path(data_dir: Path, issue_id: str) -> Optional[Path]:
 # an id against, in precedence order. Issues first (the common case, and
 # the shape find_issue_path already optimizes for), then milestones, then
 # majors -- each schema's live dir before its archive dir.
-#
-# PT-50: "archive/issues" inserted before the legacy "archive" -- same
-# new-location-first precedent as find_issue_path above.
 _RECORD_SEARCH_SUBDIRS = (
-    "issues", "archive/issues", "archive", "milestones", "archive/milestones", "majors", "archive/majors",
+    "issues", "archive/issues", "milestones", "archive/milestones", "majors", "archive/majors",
 )
 
 
@@ -991,10 +997,12 @@ def is_archived_path(data_dir: Path, path: Path) -> bool:
 # --------------------------------------------------------------------------
 
 def _next_id_candidate(data_dir: Path, prefix: str) -> int:
-    # PT-50: archived ids come from archived_issue_paths -- BOTH layouts,
-    # so a half-migrated (or never-migrated) tree can't let `cairn new`
-    # re-allocate an id an archived issue already holds (the one invariant
-    # the id scheme exists to protect).
+    # PT-50/PT-52: archived ids come from archived_issue_paths (archive/
+    # issues/ only, post-PT-52) so `cairn new` never re-allocates an id an
+    # archived issue already holds (the one invariant the id scheme exists
+    # to protect). An UNMIGRATED repo's legacy-held ids are not covered by
+    # this glob any more -- see allocate_and_create_issue's PT-52 §3 guard,
+    # which refuses to allocate at all on such a repo rather than risk it.
     data_dir = Path(data_dir)
     max_n = 0
     live_dir = data_dir / "issues"
@@ -1012,8 +1020,28 @@ def allocate_and_create_issue(data_dir: Path, fields: Dict[str, Any], max_attemp
 
     `fields` supplies everything except id/created/updated, which this
     function fills in. `prefix` comes from load_config(data_dir)["prefix"].
+
+    PT-52 §3 (architect's ruling, required companion to the legacy-read
+    deletion): the single allocation path both `cmd_new` and the HTTP
+    `_create_issue` funnel through, so it's also the single place to guard.
+    `_next_id_candidate` no longer counts ids held by a legacy-layout
+    archived issue (PT-52 §1 collapsed `archived_issue_paths` to
+    `archive/issues/` only) -- on an unmigrated repo, allocating anyway
+    would silently re-issue an id an archived issue already holds, the one
+    invariant the id scheme exists to protect, and NOT repairable by
+    running the migration afterwards (the new issue would already exist).
+    Refuse before any O_EXCL attempt: one non-recursive glob per
+    allocation, on an operation measured in units per day. Self-clearing --
+    run the migration and this raise stops firing.
     """
     data_dir = Path(data_dir)
+    legacy = legacy_archived_issue_paths(data_dir)
+    if legacy:
+        raise CairnError(
+            f"{len(legacy)} archived issue(s) at the legacy archive/*.md layout -- refusing to allocate a "
+            f"new id (it could collide with one an archived issue already holds). "
+            f"fix: scripts/cairn/cairn migrate archive-issues --dry-run   (then re-run without --dry-run)"
+        )
     config = load_config(data_dir)
     prefix = config["prefix"]
     issues_dir = data_dir / "issues"
@@ -1450,19 +1478,26 @@ def check_repo(data_dir: Path) -> List[str]:
             f"blocked_by entry along that path"
         )
 
-    # PT-50 §4: transition posture is "read both, write one, lint one" --
-    # reads accept both archive/*.md and archive/issues/*.md (this
-    # function's own scan above, via archived_issue_paths), but `cairn
-    # check` ERRORS on any survivor at the legacy flat path (not a
-    # warning: check_repo has no warning tier, and inventing one for this
-    # would be a larger change than the migration itself). One error
-    # carries the count and the exact fix command -- `_dir_glob` is
-    # non-recursive, so this can never double-count archive/issues/,
-    # archive/milestones/, or archive/majors/.
-    legacy_archived = _dir_glob(data_dir / "archive")
+    # PT-52 (architect's ruling § 2): the engine no longer reads the
+    # legacy flat archive/*.md layout at all -- this scan is the ONLY
+    # remaining reader of it, via legacy_archived_issue_paths (its other
+    # caller is migrate_archive_issues' source glob; the two must never
+    # disagree about what counts as legacy, or this error becomes
+    # unactionable). Under PT-50 this meant "lint fails, everything still
+    # works"; it now means "the engine cannot see these files" -- the
+    # wording below says that, keeps the literal fix command, and warns
+    # about the cascade (a legacy file's dangling parent/blocked_by/
+    # milestone refs surface as SEPARATE errors elsewhere in this list,
+    # which read as unrelated unless this one flags the actual cause).
+    # Inserted FIRST, not appended: a root cause read after fifteen
+    # cascade symptoms gets read last.
+    legacy_archived = legacy_archived_issue_paths(data_dir)
     if legacy_archived:
-        errors.append(
-            f"{len(legacy_archived)} archived issue(s) still at the legacy archive/*.md layout -- "
+        errors.insert(
+            0,
+            f"{len(legacy_archived)} archived issue(s) at the legacy archive/*.md layout are NOT read "
+            f"by the engine -- invisible to the board, to id allocation, and to reference resolution "
+            f"(dangling-reference errors below may be caused by this). "
             f"fix: scripts/cairn/cairn migrate archive-issues --dry-run   (then re-run without --dry-run)"
         )
 
@@ -1706,13 +1741,16 @@ def migrate_archive_issues(data_dir: Path, dry_run: bool = False) -> Dict[str, A
 
     Moves every `archive/*.md` file to `archive/issues/<name>` via
     `_git_mv_or_rename`, so git records a rename. Never touches
-    `archive/milestones/` or `archive/majors/` -- `_dir_glob` is
-    non-recursive, so those two subdirs are invisible to the `archive/`
-    glob this function reads from.
+    `archive/milestones/` or `archive/majors/` -- `legacy_archived_issue_
+    paths`'s underlying `_dir_glob` is non-recursive, so those two subdirs
+    are invisible to it.
 
     Does NOT gate on `check_repo` first -- same reasoning as the other
     two migrations: it must run on the repo whose lint it is fixing (the
-    legacy-layout error this migration exists to resolve).
+    legacy-layout error this migration exists to resolve). This
+    migration's read path (legacy_archived_issue_paths) is separate from
+    the engine's own archived-issue read path (archived_issue_paths, PT-52
+    -- archive/issues/ only), so PT-52's deletion cannot break it.
 
     Idempotency and crash-recovery: keyed on the SOURCE file's presence
     (prefix-ids' filename-keyed precedent) -- "archive/<id>.md exists" is
@@ -1731,7 +1769,10 @@ def migrate_archive_issues(data_dir: Path, dry_run: bool = False) -> Dict[str, A
     data_dir = Path(data_dir)
     archive_dir = data_dir / "archive"
     archive_issues_dir = archive_dir / "issues"
-    sources = _dir_glob(archive_dir)  # legacy flat layout only -- non-recursive glob
+    # PT-52: routed through legacy_archived_issue_paths -- its ONLY other
+    # caller is check_repo's lint scan, deliberately, so the two can never
+    # disagree about what counts as legacy (§2).
+    sources = legacy_archived_issue_paths(data_dir)
 
     # Phase 1 (reads only): validate the WHOLE set before moving anything.
     plan: List[Dict[str, Any]] = []
@@ -2106,7 +2147,7 @@ def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any
     if archived:
         major_paths += _dir_glob(data_dir / "archive" / "majors")
         milestone_paths += _dir_glob(data_dir / "archive" / "milestones")
-        issue_paths += archived_issue_paths(data_dir)  # PT-50: both layouts
+        issue_paths += archived_issue_paths(data_dir)  # PT-52: archive/issues/ only
 
     def _stamped(p: Path) -> Dict[str, Any]:
         fm = dict(_read_frontmatter_dict(p))
@@ -2298,7 +2339,7 @@ def compute_etag(data_dir: Path, archived: bool = False) -> str:
     if archived:
         paths += _dir_glob(data_dir / "archive" / "majors")
         paths += _dir_glob(data_dir / "archive" / "milestones")
-        paths += archived_issue_paths(data_dir)  # PT-50: both layouts
+        paths += archived_issue_paths(data_dir)  # PT-52: archive/issues/ only
     for p in paths:
         try:
             st = p.stat()
@@ -2616,10 +2657,11 @@ _WATCHED_SUBDIRS = (
     # getting archived. _dir_glob/scan_data_dir already handle a
     # multi-segment subdir string fine (Path / str splits on "/").
     "archive/milestones", "archive/majors",
-    # PT-50: bare "archive" (issues, legacy layout) deliberately removed
-    # from this tuple -- archived-issue watching (BOTH layouts) is handled
-    # below via archived_issue_paths, the single read site every other
-    # archived-issue consumer routes through (§3).
+    # PT-50/PT-52: bare "archive" (issues) deliberately not in this tuple
+    # -- archived-issue watching is handled below via archived_issue_paths,
+    # the single read site every other archived-issue consumer routes
+    # through. No change needed here across the PT-52 deletion: this
+    # tuple never carried the legacy leg to begin with.
 )
 
 
@@ -2639,9 +2681,9 @@ def scan_data_dir(data_dir: Path) -> Dict[str, int]:
                 snapshot[f"{sub}/{p.name}"] = p.stat().st_mtime_ns
             except FileNotFoundError:
                 continue  # raced with a delete between the glob and the stat
-    # PT-50: archived issues, both layouts -- keys land as "archive/<id>.md"
-    # (legacy) or "archive/issues/<id>.md" (new), matching the pre-existing
-    # "<sub>/<file>.md" key shape above (p is already under data_dir/archive/...).
+    # PT-52: archived issues (archive/issues/ only) -- keys land as
+    # "archive/issues/<id>.md", matching the pre-existing "<sub>/<file>.md"
+    # key shape above (p is already under data_dir/archive/issues/).
     for p in archived_issue_paths(data_dir):
         try:
             snapshot[str(p.relative_to(data_dir))] = p.stat().st_mtime_ns
@@ -3095,7 +3137,16 @@ def make_server(
                 "priority": payload.get("priority"),
                 "pr": None,
             }
-            new_path = allocate_and_create_issue(data_dir, fields)
+            # PT-52 §3: allocate_and_create_issue's legacy-layout guard
+            # raises CairnError on an unmigrated repo -- without this catch
+            # it would surface as an uncaught-exception 500. 400
+            # legacy_archive is the truthful status: a client retry can't
+            # fix this, only running the migration can.
+            try:
+                new_path = allocate_and_create_issue(data_dir, fields)
+            except CairnError as e:
+                self._send_json(400, {"error": "legacy_archive", "message": str(e)})
+                return
             self._send_json(200, build_issue_payload(data_dir, new_path.stem))
 
         def _mutate_issue(self, issue_id: str, payload: Dict[str, Any]) -> None:

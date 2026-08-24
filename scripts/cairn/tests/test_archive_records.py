@@ -125,22 +125,24 @@ class WatchedSubdirsTests(unittest.TestCase):
     def test_watched_subdirs_still_includes_majors_milestones_issues(self):
         # Regression guard -- this is an ADDITIVE change (ruling §4).
         #
-        # PT-50: bare "archive" (issues, legacy layout) is deliberately no
-        # longer a literal _WATCHED_SUBDIRS entry -- archived-issue
-        # watching (BOTH layouts) moved into scan_data_dir's own
+        # PT-50/PT-52: bare "archive" (issues, legacy layout) is
+        # deliberately no longer a literal _WATCHED_SUBDIRS entry --
+        # archived-issue watching moved into scan_data_dir's own
         # archived_issue_paths() call (§2 site 8), the single read site
         # every other archived-issue consumer routes through. Functional
-        # coverage of both layouts is pinned below, at the scan_data_dir
-        # level, not by asserting on this tuple's literal contents.
+        # coverage is pinned below, at the scan_data_dir level, not by
+        # asserting on this tuple's literal contents.
         for sub in ("majors", "milestones", "issues"):
             self.assertIn(sub, cairn._WATCHED_SUBDIRS)
 
-    def test_scan_data_dir_still_picks_up_a_legacy_flat_archived_issue(self):
+    def test_scan_data_dir_no_longer_picks_up_a_legacy_flat_archived_issue(self):
+        # PT-52: INVERTED from PT-50's pin -- the legacy leg is gone, not
+        # merely unused.
         data_dir = helpers.make_empty_tmp_dir(self)
         (data_dir / "archive").mkdir(parents=True)
         (data_dir / "archive" / "PT-9.md").write_text("content", encoding="utf-8")
         snapshot = cairn.scan_data_dir(data_dir)
-        self.assertIn("archive/PT-9.md", snapshot)
+        self.assertNotIn("archive/PT-9.md", snapshot)
 
     def test_scan_data_dir_picks_up_a_new_layout_archived_issue(self):
         data_dir = helpers.make_empty_tmp_dir(self)
