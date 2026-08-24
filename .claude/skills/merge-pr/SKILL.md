@@ -64,7 +64,7 @@ Major-line completion isn't auto-tracked: when a line EOLs, the lead runs `scrip
 
 - Clear `## Active Feature`.
 - Do **not** add session narrative to STATE.md — it keeps no history. Anything worth recording goes to the cairn issue as a comment (or the decision ledger).
-- **If this feature completed a milestone**: the milestone flip already rode the final branch commit (step 2). Consider `scripts/cairn/cairn archive --done-before <date>` as hygiene — never a quota, there is no cap.
+- **If this feature completed a milestone**: the milestone flip already rode the final branch commit (step 2). **Policy (Mosko, 2026-08-24): archive the shipped milestone at release close** — after tagging (step 5), run `scripts/cairn/cairn archive --milestone <id>` (moves its done/cancelled issues and the milestone file; preview with `--dry-run`) on the release-prep doc branch so the move rides a PR. The board still shows the archived milestone behind Show-archived, and its lane stays visible with ✓ Done either way. `cairn archive --done-before <date>` remains available as broader hygiene — never a quota, there is no cap.
 
 (There is no Completed/In-Flight table to move rows between — those tables dissolved into the board; see `process/TRACKER.md` → Relationship to STATE.md.)
 

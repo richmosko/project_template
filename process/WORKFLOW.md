@@ -265,7 +265,7 @@ Because the shared task list and mailbox are transient, the **lead promotes dura
 What remains at milestone close is a small lead duty:
 1. Set the closing milestone file's `status: done` (`process/cairn/milestones/<name>.md`, via `scripts/cairn/cairn set <id> status=done`) — folded into the closing PR's final commit by `/merge-pr` step 2, so it lands atomically with the merge (never as a direct edit on `main`).
 2. If it shipped a release, ensure a [Releases](STATE.md#releases) row exists.
-3. Optionally run `scripts/cairn/cairn archive --done-before <date>` so the board stays readable — hygiene, never a quota.
+3. If it shipped a release, archive the milestone at release close (policy — Mosko, 2026-08-24): `scripts/cairn/cairn archive --milestone <id>` on the release-prep doc branch, after tagging. `--done-before <date>` remains available as broader hygiene — never a quota.
 
 ### Async notification mechanics (the "sync-mismatch echo")
 
