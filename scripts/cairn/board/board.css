@@ -148,6 +148,14 @@ header.app-header {
   border-color: var(--accent);
 }
 
+/* PT-48: same muted language as .card.is-archived/.chip.archived --
+   opacity + italic, not a second dot vocabulary crammed into a tab that
+   already has no room for status text (PT-40's own constraint). */
+.majors-tabs button.is-archived {
+  opacity: 0.6;
+  font-style: italic;
+}
+
 /* PT-40 (ruling § 6): status dot inside a major tab button -- color via
    data-status, same RECORD_STATUS_LABELS vocabulary the card uses. */
 .major-status-dot {

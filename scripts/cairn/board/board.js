@@ -463,6 +463,17 @@
         dot.setAttribute("aria-hidden", "true");
         btn.appendChild(dot);
       }
+      // PT-48: same "no room for text on a tab" constraint the status dot
+      // above already lives with -- an archived major gets the muted class
+      // the issue card's own .is-archived treatment uses (opacity, not a
+      // second dot vocabulary), plus a title for the a11y label the dot's
+      // own aria-hidden span doesn't carry. A SEPARATE statement from the
+      // className ternary above (not folded in) -- see record-drawer-
+      // client.test.js's PT-40 regression guard for why.
+      if (majorRecord && majorRecord.archived) {
+        btn.className += " is-archived";
+        btn.title = majorId + " (archived)";
+      }
       btn.appendChild(document.createTextNode(majorId));
       // Tab click still means "filter" -- unchanged.
       btn.onclick = function () { state.currentMajor = majorId; render(); };
@@ -871,6 +882,11 @@
       }
       if (msRecord.ga) {
         laneHeader.appendChild(chip("ga", "GA"));
+      }
+      // PT-48: same chip("archived", "archived") treatment cardEl already
+      // uses -- lane headers ignored the flag entirely before this.
+      if (msRecord.archived) {
+        laneHeader.appendChild(chip("archived", "archived"));
       }
     }
 
@@ -1629,6 +1645,9 @@
     // lane header uses, so the two never drift on wording.
     var recordReleaseText = releaseChipLabel(record.released, record.target_tag);
     if (recordReleaseText !== null) meta.appendChild(chip("release", recordReleaseText));
+    // PT-48: same chip("archived", "archived") treatment cardEl already
+    // uses -- the record drawer ignored the flag entirely before this.
+    if (record.archived) meta.appendChild(chip("archived", "archived"));
     drawer.appendChild(meta);
 
     if (recordKind === "milestone") {
