@@ -279,6 +279,42 @@ class DashboardApiPayloadTests(_RunningServer, unittest.TestCase):
         self.assertNotEqual(resp2.headers.get("ETag"), old_etag)
 
 
+class DashboardApiReleaseArchivedMilestoneTests(_RunningServer, unittest.TestCase):
+    """Regression guard for a deliberate widening implementation-lead made
+    beyond the ruling's literal text (flagged in a PT-54 comment for
+    architect/team-lead, accepted by team-lead as within scope): the
+    release join searches archive/milestones/ too, not just live ones --
+    this project's own workflow archives a milestone shortly after its
+    tag ships (see WORKFLOW.md's archive-on-done convention), so a
+    live-only search would make `release` null for almost every real
+    shipped tag (verified against this very repo's own v0.7.1). Locking
+    this in with its own test now that it's implemented, since the
+    original suite (written before the code existed) had no way to pin
+    it.
+    """
+
+    def setUp(self):
+        self.data_dir = make_git_repo(self)
+        (self.data_dir / "archive" / "milestones").mkdir(parents=True, exist_ok=True)
+        (self.data_dir / "archive" / "milestones" / "PT-1.0.md").write_text(
+            MILESTONE_TMPL.format(
+                id="PT-1.0", name="MVP", kind="product", major="PT-V1",
+                status="done", target_tag="v1.0.0", ga="true",
+            ),
+            encoding="utf-8",
+        )
+        _run_git(self.data_dir, "tag", "v1.0.0")
+        self._start(self.data_dir)
+
+    def test_release_group_matches_an_archived_milestone(self):
+        resp = urllib.request.urlopen(f"{self.base_url}/api/dashboard", timeout=5)
+        payload = json.loads(resp.read())
+        release = payload["release"]
+        self.assertIsNotNone(release, "an archived milestone matching the latest tag must still populate release")
+        self.assertEqual(release["id"], "PT-1.0")
+        self.assertEqual(release["name"], "MVP")
+
+
 class DashboardApiGitUnavailableTests(_RunningServer, unittest.TestCase):
     """The git-unavailable-degradation item on the ruling's explicit
     testing-shape checklist: a data_dir with no enclosing .git must not
