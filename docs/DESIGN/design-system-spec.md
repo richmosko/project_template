@@ -6,6 +6,8 @@
 
 **Direction pivot (2026-08-26):** this project's UI direction is now Svelte dashboard applications built on **shadcn-svelte**. The canonical token source is a specific shadcn-svelte theme preset — [`shadcn-svelte.com/create/preview?preset=b6XadDxmQS`](https://www.shadcn-svelte.com/create/preview?preset=b6XadDxmQS) — a JS-rendered page; every value in this doc was extracted from its live `:root`/`.dark` output on **2026-08-26** and is treated as authoritative for that date. If the preset changes upstream, re-extract and diff before trusting this doc blindly.
 
+The preset's own creator-sidebar metadata (read from the live page, not inferred): **Style "Mira"**, Base "Stone", Theme "Sky", Chart "Yellow", Heading face "Space Grotesk", Body face "Merriweather", Icon library **Lucide**, Radius "Medium". Use `lucide-svelte` for all iconography — it's the preset's stated icon set, not an independent choice this doc is making.
+
 shadcn-svelte's CSS-custom-property convention **is** our token architecture now — this supersedes the Atlassian dotted `color.background.*` naming grammar this doc previously used (that section governed the cairn board's `board.css` only; see **Legacy/migration** below for where it now lives).
 
 `tokens.css` (per the artifacts table in `CLAUDE.md`) is the **downstream, machine-readable deliverable** `frontend-lead` consumes — for this system it is, verbatim, the `:root` and `.dark` blocks reproduced in **Foundations → Color**, dropped into a Svelte app's `app.css` per shadcn-svelte's standard Tailwind-v4 `@theme inline` wiring (`bunx shadcn-svelte@latest init` scaffolds this; this doc doesn't re-derive that plumbing, only the values). `screen.css` in this system is whatever component-level overrides a given dashboard needs on top of shadcn-svelte's shipped component CSS — expected to be thin, since shadcn owns most of it.
@@ -17,6 +19,8 @@ shadcn-svelte's CSS-custom-property convention **is** our token architecture now
 ### Color
 
 All values are `oklch()`. Where a role has no dark-mode override listed, dark mode is presumed to reuse the light value (chart ramp) — confirmed against the extracted payload, not assumed.
+
+**Dashboard canvas convention: cards-on-muted, not cards-on-background.** `--background` (`oklch(1 0 0)`, pure white in light mode) is a real token, but the preset's own live preview does not paint the page canvas with it — the visible dashboard canvas in the preview is `--muted` (`oklch(0.97 0.001 106.424)`), with `--card` (white) surfaces sitting on top for actual content panels. Adopt this as the stated convention for this system: page/canvas root = `bg-muted`, content cards/panels = `bg-card`, reserving bare `--background` for chrome that intentionally sits flush with card color (e.g. a toolbar meant to blend into the content plane). This mirrors most shadcn-svelte dashboard block templates and gives the white cards something to visually separate from.
 
 #### Light (`:root`)
 
@@ -85,21 +89,24 @@ All values are `oklch()`. Where a role has no dark-mode override listed, dark mo
 
 | Token | Stack | Notes |
 |---|---|---|
-| `--font-sans` | `'Merriweather Variable', Georgia, 'Times New Roman', serif` | The preset assigns a **serif** to the "sans" slot — not a typo in the preset, a deliberate editorial choice. Fallback added here since the preset payload didn't specify one. |
+| `--font-sans` | `'Merriweather Variable', Georgia, 'Times New Roman', serif` | Despite the `--font-sans` name (shadcn's slot naming, not a description), the preset assigns a **serif** to this slot — a deliberate editorial choice, not a typo. Fallback added here since the preset payload didn't specify one. |
+| `--font-heading` | `'Space Grotesk Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif` | **Corrected 2026-08-26 — missed in the initial extraction.** A second, distinct face used for headings/display text; confirmed by measuring actual rendered output in the preset's live preview, not just reading declared variables. Fallback added here since the preset payload didn't specify one. |
 | `--font-mono` | `'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace` | For IDs, code, tabular/numeric dashboard values |
 
-Both are Google Fonts variable families — neither ships as a system stack, so both cost a network font request (a reversal of the previous system's "zero font requests" stance; see the pushback note at the end of this doc).
+**This is a serif-body/sans-heading pairing, not serif-everywhere** — the initial extraction of this doc missed `--font-heading` and wrongly implied Merriweather covered the whole UI. Measured usage in the live preview: **Space Grotesk** (`--font-heading`) renders on headings/display text only (24px page-title scale and up); **Merriweather** (`--font-sans`) renders on body copy, buttons, inputs, form labels, and table cells — i.e. `--font-sans` is still the base/default face applied everywhere that isn't explicitly a heading.
+
+All three are Google Fonts variable families — none ship as a system stack, so all three cost a network font request (a reversal of the previous system's "zero font requests" stance; see the pushback note at the end of this doc).
 
 Type scale — shadcn-svelte dashboard norms (Tailwind `text-*` steps actually used across shadcn block templates, not a generated modular scale):
 
-| Token | Size | Line-height | Weight | Used for |
-|---|---|---|---|---|
-| `text-xs` | 12px | 16px | 400 / 500 (badge) | Badge/chip text, table meta, timestamps |
-| `text-sm` | 14px | 20px | 400 | **Base UI size** — buttons, inputs, table cells, card body, nav items |
-| `text-base` | 16px | 24px | 400 | Prose body copy inside cards/dialogs |
-| `text-lg` | 18px | 28px | 600 | Card title, dialog title |
-| `text-xl` | 20px | 28px | 600 | Section heading |
-| `text-2xl` | 24px | 32px | 700 | Page/dashboard title |
+| Token | Size | Line-height | Weight | Face | Used for |
+|---|---|---|---|---|---|
+| `text-xs` | 12px | 16px | 400 / 500 (badge) | `--font-sans` (Merriweather) | Badge/chip text, table meta, timestamps |
+| `text-sm` | 14px | 20px | 400 | `--font-sans` (Merriweather) | **Base UI size** — buttons, inputs, table cells, card body, nav items |
+| `text-base` | 16px | 24px | 400 | `--font-sans` (Merriweather) | Prose body copy inside cards/dialogs |
+| `text-lg` | 18px | 28px | 600 | `--font-sans` (Merriweather) | Card title, dialog title — sits below the measured heading threshold, so it stays on the body face |
+| `text-xl` | 20px | 28px | 600 | `--font-heading` (Space Grotesk) | Section heading |
+| `text-2xl` | 24px | 32px | 700 | `--font-heading` (Space Grotesk) | Page/dashboard title |
 
 Unlike the previous system, shadcn's base UI size is **14px**, not 13px — close enough that it isn't a meaningful regression, but don't silently reuse the old 13px assumption in hand-rolled CSS.
 
@@ -202,7 +209,7 @@ Map to shadcn-svelte's shipped components — install via `bunx shadcn-svelte@la
 | Chip pairs (`.chip.assignee`, `.chip.milestone`, etc.) | Badge variants, see **Project extensions** | Category rule (person/taxonomy/warning/danger/neutral) carries forward unchanged; only the hex values and the delivery mechanism (Tailwind badge variants vs. hand-rolled `.chip.*` classes) change |
 | `border-radius: 6px` (`--radius` old) | `--radius-md` (8px) or `--radius-lg` (10px) depending on component | Not a 1:1 value match — pick per new scale, don't hardcode 6px forward |
 | `elevation.shadow.raised` / `.overlay` | `shadow-sm` / `shadow-md`+ (shadcn default scale) | |
-| System-UI type stack | `--font-sans` (Merriweather) / `--font-mono` (Geist Mono) | Full stack replacement, see typography section and pushback note below |
+| System-UI type stack | `--font-sans` (Merriweather, body/UI) / `--font-heading` (Space Grotesk, headings) / `--font-mono` (Geist Mono) | Full stack replacement, now a three-face system (was one), see typography section and pushback note below |
 
 ---
 
@@ -218,7 +225,7 @@ Map to shadcn-svelte's shipped components — install via `bunx shadcn-svelte@la
 | `--destructive-foreground` on `--destructive` | L 0.97 vs L 0.577, chroma 0.245 — the **highest-chroma color in the whole palette** | **Borderline — the pair most likely to actually fail or sit right at the line.** High chroma reds are exactly where lightness-only contrast math is least reliable; this is the one pair to measure for real before shipping any destructive-filled button/badge text, same flag the old system raised for its red |
 | `--sidebar-foreground` on `--sidebar` | L 0.147 vs L 0.985 | Pass, trivially |
 
-**New flag this palette introduces that the old one didn't have:** the old type stack was a system-UI sans at all sizes; this one puts **Merriweather, a serif, in the base UI font slot**, including down at `text-xs` (12px badge/chip text — the system's smallest, highest-density text). Serifs carry finer stroke contrast and are demonstrably harder to read at small sizes than a humanist sans, independent of color contrast. Recommend not shipping `text-xs` badge/chip labels in the serif family even if the rest of the UI stays on-brand — either bump badge text to `text-sm` or scope `--font-sans` out of the smallest components. This is a real, new accessibility-adjacent risk, not inherited from the old spec.
+**New flag this palette introduces that the old one didn't have:** the old type stack was a system-UI sans at all sizes; this one is a **serif-body/sans-heading pairing**, and the serif (Merriweather, `--font-sans`) is the one carrying the base UI slot, including down at `text-xs` (12px badge/chip text — the system's smallest, highest-density text). Section/page headings (`text-xl`/`text-2xl`) render in Space Grotesk, a sans, so that end of the scale is unaffected — but per the measured preview output, form **labels** also render in Merriweather (they're grouped with body/buttons/inputs/table cells, not with headings), so labels don't get the sans benefit either. Serifs carry finer stroke contrast and are demonstrably harder to read at small sizes than a humanist sans, independent of color contrast. Recommend not shipping `text-xs` badge/chip labels (or small-size form labels) in the serif family even if the rest of the UI stays on-brand — either bump that text to `text-sm`+ or scope `--font-sans` out of the smallest components. This is a real, new accessibility-adjacent risk, not inherited from the old spec.
 
 **Open items carried forward, still true:**
 - Reduced-motion policy is still ours to set (see Components) — shadcn doesn't solve this by default.
@@ -230,7 +237,7 @@ Map to shadcn-svelte's shipped components — install via `bunx shadcn-svelte@la
 
 Flagging for the team's awareness — not blocking adoption of the preset, but worth a conscious yes/no:
 
-1. **Merriweather-as-sans is an unusual, opinionated choice for a data-dense dashboard.** Serif body text is defensible for long-form reading; it is a less obvious fit for tables, forms, and badges — the majority of a tracker/dashboard's actual surface area. Worth a quick internal design review before this ships broadly, not just accepting the preset default because it's the preset default.
-2. **Two Google Fonts loaded (Merriweather Variable + Geist Mono Variable) reverses the old system's zero-network-font-request stance.** That was a deliberate old-system choice for perf/offline-resilience reasons — if those constraints still matter for this project, self-host both variable fonts rather than trusting Google Fonts' CDN at runtime, and preload them to avoid FOUC on a data-heavy first paint.
+1. **Merriweather-as-body-face is still an unusual, opinionated choice for a data-dense dashboard, even with Space Grotesk covering headings.** The pairing is more defensible than "serif everywhere" — headings get a clean sans — but Merriweather is still what actually renders on tables, forms, buttons, and badges, which is the majority of a tracker/dashboard's actual surface area, not the minority of it covered by headings. Worth a quick internal design review before this ships broadly, not just accepting the preset default because it's the preset default.
+2. **Three Google Fonts now load (Merriweather Variable + Space Grotesk Variable + Geist Mono Variable), not two** — reverses the old system's zero-network-font-request stance more than initially scoped. That was a deliberate old-system choice for perf/offline-resilience reasons — if those constraints still matter for this project, self-host all three variable fonts rather than trusting Google Fonts' CDN at runtime, and preload them to avoid FOUC on a data-heavy first paint.
 3. **No green, no violet/purple anywhere in the extracted palette.** For a system whose primary consumer is a status-tracking dashboard, the total absence of a "done/success" hue and a distinct taxonomy hue is a real gap, not a style preference — the two hues proposed in **Project extensions** are inventions this doc had to make to cover it, and should get explicit sign-off rather than being treated as part of the "official" preset.
 4. **The chart ramp is sequential-only by construction.** Fine if this project's charts stay single-metric; if roadmap plans include any categorical chart (status breakdown, assignee distribution), that need should be scoped now so it doesn't get bolted on as an afterthought with clashing hues later.
