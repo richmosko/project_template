@@ -90,23 +90,28 @@ All values are `oklch()`. Where a role has no dark-mode override listed, dark mo
 | Token | Stack | Notes |
 |---|---|---|
 | `--font-sans` | `'Merriweather Variable', Georgia, 'Times New Roman', serif` | Despite the `--font-sans` name (shadcn's slot naming, not a description), the preset assigns a **serif** to this slot — a deliberate editorial choice, not a typo. Fallback added here since the preset payload didn't specify one. |
-| `--font-heading` | `'Space Grotesk Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif` | **Corrected 2026-08-26 — missed in the initial extraction.** A second, distinct face used for headings/display text; confirmed by measuring actual rendered output in the preset's live preview, not just reading declared variables. Fallback added here since the preset payload didn't specify one. |
+| `--font-heading` | `'Space Grotesk Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif` | **Corrected 2026-08-26 — missed in the initial extraction.** A second, distinct face used for headings and card titles — **not** for big display/stat numbers (see correction below); confirmed by measuring actual rendered output in the preset's live preview, not just reading declared variables. Fallback added here since the preset payload didn't specify one. |
 | `--font-mono` | `'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace` | For IDs, code, tabular/numeric dashboard values |
 
-**This is a serif-body/sans-heading pairing, not serif-everywhere** — the initial extraction of this doc missed `--font-heading` and wrongly implied Merriweather covered the whole UI. Measured usage in the live preview: **Space Grotesk** (`--font-heading`) renders on headings/display text only (24px page-title scale and up); **Merriweather** (`--font-sans`) renders on body copy, buttons, inputs, form labels, and table cells — i.e. `--font-sans` is still the base/default face applied everywhere that isn't explicitly a heading.
+**This is a serif-body/sans-heading pairing, not serif-everywhere** — the initial extraction of this doc missed `--font-heading` and wrongly implied Merriweather covered the whole UI. Measured usage in the live preview: **Space Grotesk** (`--font-heading`) renders on headings and card titles only (20px+ — `text-xl`/`text-2xl`); **Merriweather** (`--font-sans`) renders on body copy, buttons, inputs, form labels, and table cells — i.e. `--font-sans` is still the base/default face applied everywhere that isn't explicitly a heading/title.
+
+**Correction (2026-08-26, from a screenshot of the live preview):** big display/stat values (e.g. dashboard money figures) do **not** take the heading face — they render in **Merriweather bold** (`--font-sans`, bold weight), while card titles/labels use `--font-heading` (Space Grotesk). Don't infer "large text = heading face" from size alone; the face split is by *role* (title vs. stat/display number), not by size tier. A dashboard-stat component should set `font-family: var(--font-sans); font-weight: 700;` at whatever size the metric calls for, not reach for `--font-heading`.
 
 All three are Google Fonts variable families — none ship as a system stack, so all three cost a network font request (a reversal of the previous system's "zero font requests" stance; see the pushback note at the end of this doc).
 
 Type scale — shadcn-svelte dashboard norms (Tailwind `text-*` steps actually used across shadcn block templates, not a generated modular scale):
+
+**Face is by role, not by size tier** — don't infer the face from pixel size alone (see the display-value correction below, where a large number is body-face bold, not heading-face).
 
 | Token | Size | Line-height | Weight | Face | Used for |
 |---|---|---|---|---|---|
 | `text-xs` | 12px | 16px | 400 / 500 (badge) | `--font-sans` (Merriweather) | Badge/chip text, table meta, timestamps |
 | `text-sm` | 14px | 20px | 400 | `--font-sans` (Merriweather) | **Base UI size** — buttons, inputs, table cells, card body, nav items |
 | `text-base` | 16px | 24px | 400 | `--font-sans` (Merriweather) | Prose body copy inside cards/dialogs |
-| `text-lg` | 18px | 28px | 600 | `--font-sans` (Merriweather) | Card title, dialog title — sits below the measured heading threshold, so it stays on the body face |
+| `text-lg` | 18px | 28px | 600 | `--font-heading` (Space Grotesk) | Card title, dialog title |
 | `text-xl` | 20px | 28px | 600 | `--font-heading` (Space Grotesk) | Section heading |
 | `text-2xl` | 24px | 32px | 700 | `--font-heading` (Space Grotesk) | Page/dashboard title |
+| `text-2xl`/`text-3xl` as a **stat/display value** | 24–30px | tight (1.1–1.2) | 700 | `--font-sans` **bold** (Merriweather), *not* `--font-heading` | Big dashboard metric numbers (e.g. money figures) — role-based exception, confirmed from a screenshot of the live preview: display numbers stay on the body face at bold weight, only titles/headings switch face |
 
 Unlike the previous system, shadcn's base UI size is **14px**, not 13px — close enough that it isn't a meaningful regression, but don't silently reuse the old 13px assumption in hand-rolled CSS.
 
@@ -123,7 +128,7 @@ The preset sets one base, `--radius: 0.625rem` (10px); shadcn-svelte's standard 
 
 ### Chart ramp
 
-`--chart-1`…`--chart-5` is a **single-hue sequential ramp** (hue stays in the 61–98° golden band; only lightness/chroma step down). This is correct and good for **sequential/quantitative data** (a heat scale, a single-metric magnitude series) — it reads badly for **categorical data** (5 distinct series that need to be told apart by hue, e.g. "issues by assignee" or "issues by repo"). Using this ramp categorically is a foreseeable misuse; flag it in review if a chart spec calls for 3+ unrelated categorical series and route those to the record-status/badge palette below instead, which does vary hue.
+`--chart-1`…`--chart-5` is a **single-hue sequential ramp** (hue stays in the 61–98° golden band; only lightness/chroma step down). This is correct and good for **sequential/quantitative data** (a heat scale, a single-metric magnitude series) — it reads badly for **categorical data** (5 distinct series that need to be told apart by hue, e.g. "issues by assignee" or "issues by repo"). With the record-status/badge vocabulary now also token-only and hue-flat by design (see **Project extensions**), there is genuinely **no multi-hue categorical palette anywhere in this system** — flag this at chart-spec time, not before: if a real need for 3+ unrelated categorical series (or a positive/negative financial-style delta pair) surfaces, that is the point to bring a token proposal to the team, decided against a concrete use case rather than pre-emptively invented here.
 
 ### Sidebar tokens
 
@@ -137,36 +142,33 @@ Usage: `shadow-xs` on inputs/buttons (barely-there depth cue), `shadow-sm` on ca
 
 ---
 
-## Project extensions (proposed — not in the shadcn-svelte preset)
+## Project extensions — preset tokens only (no invented hues)
 
-shadcn-svelte defines UI primitives, not domain semantics. The cairn tracker UI needs a **record-status vocabulary** (five values) and a **badge/chip semantic vocabulary** (person/taxonomy/warning/danger/neutral) that don't exist in the preset. The values below are **proposed** by this doc, harmonized to the preset's hue system (warm neutral base at hue ≈ 49–58, sky-blue primary at hue ≈ 237–243, golden chart ramp at hue ≈ 61–98) — they are new judgment calls, not extracted from anything, and should be reviewed before `tokens.css` treats them as final.
+**Direction refinement (2026-08-26):** no blending with the legacy system. This design system uses **only** the preset's own tokens and settings — nothing hue-invented, nothing carried forward from the retired Atlassian-modeled palette. The record-status and badge/chip vocabularies the cairn tracker UI needs are expressed entirely as **shadcn badge variants against existing preset tokens**. Meaning is carried by **variant weight** (filled vs. secondary vs. outline, and which existing token fills it) rather than by a dedicated hue per category. The old green/violet/amber extension palette from the previous revision of this doc is **retired, not migrated** — none of those hues exist anywhere in this system now.
 
-Two hues had to be invented because the preset has **no green and no violet/purple** anywhere in its palette (a real gap for a status/taxonomy system — see pushback note). Green was placed at hue 145 (a standard "success" green, far enough from the sky-blue primary at 240 and the golden chart ramp at 61–98 to stay visually distinct) and violet at hue 300 (matching the low-chroma, high-lightness treatment `--secondary` already uses, so it reads as "another muted taxonomy tag," not a second accent).
+### Record-status vocabulary (preset tokens only)
 
-### Record-status vocabulary (proposed)
+| Status | Badge variant | Fill | Text | Dot/accent |
+|---|---|---|---|---|
+| Backlog / Planned | `outline` | transparent, `--border` outline | `--muted-foreground` | `--ring` |
+| Todo | `secondary` | `--secondary` | `--secondary-foreground` | `--secondary-foreground` |
+| In Progress | `default` | `--primary` | `--primary-foreground` | `--primary` |
+| Paused / In Review | custom (chart-tier) | `--chart-2` | `--foreground` | `--chart-2` |
+| Done | custom (inverted) | `--foreground` | `--background` | `--foreground` |
+| Cancelled / Blocked | `destructive` | `--destructive` | `--destructive-foreground` | `--destructive` |
 
-| Status | Light dot/accent | Light bg (subtle) | Light fg | Dark dot/accent | Dark bg (subtle) | Dark fg | Reasoning |
-|---|---|---|---|---|---|---|---|
-| `planned` | `oklch(0.709 0.01 56.259)` (= dark `--muted-foreground`, reused) | `oklch(0.97 0.001 106.424)` (`--muted`) | `oklch(0.553 0.013 58.071)` (`--muted-foreground`) | `oklch(0.709 0.01 56.259)` | `oklch(0.268 0.007 34.298)` (`--muted` dark) | `oklch(0.709 0.01 56.259)` | Reuses `--muted*` verbatim — "not started" is the system's neutral default, shouldn't need a new hue |
-| `in-progress` | `oklch(0.5 0.134 242.749)` (= `--primary`) | `oklch(0.94 0.03 240)` | `oklch(0.4 0.13 242.749)` | `oklch(0.443 0.11 240.79)` (= dark `--primary`) | `oklch(0.3 0.08 240)` | `oklch(0.85 0.05 240)` | Reuses `--primary` hue exactly — matches the old system's rule that the one accent = the active/live state |
-| `paused` | `oklch(0.72 0.15 70)` | `oklch(0.96 0.05 80)` | `oklch(0.45 0.13 65)` | `oklch(0.75 0.16 70)` | `oklch(0.32 0.07 65)` | `oklch(0.85 0.1 75)` | Amber pulled from inside the existing chart-ramp hue band (61–98°) so it reads as "in-family," not a random new color |
-| `done` | `oklch(0.6 0.14 145)` | `oklch(0.94 0.05 150)` | `oklch(0.4 0.13 145)` | `oklch(0.65 0.15 145)` | `oklch(0.3 0.08 150)` | `oklch(0.85 0.08 150)` | **Invented hue** — preset has no green; placed far from primary and chart hues |
-| `cancelled` | `oklch(0.577 0.245 27.325)` (= `--destructive`) | `oklch(0.95 0.04 27)` | `oklch(0.45 0.2 27)` | `oklch(0.704 0.191 22.216)` (= dark `--destructive`) | `oklch(0.3 0.1 27)` | `oklch(0.85 0.1 25)` | Reuses `--destructive` exactly |
+"Paused / In Review" and "Done" aren't stock shadcn badge variants (`default`/`secondary`/`destructive`/`outline`) — they're two additional `badgeVariants` entries this system defines, each pointed at an existing preset token (`--chart-2`, `--foreground`) rather than a new color. That's the one place this vocabulary adds anything beyond wiring up stock variants, and it's still zero new hues.
 
-### Badge/chip semantic vocabulary (proposed)
+### Badge/chip vocabulary (preset tokens only)
 
-Keeps the old system's category rule — **person = primary/sky, taxonomy = green, warning = amber, danger = destructive, neutral = muted** — re-expressed in the new hue system:
+| Category | Example uses | Variant | Notes |
+|---|---|---|---|
+| Person (assignee) / release | `.badge-assignee`, `.badge-release` | `secondary` | No per-category hue — a person chip and a release chip look the same weight, distinguished by label/icon, not color |
+| Milestone / neutral (default) | `.badge-milestone`, base `.badge` | `outline` | |
+| Archived | `.badge-archived` | `outline` + italic + reduced opacity (reuse the existing `opacity-*` disabled/muted treatment shadcn ships, not an invented token) | Muted-but-present, same intent as the old system's archived rule, no new color needed to express it |
+| Blocked / cancelled | `.badge-blocked` | `destructive` | |
 
-| Category | Example uses | Light bg | Light fg | Dark bg | Dark fg |
-|---|---|---|---|---|---|
-| Person (assignee) | `.badge-assignee` | `oklch(0.94 0.03 240)` | `oklch(0.4 0.13 242.749)` | `oklch(0.3 0.08 240)` | `oklch(0.85 0.05 240)` |
-| Taxonomy (milestone) | `.badge-milestone` | `oklch(0.94 0.05 150)` | `oklch(0.4 0.13 145)` | `oklch(0.3 0.08 150)` | `oklch(0.85 0.08 150)` |
-| Taxonomy (repo/release) | `.badge-repo`, `.badge-release` | `oklch(0.93 0.04 300)` | `oklch(0.45 0.14 300)` | `oklch(0.32 0.08 300)` | `oklch(0.85 0.06 300)` | 
-| Warning (subissues, GA) | `.badge-subissues`, `.badge-ga` | `oklch(0.96 0.05 80)` | `oklch(0.45 0.13 65)` | `oklch(0.32 0.07 65)` | `oklch(0.85 0.1 75)` |
-| Danger (blocked) | `.badge-blocked` | `oklch(0.95 0.04 27)` | `oklch(0.45 0.2 27)` | `oklch(0.3 0.1 27)` | `oklch(0.85 0.1 25)` |
-| Neutral (default, archived) | `.badge`, `.badge-archived` | `oklch(0.97 0.001 106.424)` (`--muted`) | `oklch(0.553 0.013 58.071)` (`--muted-foreground`) | `oklch(0.268 0.007 34.298)` | `oklch(0.709 0.01 56.259)` |
-
-**Note on repo/release sharing violet:** as with the old palette, `repo` and `release` share a tint deliberately (mutually exclusive on one card) — carried forward unchanged as a rule, just re-hued.
+**The rule going forward: variant weight encodes meaning, not hue.** `default` (primary-filled) = the one thing that should visually dominate on a card (active/live status); `secondary` = present but not urgent; `outline` = lowest-weight, informational; `destructive` = the one danger signal in the system. Don't add a new badge color for a new category — pick the variant whose weight matches how urgently it should draw the eye, and if none of the four stock variants plus the two chart/foreground-tier additions above fit, that's a signal to bring the question to the team rather than inventing a token unilaterally.
 
 ---
 
@@ -177,7 +179,7 @@ Map to shadcn-svelte's shipped components — install via `bunx shadcn-svelte@la
 | shadcn-svelte component | Anatomy (shadcn norm) | Cairn board usage |
 |---|---|---|
 | **Button** | `<Button variant={default\|secondary\|destructive\|outline\|ghost\|link} size={default\|sm\|lg\|icon}>` | `default` = primary actions (new issue submit); `outline` = cancel/secondary; `ghost` = icon-only (drawer close); `destructive` = delete/archive confirm |
-| **Badge** | `<Badge variant={default\|secondary\|destructive\|outline}>`, plus custom variants for the extension palette above | Status chips, assignee/milestone/repo/blocked/subissues chips — extend `badgeVariants` with the six categories from **Project extensions** rather than inlining colors per-usage |
+| **Badge** | `<Badge variant={default\|secondary\|destructive\|outline}>`, plus two chart/foreground-tier `badgeVariants` additions (see **Project extensions**) | Status chips, assignee/milestone/release/blocked/archived chips — all mapped to stock variants + preset tokens, no per-category hues |
 | **Card** | `Card.Root > Card.Header > Card.Title/Card.Description, Card.Content, Card.Footer` | Issue card, containment-card nesting (repo-group → swimlane → column) — same depth-alternation principle as before, now expressed via `bg-card` vs. `bg-muted` instead of hand-picked hex |
 | **Table** | `Table.Root > Table.Header/Body > Table.Row > Table.Head/Cell` | List view — shadcn's table ships sortable-header patterns and row hover as CSS, closing the old "no sort indicator" gap only if the sort-icon slot is actually used, not just the markup |
 | **Sheet / Dialog** | `Sheet.Root > Sheet.Trigger, Sheet.Content > Sheet.Header, Sheet.Footer` (Dialog is the centered variant; Sheet is the edge-anchored drawer) | Sheet = the right-side issue drawer (direct replacement for the old bespoke `.drawer`); Dialog = new-issue modal, confirm-delete |
@@ -206,7 +208,7 @@ Map to shadcn-svelte's shipped components — install via `bunx shadcn-svelte@la
 | `#172B4D` (default text) | `--foreground` | |
 | `#5E6C84` (subtle text) | `--muted-foreground` | |
 | `#DFE1E6` (border) | `--border` | |
-| Chip pairs (`.chip.assignee`, `.chip.milestone`, etc.) | Badge variants, see **Project extensions** | Category rule (person/taxonomy/warning/danger/neutral) carries forward unchanged; only the hex values and the delivery mechanism (Tailwind badge variants vs. hand-rolled `.chip.*` classes) change |
+| Chip pairs (`.chip.assignee`, `.chip.milestone`, `.chip.repo`, `.chip.subissues`, `.chip.ga`, etc. — the old green/purple/amber taxonomy) | Badge variants, see **Project extensions** | **Retired, not migrated.** The old per-category-hue rule (person=blue, taxonomy=green, warning=amber, danger=red, neutral=grey) does not carry forward — the new system has no invented hues at all. Chips map to stock `secondary`/`outline`/`destructive` badge variants (plus two chart/foreground-tier additions) and distinguish category by label/icon and variant weight, not by a dedicated color per category |
 | `border-radius: 6px` (`--radius` old) | `--radius-md` (8px) or `--radius-lg` (10px) depending on component | Not a 1:1 value match — pick per new scale, don't hardcode 6px forward |
 | `elevation.shadow.raised` / `.overlay` | `shadow-sm` / `shadow-md`+ (shadcn default scale) | |
 | System-UI type stack | `--font-sans` (Merriweather, body/UI) / `--font-heading` (Space Grotesk, headings) / `--font-mono` (Geist Mono) | Full stack replacement, now a three-face system (was one), see typography section and pushback note below |
@@ -224,12 +226,14 @@ Map to shadcn-svelte's shipped components — install via `bunx shadcn-svelte@la
 | `--primary-foreground` on `--primary` | L 0.977 vs L 0.5, but `--primary` carries chroma 0.134 (fairly saturated blue) | Likely passes (comparable to the old white-on-`#0052CC` at 5.1:1) but chroma at this level measurably eats into perceived contrast versus a chroma-0 gray of the same lightness — worth an actual check, not an assumption |
 | `--destructive-foreground` on `--destructive` | L 0.97 vs L 0.577, chroma 0.245 — the **highest-chroma color in the whole palette** | **Borderline — the pair most likely to actually fail or sit right at the line.** High chroma reds are exactly where lightness-only contrast math is least reliable; this is the one pair to measure for real before shipping any destructive-filled button/badge text, same flag the old system raised for its red |
 | `--sidebar-foreground` on `--sidebar` | L 0.147 vs L 0.985 | Pass, trivially |
+| `--foreground` on `--chart-2` (Paused/In Review badge, new — see **Project extensions**) | L 0.147 vs L 0.795, but `--chart-2` carries chroma 0.184 (second-highest chroma in the palette after destructive) | Likely passes on lightness delta alone (comparable margin to the muted-foreground pair above), but chroma at this level is exactly the case flagged for destructive — measure for real before treating this badge as ship-ready, don't assume the lightness gap alone is enough |
+| `--background` on `--foreground` (Done badge, new — see **Project extensions**) | L 1.0 vs L 0.147 — same magnitude delta as the `--foreground`/`--background` pair above, inverted | Pass, trivially |
 
 **New flag this palette introduces that the old one didn't have:** the old type stack was a system-UI sans at all sizes; this one is a **serif-body/sans-heading pairing**, and the serif (Merriweather, `--font-sans`) is the one carrying the base UI slot, including down at `text-xs` (12px badge/chip text — the system's smallest, highest-density text). Section/page headings (`text-xl`/`text-2xl`) render in Space Grotesk, a sans, so that end of the scale is unaffected — but per the measured preview output, form **labels** also render in Merriweather (they're grouped with body/buttons/inputs/table cells, not with headings), so labels don't get the sans benefit either. Serifs carry finer stroke contrast and are demonstrably harder to read at small sizes than a humanist sans, independent of color contrast. Recommend not shipping `text-xs` badge/chip labels (or small-size form labels) in the serif family even if the rest of the UI stays on-brand — either bump that text to `text-sm`+ or scope `--font-sans` out of the smallest components. This is a real, new accessibility-adjacent risk, not inherited from the old spec.
 
 **Open items carried forward, still true:**
 - Reduced-motion policy is still ours to set (see Components) — shadcn doesn't solve this by default.
-- The extension palette (status/badge colors) above is proposed, not measured — verify contrast on the actual proposed pairs before locking `tokens.css`, same caveat as the destructive pair.
+- The two chart/foreground-tier badge additions (Paused/In Review on `--chart-2`, Done on inverted `--foreground`) are new pairings of existing preset tokens, not measured yet — verify contrast on those two before locking `tokens.css`, same caveat as the destructive pair. (The "invented hues need sign-off" item from the previous revision of this doc is resolved — there are no invented hues anymore.)
 
 ---
 
@@ -239,5 +243,5 @@ Flagging for the team's awareness — not blocking adoption of the preset, but w
 
 1. **Merriweather-as-body-face is still an unusual, opinionated choice for a data-dense dashboard, even with Space Grotesk covering headings.** The pairing is more defensible than "serif everywhere" — headings get a clean sans — but Merriweather is still what actually renders on tables, forms, buttons, and badges, which is the majority of a tracker/dashboard's actual surface area, not the minority of it covered by headings. Worth a quick internal design review before this ships broadly, not just accepting the preset default because it's the preset default.
 2. **Three Google Fonts now load (Merriweather Variable + Space Grotesk Variable + Geist Mono Variable), not two** — reverses the old system's zero-network-font-request stance more than initially scoped. That was a deliberate old-system choice for perf/offline-resilience reasons — if those constraints still matter for this project, self-host all three variable fonts rather than trusting Google Fonts' CDN at runtime, and preload them to avoid FOUC on a data-heavy first paint.
-3. **No green, no violet/purple anywhere in the extracted palette.** For a system whose primary consumer is a status-tracking dashboard, the total absence of a "done/success" hue and a distinct taxonomy hue is a real gap, not a style preference — the two hues proposed in **Project extensions** are inventions this doc had to make to cover it, and should get explicit sign-off rather than being treated as part of the "official" preset.
-4. **The chart ramp is sequential-only by construction.** Fine if this project's charts stay single-metric; if roadmap plans include any categorical chart (status breakdown, assignee distribution), that need should be scoped now so it doesn't get bolted on as an afterthought with clashing hues later.
+3. **This system now has no multi-hue categorical palette anywhere, by explicit decision (2026-08-26: preset tokens only, no invented hues).** The previous revision of this doc proposed inventing a green and a violet to cover this; that proposal is retired. The status/badge vocabulary is now fully expressible with existing tokens (see **Project extensions**), so the gap doesn't block anything today — but it means **positive/negative financial-style deltas and any true multi-series categorical chart (3+ unrelated series that need to be told apart by hue) currently have no palette to draw from.** This is the one place a future token addition may be genuinely needed — decide it against a concrete chart/metric spec when one actually comes up, not speculatively now.
+4. **The chart ramp is sequential-only by construction** (see also #3 — this is the same underlying gap, chart-specific). Fine if this project's charts stay single-metric; if roadmap plans include any categorical chart (status breakdown, assignee distribution) or a positive/negative delta indicator, that need should be scoped and resolved as a deliberate token decision when it comes up, not bolted on ad hoc.
