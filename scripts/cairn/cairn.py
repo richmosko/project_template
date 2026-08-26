@@ -243,6 +243,12 @@ ID_RE = re.compile(r"^([A-Za-z][A-Za-z0-9]*)-(\d+)$")
 
 BOARD_DIR = Path(__file__).resolve().parent / "board"
 
+# PT-54 (architect ruling §1): sibling of BOARD_DIR, same cwd-independent
+# shape. Points at the COMMITTED build output, not the app source --
+# `scripts/cairn/dashboard/` (source) vs. `scripts/cairn/dashboard/dist/`
+# (built, what actually gets served).
+DASHBOARD_DIR = Path(__file__).resolve().parent / "dashboard" / "dist"
+
 
 def _today() -> str:
     return datetime.date.today().isoformat()
@@ -2102,6 +2108,166 @@ def _release_status(target_tag: Optional[str], tag_set: Optional[Set[str]]) -> O
     return target_tag in tag_set
 
 
+_SEMVER_TAG_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)")
+
+
+def _latest_semver_tag(tags: Optional[Set[str]]) -> Optional[str]:
+    """The highest-semver tag in a tag SET (`read_git_tags`'s return type
+    carries no ordering or dates to sort by) -- WORKFLOW.md's "strict
+    semver" convention is what makes "latest" well-defined at all. A
+    non-conforming tag sorts lowest (never raises), so one stray
+    non-release tag can't take down the whole /api/dashboard payload.
+    `None`/empty input -> `None`, never a crash.
+    """
+    if not tags:
+        return None
+
+    def _key(tag: str) -> Tuple[int, int, int, str]:
+        m = _SEMVER_TAG_RE.match(tag)
+        if not m:
+            return (-1, -1, -1, tag)
+        return (int(m.group(1)), int(m.group(2)), int(m.group(3)), tag)
+
+    return max(tags, key=_key)
+
+
+def read_git_state(data_dir: Path) -> Dict[str, Any]:
+    """PT-54 (architect ruling §4): the `/api/dashboard` "git" group --
+    `{branch, dirty, head, latest_tag, warning}`. Same `-C data_dir, walk
+    up to find the repo, never raise` contract as `read_git_tags`/
+    `_git_mv_or_rename`; reuses `read_git_tags` for the tag set rather
+    than a fourth subprocess call, per the ruling.
+
+    A single failure anywhere in this group (git missing, or `data_dir`
+    not inside a worktree) degrades the WHOLE group to `None` fields plus
+    a warning -- never a partially-populated dict that could look more
+    trustworthy than it is. `dirty` is `None` (not `False`) when the
+    `status --porcelain` read itself failed, so "no changes" and "we
+    don't know" stay distinguishable.
+    """
+    import subprocess
+
+    def _run(*args: str) -> Optional[str]:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(data_dir), *args],
+                capture_output=True, text=True, timeout=5,
+            )
+        except (FileNotFoundError, OSError):
+            return None
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip()
+
+    branch = _run("rev-parse", "--abbrev-ref", "HEAD")
+    if branch is None:
+        return {
+            "branch": None,
+            "dirty": None,
+            "head": None,
+            "latest_tag": None,
+            "warning": "git unavailable or not a worktree -- every dashboard git field is null",
+        }
+
+    head = _run("rev-parse", "--short", "HEAD")
+    # --untracked-files=no: "dirty" means uncommitted changes to TRACKED
+    # files -- an untracked issue/milestone file sitting in the tree (the
+    # routine, expected state of a repo mid-`cairn new`) must not read as
+    # a dirty working tree.
+    status_out = _run("status", "--porcelain", "--untracked-files=no")
+    dirty = None if status_out is None else bool(status_out)
+    tag_set, tags_warning = read_git_tags(data_dir)
+
+    return {
+        "branch": branch,
+        "dirty": dirty,
+        "head": head,
+        "latest_tag": _latest_semver_tag(tag_set),
+        "warning": tags_warning,
+    }
+
+
+def _find_release_milestone(data_dir: Path, target_tag: str) -> Optional[Dict[str, Any]]:
+    """The milestone whose `target_tag` matches, for `build_dashboard_payload`'s
+    release join -- searches BOTH live and archived milestones. A small,
+    targeted glob + frontmatter read (two dirs, non-recursive), not a
+    second full `/api/board` parse: this template's own workflow archives
+    a milestone shortly after its tag ships, so a live-only search would
+    make a shipped release invisible almost immediately. `None` if
+    nothing matches.
+    """
+    data_dir = Path(data_dir)
+    for p in _dir_glob(data_dir / "milestones") + _dir_glob(data_dir / "archive" / "milestones"):
+        fm = _read_frontmatter_dict(p)
+        if fm.get("target_tag") == target_tag:
+            return fm
+    return None
+
+
+def build_dashboard_payload(data_dir: Path) -> Dict[str, Any]:
+    """`GET /api/dashboard`'s payload (PT-54) -- assembled server-side
+    only, for the PRIMARY root's `data_dir` (git state is inherently
+    single-repo; there is no multi-root "current branch"). Four
+    independent groups, one honest join:
+
+    - `git`: `read_git_state(data_dir)` -- branch/dirty/head/latest_tag,
+      never raises.
+    - `tracker`: issue counts BY THE SAME parse path `/api/board` uses --
+      `build_board_payload(data_dir)`'s own `issues` list, tallied by
+      `status`. Never a second parser over the same files (architect's
+      ruling §4).
+    - `check`: `check_repo(data_dir)`'s lint result, `{ok, errors}`.
+    - `release`: the join the ruling's §4 spells out explicitly -- latest
+      tag -> the milestone whose `target_tag` matches it -> that
+      milestone's `id`/`name`/`status`/`ga`. Deliberately NOT parsed from
+      STATE.md: that would read a file outside `process/cairn/` (breaking
+      the same engine constraint `read_git_tags` protects) and couple the
+      server to a human-maintained table. `None` when there's no matching
+      milestone (including "no tags at all").
+
+      This lookup searches BOTH live and archived milestones (a small,
+      targeted glob -- `_find_release_milestone`, not a second full
+      `/api/board` parse): this project's own workflow archives a
+      milestone shortly after its tag ships (WORKFLOW.md's archive-on-done
+      convention), so a live-only search would make `release` null for
+      almost every real shipped tag -- verified against this very repo
+      end to end (v0.7.1's milestone is archived). `tracker.
+      counts_by_status` stays live-only on purpose (matches what
+      `/api/board` shows by default) -- only this lookup widens.
+    """
+    data_dir = Path(data_dir)
+    git_state = read_git_state(data_dir)
+
+    board = build_board_payload(data_dir)
+    counts_by_status = {status: 0 for status in STATUS_ORDER}
+    for issue in board["issues"]:
+        status = issue.get("status")
+        if status in counts_by_status:
+            counts_by_status[status] += 1
+
+    check_errors = check_repo(data_dir)
+
+    release = None
+    latest_tag = git_state["latest_tag"]
+    if latest_tag:
+        milestone = _find_release_milestone(data_dir, latest_tag)
+        if milestone:
+            release = {
+                "id": milestone.get("id"),
+                "name": milestone.get("name"),
+                "status": milestone.get("status"),
+                "ga": milestone.get("ga"),
+            }
+
+    return {
+        "git": git_state,
+        "tracker": {"counts_by_status": counts_by_status},
+        "check": {"ok": check_errors == [], "errors": check_errors},
+        "release": release,
+        "generated_at": datetime.datetime.now().isoformat(),
+    }
+
+
 def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any]:
     """{"majors": [...], "milestones": [...], "issues": [...]}.
 
@@ -2844,6 +3010,7 @@ def make_server(
     port: Optional[int] = None,
     roots: Optional[List[Root]] = None,
     source_path: Path = Path(__file__),
+    dashboard_dir: Path = DASHBOARD_DIR,
 ):
     """Build (but do not start) the board's HTTPServer, bound to 127.0.0.1.
 
@@ -2866,8 +3033,15 @@ def make_server(
     imported `cairn.py`. Fingerprinted exactly once here, at construction
     (§2's "boot" fingerprint); every later `/api/board` build re-checks
     against it via `engine_is_stale`, never re-fingerprints from scratch.
+
+    PT-54 (architect ruling §4): `dashboard_dir` defaults to the real
+    committed `DASHBOARD_DIR` -- overridable so a test can exercise the
+    missing-dist 503 branch (or serve a throwaway fixture) without
+    touching the real `scripts/cairn/dashboard/dist/`, same seam
+    `source_path` already established.
     """
     data_dir = Path(data_dir)
+    dashboard_dir = Path(dashboard_dir)
     if config is None:
         config = load_config(data_dir)
     if port is None:
@@ -2951,10 +3125,14 @@ def make_server(
             self.end_headers()
             self.wfile.write(body)
 
-        def _send_static(self, rel_path: str) -> None:
-            target = (BOARD_DIR / rel_path).resolve()
+        def _send_static(self, rel_path: str, base: Path = BOARD_DIR) -> None:
+            # PT-54 (architect ruling §4): widened to take `base` so the
+            # dashboard's static assets go through the SAME traversal
+            # guard as the board's (BOARD_DIR stays the default -- every
+            # pre-PT-54 caller is unaffected).
+            target = (base / rel_path).resolve()
             try:
-                target.relative_to(BOARD_DIR.resolve())
+                target.relative_to(base.resolve())
             except ValueError:
                 self.send_error(403)
                 return
@@ -2965,6 +3143,12 @@ def make_server(
                 ".html": "text/html; charset=utf-8",
                 ".js": "application/javascript; charset=utf-8",
                 ".css": "text/css; charset=utf-8",
+                ".woff2": "font/woff2",
+                ".svg": "image/svg+xml",
+                ".png": "image/png",
+                ".ico": "image/x-icon",
+                ".json": "application/json",
+                ".map": "application/json",
             }.get(target.suffix, "application/octet-stream")
             data = target.read_bytes()
             self.send_response(200)
@@ -2978,6 +3162,29 @@ def make_server(
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(data)
+
+        def _send_dashboard_unbuilt_503(self) -> None:
+            """PT-54 (architect ruling §3/§4): the dashboard's `dist/` is
+            COMMITTED, never built at serve time -- when it's missing (a
+            clone that hasn't run `npm ci && npm run build` under
+            `scripts/cairn/dashboard/` specifically; the rest of `cairn
+            serve` needs nothing but python3), name the literal fix
+            rather than a bare 404/500. `/api/dashboard` is unaffected --
+            it's pure python, no build dependency.
+            """
+            body = (
+                "<!doctype html><html><head><title>Dashboard not built</title></head>"
+                "<body><h1>503 &mdash; Dashboard not built</h1>"
+                "<p>Run <code>cd scripts/cairn/dashboard &amp;&amp; npm ci &amp;&amp; "
+                "npm run build</code>, then restart <code>cairn serve</code>.</p>"
+                "</body></html>"
+            ).encode("utf-8")
+            self.send_response(503)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
 
         def _handle_sse(self) -> None:
             """GET /api/events -- an SSE stream. Holds the connection
@@ -3090,11 +3297,65 @@ def make_server(
             if path == "/api/events":
                 self._handle_sse()
                 return
+            if path == "/api/dashboard":
+                # PT-54 (architect ruling §4): primary-root only -- git
+                # state is inherently single-repo, there is no multi-root
+                # "current branch". Same ETag/no-store posture as
+                # /api/board, but hashing the SERIALIZED BODY (the
+                # ruling's own words: "cheap to write") rather than a
+                # file-mtime fold -- every field here already comes from
+                # either a bounded git subprocess or a fresh parse, so
+                # there's no cheaper fingerprint to reuse.
+                payload = build_dashboard_payload(roots[0].path)
+                body = json.dumps(payload).encode("utf-8")
+                # `generated_at` is excluded from the hash input --
+                # otherwise every request's own timestamp would change
+                # the ETag, defeating 304 entirely even when nothing
+                # else in the payload moved.
+                etag_input = {k: v for k, v in payload.items() if k != "generated_at"}
+                etag = hashlib.sha256(json.dumps(etag_input, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+                if self.headers.get("If-None-Match") == etag:
+                    self.send_response(304)
+                    self.send_header("ETag", etag)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if path in ("/", "/list"):
                 self._send_static("board.html")
                 return
             if path.startswith("/board/"):
                 self._send_static(path[len("/board/"):])
+                return
+            if path in ("/dashboard", "/dashboard/"):
+                if not dashboard_dir.is_dir():
+                    self._send_dashboard_unbuilt_503()
+                    return
+                self._send_static("index.html", base=dashboard_dir)
+                return
+            if path.startswith("/dashboard/"):
+                # PT-54 (architect ruling §4): SPA fallback, narrowly --
+                # a real file wins; a no-suffix path (client-side route)
+                # falls back to index.html; a SUFFIXED path that doesn't
+                # exist (a missing .js/.css) stays a 404, never silently
+                # becomes index.html -- "the classic hours-lost debugging
+                # trap."
+                if not dashboard_dir.is_dir():
+                    self._send_dashboard_unbuilt_503()
+                    return
+                rel = path[len("/dashboard/"):]
+                if (dashboard_dir / rel).is_file():
+                    self._send_static(rel, base=dashboard_dir)
+                elif Path(rel).suffix == "":
+                    self._send_static("index.html", base=dashboard_dir)
+                else:
+                    self.send_error(404)
                 return
             self.send_error(404)
 
@@ -4044,8 +4305,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
     server = make_server(data_dir, config, port, roots=roots)
     bound_port = server.server_address[1]
     print(f"Serving cairn board at http://127.0.0.1:{bound_port}/")
-    print(f"  Kanban: http://127.0.0.1:{bound_port}/")
-    print(f"  List:   http://127.0.0.1:{bound_port}/list")
+    print(f"  Kanban:    http://127.0.0.1:{bound_port}/")
+    print(f"  List:      http://127.0.0.1:{bound_port}/list")
+    print(f"  Dashboard: http://127.0.0.1:{bound_port}/dashboard")
     print("\nCtrl+C to stop.\n")
     try:
         server.serve_forever()
