@@ -2118,15 +2118,29 @@ def _latest_semver_tag(tags: Optional[Set[str]]) -> Optional[str]:
     non-conforming tag sorts lowest (never raises), so one stray
     non-release tag can't take down the whole /api/dashboard payload.
     `None`/empty input -> `None`, never a crash.
+
+    PT-54 (architect's diff-review fix, blocking): a pre-release suffix
+    (`-alpha`/`-beta`/`-rc*`, all three prescribed by WORKFLOW.md) must
+    rank BELOW its own final release -- `(major, minor, patch)` alone
+    ties `v1.0.0` and `v1.0.0-rc1`, and the string tiebreak that followed
+    put the rc ahead (`'v1.0.0-rc1' > 'v1.0.0'` lexicographically),
+    which is backwards per semver §11 and silently wrong the first time
+    this project's own rc-tag procedure is followed: the Release card
+    would show the rc as latest, then the tracker/git join returns null
+    (the shipped milestone's `target_tag` is the FINAL tag, never the
+    rc). `is_release` (1 for a bare `vX.Y.Z`, 0 for anything with a
+    `-`-prefixed suffix after it) breaks that tie explicitly.
     """
     if not tags:
         return None
 
-    def _key(tag: str) -> Tuple[int, int, int, str]:
+    def _key(tag: str) -> Tuple[int, int, int, int, str]:
         m = _SEMVER_TAG_RE.match(tag)
         if not m:
-            return (-1, -1, -1, tag)
-        return (int(m.group(1)), int(m.group(2)), int(m.group(3)), tag)
+            return (-1, -1, -1, -1, tag)
+        rest = tag[m.end():]
+        is_release = 0 if rest.startswith("-") else 1  # 1.0.0-rc.1 < 1.0.0
+        return (int(m.group(1)), int(m.group(2)), int(m.group(3)), is_release, tag)
 
     return max(tags, key=_key)
 

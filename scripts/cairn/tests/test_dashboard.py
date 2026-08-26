@@ -171,6 +171,37 @@ class _RunningServer:
 
 
 # ---------------------------------------------------------------------------
+# _latest_semver_tag -- pure-function unit tests (no server needed)
+# ---------------------------------------------------------------------------
+
+class LatestSemverTagTests(unittest.TestCase):
+    """Architect's diff-review blocking fix: a pre-release tag must rank
+    BELOW its own final release, not above it -- (major, minor, patch)
+    alone ties `v1.0.0`/`v1.0.0-rc1`, and a bare string tiebreak put the
+    rc ahead (backwards per semver §11, and the exact scenario
+    WORKFLOW.md's own -alpha/-beta/-rc procedure produces)."""
+
+    def test_none_and_empty_input_returns_none(self):
+        self.assertIsNone(cairn._latest_semver_tag(None))
+        self.assertIsNone(cairn._latest_semver_tag(set()))
+
+    def test_final_release_outranks_its_own_release_candidate(self):
+        self.assertEqual(cairn._latest_semver_tag({"v1.0.0", "v1.0.0-rc1"}), "v1.0.0")
+        self.assertEqual(cairn._latest_semver_tag({"v1.0.0", "v1.0.0-rc.1"}), "v1.0.0")
+        self.assertEqual(cairn._latest_semver_tag({"v2.3.1-beta", "v2.3.1"}), "v2.3.1")
+
+    def test_highest_semver_wins_among_final_releases(self):
+        self.assertEqual(
+            cairn._latest_semver_tag({"v0.6.0", "v0.7.1", "v0.7.0", "v1.0.0"}),
+            "v1.0.0",
+        )
+
+    def test_non_semver_tag_sorts_lowest_without_raising(self):
+        self.assertEqual(cairn._latest_semver_tag({"v1.0.0", "not-a-version"}), "v1.0.0")
+        self.assertEqual(cairn._latest_semver_tag({"not-a-version"}), "not-a-version")
+
+
+# ---------------------------------------------------------------------------
 # GET /api/dashboard -- payload shape + degradation + caching
 # ---------------------------------------------------------------------------
 
