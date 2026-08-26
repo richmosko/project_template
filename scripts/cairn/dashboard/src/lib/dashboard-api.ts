@@ -21,16 +21,21 @@ export type CheckResult = {
 	errors: string[];
 };
 
+// Matches build_dashboard_payload's `_find_release_milestone` join exactly
+// (scripts/cairn/cairn.py) -- `id`/`name`/`status`/`ga` are the matched
+// milestone's own fields, not a `tag` (the tag lives on `git.latest_tag`,
+// which is what produced this join in the first place). `null` whole-object
+// when nothing matches (including "no tags at all").
 export type ReleaseRow = {
-	tag: string | null;
-	milestone: string | null;
+	id: string | null;
+	name: string | null;
 	status: string | null;
 	ga: boolean | null;
-};
+} | null;
 
 export type DashboardPayload = {
 	git: GitState;
-	tracker: { counts: TrackerCounts };
+	tracker: { counts_by_status: TrackerCounts };
 	check: CheckResult;
 	release: ReleaseRow;
 	generated_at: string;

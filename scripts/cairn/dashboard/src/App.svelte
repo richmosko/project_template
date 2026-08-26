@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
+	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
+	import * as Table from '$lib/components/ui/table/index.js';
 	import StatusCard from '$lib/components/StatusCard.svelte';
-	import { subscribeDashboard, type DashboardPayload } from '$lib/dashboard-api';
+	import { fetchDashboard, subscribeDashboard, type DashboardPayload } from '$lib/dashboard-api';
 
 	let data = $state<DashboardPayload | null>(null);
 	let loadError = $state<string | null>(null);
+	let refreshing = $state(false);
 
 	const unsubscribe = subscribeDashboard(
 		(payload) => {
@@ -21,6 +24,23 @@
 		},
 	);
 	onDestroy(unsubscribe);
+
+	async function refreshNow() {
+		refreshing = true;
+		try {
+			// Deliberately no ETag here -- "refresh now" means "give me
+			// whatever's current right now," not "tell me if it changed."
+			const result = await fetchDashboard();
+			if (result.payload) {
+				data = result.payload;
+				loadError = null;
+			}
+		} catch (err) {
+			loadError = err instanceof Error ? err.message : String(err);
+		} finally {
+			refreshing = false;
+		}
+	}
 
 	// "Active feature" isn't a payload field (architect's /api/dashboard
 	// contract has no such key) -- it's honestly derived client-side from
@@ -37,11 +57,18 @@
 		return Object.values(counts).reduce((sum, n) => sum + n, 0);
 	}
 
-	function trackerBreakdown(counts: Record<string, number>): string {
-		const entries = Object.entries(counts).filter(([, n]) => n > 0);
-		if (entries.length === 0) return 'no issues';
-		return entries.map(([status, n]) => `${status} ${n}`).join(' · ');
-	}
+	// design-system-spec.md § Project extensions: record-status vocabulary,
+	// expressed as badge variants against existing preset tokens (never a
+	// per-category hue). "in-review" maps to the chart-2 tier
+	// ("Paused / In Review"); "done" to the inverted foreground tier.
+	const STATUS_BADGE_VARIANT: Record<string, 'outline' | 'secondary' | 'default' | 'chart' | 'inverted' | 'destructive'> = {
+		backlog: 'outline',
+		todo: 'secondary',
+		'in-progress': 'default',
+		'in-review': 'chart',
+		done: 'inverted',
+		cancelled: 'destructive',
+	};
 </script>
 
 <div class="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 bg-muted px-7 py-7">
@@ -57,14 +84,17 @@
 				<Badge variant={data.git.dirty ? 'outline' : 'secondary'}>
 					{data.git.branch ?? 'unknown branch'} · {data.git.dirty ? 'dirty' : 'clean'}
 				</Badge>
-				<Badge variant={data.release.ga ? 'default' : 'outline'}>
-					{data.release.tag ?? data.git.latest_tag ?? 'no tags yet'}
+				<Badge variant={data.release?.ga ? 'default' : 'outline'}>
+					{data.git.latest_tag ?? 'no tags yet'}
 				</Badge>
 			{:else if loadError}
 				<Badge variant="destructive">/api/dashboard unreachable</Badge>
 			{:else}
 				<Badge variant="outline">Loading…</Badge>
 			{/if}
+			<Button variant="outline" size="sm" onclick={refreshNow} disabled={refreshing}>
+				{refreshing ? 'Refreshing…' : 'Refresh'}
+			</Button>
 		</div>
 	</header>
 
@@ -88,10 +118,10 @@
 		/>
 		<StatusCard
 			eyebrow="Release"
-			value={data?.release.tag ?? data?.git.latest_tag ?? '—'}
-			badgeLabel={data?.release.status ?? (data && !data.release.tag ? 'unreleased' : undefined)}
-			badgeVariant={data?.release.ga ? 'default' : 'outline'}
-			detail={data?.release.milestone ? `Milestone ${data.release.milestone}` : undefined}
+			value={data?.git.latest_tag ?? '—'}
+			badgeLabel={data?.release?.status ?? (data && !data.release ? 'unreleased' : undefined)}
+			badgeVariant={data?.release?.ga ? 'default' : 'outline'}
+			detail={data?.release?.name ? `${data.release.id} — ${data.release.name}` : undefined}
 		/>
 		<StatusCard
 			eyebrow="Active Feature"
@@ -100,12 +130,39 @@
 		/>
 		<StatusCard
 			eyebrow="Tracker"
-			value={data ? String(trackerTotal(data.tracker.counts)) : '—'}
+			value={data ? String(trackerTotal(data.tracker.counts_by_status)) : '—'}
 			badgeLabel={data ? (data.check.ok ? 'Lint clean' : `${data.check.errors.length} lint error(s)`) : undefined}
 			badgeVariant={data?.check.ok ? 'secondary' : 'destructive'}
-			detail={data ? trackerBreakdown(data.tracker.counts) : undefined}
+			detail={data ? 'issues, live tree' : undefined}
 		/>
 	</section>
+
+	{#if data}
+		<section aria-label="Tracker breakdown">
+			<Card.Root class="[--card-spacing:1.5rem]">
+				<Card.Content>
+					<Table.Root>
+						<Table.Header>
+							<Table.Row>
+								<Table.Head>Status</Table.Head>
+								<Table.Head class="text-right">Count</Table.Head>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{#each Object.entries(data.tracker.counts_by_status) as [status, count] (status)}
+								<Table.Row>
+									<Table.Cell>
+										<Badge variant={STATUS_BADGE_VARIANT[status] ?? 'outline'}>{status}</Badge>
+									</Table.Cell>
+									<Table.Cell class="text-right font-mono">{count}</Table.Cell>
+								</Table.Row>
+							{/each}
+						</Table.Body>
+					</Table.Root>
+				</Card.Content>
+			</Card.Root>
+		</section>
+	{/if}
 
 	<!-- PT-56: agent-roster panel. Honest empty state -- no fabricated
 	     agents until the presence-source ruling lands and the panel is
@@ -124,9 +181,9 @@
 	<section aria-label="Board">
 		<h2 class="font-heading mb-3 text-lg font-semibold text-foreground">Board</h2>
 		<Card.Root>
-			<Card.Content class="py-8 text-center text-sm text-muted-foreground">
-				Board embed not wired up yet (PT-55) — see the
-				<a href="/" class="text-primary underline underline-offset-4">full board</a>.
+			<Card.Content class="flex flex-col items-center gap-3 py-8 text-center text-sm text-muted-foreground">
+				<p>Board embed not wired up yet (PT-55).</p>
+				<Button variant="secondary" size="sm" href="/">Open the full board</Button>
 			</Card.Content>
 		</Card.Root>
 	</section>
