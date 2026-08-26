@@ -115,6 +115,27 @@ Type scale — shadcn-svelte dashboard norms (Tailwind `text-*` steps actually u
 
 Unlike the previous system, shadcn's base UI size is **14px**, not 13px — close enough that it isn't a meaningful regression, but don't silently reuse the old 13px assumption in hand-rolled CSS.
 
+### Dashboard scale
+
+**Approved (2026-08-26)** as the standard density for dashboard screens — future screens should inherit these values rather than re-deriving spacing/type sizing per screen. Validated against the preset's own live preview at its actual rendered proportions, not picked independently of it.
+
+| Element | Value |
+|---|---|
+| Page margins | 28px |
+| Gap between cards | 24px |
+| Card padding | 24px (nested/kanban cards 16px; wells 14px) |
+| Display/stat values | 28px, `--font-sans` (Merriweather) bold, line-height 1.15 |
+| Card/section titles | 17–18px, `--font-heading` (Space Grotesk) 600 |
+| Eyebrow labels | 12px, `--font-heading` 600, uppercase, letter-spacing 0.08em, `--muted-foreground` |
+| Base UI text | 14–15px |
+| Meta/secondary text | 13px |
+| Mono (IDs) | 12–13px |
+| Badges | 12px text, `3px 11px` padding, pill radius |
+| Buttons | 14px text, `8px 16px` padding, 8px radius — this is `--radius-md` per this doc's own Radius scale table below, not `--radius-sm` (6px); flagging the mismatch rather than silently relabeling the token |
+| Table rows | 13px text, `16px` cell padding |
+
+Two figures here refine, rather than duplicate, the generic type scale above: the 28px stat-value size is a specific instance of the `text-2xl`/`text-3xl`-as-display-value row (Merriweather bold, not `--font-heading`); the 17–18px title size sits inside the `text-lg` step already mapped to `--font-heading`. Where this table and the generic type scale disagree on a specific pixel value, this table wins for dashboard-screen work — it's the number Mosko actually approved against the rendered preview.
+
 ### Radius scale
 
 The preset sets one base, `--radius: 0.625rem` (10px); shadcn-svelte's standard convention derives the rest from it (not present in the extracted payload verbatim — reproduced here per shadcn's documented `@theme inline` mapping, flagged as derived, not independently re-extracted):
