@@ -19,6 +19,15 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 
 ---
 
+### 2026-08-26 — Design system pivots to shadcn-svelte preset b6XadDxmQS, preset-pure (#119)
+**Decision:** The template's design system rebases on shadcn-svelte's CSS-variable token architecture, sourced from theme preset `b6XadDxmQS` (Style Mira, Base Stone, Theme Sky, Chart Yellow, Space Grotesk headings + Merriweather body, Geist Mono, Lucide icons, radius 0.625rem) — **preset-pure**: no invented hues, no legacy carry-over; the status/badge vocabulary is expressed as shadcn badge variants against existing preset tokens only, and meaning rides on variant weight rather than per-category color. Dashboard density is standardized at the preset preview's scale (24px card padding, 28px display values, 14–15px base UI text). `scripts/cairn/board/board.css` becomes the legacy implementation with a migration mapping in the spec.
+**Why:** Mosko's projects will be dashboard-heavy Svelte apps; shadcn-svelte's vocabulary is what those components actually consume, so the spec should govern the real target rather than the board's Atlassian-derived palette. Preset-pure keeps the system honest — extensions get proposed against concrete use cases (the flagged gap: no categorical chart palette) instead of pre-invented.
+**Alternatives considered:**
+- Atlassian-architecture spec grounded in board.css (written first, superseded same-day — first two commits of #119).
+- Blended system (preset tokens + invented green/violet/amber status hues) — explicitly rejected by Mosko: "I don't want to blend the two."
+**Approved by:** Mosko (direction 2026-08-26; preset-pure ruling and dashboard scale same day, after visual review on the design canvas).
+**Supersedes:** the board.css palette as the template's governing visual system (it remains as legacy pending token migration).
+
 ### 2026-08-24 — Legacy archive read leg deleted in 0.7.1 after all; `cairn new` gains an unmigrated-repo guard (PT-52)
 **Decision:** The dual-read transition leg (`archived_issue_paths()` reading both `archive/*.md` and `archive/issues/`) is deleted in v0.7.1 rather than next MINOR: the helper collapses to the new layout only, a dedicated `legacy_archived_issue_paths()` (exactly two callers: the lint scan and the migration's source glob) keeps flat files loudly detected, the lint error leads the report and names the invisibility, and `cairn new` refuses to allocate on an unmigrated repo (CLI error + HTTP `400 legacy_archive`) rather than silently reusing an archived id.
 **Why:** Mosko's roll-in (2026-08-24), overriding the PT-50 entry's next-MINOR schedule — the population of unmigrated repos is effectively this repo's own instances, and carrying the debt across a release costs more than the transition protects. The write-path guard neutralizes the PT-50 entry's "data breakage" objection: the roll-in now costs invisibility (loud, lint-reported, self-clears on migration) but not id reuse.
