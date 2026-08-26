@@ -2,11 +2,19 @@
  * tokens.css — Design tokens for the project dashboard.
  *
  * The machine-readable reference copy of the design system's primitives.
- * The values below are shipped verbatim (byte-identical) into the real
- * consumer — scripts/cairn/dashboard/src/app.css's `:root`/`.dark` blocks,
- * per shadcn-svelte's standard Tailwind v4 `@theme inline` wiring. This
- * file is the doc-side reference copy (PT-54 AC), not itself built —
- * `index.html` links it to live-preview the swatches.
+ * The color/border/ring/chart/sidebar tokens below are shipped verbatim
+ * (byte-identical) into the real consumer — scripts/cairn/dashboard/
+ * src/app.css's `:root`/`.dark` blocks. The radius scale and font stacks
+ * are value-identical to app.css but not block-identical: this file keeps
+ * them flat inside `:root` for a single-file reference copy, while app.css
+ * wires the same values through a separate `@theme inline` block per
+ * shadcn-svelte's standard Tailwind v4 convention (verified against the
+ * live scaffold's generated output 2026-08-26, after an earlier revision
+ * of this file carried a subtractive radius formula that had only ever
+ * been derived on paper, never checked against what the CLI actually
+ * generates — see design-system-spec.md's Radius scale section for the
+ * same correction). This file is the doc-side reference copy (PT-54 AC),
+ * not itself built — `index.html` links it to live-preview the swatches.
  *
  * PALETTE = shadcn-svelte "create" preset b6XadDxmQS — Style "Mira", Base
  * "Stone" (warm neutrals), Theme "Sky" (blue primary), Chart "Yellow",
@@ -64,11 +72,22 @@
   --sidebar-border: oklch(0.923 0.003 48.717);
   --sidebar-ring: oklch(0.709 0.01 56.259);
 
-  /* Radius scale — shadcn convention, all derived from --radius. */
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  /* Radius scale — matches the live shadcn-svelte scaffold's generated
+     @theme inline block exactly (scripts/cairn/dashboard/src/app.css),
+     verified 2026-08-26 against the actual `shadcn-svelte init --preset
+     b6XadDxmQS` output -- multiplicative, not the subtractive formula an
+     earlier revision of this file (and of design-system-spec.md)
+     documented from derivation alone, never re-verified live. Same
+     computed px values at --radius: 0.625rem (6/8/10/14), but the two
+     formulas diverge the moment --radius is customized -- the scaffold
+     is ground truth. */
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 
   /* Typography — face is by ROLE, not size (see design-system-spec.md
      § Typography). --font-sans carries the base/default UI despite the
