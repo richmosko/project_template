@@ -19,6 +19,12 @@ Same format as the seed `DECISIONS.md`. The log is **append-only**. Don't edit h
 
 ---
 
+### 2026-08-26 — Dashboard lives in scripts/cairn/dashboard/ with committed, unhashed dist (PT-54)
+**Decision:** The shadcn-svelte dashboard's source lives at `scripts/cairn/dashboard/` (plain Vite + Svelte 5 + TS SPA, not SvelteKit) with its build output committed at `scripts/cairn/dashboard/dist/` (`.gitignore` negation), content hashing disabled, fonts self-hosted via `@fontsource-variable` packages (~380KB, no CDN). Missing dist → `/dashboard` serves a 503 naming the build command; the server never auto-builds. The dashboard's release row derives from milestone `target_tag`/`ga` joined against git tags — the engine reads nothing outside `process/cairn/` + git, preserving cairn's spin-off constraint; GitHub release Draft/Published state is consequently not surfaced (a separate composed reader module can be specced if ever wanted).
+**Why:** "Clone and it works" is the template's strongest property — `python3 scripts/cairn/cairn serve` must render the dashboard with nothing but python3. `apps/` is reserved for downstream projects' own code; keeping the dashboard inside `scripts/cairn/` keeps the `/spin-off-component` extraction a one-directory move. Hashing buys nothing against the server's existing `Cache-Control: no-store` while growing the repo monotonically (the two are one decision — revisit together if a caching server ever fronts `/dashboard`).
+**Alternatives considered:** `apps/dashboard/` (squats the downstream namespace); build-at-serve-time (Node toolchain at runtime, seconds-long startup); uncommitted dist + `npm ci` requirement (breaks clone-and-it-works on the most visible surface).
+**Approved by:** architect ruling (PT-54 comment, 2026-08-26), accepted by team-lead. Accepted cost: dist staleness is PR discipline — follow-up issue filed for a `/finish-feature` freshness check.
+
 ### 2026-08-26 — Dashboard is a real shadcn-svelte app, not a vanilla lookalike (PT-54)
 **Decision:** The PT-0.8 project dashboard is built as an actual Svelte + Tailwind + shadcn-svelte app — real Components/Blocks/Charts — served by the cairn board server at `/dashboard`; the existing kanban board keeps its vanilla zero-build stack until PT-57 revisits it.
 **Why:** Mosko's projects will be dashboard-heavy Svelte apps; a hand-written CSS lookalike would match the design system visually while using none of its actual deliverables (focus rings, states, skeletons, charts). Dogfooding the real stack is the point of the pivot.
