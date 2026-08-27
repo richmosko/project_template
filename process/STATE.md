@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Dashboard: embed live kanban/list board |
+| Issue | PT-55 (cairn) |
+| Milestone | PT-0.8 — project dashboard |
+| Branch | `feature/pt-55-board-embed` |
+| Started | 2026-08-27 |
+| Goal | The dashboard's board section renders the live kanban/list board off the same data path as the root board — no second fetch layer, interactions deliberately ruled (work or read-only), reusing board.js rendering rather than forking it |
+| Status | In Progress |
 
 ## Releases
 
