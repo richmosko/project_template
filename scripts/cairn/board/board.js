@@ -128,12 +128,34 @@
 
   var isListView = window.location.pathname === "/list";
 
-  // PT-55 (architect ruling § 3): computed once at module load, same
-  // precedent as isListView above -- board.js embedded via PT-55's iframe
-  // is loaded fresh each time (it's a real page load, not a client-side
-  // route change), so there's no case where this needs to be re-derived
-  // mid-session.
-  var isEmbedMode = CairnLogic.isEmbedMode(window.location.search);
+  // PT-55 (architect ruling § 3; framed-detection backstop added after
+  // team-lead's Validate FAIL on in-frame navigation, cbfbd1c): computed
+  // once at module load, same precedent as isListView above -- board.js
+  // embedded via PT-55's iframe is loaded fresh each time (it's a real
+  // page load, not a client-side route change), so there's no case where
+  // this needs to be re-derived mid-session.
+  //
+  // `|| window.self !== window.top`: composed at this call site, not
+  // inside CairnLogic.isEmbedMode itself, so the pure function stays pure
+  // and vm-testable (window.self/window.top don't exist in the node
+  // harness's bare sandbox). embedAwareHref's per-link rewriting (the
+  // cbfbd1c fix) is enumerative -- it covers #tab-kanban/#tab-list today,
+  // but the NEXT navigating link this board ever grows would silently
+  // fail to propagate ?embed=1 unless someone remembers to rewrite it
+  // too. Being framed at all is the actual hazard PT-55 exists to guard
+  // against, so framing is the backstop: even if a future link's rewrite
+  // is missed, the page still recognizes itself as embedded and still
+  // hides the wordmark/#tab-dashboard.
+  //
+  // Accepted cost, on record: this masks a missed-propagation bug rather
+  // than surfacing it loudly -- a future navigating link that forgets
+  // embedAwareHref will still LOOK correct (wordmark/tab stay hidden)
+  // even though its own URL lacks ?embed=1, so the omission would only
+  // be caught by code review or a source-guard test, never by visibly
+  // broken suppression. Ruled acceptable: the alternative (no backstop)
+  // fails open -- an unguarded miss looks correct on the surface AND
+  // fails to suppress, which is strictly worse.
+  var isEmbedMode = CairnLogic.isEmbedMode(window.location.search) || window.self !== window.top;
 
   var state = {
     board: null,       // last-known-good /api/board payload
