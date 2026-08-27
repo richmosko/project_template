@@ -77,13 +77,19 @@ var CairnLogic = (function () {
   // un-suppressing the wordmark/#tab-dashboard the instant a viewer
   // switched views (the exact recursive-load bug `isEmbedMode` exists to
   // prevent, reintroduced one click later). Pure function, not a DOM
-  // write, so it's unit-testable without a DOM: appends `?embed=1` to
+  // write, so it's unit-testable without a DOM: appends `embed=1` to
   // `path` when `embedOn` is true, returns `path` unchanged otherwise.
-  // `path` is always one of this app's two bare nav paths ("/", "/list"),
-  // never carrying an existing query string of its own -- this does not
-  // handle merging into one.
+  //
+  // Architect's diff-review nit: merges into an EXISTING query string
+  // rather than assuming `path` is always bare. Both current callers
+  // ("/", "/list") happen to be bare, so this was previously harmless in
+  // practice -- but the function is exported and reads general, and a
+  // future caller passing e.g. "/list?foo=1" would otherwise get back
+  // "/list?foo=1?embed=1", a malformed URL. One extra character
+  // (`indexOf` check) removes a trap that would only surface on reuse.
   function embedAwareHref(path, embedOn) {
-    return embedOn ? path + "?embed=1" : path;
+    if (!embedOn) return path;
+    return path + (path.indexOf("?") === -1 ? "?" : "&") + "embed=1";
   }
 
   // The distinct truthy values among `values`, sorted ascending -- the

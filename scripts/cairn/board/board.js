@@ -157,6 +157,47 @@
   // fails to suppress, which is strictly worse.
   var isEmbedMode = CairnLogic.isEmbedMode(window.location.search) || window.self !== window.top;
 
+  // PT-55 (architect's "flash disposition" ruling, withdrawing the
+  // earlier "wait for the Validate browser pass to arbitrate" call): a
+  // NEGATIVE sighting in a browser pass can't prove the flash doesn't
+  // happen -- paint timing depends on cache/CPU/whether board.js is
+  // already warm -- so the question could only be closed by removing the
+  // ordering that permits it, not by looking harder for it. `init()` only
+  // runs on `DOMContentLoaded`, which fires after the whole document --
+  // including the wordmark and `#tab-dashboard` -- has already painted at
+  // least once; applying the class HERE, at the point these two
+  // `<script>` tags actually execute, closes that gap instead of
+  // accepting it.
+  //
+  // Precondition this depends on, verified (not assumed): `board-logic.js`
+  // and `board.js` are the LAST TWO elements before `</body>` in
+  // board.html, in that order, and the header markup carrying
+  // `#tab-kanban`/`#tab-list` sits well above them -- so at this exact
+  // point in module evaluation, the DOM has already been parsed far
+  // enough that `document.body` and both anchors exist and are reachable.
+  // Moving either script tag to `<head>`, or adding `defer`/`async` to
+  // either, breaks this precondition with a null-deref at load (loud, not
+  // silent) -- pinned by a source guard, scripts/cairn/tests/js/
+  // script-tag-order.test.js, precisely so that breakage is caught in the
+  // test suite, not in a browser.
+  //
+  // Kept as ONE cohesive block (class add + both href rewrites) rather
+  // than split across module scope and `init()`: all the embed-mode setup
+  // reads in one place, right next to the `isEmbedMode` computation it
+  // depends on. The href-rewrite rationale is unchanged from when this
+  // lived inside `init()`: #tab-kanban/#tab-list are static navigating
+  // <a href> markup in board.html ("/" and "/list") -- clicking one
+  // inside the dashboard's embedded frame previously lost `?embed=1`
+  // entirely (team-lead's Validate-phase FAIL, fixed in cbfbd1c);
+  // rewritten ONCE here, not per-render in `renderHeader` (which only
+  // ever toggles these two elements' `className` for active/inactive
+  // state), because embed mode is fixed for the page's whole lifetime.
+  if (isEmbedMode) {
+    document.body.classList.add("embed");
+    document.getElementById("tab-kanban").href = CairnLogic.embedAwareHref("/", true);
+    document.getElementById("tab-list").href = CairnLogic.embedAwareHref("/list", true);
+  }
+
   var state = {
     board: null,       // last-known-good /api/board payload
     etag: null,
@@ -2513,26 +2554,6 @@
   }
 
   function init() {
-    // PT-55 (architect ruling § 3): toggled here (not applied inline at
-    // module scope) so it reads alongside the rest of init's one-time
-    // setup -- `document.body` is guaranteed to exist by DOMContentLoaded,
-    // the event this function is bound to below.
-    if (isEmbedMode) {
-      document.body.classList.add("embed");
-      // PT-55 (Validate-phase fix, team-lead's browser-tested repro):
-      // #tab-kanban/#tab-list are static navigating <a href> markup in
-      // board.html ("/" and "/list") -- clicking one inside the
-      // dashboard's embedded frame lost `?embed=1` entirely, un-
-      // suppressing the wordmark/#tab-dashboard the instant a viewer
-      // switched views. Rewritten ONCE here (not per-render in
-      // renderHeader, which only ever toggles these two elements'
-      // `className` for the active/inactive state) -- embed mode is
-      // fixed for the page's whole lifetime (isEmbedMode is read once,
-      // at module load, from the page's OWN initial URL), so there is
-      // nothing to re-derive on a later render.
-      document.getElementById("tab-kanban").href = CairnLogic.embedAwareHref("/", true);
-      document.getElementById("tab-list").href = CairnLogic.embedAwareHref("/list", true);
-    }
     wireFilters();
     wireNewIssueForm();
     wirePullToRefresh();

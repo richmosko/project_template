@@ -35,3 +35,12 @@ test("round-trips through isEmbedMode -- the produced href reads back as embed m
   const search = href.slice(href.indexOf("?"));
   assert.equal(CairnLogic.isEmbedMode(search), true);
 });
+
+test("architect's diff-review nit: merges into an existing query string with & rather than a second ?", () => {
+  // Neither current caller passes a path with its own query string, but
+  // the function is exported and reads general -- this pins the fix
+  // rather than the trap ("/list?foo=1?embed=1", a malformed URL) it
+  // replaced.
+  assert.equal(CairnLogic.embedAwareHref("/list?foo=1", true), "/list?foo=1&embed=1");
+  assert.equal(CairnLogic.embedAwareHref("/list?foo=1", false), "/list?foo=1");
+});
