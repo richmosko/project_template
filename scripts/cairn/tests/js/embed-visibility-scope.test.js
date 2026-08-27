@@ -82,12 +82,29 @@ function extractEmbedClassTokenFromJs(source) {
 // both a single combined selector list (today's shape: `body.embed
 // .app-title, body.embed #tab-dashboard { display: none; }`) and multiple
 // separate rule blocks, without assuming which.
+//
+// Architect's PT-55 diff-review catch (2026-08-27): CSS comments are
+// stripped FIRST, before rule-matching -- this file's own prose-heavy
+// comments (e.g. the one right above the real rule, which contains the
+// literal words "filters, majors tabs, expand/collapse, + New") sit in
+// the text between one rule's `}` and the next rule's `{`, which the
+// naive rule-boundary regex below would otherwise fold into that NEXT
+// rule's "selector list" capture -- a comment that happened to mention
+// `body.embed #something` in prose would then read as a real hidden
+// selector. Generalizes the same principle the sandbox-attribute fix
+// applies on the Python side: target extracted code, never file text
+// that includes comments/prose.
+function stripCssComments(cssSource) {
+  return cssSource.replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
 function extractEmbedHiddenSelectors(cssSource, token) {
   var hidden = new Set();
   var ruleRe = /([^{}]+)\{([^{}]*)\}/g;
   var ruleMatch;
   var selectorRe = new RegExp("body\\." + token + "\\s+([.#][\\w-]+)", "g");
-  while ((ruleMatch = ruleRe.exec(cssSource))) {
+  var source = stripCssComments(cssSource);
+  while ((ruleMatch = ruleRe.exec(source))) {
     var selectorList = ruleMatch[1];
     var declarations = ruleMatch[2];
     if (!/display\s*:\s*none/.test(declarations)) continue;
@@ -184,4 +201,19 @@ test("negative control: a token mismatch between JS and CSS is caught, not silen
 test("negative control: missing classList.add in init() raises loudly, not silently", () => {
   var fakeJsInit = "function init() {\n  wireFilters();\n}\n";
   assert.throws(() => extractEmbedClassTokenFromJs(fakeJsInit), ExtractionError);
+});
+
+test("regression guard: a comment mentioning 'body.embed #foo' in prose must NOT be read as a hidden selector", () => {
+  // Architect's PT-55 diff-review catch, generalized to this file: a
+  // comment sitting between two real rules used to fold into the
+  // NEXT rule's captured "selector list" (the naive rule-boundary regex
+  // has no comment awareness on its own) -- if that comment's prose
+  // happened to mention a body.<token> selector, it would silently read
+  // as real. stripCssComments() is what closes this; this test proves it
+  // actually does, not just that it exists.
+  var fakeCss =
+    "/* unrelated note: body.embed #tab-kanban should never be hidden, obviously */\n" +
+    "body.embed .app-title { display: none; }\n";
+  var hidden = extractEmbedHiddenSelectors(fakeCss, "embed");
+  assert.deepEqual(Array.from(hidden), [".app-title"], "the comment's prose must not contribute a phantom hidden selector");
 });
