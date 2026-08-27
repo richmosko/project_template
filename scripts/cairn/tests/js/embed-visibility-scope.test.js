@@ -6,7 +6,9 @@
 // against 8 existing test files that already document the same limit) to
 // a source-text guard that asserts AGREEMENT, not existence:
 //
-//   1. The class token board.js's init() adds to document.body, and the
+//   1. The class token board.js adds to document.body (module scope as of
+//      the architect's later "flash disposition" ruling; originally inside
+//      init() -- the extractor is location-agnostic, see below), and the
 //      token board.css hides selectors under, are extracted INDEPENDENTLY
 //      and asserted to be the SAME STRING -- a rename in either file must
 //      fail this, not just silently stop matching.
@@ -37,41 +39,26 @@ const BOARD_CSS_PATH = path.join(__dirname, "..", "..", "board", "board.css");
 
 class ExtractionError extends Error {}
 
-function extractFunctionBody(source, functionName) {
-  var match = source.match(new RegExp("function\\s+" + functionName + "\\s*\\([^)]*\\)\\s*\\{"));
-  if (!match) {
-    throw new ExtractionError(
-      "could not find `function " + functionName + "(...) {` in board.js -- if this " +
-        "function was renamed or restructured, this guard needs to be updated, not silenced."
-    );
-  }
-  var start = match.index + match[0].length;
-  var depth = 1;
-  var i = start;
-  for (; i < source.length && depth > 0; i++) {
-    if (source[i] === "{") depth++;
-    else if (source[i] === "}") depth--;
-  }
-  if (depth !== 0) {
-    throw new ExtractionError(
-      "unbalanced braces while extracting `" + functionName + "`'s body -- this guard's " +
-        "naive brace-counter doesn't handle a brace inside a string/regex literal."
-    );
-  }
-  return source.slice(start, i - 1);
-}
-
-// The literal string board.js's init() passes to
-// `document.body.classList.add("...")` -- independent of the CSS-side
-// extraction below, on purpose (§1 of the ruling: two separately-derived
-// literals asserted equal, not one computation reused for both).
+// The literal string board.js passes to `document.body.classList.add("...")`
+// -- independent of the CSS-side extraction below, on purpose (§1 of the
+// ruling: two separately-derived literals asserted equal, not one
+// computation reused for both).
+//
+// Searched across the WHOLE file, not scoped to `init()` -- architect's
+// "flash disposition" ruling (PT-55) moved this call from inside `init()`
+// to module scope, and location-independence is deliberate here: there is
+// exactly one `document.body.classList.add(...)` call in board.js (the
+// embed toggle -- every OTHER `.classList.add(...)` call in this file adds
+// a different class to a different element, e.g. `.dragging`/`.open`, not
+// `document.body`), so anchoring on the call itself rather than its
+// enclosing function survives a future relocation the same way the
+// class-token/hidden-selector agreement check survives a rename.
 function extractEmbedClassTokenFromJs(source) {
-  var initBody = extractFunctionBody(source, "init");
-  var match = initBody.match(/document\.body\.classList\.add\(\s*"([\w-]+)"\s*\)/);
+  var match = source.match(/document\.body\.classList\.add\(\s*"([\w-]+)"\s*\)/);
   if (!match) {
     throw new ExtractionError(
-      "could not find `document.body.classList.add(\"...\")` inside init() in board.js -- " +
-        "if the embed-mode toggle was renamed or moved, this guard needs to be updated, not silenced."
+      "could not find `document.body.classList.add(\"...\")` anywhere in board.js -- " +
+        "if the embed-mode toggle was renamed or removed, this guard needs to be updated, not silenced."
     );
   }
   return match[1];
@@ -217,3 +204,7 @@ test("regression guard: a comment mentioning 'body.embed #foo' in prose must NOT
   var hidden = extractEmbedHiddenSelectors(fakeCss, "embed");
   assert.deepEqual(Array.from(hidden), [".app-title"], "the comment's prose must not contribute a phantom hidden selector");
 });
+
+// The board.html script-tag-order precondition (architect's "flash
+// disposition" ruling) lives in its own file, script-tag-order.test.js --
+// board.js's module-scope comment already names it by that filename.
