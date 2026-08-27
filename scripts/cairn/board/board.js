@@ -2495,7 +2495,22 @@
     // module scope) so it reads alongside the rest of init's one-time
     // setup -- `document.body` is guaranteed to exist by DOMContentLoaded,
     // the event this function is bound to below.
-    if (isEmbedMode) document.body.classList.add("embed");
+    if (isEmbedMode) {
+      document.body.classList.add("embed");
+      // PT-55 (Validate-phase fix, team-lead's browser-tested repro):
+      // #tab-kanban/#tab-list are static navigating <a href> markup in
+      // board.html ("/" and "/list") -- clicking one inside the
+      // dashboard's embedded frame lost `?embed=1` entirely, un-
+      // suppressing the wordmark/#tab-dashboard the instant a viewer
+      // switched views. Rewritten ONCE here (not per-render in
+      // renderHeader, which only ever toggles these two elements'
+      // `className` for the active/inactive state) -- embed mode is
+      // fixed for the page's whole lifetime (isEmbedMode is read once,
+      // at module load, from the page's OWN initial URL), so there is
+      // nothing to re-derive on a later render.
+      document.getElementById("tab-kanban").href = CairnLogic.embedAwareHref("/", true);
+      document.getElementById("tab-list").href = CairnLogic.embedAwareHref("/list", true);
+    }
     wireFilters();
     wireNewIssueForm();
     wirePullToRefresh();

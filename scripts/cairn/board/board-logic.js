@@ -70,6 +70,22 @@ var CairnLogic = (function () {
     return false;
   }
 
+  // PT-55 (Validate-phase fix, team-lead's browser-tested repro): the
+  // board's own Kanban/List view-tab `href`s are static markup in
+  // board.html ("/" and "/list", no query string) -- clicking one inside
+  // the dashboard's embedded frame navigated the frame WITHOUT `embed=1`,
+  // un-suppressing the wordmark/#tab-dashboard the instant a viewer
+  // switched views (the exact recursive-load bug `isEmbedMode` exists to
+  // prevent, reintroduced one click later). Pure function, not a DOM
+  // write, so it's unit-testable without a DOM: appends `?embed=1` to
+  // `path` when `embedOn` is true, returns `path` unchanged otherwise.
+  // `path` is always one of this app's two bare nav paths ("/", "/list"),
+  // never carrying an existing query string of its own -- this does not
+  // handle merging into one.
+  function embedAwareHref(path, embedOn) {
+    return embedOn ? path + "?embed=1" : path;
+  }
+
   // The distinct truthy values among `values`, sorted ascending -- the
   // filter-assignee/filter-label dropdown dedup. PT-23 extraction from
   // board.js's own uniqueSorted, fixed in the same move: uses
@@ -1169,5 +1185,6 @@ var CairnLogic = (function () {
     wheelPullReduce: wheelPullReduce,
     wheelPullShouldFire: wheelPullShouldFire,
     isEmbedMode: isEmbedMode,
+    embedAwareHref: embedAwareHref,
   };
 })();
