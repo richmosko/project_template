@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Dashboard shell: /dashboard route + tokens.css + status cards from real repo state |
-| Issue | PT-54 (cairn) |
-| Milestone | PT-0.8 — project dashboard |
-| Branch | `feature/pt-54-dashboard-shell` |
-| Started | 2026-08-26 |
-| Goal | The board server serves a /dashboard built as a real shadcn-svelte app (actual Components/Blocks/Charts, ruled 2026-08-26) on real repo state, per the design system (#119) at the approved dashboard scale |
-| Status | In Review — [PR #121](https://github.com/richmosko/project_template/pull/121) |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Releases
 
