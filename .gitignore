@@ -38,6 +38,12 @@ out/
 .next/
 .nuxt/
 
+# PT-54 (architect ruling §3): the dashboard's built output IS committed —
+# a fresh clone must run `python3 scripts/cairn/cairn serve` with nothing
+# but python3, so /dashboard can't depend on `npm ci` having ever run.
+# Negation must come after the `dist/` line above (git precedence).
+!scripts/cairn/dashboard/dist/
+
 # Test artifacts
 coverage/
 .nyc_output/

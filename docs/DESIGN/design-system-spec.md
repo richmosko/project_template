@@ -138,14 +138,17 @@ Two figures here refine, rather than duplicate, the generic type scale above: th
 
 ### Radius scale
 
-The preset sets one base, `--radius: 0.625rem` (10px); shadcn-svelte's standard convention derives the rest from it (not present in the extracted payload verbatim — reproduced here per shadcn's documented `@theme inline` mapping, flagged as derived, not independently re-extracted):
+The preset sets one base, `--radius: 0.625rem` (10px); shadcn-svelte's standard convention derives the rest from it. **Corrected 2026-08-26** against the live scaffold (`scripts/cairn/dashboard`'s `shadcn-svelte init --preset b6XadDxmQS` output, in its generated `@theme inline` block) — an earlier revision of this table reproduced a *subtractive* formula (`radius - 4px`, etc.) that had only ever been derived on paper from shadcn's general documented convention, never checked against what the CLI actually generates for this preset. The real formula is *multiplicative*; the computed px values below are unchanged at this project's `--radius: 0.625rem` (both formulas agree numerically at this one base value — they diverge the moment `--radius` is customized, which is why the distinction matters):
 
 | Token | Formula | Value | Used for |
 |---|---|---|---|
-| `--radius-sm` | `radius - 4px` | 6px | Small controls: badge, checkbox |
-| `--radius-md` | `radius - 2px` | 8px | Button, input, select |
+| `--radius-sm` | `radius * 0.6` | 6px | Small controls: badge, checkbox |
+| `--radius-md` | `radius * 0.8` | 8px | Button, input, select |
 | `--radius-lg` | `radius` | 10px | Card, dialog, popover |
-| `--radius-xl` | `radius + 4px` | 14px | Large surfaces: sheet panel, drawer |
+| `--radius-xl` | `radius * 1.4` | 14px | Large surfaces: sheet panel, drawer |
+| `--radius-2xl` | `radius * 1.8` | 18px | (scaffold-generated step beyond this system's named usage list) |
+| `--radius-3xl` | `radius * 2.2` | 22px | (scaffold-generated step beyond this system's named usage list) |
+| `--radius-4xl` | `radius * 2.6` | 26px | (scaffold-generated step beyond this system's named usage list) |
 
 ### Chart ramp
 
