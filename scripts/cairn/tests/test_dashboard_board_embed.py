@@ -1,14 +1,22 @@
-"""PT-55 (Dashboard: embed live kanban/list board) -- strategy-independent
-guards, written BEFORE the architect's embed-strategy ruling lands.
+"""PT-55 (Dashboard: embed live kanban/list board) -- guards written before
+and after the architect's embed-strategy ruling landed (same-origin iframe
+at `/?embed=1`, PT-55 comment 2026-08-27).
 
+The payload-boundary guards below were written BEFORE the ruling, when
 PT-55's three embed candidates (iframe of the root board, board.js mounted
 into a Svelte DOM node, or a Svelte component re-consuming `/api/board`)
-produce fundamentally different DOM shapes -- a test asserting anything
-about DOM structure or interaction wiring today would either be
-meaningless or bake in a guess team-lead/architect explicitly asked me not
-to make (see the PT-55 anchor task discussion). What IS testable regardless
-of which strategy is chosen is the data-path half of AC #1: "no second
-fetch layer, no duplicated column list -- PT-36's single-sourcing holds."
+still produced fundamentally different DOM shapes -- a test asserting
+anything about DOM structure or interaction wiring at that point would
+either be meaningless or bake in a guess team-lead/architect explicitly
+asked me not to make. What WAS testable regardless of which strategy was
+chosen is the data-path half of AC #1: "no second fetch layer, no
+duplicated column list -- PT-36's single-sourcing holds."
+
+The `EmbedQueryParamRoutingTests` class below was added AFTER the ruling --
+it pins the one piece of the ruling's test shape that's pure Python
+(routing), independent of both the DOM-visibility question and the
+URLSearchParams sandbox gap (both escalated to architect/implementation-
+lead rather than worked around unilaterally -- see the PT-55 thread).
 
 Mixed red/green is expected and correct here, same posture as
 test_column_parity.py's own docstring: these are GUARDS against a future
@@ -26,7 +34,10 @@ holds" for board-logic.js itself, regardless of how/whether PT-55 embeds it.
 """
 from __future__ import annotations
 
+import threading
+import time
 import unittest
+import urllib.request
 
 import helpers  # noqa: F401
 
@@ -71,6 +82,66 @@ class DashboardPayloadDoesNotDuplicateBoardDataTests(unittest.TestCase):
             "adding board data to it, that violates AC #1's single-fetch-layer "
             "constraint; if it's a legitimate new field, update this pin deliberately",
         )
+
+
+class EmbedQueryParamRoutingTests(unittest.TestCase):
+    """Ruling's own words: "`/?embed=1` and `/list?embed=1` both return
+    board.html 200 (the query string is already stripped by `urlparse`
+    before routing)." Verified independently against the running server
+    (not taken on the architect's report alone) -- already true today, so
+    this is a guard (green now), same posture as the payload-boundary
+    tests above: it fails loudly if a future change ever makes routing
+    query-string-sensitive.
+    """
+
+    def setUp(self):
+        self.data_dir = helpers.make_tmp_data_dir(self)
+        self.server = cairn.make_server(self.data_dir, port=0)
+        self.port = self.server.server_address[1]
+        self.base_url = f"http://127.0.0.1:{self.port}"
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self._shutdown)
+        self._wait_until_up()
+
+    def _shutdown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+
+    def _wait_until_up(self):
+        last_exc = None
+        for _ in range(50):
+            try:
+                urllib.request.urlopen(f"{self.base_url}/api/board", timeout=5).close()
+                return
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                time.sleep(0.05)
+        raise AssertionError(f"server never came up: {last_exc}")
+
+    def _get_html(self, path):
+        resp = urllib.request.urlopen(f"{self.base_url}{path}", timeout=5)
+        self.assertEqual(resp.status, 200)
+        self.assertIn("text/html", resp.headers.get("Content-Type", ""))
+        return resp.read().decode("utf-8")
+
+    def test_kanban_root_with_embed_1_serves_board_html(self):
+        body = self._get_html("/?embed=1")
+        self.assertIn("<html", body.lower())
+
+    def test_list_view_with_embed_1_serves_board_html(self):
+        body = self._get_html("/list?embed=1")
+        self.assertIn("<html", body.lower())
+
+    def test_embed_query_param_never_reaches_routing_regardless_of_value(self):
+        # The routing-level claim, stated strongly: garbage/absent/zero
+        # values must 200 exactly the same as embed=1 -- the query string
+        # plays no role in whether routing succeeds at all (isEmbedMode's
+        # own on/off semantics are a client-side, board.js/board-logic.js
+        # concern, tested separately in the JS harness).
+        for path in ("/", "/?embed=1", "/?embed=0", "/?embed=garbage", "/?foo=bar"):
+            self._get_html(path)
 
 
 if __name__ == "__main__":
