@@ -128,6 +128,13 @@
 
   var isListView = window.location.pathname === "/list";
 
+  // PT-55 (architect ruling § 3): computed once at module load, same
+  // precedent as isListView above -- board.js embedded via PT-55's iframe
+  // is loaded fresh each time (it's a real page load, not a client-side
+  // route change), so there's no case where this needs to be re-derived
+  // mid-session.
+  var isEmbedMode = CairnLogic.isEmbedMode(window.location.search);
+
   var state = {
     board: null,       // last-known-good /api/board payload
     etag: null,
@@ -2484,6 +2491,11 @@
   }
 
   function init() {
+    // PT-55 (architect ruling § 3): toggled here (not applied inline at
+    // module scope) so it reads alongside the rest of init's one-time
+    // setup -- `document.body` is guaranteed to exist by DOMContentLoaded,
+    // the event this function is bound to below.
+    if (isEmbedMode) document.body.classList.add("embed");
     wireFilters();
     wireNewIssueForm();
     wirePullToRefresh();
