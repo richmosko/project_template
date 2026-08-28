@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Dashboard polish: milestone_paths helper, single git-tags read, Skeleton, aria-live |
+| Issue | PT-60 (cairn) |
+| Milestone | PT-0.8 — project dashboard |
+| Branch | `feature/pt-60-dashboard-polish` |
+| Started | 2026-08-28 |
+| Goal | Four review debts swept: milestone-path single-sourcing (4 call sites), one git-tags read per dashboard request, spec-mandated Skeletons at fetch boundaries, aria-live on loading — plus the structured roster-work shape if it fits. Standing merge authorization through PT-0.8 |
+| Status | In Progress |
 
 ## Releases
 
