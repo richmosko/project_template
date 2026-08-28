@@ -242,6 +242,13 @@
 											<p class="mt-1">Last tracker update: {agent.stale_since}</p>
 										{/if}
 									</details>
+								{:else}
+									<!-- PT-56 (team-lead's browser-pass finding, architect's
+									     recommendation 58f6fc1): an `unknown` card previously
+									     stopped after role with no line at all -- ambiguous
+									     between "nothing to report" and "failed to load".
+									     One muted line makes the honest empty state explicit. -->
+									<p class="mt-2 text-xs text-muted-foreground">No tracked work.</p>
 								{/if}
 							</li>
 						{/each}
