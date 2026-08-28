@@ -2383,6 +2383,337 @@ def build_dashboard_payload(data_dir: Path) -> Dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
+# Issue flow over time (PT-61) -- GET /api/flow, a SEPARATE endpoint from
+# /api/dashboard on PT-56's roster precedent (different cost profile,
+# different cache key, different freshness cadence). Architect's ruling
+# (process/cairn/issues/PT-61.md, commit 1eae1b2): "chart data source: (a)
+# git reconstruction, blob-based" -- the status field's history is already
+# stored losslessly in git; reconstructing it beats adding a writer this
+# template has no trigger for, and beats a second ad hoc parser of the
+# file format (PT-54 §4: never a second parser over the same files).
+# --------------------------------------------------------------------------
+
+FLOW_SCOPE_NOTE = (
+    "Includes archived issues, counted while they were live -- the status "
+    "cards above are live-only, so a status like 'done' can read higher "
+    "here than on the cards. Each point reflects the last COMMITTED state "
+    "for that day; the most recent point does not include any uncommitted "
+    "working-tree edit."
+)
+
+# Bounded in-process memo, per data_dir: {str(data_dir): (head_sha, payload)}.
+# "Last few entries" per the ruling -- insertion-order eviction, plain dict
+# (Python 3.7+ dicts preserve insertion order; no need for OrderedDict).
+_FLOW_CACHE: Dict[str, Tuple[str, Dict[str, Any]]] = {}
+_FLOW_CACHE_MAX = 8
+
+
+def _flow_find_git_dir(start: Path) -> Optional[Path]:
+    """Pure filesystem walk-up from `start` looking for a `.git` entry
+    (directory, or a file for worktrees/submodules) -- NO subprocess.
+    Mirrors git's own directory-walk-up discovery; used only as this
+    cache's cheap "did HEAD move" probe below. Every actual git ANSWER
+    (history, blob content, the authoritative HEAD sha in the payload)
+    still comes from a real `git` subprocess in `_compute_flow_payload` --
+    this never substitutes for that, it only decides whether re-running
+    it is necessary.
+    """
+    current = Path(start).resolve()
+    for _ in range(64):  # bounded -- never loops forever on a symlink cycle
+        candidate = current / ".git"
+        if candidate.exists():
+            return candidate
+        if current.parent == current:
+            return None
+        current = current.parent
+    return None
+
+
+def _flow_read_head_sha_pure(data_dir: Path) -> Optional[str]:
+    """The current HEAD commit sha via plain file reads only -- no
+    subprocess. Handles a symbolic HEAD (the common case: reads the loose
+    ref file `.git/refs/heads/<branch>` it points at) and a detached HEAD
+    (the sha sits directly in `.git/HEAD`). Returns `None` for anything it
+    can't resolve this way (most commonly a PACKED ref with no loose
+    override, e.g. right after `git gc`) -- callers must treat `None` as
+    "unknown, don't trust the cache" and fall through to a real `git
+    rev-parse HEAD` subprocess, never guess at a value. This is a cache-
+    freshness probe, not a second implementation of git's ref resolution:
+    it makes no claim beyond what it can read directly off disk.
+    """
+    git_dir = _flow_find_git_dir(data_dir)
+    if git_dir is None:
+        return None
+    try:
+        if git_dir.is_file():
+            # worktree / submodule: ".git" is "gitdir: <path>"
+            text = git_dir.read_text(encoding="utf-8").strip()
+            if not text.startswith("gitdir:"):
+                return None
+            gd = Path(text[len("gitdir:"):].strip())
+            git_dir = gd if gd.is_absolute() else (data_dir / gd).resolve()
+        head_text = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    sha_re = re.compile(r"^[0-9a-fA-F]{40,64}$")
+    if head_text.startswith("ref:"):
+        ref_rel = head_text[len("ref:"):].strip()
+        try:
+            sha = (git_dir / ref_rel).read_text(encoding="utf-8").strip()
+        except OSError:
+            return None  # likely a packed ref -- don't guess, fall through
+        return sha if sha_re.match(sha) else None
+    return head_text if sha_re.match(head_text) else None
+
+
+_FLOW_RAW_LINE_RE = re.compile(
+    r"^:(?:\d+) (?:\d+) [0-9a-f]+ ([0-9a-f]+) ([A-Z])\d*\t(.+)$"
+)
+
+
+def _parse_flow_events(raw_output: str) -> List[Dict[str, Any]]:
+    """Parses `git log --reverse -M --format=%x00%H%x09%cI --raw
+    --no-abbrev -- issues/ archive/issues/` output into an ordered list of
+    change events, oldest first (git's own `--reverse` commit order):
+    `{"day": "YYYY-MM-DD" (UTC), "path": <repo-root-relative path>,
+    "status_letter": "A"|"M"|"D"|"R"|..., "blob_sha": <new blob sha, None
+    for a delete>}`. `%x00` is a delimiter that cannot collide with any
+    path/sha/date content, so this never needs to sniff for a "commit"
+    keyword the way a `git log -p | grep` scrape would. A rename
+    (`-M`, e.g. the issues/ -> archive/issues/ move) is ONE `R###` raw
+    line carrying both paths tab-separated; the NEW path (last field) is
+    what callers key on, matching "current filename wins" -- the entity's
+    identity comes from the STEM the caller extracts from this path, not
+    from the path itself (PT-61 ruling: "key by filename stem, never by
+    path").
+    """
+    events: List[Dict[str, Any]] = []
+    if not raw_output:
+        return events
+    for chunk in raw_output.split("\x00"):
+        if not chunk:
+            continue
+        header, _, rest = chunk.partition("\n\n")
+        _sha, _, date_part = header.partition("\t")
+        if not date_part:
+            continue
+        try:
+            commit_dt = datetime.datetime.fromisoformat(date_part.strip())
+        except ValueError:
+            continue
+        if commit_dt.tzinfo is None:
+            commit_dt = commit_dt.replace(tzinfo=datetime.timezone.utc)
+        day = commit_dt.astimezone(datetime.timezone.utc).date().isoformat()
+        for line in rest.split("\n"):
+            if not line.startswith(":"):
+                continue
+            m = _FLOW_RAW_LINE_RE.match(line)
+            if not m:
+                continue
+            new_blob, status_letter, paths_field = m.groups()
+            path = paths_field.split("\t")[-1]  # R###/C###: old\tnew -- take new
+            events.append({
+                "day": day,
+                "path": path,
+                "status_letter": status_letter,
+                "blob_sha": None if status_letter == "D" else new_blob,
+            })
+    return events
+
+
+def _flow_cat_file_batch(data_dir: Path, shas: List[str]) -> Dict[str, bytes]:
+    """`git cat-file --batch`, fed the DEDUPED blob shas once, parsed as
+    raw BYTES throughout -- the ruling's own named failure mode: the batch
+    header's `<size>` is a byte count, and decoding the stream as text
+    before slicing mis-slices on any multi-byte UTF-8 character (an em
+    dash, 3 bytes, broke the first prototype on this repo's own issue
+    prose). `subprocess.run` here is deliberately NOT given `text=True` --
+    `.stdout` stays `bytes`, sliced by the byte-count header, decoded only
+    AFTER slicing. Returns `{sha: raw_content_bytes}`; a sha git reports
+    "missing" (should not happen for shas this module just read from its
+    own `git log`, but never trusted blindly) is simply absent.
+    """
+    if not shas:
+        return {}
+    import subprocess
+
+    stdin_bytes = ("\n".join(shas) + "\n").encode("ascii")
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(data_dir), "cat-file", "--batch"],
+            input=stdin_bytes, capture_output=True, timeout=30,
+        )
+    except (FileNotFoundError, OSError):
+        return {}
+    if result.returncode != 0:
+        return {}
+    out = result.stdout
+    parsed: Dict[str, bytes] = {}
+    pos = 0
+    n = len(out)
+    while pos < n:
+        nl = out.find(b"\n", pos)
+        if nl == -1:
+            break
+        header = out[pos:nl].decode("ascii", errors="replace")
+        pos = nl + 1
+        parts = header.split(" ")
+        if len(parts) < 2:
+            break
+        sha = parts[0]
+        if parts[1] == "missing":
+            continue
+        if len(parts) < 3:
+            break
+        try:
+            size = int(parts[2])
+        except ValueError:
+            break
+        parsed[sha] = out[pos:pos + size]  # BYTE slice -- never text-mode
+        pos += size
+        if pos < n and out[pos:pos + 1] == b"\n":
+            pos += 1
+    return parsed
+
+
+def _compute_flow_payload(data_dir: Path) -> Dict[str, Any]:
+    """The real reconstruction -- always hits git (this is the cache-miss
+    path; `build_flow_payload` below is the memoizing wrapper). Same
+    whole-group-degrades posture as `read_git_state`: git missing or
+    `data_dir` outside a worktree -> `series: []` + a warning, never a
+    raise (the HTTP layer turns any payload from this module into 200,
+    never 500 -- there is no exception path here to turn into one).
+    """
+    import subprocess
+
+    data_dir = Path(data_dir)
+
+    def _run(*args: str, timeout: float = 15) -> Optional["subprocess.CompletedProcess"]:
+        try:
+            return subprocess.run(
+                ["git", "-C", str(data_dir)] + list(args),
+                capture_output=True, timeout=timeout,
+            )
+        except (FileNotFoundError, OSError):
+            return None
+
+    # Full sha, not --short: this is compared byte-for-byte against
+    # `_flow_read_head_sha_pure`'s pure-file-read result below (which
+    # necessarily reads the FULL ref content) -- an abbreviated sha would
+    # never match, permanently defeating the cache. `as_of` in the
+    # payload is this same full value; nothing downstream needs it
+    # shortened, and a short sha's length is itself repo-size-dependent,
+    # one more way it could silently stop matching.
+    head_result = _run("rev-parse", "HEAD", timeout=5)
+    if head_result is None or head_result.returncode != 0:
+        return {
+            "series": [],
+            "as_of": None,
+            "scope": FLOW_SCOPE_NOTE,
+            "warning": "git unavailable or not a worktree -- issue flow history cannot be reconstructed",
+        }
+    head_sha = head_result.stdout.decode("utf-8", errors="replace").strip()
+
+    log_result = _run(
+        "log", "--reverse", "-M", "--format=%x00%H%x09%cI", "--raw", "--no-abbrev",
+        "--", "issues/", "archive/issues/",
+    )
+    if log_result is None or log_result.returncode != 0:
+        return {
+            "series": [],
+            "as_of": head_sha,
+            "scope": FLOW_SCOPE_NOTE,
+            "warning": "git log failed -- issue flow history unavailable",
+        }
+
+    events = _parse_flow_events(log_result.stdout.decode("utf-8", errors="replace"))
+    if not events:
+        return {"series": [], "as_of": head_sha, "scope": FLOW_SCOPE_NOTE, "warning": None}
+
+    blob_shas = sorted(set(e["blob_sha"] for e in events if e["blob_sha"]))
+    blob_contents = _flow_cat_file_batch(data_dir, blob_shas)
+
+    blob_status: Dict[str, Optional[str]] = {}
+    for sha, content in blob_contents.items():
+        try:
+            fm, _body = parse_frontmatter(content.decode("utf-8"))
+        except Exception:  # noqa: BLE001 -- one bad historical blob must not break the whole reconstruction
+            continue
+        blob_status[sha] = fm.get("status")
+
+    live: Dict[str, str] = {}
+    series: List[Dict[str, Any]] = []
+    current_day: Optional[str] = None
+
+    def _emit_point(day: str) -> None:
+        counts = dict((status, 0) for status in STATUS_ORDER)
+        for status in live.values():
+            if status in counts:
+                counts[status] += 1
+        series.append({"date": day, "counts": counts})
+
+    for event in events:
+        day = event["day"]
+        if current_day is not None and day != current_day:
+            _emit_point(current_day)
+        current_day = day
+        stem = Path(event["path"]).stem
+        if event["status_letter"] == "D":
+            live.pop(stem, None)
+            continue
+        status = blob_status.get(event["blob_sha"])
+        if status is not None:
+            live[stem] = status
+        else:
+            # Unparseable/unresolved blob -- drop the stale entry rather
+            # than guess at a status this reconstruction couldn't read.
+            live.pop(stem, None)
+    if current_day is not None:
+        _emit_point(current_day)
+
+    return {"series": series, "as_of": head_sha, "scope": FLOW_SCOPE_NOTE, "warning": None}
+
+
+def build_flow_payload(data_dir: Path) -> Dict[str, Any]:
+    """`GET /api/flow`'s payload (PT-61) -- `{series: [{date, counts}],
+    as_of: <head sha>, scope, warning}`. `series` is oldest-first,
+    one point per day that had at least one committed change (never one
+    point per calendar day in range -- a gap day has nothing to plot and
+    isn't backfilled). `counts` keys are always exactly `STATUS_ORDER`
+    (imported, never hardcoded), so the chart's taxonomy cannot drift from
+    the status cards'.
+
+    Memoized in-process, keyed by `data_dir` and the CURRENT HEAD sha --
+    history is a pure function of HEAD, so a repeat call at an unchanged
+    HEAD is a cache hit; a new commit invalidates by construction (the key
+    changes). The freshness check itself (`_flow_read_head_sha_pure`) is a
+    pure filesystem read, never a subprocess -- only a CACHE MISS pays for
+    the real `git log`/`git cat-file` work in `_compute_flow_payload`.
+    When the pure read can't determine HEAD (e.g. a packed ref), this
+    always falls through to a real recompute rather than trust a stale
+    entry.
+    """
+    data_dir = Path(data_dir)
+    cache_key = str(data_dir)
+    probed_sha = _flow_read_head_sha_pure(data_dir)
+    if probed_sha is not None:
+        cached = _FLOW_CACHE.get(cache_key)
+        if cached is not None and cached[0] == probed_sha:
+            return cached[1]
+
+    payload = _compute_flow_payload(data_dir)
+    effective_sha = payload.get("as_of")
+    if effective_sha:
+        _FLOW_CACHE[cache_key] = (effective_sha, payload)
+        while len(_FLOW_CACHE) > _FLOW_CACHE_MAX:
+            oldest_key = next(iter(_FLOW_CACHE))
+            if oldest_key == cache_key:
+                break
+            del _FLOW_CACHE[oldest_key]
+    return payload
+
+
+# --------------------------------------------------------------------------
 # Agent roster (PT-56) -- a SEPARATE composed reader + GET /api/roster,
 # deliberately NOT part of build_dashboard_payload/the engine proper.
 # `.claude/agents/` and `.claude/roles/` are a template concept, not a
@@ -3665,6 +3996,33 @@ def make_server(
                 # dashboard client polls this on its own cadence instead.
                 payload = build_roster_payload(roots[0].path)
                 self._send_json(200, payload)
+                return
+            if path == "/api/flow":
+                # PT-61 (architect ruling): a SEPARATE endpoint from
+                # /api/dashboard, same reasoning as /api/roster above --
+                # different cost profile (two bounded git subprocesses on
+                # a cache miss vs. a data-dir parse), different cache key
+                # (HEAD sha, not the dashboard body hash), different
+                # freshness cadence (polled by the client, never SSE --
+                # the watcher scans process/cairn/ only, and history
+                # doesn't change on a working-tree edit anyway). Degrades
+                # to 200 + `series: []` + a warning, never 500 --
+                # build_flow_payload never raises.
+                payload = build_flow_payload(roots[0].path)
+                body = json.dumps(payload).encode("utf-8")
+                etag = payload.get("as_of") or hashlib.sha256(body).hexdigest()[:16]
+                if self.headers.get("If-None-Match") == etag:
+                    self.send_response(304)
+                    self.send_header("ETag", etag)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
                 return
             if path in ("/", "/list"):
                 self._send_static("board.html")
