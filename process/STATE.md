@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | cairn check: enforce target_tag 1:1 uniqueness |
-| Issue | PT-59 (cairn) |
-| Milestone | PT-0.8 — project dashboard |
-| Branch | `feature/pt-59-target-tag-lint` |
-| Started | 2026-08-28 |
-| Goal | check_repo lints the decision-recorded 1:1 target_tag↔milestone invariant across live + archived milestones — PT-54's release join stops relying on glob order for a state the spec says can't exist. Standing merge authorization through PT-0.8 |
-| Status | In Progress |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Releases
 
