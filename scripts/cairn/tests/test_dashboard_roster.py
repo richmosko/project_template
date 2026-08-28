@@ -220,6 +220,22 @@ class RosterPayloadPresenceTests(unittest.TestCase):
         self.assertEqual(qa["presence"], "idle")
         self.assertEqual(qa.get("stale_since"), "2026-08-01", qa)
 
+    def test_done_only_assignment_is_idle_not_unknown(self):
+        # Architect's addendum (the "done-but-live cell"): team-lead's
+        # preserve-assignee-on-done decision means a `done` issue stays in
+        # the LIVE issues/ dir until archived at release close -- the
+        # common case, not an edge one. Explicitly ruled `idle`, not
+        # `unknown`: a completed assignment is real data (the agent
+        # exists in the record, nothing in flight), and collapsing it to
+        # `unknown` would discard the provenance preserve-on-done exists
+        # to keep.
+        data_dir = make_git_repo_with_agents(self)
+        today = datetime.date.today().isoformat()
+        write_issue(data_dir, id="PT-1", title="Shipped", status="done", assignee="qa-engineer", updated=today)
+        payload = cairn.build_roster_payload(data_dir)
+        qa = next(a for a in payload["agents"] if a["id"] == "qa-engineer")
+        self.assertEqual(qa["presence"], "idle")
+
     def test_archived_issues_do_not_count_toward_presence(self):
         # "Live issues only" -- an archived issue assigned to this agent
         # must not manufacture a working/idle presence from dead data.
