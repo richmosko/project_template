@@ -39,7 +39,11 @@
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* PT-63: base/default UI face (design-system-spec.md Typography --
+     face is by ROLE, not size). Headings/titles override this with
+     --font-heading at their own selectors below; everything else
+     (buttons, inputs, table cells, badges/chips) inherits this. */
+  font-family: var(--font-sans);
   background: var(--muted);
   color: var(--foreground);
   font-size: 14px;
@@ -144,6 +148,9 @@ header.app-header {
 }
 
 .app-title {
+  /* PT-63: page/app title role -- --font-heading, matching
+     design-system-spec.md's "Page/dashboard title" row. */
+  font-family: var(--font-heading);
   font-weight: 700;
   font-size: 16px;
   margin-right: 8px;
@@ -359,6 +366,9 @@ main {
 }
 
 .column-header {
+  /* PT-63: eyebrow-label role (12px, uppercase, --muted-foreground) --
+     design-system-spec.md's Dashboard-scale eyebrow row is --font-heading. */
+  font-family: var(--font-heading);
   font-weight: 600;
   font-size: 12px;
   text-transform: uppercase;
@@ -404,6 +414,9 @@ main > .swimlane .column {
 }
 
 .swimlane-header {
+  /* PT-63: this is the milestone lane's own title -- section-heading
+     role, --font-heading. */
+  font-family: var(--font-heading);
   font-weight: 600;
   font-size: 13px;
   color: var(--muted-foreground);
@@ -521,6 +534,9 @@ main > .swimlane .column {
 }
 
 .repo-group-header {
+  /* PT-63: the repo group's own title -- section-heading role,
+     --font-heading, same reasoning as .swimlane-header. */
+  font-family: var(--font-heading);
   font-weight: 700;
   font-size: 14px;
   padding: 4px 0 10px;
@@ -534,7 +550,7 @@ main > .swimlane .column {
 }
 
 .repo-group-id {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 400;
   color: var(--muted-foreground);
@@ -568,12 +584,16 @@ main > .swimlane .column {
 .card.is-archived:active { cursor: default; }
 
 .card-id {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--muted-foreground);
 }
 
 .card-title {
+  /* PT-63: card-title role, matching design-system-spec.md's "Card
+     title, dialog title" --font-heading row -- role, not size (this
+     card's title runs smaller than the spec's 18px reference). */
+  font-family: var(--font-heading);
   font-weight: 500;
   margin: 2px 0 6px;
 }
@@ -609,7 +629,7 @@ main > .swimlane .column {
 .chip.assignee, .chip.release { background: var(--secondary); border-color: transparent; color: var(--secondary-foreground); }
 /* outline + keep the monospace family -- the family IS the label
    distinction here, not a hue. */
-.chip.repo { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.chip.repo { font-family: var(--font-mono); }
 .chip.blocked { background: var(--destructive); border-color: transparent; color: var(--destructive-foreground); }
 .chip.archived { font-style: italic; opacity: 0.6; }
 
@@ -691,12 +711,15 @@ table.issue-list tr:hover { background: var(--accent); cursor: pointer; }
 }
 
 .drawer h2 {
+  /* PT-63: dialog-title role -- matches design-system-spec.md's
+     text-lg / "Card title, dialog title" row exactly (18px). */
+  font-family: var(--font-heading);
   margin: 0 0 4px;
   font-size: 18px;
 }
 
 .drawer .drawer-id {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   color: var(--muted-foreground);
   font-size: 12px;
 }
@@ -771,7 +794,7 @@ table.issue-list tr:hover { background: var(--accent); cursor: pointer; }
 .markdown-body p { margin: 8px 0; }
 
 .markdown-body code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   background: var(--card);
   border-radius: 3px;
@@ -862,6 +885,8 @@ table.issue-list tr:hover { background: var(--accent); cursor: pointer; }
 }
 
 .section-heading {
+  /* PT-63: eyebrow-label role, same as .column-header. */
+  font-family: var(--font-heading);
   font-size: 12px;
   text-transform: uppercase;
   color: var(--muted-foreground);
