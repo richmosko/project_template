@@ -22,8 +22,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Milestone | PT-0.8 |
 | Branch | `feature/pt-64-small-text-sans` |
 | Started | 2026-08-28 |
-| Goal | Execute the option-(a) ruling: 12px form-label selectors to `--font-heading`, mechanical sub-13px enumeration, face-floor guard, spec Accessibility note |
-| Status | In Progress |
+| Goal | Full face floor (final ruling): every sub-13px board selector to `--font-heading`, mechanical guard, spec Accessibility note |
+| Status | In Review — [PR #134](https://github.com/richmosko/project_template/pull/134) |
 
 ## Releases
 
