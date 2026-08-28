@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Board: self-hosted fonts (vendor/ + NOTICE.md) per PT-57 ruling |
-| Issue | PT-63 (cairn) |
-| Milestone | PT-0.8 — project dashboard |
-| Branch | `feature/pt-63-board-fonts` |
-| Started | 2026-08-28 |
-| Goal | The board's typography joins the design system — three spec faces vendored under board/vendor/ with NOTICE.md provenance (SIL OFL), latin+latin-ext, ~245KB, no CDN — closing the seam PT-57's panel note names. Standing merge authorization through PT-0.8 |
-| Status | In Progress |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Releases
 
