@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Board: migrate board.css to preset tokens |
+| Issue | PT-57 (cairn) |
+| Milestone | PT-0.8 — project dashboard |
+| Branch | `feature/pt-57-board-tokens` |
+| Started | 2026-08-28 |
+| Goal | board.css consumes the preset tokens (legacy Atlassian hexes gone), chip/status vocabulary re-expressed as the spec's badge variants, board fully functional in both views + drawer — retiring the dashboard's "legacy styling" seam. Standing merge authorization through PT-0.8 (Mosko, 2026-08-28) |
+| Status | In Progress |
 
 ## Releases
 
