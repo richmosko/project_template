@@ -25,8 +25,13 @@
      surface cards, architect's ruling § 1) -- named here rather than
      inlined at each use site so the value exists once. Not a preset
      token (the spec's shadow guidance is qualitative -- shadow-sm on
-     cards/popovers -- not a literal value); kept local and mapped by eye. */
-  --shadow: 0 1px 2px rgba(9, 30, 66, 0.12);
+     cards/popovers -- not a literal value); kept local and mapped by eye.
+     PT-57 (architect's addendum § 1): the navy tint (rgb(9, 30, 66) --
+     Atlassian's N800) is a carried-forward hue the preset-pure direction
+     forbids as much as any hex, even hidden inside an rgba() where a
+     bare grep for "#" would miss it. Dropped to plain black -- same
+     perceived depth, no inherited hue. */
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
 * { box-sizing: border-box; }
@@ -661,7 +666,9 @@ table.issue-list tr:hover { background: var(--accent); cursor: pointer; }
 .drawer-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(9, 30, 66, 0.35);
+  /* PT-57 (architect's addendum § 1): drop the Atlassian-navy tint, keep
+     the alpha -- same as --shadow above. */
+  background: rgba(0, 0, 0, 0.35);
   display: none;
   z-index: 100;
 }
@@ -675,7 +682,9 @@ table.issue-list tr:hover { background: var(--accent); cursor: pointer; }
   bottom: 0;
   width: min(480px, 100vw);
   background: var(--card);
-  box-shadow: -4px 0 16px rgba(9, 30, 66, 0.15);
+  /* PT-57 (architect's addendum § 1): drop the Atlassian-navy tint,
+     keep the alpha -- same as --shadow/.drawer-overlay above. */
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.15);
   overflow-y: auto;
   padding: 20px;
 }
