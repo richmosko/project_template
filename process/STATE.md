@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Dashboard: status cards + tracker table skeletons lack an error branch |
-| Issue | PT-67 (cairn) |
+| Feature | Board: smallest text (11-12px) renders in serif — scope to Space Grotesk (a11y) |
+| Issue | PT-64 (cairn) |
 | Milestone | PT-0.8 |
-| Branch | `feature/pt-67-skeleton-error-branch` |
+| Branch | `feature/pt-64-small-text-sans` |
 | Started | 2026-08-28 |
-| Goal | Mirror the roster's three-state shape (error → message, null → skeleton, data → content) at both sites, with a source-guard pinning the error branches |
-| Status | In Review — [PR #133](https://github.com/richmosko/project_template/pull/133) |
+| Goal | Execute the option-(a) ruling: 12px form-label selectors to `--font-heading`, mechanical sub-13px enumeration, face-floor guard, spec Accessibility note |
+| Status | In Progress |
 
 ## Releases
 
