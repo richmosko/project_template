@@ -1308,16 +1308,17 @@ def check_repo(data_dir: Path) -> List[str]:
         # archive/milestones scan PT-39/PT-46/PT-47 already read that
         # directory for.
         #
-        # DEPENDENCY (architect's bubble-up, no test can catch this):
-        # this collection runs unconditionally, every iteration, relying
-        # on the major check immediately above staying if/elif (falling
-        # through), never `continue`. If a future refactor turns that
-        # major check into a `continue`-on-invalid guard, a milestone
-        # with a bad/dangling major would silently stop contributing its
-        # target_tag here too -- dropped from this lint with nothing
-        # failing, since check_repo's own test suite has no way to assert
-        # "this collection still runs for every parsed milestone regardless
-        # of what earlier checks in this loop found".
+        # DEPENDENCY: this collection runs unconditionally, every
+        # iteration, relying on the major check immediately above staying
+        # if/elif (falling through), never `continue`. If a future
+        # refactor turns that major check into a `continue`-on-invalid
+        # guard, a milestone with a bad/dangling major would silently
+        # stop contributing its target_tag here too -- dropped from this
+        # lint with nothing failing. Enforced, not just documented:
+        # test_check_lint.py's
+        # test_a_record_that_trips_an_earlier_check_still_contributes_its_tag
+        # pins exactly this shape (two milestones, same tag, an unknown
+        # major each) and fails the moment that `elif` becomes `continue`.
         target_tag = fm.get("target_tag")
         if target_tag:
             target_tag_owners.setdefault(str(target_tag), []).append(p.stem)

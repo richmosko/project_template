@@ -1074,6 +1074,34 @@ class CheckRepoTargetTagUniquenessTests(unittest.TestCase):
                 (expected_id, errors),
             )
 
+    def test_a_record_that_trips_an_earlier_check_still_contributes_its_tag(self):
+        # Architect's regression fixture (self-correction on their own
+        # PT-59 bubble-up): the live-loop target_tag collection sits right
+        # after that same loop's major check, and is only safe from a
+        # future "flip elif into continue-on-invalid-major" refactor
+        # because nothing between the two checks currently skips ahead.
+        # Two milestones share target_tag v1.0.0 while naming a major that
+        # doesn't exist (PT-V9, never defined) -- both an "unknown major"
+        # error AND both duplicate-tag errors must fire. If a future
+        # refactor turned the major check's elif into `continue`, these
+        # two records would stop reaching the collection entirely: the
+        # duplicate-tag errors would silently vanish (only the two
+        # unknown-major errors would remain) and this test would catch
+        # exactly that regression.
+        data_dir = make_tree(self)
+        write_milestone(data_dir, "PT-1.0.md", id='"PT-1.0"', major="PT-V9", target_tag="v1.0.0")
+        write_milestone(data_dir, "PT-2.0.md", id='"PT-2.0"', major="PT-V9", target_tag="v1.0.0")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(any("unknown major" in e for e in errors), errors)
+        self.assertTrue(
+            any(e.startswith("PT-1.0:") and "target_tag" in e and "v1.0.0" in e for e in errors),
+            errors,
+        )
+        self.assertTrue(
+            any(e.startswith("PT-2.0:") and "target_tag" in e and "v1.0.0" in e for e in errors),
+            errors,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
