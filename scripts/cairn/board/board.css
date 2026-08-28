@@ -170,8 +170,12 @@ body.embed #tab-dashboard {
 
 /* PT-1: minimal live/polling connection indicator, driven by board.js's
    connectLive() toggling the "live"/"polling" class + text. */
+/* PT-64 (Mosko's ruling, 2026-08-28, full face floor): every sub-13px
+   selector in this file gets an explicit --font-heading override, not
+   just the .filters/.drawer-field labels the ruling started with. */
 .connection-state {
   font-size: 12px;
+  font-family: var(--font-heading);
   color: var(--muted-foreground);
 }
 
@@ -233,9 +237,14 @@ body.embed #tab-dashboard {
 /* PT-40: the sibling "open card" button after each major tab -- smaller
    and icon-only, distinct from the filter-tab styling it shares
    `.majors-tabs button`'s base rule with. */
+/* PT-64 (full face floor): buttons don't inherit the page font-family by
+   default (UA-default Arial), so an explicit face declaration is needed
+   here even though the rest of the file's non-serif fix is about
+   overriding the body's inherited serif. */
 .major-tab-open {
   padding: 4px 6px;
   font-size: 11px;
+  font-family: var(--font-heading);
   color: var(--muted-foreground);
 }
 
@@ -274,11 +283,16 @@ body.embed #tab-dashboard {
   font-size: 13px;
 }
 
+/* PT-64 (Mosko's ruling, 2026-08-28, option (a)): sub-13px form labels are
+   the a11y face-floor exception -- --font-heading (Space Grotesk, sans),
+   not the inherited body var(--font-sans) (Merriweather, serif). Design
+   spec's Accessibility section carries the rationale. */
 .filters label {
   display: flex;
   align-items: center;
   gap: 4px;
   font-size: 12px;
+  font-family: var(--font-heading);
   color: var(--muted-foreground);
 }
 
@@ -286,6 +300,8 @@ body.embed #tab-dashboard {
    weight as #new-issue-cancel, living in the filter bar per the
    architect's ruling § 4. Hidden (not disabled) via board.js's
    renderHeader when Swimlanes is off. */
+/* PT-64 (full face floor): same UA-default-button reasoning as
+   .major-tab-open above. */
 .view-state-btn {
   background: var(--card);
   border: 1px solid var(--border);
@@ -293,6 +309,7 @@ body.embed #tab-dashboard {
   color: var(--foreground);
   padding: 4px 10px;
   font-size: 12px;
+  font-family: var(--font-heading);
   cursor: pointer;
 }
 
@@ -442,9 +459,15 @@ main > .swimlane .column {
    here -- it resets family/size/weight together, making a bare
    font-size override alongside it order-dependent; all three are set
    explicitly instead. */
+/* PT-64 (full face floor): `font-family: inherit` swapped for an explicit
+   var(--font-heading) -- both toggles happen to sit inside a
+   --font-heading-scoped header today (confirmed via live computed-style
+   read), but `inherit` makes that a placement fact, not a source fact;
+   this is exactly the sampling-trap shape the ruling's chip finding
+   already exposed once, so it's ruled out here on purpose. */
 .swimlane-toggle,
 .repo-group-toggle {
-  font-family: inherit;
+  font-family: var(--font-heading);
   font-size: 12px;
   font-weight: 400;
   line-height: 1;
@@ -612,11 +635,19 @@ main > .swimlane .column {
    outline, --muted-foreground text; `secondary` = --secondary/
    --secondary-foreground; `destructive` = --destructive/
    --destructive-foreground; `default` = --primary/--primary-foreground. */
+/* PT-64 (Mosko's re-ruling, 2026-08-28, "full face floor"): .chip had NO
+   font-family override at all, so its actual face was placement-dependent
+   -- sans inside .swimlane-header, serif inside .card-meta (the bulk of
+   board chips). An explicit var(--font-heading) here closes that gap for
+   every non-.repo variant (.assignee/.release/.blocked/.ga/.archived/
+   .status[...]) without touching each one -- .chip.repo's own mono
+   override below still wins by specificity. */
 .chip {
   display: inline-block;
   border-radius: var(--radius-sm);
   padding: 1px 8px;
   font-size: 11px;
+  font-family: var(--font-heading);
   /* outline (default/base): .milestone, .subissues, .progress inherit
      this unchanged -- they're plain category labels, no elevated weight. */
   background: transparent;
@@ -673,10 +704,14 @@ table.issue-list th, table.issue-list td {
   font-size: 13px;
 }
 
+/* PT-64 (full face floor): the 12px header row is the sub-13px override
+   here -- table.issue-list td stays at the 13px shared rule above and is
+   unaffected. */
 table.issue-list th {
   cursor: pointer;
   color: var(--muted-foreground);
   font-size: 12px;
+  font-family: var(--font-heading);
   text-transform: uppercase;
 }
 
@@ -739,10 +774,14 @@ table.issue-list tr:hover { background: var(--accent); cursor: pointer; }
   margin: 12px 0;
 }
 
+/* PT-64 (Mosko's ruling, 2026-08-28, option (a)): same face-floor
+   exception as .filters label above -- --font-heading, not the inherited
+   serif var(--font-sans). */
 .drawer-field label {
   display: block;
   font-size: 11px;
   text-transform: uppercase;
+  font-family: var(--font-heading);
   color: var(--muted-foreground);
   margin-bottom: 4px;
 }
@@ -856,8 +895,10 @@ table.issue-list tr:hover { background: var(--accent); cursor: pointer; }
   padding-left: 10px;
 }
 
+/* PT-64 (full face floor). */
 .comment-meta {
   font-size: 12px;
+  font-family: var(--font-heading);
   color: var(--muted-foreground);
   margin-bottom: 4px;
 }
@@ -894,20 +935,25 @@ table.issue-list tr:hover { background: var(--accent); cursor: pointer; }
   font-weight: 600;
 }
 
+/* PT-64 (full face floor). */
 .pr-link, .file-link, .parent-link {
   font-size: 12px;
+  font-family: var(--font-heading);
 }
 
 /* PT-40: the record drawer's (milestone/major card) progress line and
    read-only note -- same font sizing as the issue drawer's file/PR/parent
    lines above, distinct classes since they're record-card-only. */
+/* PT-64 (full face floor). */
 .drawer-progress {
   font-size: 12px;
+  font-family: var(--font-heading);
   color: var(--muted-foreground);
   margin: 4px 0;
 }
 .record-readonly-note {
   font-size: 12px;
+  font-family: var(--font-heading);
   color: var(--muted-foreground);
   font-style: italic;
   margin-top: 8px;
