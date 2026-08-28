@@ -236,6 +236,31 @@ class RosterPayloadPresenceTests(unittest.TestCase):
         qa = next(a for a in payload["agents"] if a["id"] == "qa-engineer")
         self.assertEqual(qa["presence"], "idle")
 
+    def test_done_assignment_never_reads_as_current_work_in_the_work_line(self):
+        # Architect's addendum, second half: a done assignment may appear
+        # as HISTORY, never presented as current work. Pinned by
+        # contrasting the done work string against the plain in-progress
+        # one for the identical issue shape -- they must not be
+        # indistinguishable, or a roster reader could mistake completed
+        # work for active work.
+        data_dir_done = make_git_repo_with_agents(self)
+        today = datetime.date.today().isoformat()
+        write_issue(data_dir_done, id="PT-1", title="Shipped", status="done", assignee="qa-engineer", updated=today)
+        done_payload = cairn.build_roster_payload(data_dir_done)
+        done_work = next(a for a in done_payload["agents"] if a["id"] == "qa-engineer")["work"]
+
+        data_dir_working = make_git_repo_with_agents(self)
+        write_issue(data_dir_working, id="PT-1", title="Shipped", status="in-progress", assignee="qa-engineer", updated=today)
+        working_payload = cairn.build_roster_payload(data_dir_working)
+        working_work = next(a for a in working_payload["agents"] if a["id"] == "qa-engineer")["work"]
+
+        self.assertIsNotNone(done_work)
+        self.assertNotEqual(
+            done_work, working_work,
+            "a done assignment's work-line text must be distinguishable from an in-progress "
+            "one for the same issue -- otherwise completed work reads as current work",
+        )
+
     def test_archived_issues_do_not_count_toward_presence(self):
         # "Live issues only" -- an archived issue assigned to this agent
         # must not manufacture a working/idle presence from dead data.
