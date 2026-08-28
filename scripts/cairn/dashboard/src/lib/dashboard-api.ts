@@ -163,3 +163,60 @@ export function subscribeRoster(
 		window.clearInterval(pollId);
 	};
 }
+
+// PT-61: the issue-flow chart's data source. Architect's ruling puts this
+// behind a SEPARATE endpoint too (GET /api/flow, never a key on
+// /api/dashboard) -- different cost profile (bounded git subprocesses on
+// a cache miss), different cache key (HEAD sha), different freshness
+// cadence. `counts` keys are always the live STATUS_ORDER set server-side;
+// this type doesn't enumerate them so a status addition needs no client
+// change here.
+export type FlowPoint = {
+	date: string;
+	counts: Record<string, number>;
+};
+
+export type FlowPayload = {
+	series: FlowPoint[];
+	as_of: string | null;
+	scope: string;
+	warning: string | null;
+};
+
+export async function fetchFlow(): Promise<FlowPayload> {
+	const res = await fetch('/api/flow');
+	if (!res.ok) {
+		throw new Error(`GET /api/flow -> ${res.status}`);
+	}
+	return (await res.json()) as FlowPayload;
+}
+
+/**
+ * Poll-only, same reasoning as subscribeRoster above -- history is a pure
+ * function of committed git state, which the SSE watcher (process/cairn/
+ * working-tree changes) never touches. Ruling: "the client polls this on
+ * its own cadence (roster's pattern)."
+ */
+export function subscribeFlow(
+	onUpdate: (payload: FlowPayload) => void,
+	onError: (err: unknown) => void = () => {},
+): () => void {
+	let stopped = false;
+
+	const refresh = async () => {
+		try {
+			const payload = await fetchFlow();
+			if (!stopped) onUpdate(payload);
+		} catch (err) {
+			if (!stopped) onError(err);
+		}
+	};
+
+	void refresh();
+	const pollId = window.setInterval(() => void refresh(), POLL_INTERVAL_MS);
+
+	return () => {
+		stopped = true;
+		window.clearInterval(pollId);
+	};
+}

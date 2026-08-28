@@ -5,6 +5,13 @@
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
 	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
+	// PT-61 (architect ruling): dashboard-01 Block anatomy's Sidebar --
+	// Sidebar.Provider/Sidebar.Inset own page-level layout, so the existing
+	// padded root moves INSIDE Inset below. No client router (there is no
+	// router in this app) -- nav items are plain <a> tags, active state
+	// derived from location.pathname, styled via Sidebar.MenuButton's
+	// `child` snippet.
+	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import StatusCard from '$lib/components/StatusCard.svelte';
 	import {
 		fetchDashboard,
@@ -17,6 +24,22 @@
 	let data = $state<DashboardPayload | null>(null);
 	let loadError = $state<string | null>(null);
 	let refreshing = $state(false);
+
+	// PT-61: no client router in this app -- the sidebar's active-item
+	// state is derived once from the real location, matching board.js's
+	// own no-router convention rather than introducing one for two links.
+	const currentPath = window.location.pathname;
+
+	// PT-61 (architect ruling): dynamic-import the chart panel so
+	// layerchart (a real dependency step-up: bits-ui/Sheet/Tooltip for the
+	// sidebar, layerchart+d3 for this) lands in its own chunk instead of
+	// inflating the main bundle every visitor downloads. IssueFlowChart
+	// owns its own /api/flow fetch entirely -- this is only a lazy
+	// component reference, not a lazy data load.
+	let IssueFlowChart = $state<typeof import('$lib/components/IssueFlowChart.svelte')['default'] | null>(null);
+	import('$lib/components/IssueFlowChart.svelte').then((mod) => {
+		IssueFlowChart = mod.default;
+	});
 
 	// PT-56: separate state, separate poll -- the roster rides no SSE
 	// (the watcher never sees .claude/agents/ changes), matching the
@@ -102,26 +125,73 @@
 	};
 </script>
 
-<!-- PT-62 (hotfix, team-lead ruling): design-system-spec.md's Dashboard
-     scale defines 28px page MARGINS, not a max-width -- the preset's own
-     preview is full-bleed. The previous `max-w-6xl` cap here was an
-     implementation artifact, not a spec requirement, and it strangled the
-     embedded board (PT-55): six kanban columns with Show-cancelled on
-     don't fit inside a 1152px-capped page. Full-bleed root (28px margins
-     via px-7/py-7 only); the Board section below gets the whole viewport.
-     Everything ABOVE the board (header, status cards, tracker table,
-     agent roster) stays inside its own `max-w-6xl` wrapper -- capping
-     four stat cards at nothing would stretch them across an ultrawide
-     monitor with mostly empty padding, which is the "spec's card scale
-     holds" judgment call this issue's AC leaves to implementation. -->
-<div class="flex min-h-screen flex-col gap-6 bg-muted px-7 py-7">
+<!-- PT-61 (architect ruling): dashboard-01 Block anatomy. Sidebar.Provider
+     owns the page-level flex shell; Sidebar.Root is the nav rail (Dashboard
+     + Board today, "future surfaces" per the AC go here as more Sidebar.Menu
+     entries, not as further top-nav links); Sidebar.Inset is the main
+     content plane. design-system-spec.md's Sidebar row: `Sidebar.Provider >
+     Sidebar.Root > Sidebar.Header, Sidebar.Content (Sidebar.Group), Sidebar.
+     Footer` -- Footer omitted for now, nothing to put there yet (no
+     account/user surface exists). -->
+<Sidebar.Provider>
+	<Sidebar.Root collapsible="icon">
+		<Sidebar.Header>
+			<div class="flex items-center gap-2 px-2 py-1.5">
+				<span class="font-heading text-sm font-semibold text-sidebar-foreground">Cairn</span>
+			</div>
+		</Sidebar.Header>
+		<Sidebar.Content>
+			<Sidebar.Group>
+				<Sidebar.GroupLabel>Navigate</Sidebar.GroupLabel>
+				<Sidebar.GroupContent>
+					<Sidebar.Menu>
+						<Sidebar.MenuItem>
+							<Sidebar.MenuButton isActive={currentPath.startsWith('/dashboard')}>
+								{#snippet child({ props })}
+									<a href="/dashboard" {...props}>Dashboard</a>
+								{/snippet}
+							</Sidebar.MenuButton>
+						</Sidebar.MenuItem>
+						<Sidebar.MenuItem>
+							<Sidebar.MenuButton isActive={currentPath === '/'}>
+								{#snippet child({ props })}
+									<a href="/" {...props}>Board</a>
+								{/snippet}
+							</Sidebar.MenuButton>
+						</Sidebar.MenuItem>
+					</Sidebar.Menu>
+				</Sidebar.GroupContent>
+			</Sidebar.Group>
+		</Sidebar.Content>
+	</Sidebar.Root>
+	<Sidebar.Inset>
+	<!-- PT-62 (hotfix, team-lead ruling): design-system-spec.md's Dashboard
+	     scale defines 28px page MARGINS, not a max-width -- the preset's own
+	     preview is full-bleed. The previous `max-w-6xl` cap here was an
+	     implementation artifact, not a spec requirement, and it strangled the
+	     embedded board (PT-55): six kanban columns with Show-cancelled on
+	     don't fit inside a 1152px-capped page. Full-bleed root (28px margins
+	     via px-7/py-7 only); the Board section below gets the whole viewport.
+	     Everything ABOVE the board (header, status cards, tracker table,
+	     agent roster) stays inside its own `max-w-6xl` wrapper -- capping
+	     four stat cards at nothing would stretch them across an ultrawide
+	     monitor with mostly empty padding, which is the "spec's card scale
+	     holds" judgment call this issue's AC leaves to implementation.
+	     PT-61: this root + its inner max-w-6xl wrapper moved inside
+	     Sidebar.Inset (architect's landmine note) -- Inset owns page-level
+	     layout/peer-margins now, this div no longer wraps a bare <body>. -->
+	<div class="flex min-h-screen flex-col gap-6 bg-muted px-7 py-7">
 	<div class="mx-auto flex w-full max-w-6xl flex-col gap-6">
 	<header class="flex flex-wrap items-center justify-between gap-4">
-		<div class="flex flex-col gap-1">
-			<h1 class="font-heading text-2xl font-bold text-foreground">Project Dashboard</h1>
-			<p class="text-sm text-muted-foreground">
-				Real-time repo, tracker, and release state.
-			</p>
+		<div class="flex items-center gap-3">
+			<Sidebar.Trigger />
+			<Sidebar.Separator orientation="vertical" class="h-4" />
+			<div class="flex flex-col gap-1">
+				<h1 class="font-heading text-2xl font-bold text-foreground">Project Dashboard</h1>
+				<p class="text-sm text-muted-foreground">
+					Real-time repo, tracker, and release state.
+				</p>
+			</div>
 		</div>
 		<div class="flex items-center gap-2">
 			<!-- PT-60 (architect's PT-54 forward note): this cluster cycles
@@ -272,6 +342,14 @@
 		</section>
 	{/if}
 
+	<!-- PT-61: chart panel, dashboard-01 Block anatomy's other named
+	     surface (Sidebar above, Chart here) -- dynamically imported so
+	     the component (and layerchart) doesn't block first paint on
+	     everything above it. -->
+	{#if IssueFlowChart}
+		<IssueFlowChart />
+	{/if}
+
 	<!-- PT-56: agent-roster panel. Honest empty state -- no fabricated
 	     agents until the presence-source ruling lands and the panel is
 	     actually wired up. -->
@@ -387,4 +465,6 @@
 			</Card.Content>
 		</Card.Root>
 	</section>
-</div>
+	</div>
+	</Sidebar.Inset>
+</Sidebar.Provider>

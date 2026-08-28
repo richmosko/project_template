@@ -39,6 +39,26 @@
 	--chart-3: oklch(0.681 0.162 75.834);
 	--chart-4: oklch(0.554 0.135 66.442);
 	--chart-5: oklch(0.476 0.114 61.907);
+	/* PT-61 (Mosko's ruling, 2026-08-28, "re-step the chart ramp"):
+	   --chart-1/2 above fail the dataviz skill's ordinal light-end
+	   contrast floor against this file's own --card (white, 1.33:1 /
+	   1.91:1 vs the 2:1 hard gate) -- --chart-1..5 stay untouched for
+	   everything else already using them; these 6 are a SEPARATE,
+	   chart-LOCAL ramp for the flow chart specifically (one step per
+	   STATUS_ORDER status), snapped within the same golden hue to clear
+	   every ordinal check -- monotone L, >=0.06 adjacent gaps, <=40°
+	   hue spread, and >=2:1 light-end contrast -- validated in BOTH
+	   modes against the real --card surface via the dataviz skill's
+	   validate_ordinal (design-system-spec.md § Accessibility carries
+	   the validator evidence). Identical values in :root/.dark
+	   (verified to clear the DARK check too, same as the base ramp's
+	   own light/dark duplication) -- not a copy-paste oversight. */
+	--chart-flow-backlog: oklch(0.77 0.17 95);
+	--chart-flow-todo: oklch(0.702 0.168 88.4);
+	--chart-flow-in-progress: oklch(0.634 0.16 81.8);
+	--chart-flow-in-review: oklch(0.566 0.145 75.2);
+	--chart-flow-done: oklch(0.498 0.125 68.6);
+	--chart-flow-cancelled: oklch(0.43 0.1 62);
 	--radius: 0.625rem;
 	--sidebar: oklch(0.985 0.001 106.423);
 	--sidebar-foreground: oklch(0.147 0.004 49.25);
@@ -75,6 +95,16 @@
 	--chart-3: oklch(0.681 0.162 75.834);
 	--chart-4: oklch(0.554 0.135 66.442);
 	--chart-5: oklch(0.476 0.114 61.907);
+	/* PT-61: same 6-step chart-local ramp as :root -- validated
+	   separately against THIS block's --card (the dark surface) via
+	   the dataviz skill's validate_ordinal, not assumed identical
+	   because the light values happened to pass. See :root's comment. */
+	--chart-flow-backlog: oklch(0.77 0.17 95);
+	--chart-flow-todo: oklch(0.702 0.168 88.4);
+	--chart-flow-in-progress: oklch(0.634 0.16 81.8);
+	--chart-flow-in-review: oklch(0.566 0.145 75.2);
+	--chart-flow-done: oklch(0.498 0.125 68.6);
+	--chart-flow-cancelled: oklch(0.43 0.1 62);
 	--sidebar: oklch(0.216 0.006 56.043);
 	--sidebar-foreground: oklch(0.985 0.001 106.423);
 	--sidebar-primary: oklch(0.685 0.169 237.323);
