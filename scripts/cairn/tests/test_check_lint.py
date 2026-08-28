@@ -62,15 +62,26 @@ def write_milestone(data_dir: Path, filename: str, **overrides) -> None:
     # Callers that DO need ga:true already pass it explicitly as an
     # override (the function's own **overrides pattern) -- same collateral
     # class as every other "unmigrated fixture default" this session.
+    #
+    # PT-59: same collateral-damage class, target_tag half -- this
+    # helper's OWN "v1.0.0" default collided with make_tree()'s base
+    # milestone (PT-1.0.md, also target_tag v1.0.0) the moment check_repo
+    # gained the 1:1 target_tag uniqueness rule. Flipped to null, same fix
+    # as the ga default two lines up. Callers that need a real tag already
+    # pass one explicitly (CheckRepoTargetTagUniquenessTests below, and
+    # the GA target_tag-shape tests in test_ga_milestone_lint.py, which
+    # has its own separate helper, unaffected by this file's default).
     fields = dict(id='"PT-1.0"', name="MVP", kind="product", major="PT-V1", status="planned",
-                  target_tag="v1.0.0", ga="false")
+                  target_tag=None, ga="false")
     fields.update(overrides)
+    target_tag = fields["target_tag"]
+    target_tag_yaml = "null" if target_tag is None else target_tag
     text = (
         "---\n"
         "id: {id}\nname: {name}\nkind: {kind}\nmajor: {major}\nstatus: {status}\n"
-        "target_tag: {target_tag}\nga: {ga}\n"
+        f"target_tag: {target_tag_yaml}\nga: {{ga}}\n"
         "---\n\nDoD.\n"
-    ).format(**fields)
+    ).format(**{k: v for k, v in fields.items() if k != "target_tag"})
     (data_dir / "milestones" / filename).write_text(text, encoding="utf-8")
 
 

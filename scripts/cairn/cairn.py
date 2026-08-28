@@ -1255,6 +1255,17 @@ def check_repo(data_dir: Path) -> List[str]:
     # directory read, so the cap error below can mark siblings instead of
     # rendering an unlabeled stem list a reader has to go re-derive by hand.
     ga_milestones_archived: Set[str] = set()
+    # PT-59 (2026-08-23 decision: milestone <-> target_tag is 1:1, never
+    # enforced until now): every milestone -- live or archived -- whose
+    # target_tag is non-null, keyed by tag. Same "collect in the loop
+    # that's already reading this directory" discipline as
+    # ga_milestones_by_major immediately above -- not a second directory
+    # read. This is the SAME two-directory surface PT-54's release join
+    # (_find_release_milestone) reads to resolve a shipped tag back to its
+    # milestone; today, with no lint, glob order silently tiebreaks a state
+    # this decision says can't exist at all.
+    target_tag_owners: Dict[str, List[str]] = {}
+    target_tag_owners_archived: Set[str] = set()
     for p in _dir_glob(data_dir / "archive" / "milestones"):
         try:
             fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
@@ -1271,6 +1282,10 @@ def check_repo(data_dir: Path) -> List[str]:
             if major_id in known_majors:
                 ga_milestones_by_major.setdefault(major_id, []).append(p.stem)
                 ga_milestones_archived.add(p.stem)
+        target_tag = fm.get("target_tag")
+        if target_tag:
+            target_tag_owners.setdefault(str(target_tag), []).append(p.stem)
+            target_tag_owners_archived.add(p.stem)
 
     for p, fm in parsed_milestones:
         major = fm.get("major")
@@ -1287,6 +1302,14 @@ def check_repo(data_dir: Path) -> List[str]:
         # expression rule: this exact "missing or invalid status" shape
         # would otherwise exist twice, one per schema, and could drift).
         _check_record_status(errors, p.stem, fm.get("status"))
+
+        # PT-59: live half of the target_tag_owners collection -- the
+        # archived half was already gathered above, in the same
+        # archive/milestones scan PT-39/PT-46/PT-47 already read that
+        # directory for.
+        target_tag = fm.get("target_tag")
+        if target_tag:
+            target_tag_owners.setdefault(str(target_tag), []).append(p.stem)
 
         # PT-27/PT-28: milestone id-shape <-> kind agreement, now against
         # the PREFIXED shapes (definition_re/development_re, built above --
@@ -1387,6 +1410,26 @@ def check_repo(data_dir: Path) -> List[str]:
             errors.append(
                 f"{p.stem}: ga: true milestone's target_tag {fm.get('target_tag')!r} must be "
                 f"{expected_tag!r} for major {major_id!r} (V<N> means the line that culminates in v<N>.0.0)"
+            )
+
+    # PT-59 (2026-08-23 decision, never enforced until now): milestone <->
+    # target_tag is 1:1 -- no two milestone records, live or archived, may
+    # carry the same non-null target_tag. Reported per offending record
+    # (same convention as the ga-cap error two blocks up), naming the
+    # shared tag and every sibling that carries it, archived siblings
+    # marked so a reader isn't left guessing which is the (legitimate,
+    # shipped) archived record and which is the actual conflict.
+    for tag, stems in target_tag_owners.items():
+        if len(stems) <= 1:
+            continue
+        sibling_list = ", ".join(
+            f"{stem} (archived)" if stem in target_tag_owners_archived else stem
+            for stem in sorted(stems)
+        )
+        for stem in stems:
+            errors.append(
+                f"{stem}: target_tag {tag!r} is shared with {sibling_list} -- milestone <-> "
+                f"target_tag must be 1:1, never shared across records (TRACKER.md, ruled 2026-08-23)"
             )
 
     known_ids = set()
