@@ -241,6 +241,20 @@ class DistFreshnessModuleTests(unittest.TestCase):
         result = self.module.check_dist_freshness(repo_root)
         self.assertIs(result["stale"], False, result)
 
+    def test_a_brand_new_untracked_source_file_also_counts_as_uncommitted(self):
+        # Architect's non-blocking peer-review suggestion, taken: an
+        # untracked (never `git add`ed) new component file is the
+        # STRONGEST signal that dist is out of date -- deliberately the
+        # opposite scoping from read_git_state's "dirty" check (where an
+        # untracked issue file mid-`cairn new` is the routine, ignorable
+        # case). Untracked source files must count here.
+        repo_root = make_dashboard_repo(self)
+        dashboard = repo_root / "scripts" / "cairn" / "dashboard"
+        (dashboard / "src" / "NewComponent.svelte").write_text("<div>never git added</div>\n", encoding="utf-8")
+        result = self.module.check_dist_freshness(repo_root)
+        self.assertIs(result["stale"], True, result)
+        self.assertEqual(result["reason"], "uncommitted-src-changes", result)
+
     def test_never_raises_on_a_repo_with_no_dashboard_directory_at_all(self):
         # A spin-off / a repo that never had the dashboard at all --
         # never-raises posture, matching every other engine-adjacent
