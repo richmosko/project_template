@@ -147,6 +147,59 @@ class DistFreshnessModuleTests(unittest.TestCase):
         result = self.module.check_dist_freshness(repo_root)
         self.assertIs(result["stale"], False, result)
 
+    def test_same_second_commits_resolve_toward_stale_not_fresh(self):
+        # Architect's blocking peer-review finding (8bd6896), first
+        # defect: dist committed, then src committed at the exact SAME
+        # second -- a plain `>` timestamp comparison ties and a tie
+        # resolves to "not stale", exactly backwards for a gate (src DID
+        # change after dist was last built, even if the clock can't tell
+        # them apart). The correct mechanism is ancestry (`git merge-base
+        # --is-ancestor`), not a clock reading: src's commit is NOT an
+        # ancestor of dist's commit here (it comes strictly after in the
+        # DAG), so the gate must report stale regardless of what the two
+        # commits' timestamps happen to say.
+        repo_root = make_dashboard_repo(self)
+        dashboard = repo_root / "scripts" / "cairn" / "dashboard"
+        same_instant = "2026-08-21T09:00:00+0000"
+        (dashboard / "dist" / "index.html").write_text("<html>rebuilt, same second as the src change below</html>\n", encoding="utf-8")
+        _commit(repo_root, "dist: rebuild", when=same_instant)
+        (dashboard / "src" / "App.svelte").write_text("<div>v2 -- committed the same second as the dist rebuild above</div>\n", encoding="utf-8")
+        _commit(repo_root, "src: change, same instant as the dist rebuild", when=same_instant)
+        result = self.module.check_dist_freshness(repo_root)
+        self.assertIs(
+            result["stale"], True,
+            f"{result} -- src's commit comes strictly AFTER dist's rebuild commit in the DAG, "
+            f"even though both carry the identical timestamp -- a tie must not resolve to "
+            f"fresh; ancestry (not clock comparison) is the correct mechanism",
+        )
+
+    def test_a_confusing_timestamp_does_not_override_the_real_commit_order(self):
+        # Architect's second defect: ISO-8601-with-offset timestamps sort
+        # LEXICALLY, not chronologically, so a naive string/int compare
+        # can invert real ordering across timezones. Constructed so the
+        # RIGHT answer (fresh -- dist's rebuild commit is a direct
+        # descendant of the src-change commit, i.e. it genuinely reflects
+        # that change) would come out backwards under a timestamp-based
+        # comparison: dist's rebuild commit is stamped with a timezone
+        # offset that makes it look "earlier" than src's commit, even
+        # though it is literally the NEXT commit after src's in history.
+        # Ancestry doesn't care what clock reading is attached to a
+        # commit, only where it sits in the graph -- so this must read
+        # fresh regardless.
+        repo_root = make_dashboard_repo(self)
+        dashboard = repo_root / "scripts" / "cairn" / "dashboard"
+        (dashboard / "src" / "App.svelte").write_text("<div>v2 -- tz-confusing timestamp follows</div>\n", encoding="utf-8")
+        _commit(repo_root, "src: change (committed with a LATE-looking -0700 stamp)", when="2026-08-20T23:00:00-0700")
+        (dashboard / "dist" / "index.html").write_text("<html>rebuilt immediately after the src change above</html>\n", encoding="utf-8")
+        _commit(repo_root, "dist: rebuild (committed with an EARLIER-looking +0000 stamp, but it's the NEXT commit)", when="2026-08-21T00:30:00+0000")
+        result = self.module.check_dist_freshness(repo_root)
+        self.assertIs(
+            result["stale"], False,
+            f"{result} -- dist's rebuild commit is the direct child of (i.e. genuinely reflects) "
+            f"the src-change commit -- it must read fresh regardless of the confusing timezone "
+            f"offsets attached to each commit's timestamp; only DAG ancestry should decide this",
+        )
+
     def test_a_doc_only_pr_touching_no_dashboard_src_passes_untouched(self):
         # team-lead's explicit requirement: a commit that touches NEITHER
         # dashboard src NOR dist (e.g. a README/docs-only change) must
