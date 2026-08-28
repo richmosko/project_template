@@ -1,19 +1,31 @@
-/* board.css — cairn board. Vanilla CSS, no framework, no CDN. */
-
+/* board.css — cairn board. Vanilla CSS, no framework, no CDN.
+ *
+ * PT-57 (architect's token-delivery ruling): colors and radius now come
+ * from tokens.css (linked before this file in board.html), NOT this
+ * :root -- --background/--foreground/--card/--muted/--primary/
+ * --secondary/--destructive/--border/--ring/--chart-*/--radius(-sm/md/lg)
+ * etc. are all defined there. This :root keeps only what ISN'T a preset
+ * token: layout spacing (--col-gap, --card-gap) and the shadow (not part
+ * of the preset; mapped by eye to the spec's shadow-sm/md guidance).
+ *
+ * ⚠ --accent changes MEANING, not just value, in this migration: the old
+ * --accent here was the legacy palette's primary blue (see design-system-
+ * spec.md's Legacy/migration table for that retired value) -- active tabs,
+ * +New, submit/drawer-action buttons, the in-progress dot, the assignee
+ * chip text. The preset's --accent is a near-white HOVER SURFACE, a
+ * different role entirely. Every one of those old --accent call sites
+ * below is now var(--primary) -- the one deliberate exception is
+ * table.issue-list tr:hover, where "hover surface" is genuinely what the
+ * preset's --accent means.
+ */
 :root {
-  --bg: #f4f5f7;
-  --panel: #ffffff;
-  --border: #dfe1e6;
-  --text: #172b4d;
-  --text-dim: #5e6c84;
-  --accent: #0052cc;
-  --danger: #de350b;
-  --radius: 6px;
   --col-gap: 12px;
   --card-gap: 8px;
   /* PT-29: the containing-card shadow (majors/milestones as bordered
      surface cards, architect's ruling § 1) -- named here rather than
-     inlined at each use site so the value exists once. */
+     inlined at each use site so the value exists once. Not a preset
+     token (the spec's shadow guidance is qualitative -- shadow-sm on
+     cards/popovers -- not a literal value); kept local and mapped by eye. */
   --shadow: 0 1px 2px rgba(9, 30, 66, 0.12);
 }
 
@@ -22,8 +34,8 @@
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--muted);
+  color: var(--foreground);
   font-size: 14px;
   /* PT-32 (architect's ruling § 3): LOAD-BEARING, not polish. Chrome on
      Android ships its own native pull-to-refresh that reloads the WHOLE
@@ -62,8 +74,8 @@ body {
   padding: 10px 0 6px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-dim);
-  background: var(--panel);
+  color: var(--muted-foreground);
+  background: var(--card);
   border-bottom: 1px solid var(--border);
   transform: translateY(-100%);
   transition: transform 0.15s ease;
@@ -98,8 +110,8 @@ body {
    (--danger), not the toast's transient styling -- this state doesn't
    self-resolve. */
 .engine-stale-banner {
-  background: var(--danger);
-  color: #fff;
+  background: var(--destructive);
+  color: var(--destructive-foreground);
   text-align: center;
   padding: 8px 16px;
   font-size: 13px;
@@ -107,7 +119,7 @@ body {
 }
 
 header.app-header {
-  background: var(--panel);
+  background: var(--card);
   border-bottom: 1px solid var(--border);
   padding: 10px 16px;
   display: flex;
@@ -147,11 +159,14 @@ body.embed #tab-dashboard {
    connectLive() toggling the "live"/"polling" class + text. */
 .connection-state {
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 }
 
 .connection-state.live {
-  color: #00875a;
+  /* PT-57 (architect ruling § 3): no green exists in this preset -- a
+     liveness indicator maps onto --primary, same as every other
+     primary-action-weight signal in this file. */
+  color: var(--primary);
 }
 
 .majors-tabs {
@@ -161,17 +176,17 @@ body.embed #tab-dashboard {
 
 .majors-tabs button {
   border: 1px solid var(--border);
-  background: var(--panel);
-  border-radius: var(--radius);
+  background: var(--card);
+  border-radius: var(--radius-md);
   padding: 4px 10px;
   cursor: pointer;
   font-size: 13px;
 }
 
 .majors-tabs button.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
 }
 
 /* PT-48: same muted language as .card.is-archived/.chip.archived --
@@ -190,13 +205,17 @@ body.embed #tab-dashboard {
   height: 6px;
   border-radius: 50%;
   margin-right: 4px;
-  background: #97a0af; /* default: unknown/no-record */
+  /* PT-57 (architect ruling § 3, "Status dots"): unknown/no-record is
+     absence, not a status -- the lowest-weight neutral, --muted-foreground,
+     not the same token as "planned" below (--ring), even though both were
+     the same grey hex pre-migration. */
+  background: var(--muted-foreground); /* default: unknown/no-record */
 }
-.major-status-dot[data-status="planned"] { background: #97a0af; }
-.major-status-dot[data-status="in-progress"] { background: var(--accent); }
-.major-status-dot[data-status="paused"] { background: #ff991f; }
-.major-status-dot[data-status="done"] { background: #00875a; }
-.major-status-dot[data-status="cancelled"] { background: #bf2600; }
+.major-status-dot[data-status="planned"] { background: var(--ring); }
+.major-status-dot[data-status="in-progress"] { background: var(--primary); }
+.major-status-dot[data-status="paused"] { background: var(--chart-2); }
+.major-status-dot[data-status="done"] { background: var(--foreground); }
+.major-status-dot[data-status="cancelled"] { background: var(--destructive); }
 
 /* PT-40: the sibling "open card" button after each major tab -- smaller
    and icon-only, distinct from the filter-tab styling it shares
@@ -204,7 +223,7 @@ body.embed #tab-dashboard {
 .major-tab-open {
   padding: 4px 6px;
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 }
 
 .view-tabs {
@@ -215,17 +234,17 @@ body.embed #tab-dashboard {
 
 .view-tabs a {
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   padding: 4px 10px;
   font-size: 13px;
   text-decoration: none;
-  color: var(--text);
+  color: var(--foreground);
 }
 
 .view-tabs a.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
 }
 
 .filters {
@@ -237,7 +256,7 @@ body.embed #tab-dashboard {
 
 .filters input, .filters select {
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   padding: 4px 8px;
   font-size: 13px;
 }
@@ -247,7 +266,7 @@ body.embed #tab-dashboard {
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 }
 
 /* PT-30: Expand all / Collapse all -- secondary buttons, same visual
@@ -255,20 +274,20 @@ body.embed #tab-dashboard {
    architect's ruling § 4. Hidden (not disabled) via board.js's
    renderHeader when Swimlanes is off. */
 .view-state-btn {
-  background: var(--panel);
+  background: var(--card);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
+  border-radius: var(--radius-md);
+  color: var(--foreground);
   padding: 4px 10px;
   font-size: 12px;
   cursor: pointer;
 }
 
 .new-issue-btn {
-  background: var(--accent);
-  color: #fff;
+  background: var(--primary);
+  color: var(--primary-foreground);
   border: none;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   padding: 4px 12px;
   font-size: 13px;
   cursor: pointer;
@@ -283,7 +302,7 @@ body.embed #tab-dashboard {
 
 .new-issue-form input, .new-issue-form select {
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   padding: 4px 8px;
   font-size: 13px;
 }
@@ -293,22 +312,22 @@ body.embed #tab-dashboard {
 }
 
 .new-issue-form button {
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   padding: 4px 10px;
   font-size: 13px;
   cursor: pointer;
 }
 
 #new-issue-submit {
-  background: var(--accent);
-  color: #fff;
+  background: var(--primary);
+  color: var(--primary-foreground);
   border: none;
 }
 
 #new-issue-cancel {
-  background: var(--panel);
+  background: var(--card);
   border: 1px solid var(--border);
-  color: var(--text);
+  color: var(--foreground);
 }
 
 main {
@@ -325,9 +344,9 @@ main {
 }
 
 .column {
-  background: var(--panel);
+  background: var(--card);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   flex: 1 1 0;
   min-width: 220px;
   padding: 8px;
@@ -338,7 +357,7 @@ main {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   padding: 4px 4px 8px;
   display: flex;
   justify-content: space-between;
@@ -355,7 +374,7 @@ main {
    at all and must keep its pre-PT-29 look untouched). */
 .swimlane {
   margin-bottom: 16px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   padding: 4px 12px 12px;
 }
 
@@ -366,7 +385,7 @@ main {
 /* Single-root: the swimlane is the ONLY containing card -- white panel,
    border, shadow. */
 main > .swimlane {
-  background: var(--panel);
+  background: var(--card);
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
 }
@@ -374,14 +393,14 @@ main > .swimlane {
 /* Single-root: columns sit inside that white card, so they read as a
    grey WELL rather than a second white surface stacked on the first. */
 main > .swimlane .column {
-  background: var(--bg);
+  background: var(--muted);
   border-color: transparent;
 }
 
 .swimlane-header {
   font-weight: 600;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   padding: 4px 0 8px;
   display: flex;
   align-items: center;
@@ -418,7 +437,7 @@ main > .swimlane .column {
   background: none;
   border: none;
   padding: 0;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   cursor: pointer;
 }
 
@@ -463,10 +482,10 @@ main > .swimlane .column {
    to read as the repo marker on top of the card boundary itself. */
 .repo-group {
   margin-bottom: 20px;
-  background: var(--panel);
+  background: var(--card);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--radius);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   padding: 4px 12px 12px;
 }
@@ -481,7 +500,7 @@ main > .swimlane .column {
    --panel, unchanged, since the default .column rule already alternates
    correctly against this grey lane. */
 .repo-group > .swimlane {
-  background: var(--bg);
+  background: var(--muted);
   border: 1px solid var(--border);
 }
 
@@ -491,7 +510,7 @@ main > .swimlane .column {
    and sat white-on-white against the repo card. Mirrors the
    single-root `main > .swimlane .column` rule above, one level deeper. */
 .repo-group > .board .column {
-  background: var(--bg);
+  background: var(--muted);
   border-color: transparent;
 }
 
@@ -512,19 +531,19 @@ main > .swimlane .column {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   font-weight: 400;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 }
 
 .repo-group-count {
   font-weight: 400;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 }
 
 .card {
-  background: var(--panel);
+  background: var(--card);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   padding: 8px;
   margin-bottom: var(--card-gap);
   cursor: grab;
@@ -545,7 +564,7 @@ main > .swimlane .column {
 .card-id {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 }
 
 .card-title {
@@ -559,38 +578,54 @@ main > .swimlane .column {
   gap: 4px;
 }
 
+/* PT-57 (architect ruling § 3, "Chips" table): re-expressed as the
+   spec's badge variants by WEIGHT, not a per-category hue -- the old
+   taxonomy (person=blue, milestone=green, subissues=yellow, repo=purple,
+   blocked=red) is retired per design-system-spec.md's Legacy/migration
+   table, not migrated hex-for-hex. `outline` = transparent fill, --border
+   outline, --muted-foreground text; `secondary` = --secondary/
+   --secondary-foreground; `destructive` = --destructive/
+   --destructive-foreground; `default` = --primary/--primary-foreground. */
 .chip {
   display: inline-block;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   padding: 1px 8px;
   font-size: 11px;
-  background: #ebecf0;
-  color: var(--text-dim);
+  /* outline (default/base): .milestone, .subissues, .progress inherit
+     this unchanged -- they're plain category labels, no elevated weight. */
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
 }
 
-.chip.assignee { background: #deebff; color: var(--accent); }
-.chip.milestone { background: #e3fcef; color: #006644; }
-.chip.subissues { background: #fffae6; color: #974f0c; }
-.chip.repo { background: #eae6ff; color: #403294; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.chip.blocked { background: #ffebe6; color: #bf2600; }
-.chip.archived { background: #ebecf0; color: var(--text-dim); font-style: italic; }
+/* secondary: a person chip and a release chip look the same weight,
+   distinguished by label/icon, not color (spec's Badge/chip vocabulary). */
+.chip.assignee, .chip.release { background: var(--secondary); border-color: transparent; color: var(--secondary-foreground); }
+/* outline + keep the monospace family -- the family IS the label
+   distinction here, not a hue. */
+.chip.repo { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.chip.blocked { background: var(--destructive); border-color: transparent; color: var(--destructive-foreground); }
+.chip.archived { font-style: italic; opacity: 0.6; }
 
 /* PT-44: the retired strip's content, now on the milestone lane header
    and card -- status pill (color keyed off data-status, same
    RECORD_STATUS_LABELS vocabulary as .major-status-dot), progress
    (n/m or the isComplete checkmark), release state, and the GA chip
-   moved off its old "· GA" text suffix. */
-.chip.status[data-status="planned"] { background: #ebecf0; color: var(--text-dim); }
-.chip.status[data-status="in-progress"] { background: #deebff; color: var(--accent); }
-.chip.status[data-status="paused"] { background: #fffae6; color: #974f0c; }
-.chip.status[data-status="done"] { background: #e3fcef; color: #006644; }
-.chip.status[data-status="cancelled"] { background: #ffebe6; color: #bf2600; }
-.chip.progress { background: #ebecf0; color: var(--text-dim); }
-.chip.release { background: #eae6ff; color: #403294; }
-.chip.ga { background: #fffae6; color: #974f0c; font-weight: 600; }
+   moved off its old "· GA" text suffix.
+   PT-57: straight from the spec's record-status table -- planned stays
+   the base outline chip (no override needed); the other four states
+   override background/border/color explicitly. */
+.chip.status[data-status="in-progress"] { background: var(--primary); border-color: transparent; color: var(--primary-foreground); }
+.chip.status[data-status="paused"] { background: var(--chart-2); border-color: transparent; color: var(--foreground); }
+.chip.status[data-status="done"] { background: var(--foreground); border-color: transparent; color: var(--background); }
+.chip.status[data-status="cancelled"] { background: var(--destructive); border-color: transparent; color: var(--destructive-foreground); }
+/* GA is the one milestone marker that should dominate -- `default`
+   weight (--primary/--primary-foreground), ruled here (not in the
+   spec's own table). */
+.chip.ga { background: var(--primary); border-color: transparent; color: var(--primary-foreground); font-weight: 600; }
 
 .column.drop-target {
-  outline: 2px dashed var(--accent);
+  outline: 2px dashed var(--primary);
   outline-offset: -4px;
 }
 
@@ -599,9 +634,9 @@ main > .swimlane .column {
 table.issue-list {
   width: 100%;
   border-collapse: collapse;
-  background: var(--panel);
+  background: var(--card);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -614,12 +649,12 @@ table.issue-list th, table.issue-list td {
 
 table.issue-list th {
   cursor: pointer;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   font-size: 12px;
   text-transform: uppercase;
 }
 
-table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
+table.issue-list tr:hover { background: var(--accent); cursor: pointer; }
 
 /* Drawer */
 
@@ -639,7 +674,7 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
   right: 0;
   bottom: 0;
   width: min(480px, 100vw);
-  background: var(--panel);
+  background: var(--card);
   box-shadow: -4px 0 16px rgba(9, 30, 66, 0.15);
   overflow-y: auto;
   padding: 20px;
@@ -652,7 +687,7 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
 
 .drawer .drawer-id {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   font-size: 12px;
 }
 
@@ -664,7 +699,7 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
   background: none;
   font-size: 20px;
   cursor: pointer;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 }
 
 .drawer-field {
@@ -675,14 +710,14 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
   display: block;
   font-size: 11px;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   margin-bottom: 4px;
 }
 
 .drawer-field select, .drawer-field input {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   padding: 6px 8px;
   font-size: 13px;
 }
@@ -690,8 +725,8 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
 .drawer pre {
   white-space: pre-wrap;
   word-break: break-word;
-  background: var(--bg);
-  border-radius: var(--radius);
+  background: var(--muted);
+  border-radius: var(--radius-sm);
   padding: 10px;
   font-family: inherit;
   font-size: 13px;
@@ -701,8 +736,8 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
 /* PT-4: rendered markdown (description + comment bodies). Sanitized HTML
    from DOMPurify -- see renderMarkdown() in board.js. */
 .markdown-body {
-  background: var(--bg);
-  border-radius: var(--radius);
+  background: var(--muted);
+  border-radius: var(--radius-sm);
   padding: 10px;
   font-size: 13px;
   line-height: 1.5;
@@ -728,14 +763,14 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
 .markdown-body code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
-  background: var(--panel);
+  background: var(--card);
   border-radius: 3px;
   padding: 1px 4px;
 }
 
 .markdown-body pre {
-  background: var(--panel);
-  border-radius: var(--radius);
+  background: var(--card);
+  border-radius: var(--radius-sm);
   padding: 8px;
   overflow-x: auto;
   margin: 8px 0;
@@ -755,7 +790,7 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
   margin: 8px 0;
   padding-left: 10px;
   border-left: 2px solid var(--border);
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 }
 
 .ac-list {
@@ -790,7 +825,7 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
 
 .comment-meta {
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   margin-bottom: 4px;
 }
 
@@ -798,7 +833,7 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
   width: 100%;
   min-height: 70px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   padding: 8px;
   font-family: inherit;
   font-size: 13px;
@@ -806,10 +841,10 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
 }
 
 .add-comment button, .drawer-actions button {
-  background: var(--accent);
-  color: #fff;
+  background: var(--primary);
+  color: var(--primary-foreground);
   border: none;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   padding: 6px 12px;
   font-size: 13px;
   cursor: pointer;
@@ -819,7 +854,7 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
 .section-heading {
   font-size: 12px;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   margin: 18px 0 6px;
   font-weight: 600;
 }
@@ -833,12 +868,12 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
    lines above, distinct classes since they're record-card-only. */
 .drawer-progress {
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   margin: 4px 0;
 }
 .record-readonly-note {
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   font-style: italic;
   margin-top: 8px;
 }
@@ -855,7 +890,7 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
 }
 
 .children-list li.resolved {
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   text-decoration: line-through;
 }
 
@@ -866,10 +901,14 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--text);
-  color: #fff;
+  /* PT-57: dark-fill-on-light-text is the same "inverted" pairing the
+     spec's Done record-status uses (--foreground fill, --background
+     text) -- not a blanket --background substitution, the deliberate
+     correct pairing for THIS fill. */
+  background: var(--foreground);
+  color: var(--background);
   padding: 8px 16px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   font-size: 13px;
   opacity: 0;
   pointer-events: none;
@@ -878,10 +917,13 @@ table.issue-list tr:hover { background: #f4f5f7; cursor: pointer; }
 }
 
 .toast.visible { opacity: 1; }
-.toast.error { background: var(--danger); }
+.toast.error {
+  background: var(--destructive);
+  color: var(--destructive-foreground);
+}
 
 .empty-state {
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   font-size: 13px;
   padding: 8px 4px;
 }

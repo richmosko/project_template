@@ -26,9 +26,12 @@
  * exactly (re-extract and diff both if the preset ever changes upstream).
  *
  * Direction pivot (2026-08-26): supersedes the retired Atlassian-modeled
- * palette (preset b1FR0Us0w) this file previously carried — that palette
- * now lives only in scripts/cairn/board/board.css (the legacy vanilla
- * board), unchanged, per design-system-spec.md § Legacy/migration. No
+ * palette (preset b1FR0Us0w) this file previously carried. That legacy
+ * palette lived on in scripts/cairn/board/board.css only until PT-57
+ * (2026-08-27) migrated it too — board.css now consumes its own third
+ * copy of these values (scripts/cairn/board/tokens.css, colors+radius
+ * only; no font vars — see that file's own header for why a third copy
+ * is unavoidable there and how drift across all three is caught). No
  * project-specific semantic aliases are added here: the pivot is
  * preset-pure by design (no invented hues) — see design-system-spec.md
  * § Project extensions for how the record-status/badge vocabulary is
