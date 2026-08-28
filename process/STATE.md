@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-56-agent-roster` |
 | Started | 2026-08-27 |
 | Goal | The dashboard's roster section shows real agents with real work state from an architect-ruled presence source, degrading honestly when presence is absent or stale — no sample data, no fabricated "active" |
-| Status | In Progress |
+| Status | In Review — [PR #124](https://github.com/richmosko/project_template/pull/124) |
 
 ## Releases
 
