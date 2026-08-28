@@ -255,6 +255,25 @@ class DistFreshnessModuleTests(unittest.TestCase):
         self.assertIs(result["stale"], True, result)
         self.assertEqual(result["reason"], "uncommitted-src-changes", result)
 
+    def test_a_build_config_file_never_enumerated_by_name_still_triggers_stale(self):
+        # Team-lead's ruling (adopting the architect's non-blocking
+        # suggestion as in-scope): the watch set is the INVERSE
+        # formulation -- the whole dashboard/ subtree except dist/ --
+        # specifically so a config file an earlier by-name enumeration
+        # never anticipated (postcss.config.js here; equally .env,
+        # tailwind.config.js, .browserslistrc) can't silently escape the
+        # gate. A by-name list (src/, index.html, package.json, vite/
+        # svelte/tsconfig configs, components.json, public/) would never
+        # have watched this file; the exclude-dist formulation always
+        # does, because it isn't dist/.
+        repo_root = make_dashboard_repo(self)
+        dashboard = repo_root / "scripts" / "cairn" / "dashboard"
+        (dashboard / "postcss.config.js").write_text("module.exports = {};\n", encoding="utf-8")
+        _commit(repo_root, "build config: add postcss.config.js", when="2026-08-21T10:00:00")
+        result = self.module.check_dist_freshness(repo_root)
+        self.assertIs(result["stale"], True, result)
+        self.assertEqual(result["reason"], "stale", result)
+
     def test_never_raises_on_a_repo_with_no_dashboard_directory_at_all(self):
         # A spin-off / a repo that never had the dashboard at all --
         # never-raises posture, matching every other engine-adjacent

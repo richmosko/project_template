@@ -13,22 +13,34 @@ Git-aware, not raw mtime (the architect's own caveat, taken seriously): a
 checkout/clone resets file mtimes arbitrarily, so `dist/`'s mtime vs
 `src/`'s mtime would be unreliable the moment anyone re-clones or
 re-checks-out the branch. Instead: the latest COMMIT that touches
-dashboard source (src/, index.html, package.json/package-lock.json,
-vite.config.*, svelte.config.*, tsconfig*.json, components.json, public/)
-vs the latest commit that touches `dist/`, compared by ANCESTRY
-(`git merge-base --is-ancestor <src-commit> <dist-commit>`), not commit
-timestamp. Architect's blocking finding on the first cut (peer review
-8bd6896): comparing `%cI` strings directly has two failure modes ---
-same-second commits (common when agents commit programmatically in rapid
-succession) tie, and a strict `>` resolves a tie toward "fresh" -- exactly
-backwards for a gate; and ISO-8601 offsets compare LEXICALLY, so ordering
-can invert across timezones. Ancestry dissolves both: it asks git "is the
-source commit reachable from the dist commit's history" rather than "which
-clock reading is bigger", so identical timestamps and cross-timezone
-commits stop mattering entirely. A commit that touches neither (a doc-only
-PR) never flips a previously-fresh repo to stale — if no commit in the
-repo's history touches source at all, there is nothing to compare `dist/`'s
-history against, so the gate reports fresh.
+dashboard source vs the latest commit that touches `dist/`, compared by
+ANCESTRY (`git merge-base --is-ancestor <src-commit> <dist-commit>`), not
+commit timestamp. Architect's blocking finding on the first cut (peer
+review 8bd6896): comparing `%cI` strings directly has two failure modes
+--- same-second commits (common when agents commit programmatically in
+rapid succession) tie, and a strict `>` resolves a tie toward "fresh" --
+exactly backwards for a gate; and ISO-8601 offsets compare LEXICALLY, so
+ordering can invert across timezones. Ancestry dissolves both: it asks
+git "is the source commit reachable from the dist commit's history"
+rather than "which clock reading is bigger", so identical timestamps and
+cross-timezone commits stop mattering entirely. A commit that touches
+neither (a doc-only PR) never flips a previously-fresh repo to stale --
+if no commit in the repo's history touches source at all, there is
+nothing to compare `dist/`'s history against, so the gate reports fresh.
+
+"Dashboard source" is the whole `scripts/cairn/dashboard/` subtree EXCEPT
+`dist/` itself (`git ... -- scripts/cairn/dashboard ':(exclude)
+scripts/cairn/dashboard/dist'`) -- the INVERSE of an enumerated by-name
+list (architect's non-blocking review suggestion, adopted as in-scope:
+"did we remember to exclude it" beats "did we remember to list it"). An
+enumerated list silently stops watching the day someone adds a config
+file Vite picks up automatically (`.env`, `postcss.config.js`, a
+reintroduced `tailwind.config.js`) -- the exclude-formulation can't drift
+that way; only `dist/` is ever carved out. This deliberately overreaches
+in the safe direction: a types-only `tsconfig.json` edit, or even
+`.gitignore`/`README.md` inside the dashboard dir, demands a rebuild it
+doesn't strictly need. False-stale is the safe failure for a gate --
+don't optimize it away.
 
 This is a standalone script (sibling of cairn.py), not a new `cairn`
 subcommand — dist freshness is dashboard-specific, not tracker
@@ -68,12 +80,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 DASHBOARD_REL = Path("scripts") / "cairn" / "dashboard"
-
-# Source path fragments (relative to the dashboard dir) whose latest
-# committed change we compare against dist/'s latest committed change.
-_SOURCE_DIRS = ("src", "public")
-_SOURCE_FILES = ("index.html", "package.json", "package-lock.json", "components.json")
-_SOURCE_GLOBS = ("vite.config.*", "svelte.config.*", "tsconfig*.json")
+DIST_REL = DASHBOARD_REL / "dist"
 
 
 def _run_git(repo_root: Path, *args: str) -> Optional[str]:
@@ -94,34 +101,20 @@ def _run_git(repo_root: Path, *args: str) -> Optional[str]:
     return result.stdout.strip()
 
 
-def _existing_source_pathspecs(dashboard_dir: Path) -> List[str]:
-    """Dashboard-source path fragments that currently exist, relative to
-    the dashboard dir. Built from current working-tree presence (design
-    latitude — the dashboard's own file layout is stable within the
-    lifetime of a single freshness check; this is not a historical
-    archaeology tool)."""
-    found: List[str] = []
-    for name in _SOURCE_DIRS:
-        if (dashboard_dir / name).exists():
-            found.append(name)
-    for name in _SOURCE_FILES:
-        if (dashboard_dir / name).exists():
-            found.append(name)
-    for pattern in _SOURCE_GLOBS:
-        for match in sorted(dashboard_dir.glob(pattern)):
-            found.append(match.name)
-    return found
+def _source_pathspecs() -> List[str]:
+    """The inverse-formulation pathspec: all of `scripts/cairn/dashboard/`
+    EXCEPT `dist/`. `:(exclude)` is git pathspec magic (supported since
+    git 1.9) -- two pathspecs given together mean "the first, minus the
+    second". Static (no filesystem scan): the exclusion is by PATH, not
+    by an enumerated, driftable list of names."""
+    return [str(DASHBOARD_REL), f":(exclude){DIST_REL}"]
 
 
-def _last_commit_sha(repo_root: Path, dashboard_rel: Path, fragments: List[str]) -> Optional[str]:
-    """Full SHA of the most recent commit touching any of `fragments`
-    (each relative to `dashboard_rel`), or `None` if no commit in history
-    touches any of them (distinct from a git failure, which is handled by
-    the caller checking `_run_git`'s own `None` return for a baseline
-    command first)."""
-    if not fragments:
-        return None
-    pathspecs = [str(dashboard_rel / f) for f in fragments]
+def _last_commit_sha(repo_root: Path, pathspecs: List[str]) -> Optional[str]:
+    """Full SHA of the most recent commit touching `pathspecs`, or `None`
+    if no commit in history touches any of them (distinct from a git
+    failure, which is handled by the caller checking `_run_git`'s own
+    `None` return for a baseline command first)."""
     out = _run_git(repo_root, "log", "-1", "--format=%H", "--", *pathspecs)
     return out or None
 
@@ -142,7 +135,22 @@ def _is_ancestor(repo_root: Path, ancestor_sha: str, descendant_sha: str) -> boo
     ISO-8601 offsets sort lexically, not chronologically. `git merge-base
     --is-ancestor` sidesteps both by asking a history-reachability
     question instead of a clock question. Conservatively `False` (i.e.
-    stale, never silently fresh) if the check itself can't run."""
+    stale, never silently fresh) if the check itself can't run.
+
+    Known failure mode (architect, peer review): after a merge, the src
+    and dist commits can sit on divergent branches with NEITHER an
+    ancestor of the other -- `--is-ancestor` returns `False` and the gate
+    reports `stale`. That's genuinely ambiguous (git can't order two
+    commits that never shared a line of descent) and this resolves it
+    conservatively, which is correct -- but it is not a bug if a future
+    reader finds a "false" stale here on such a repo shape.
+
+    What this proves, and what it doesn't (architect): ancestry shows the
+    dist commit came AFTER the source commit in history, not that dist's
+    BYTES were actually built from that source -- it is a reliable
+    heuristic, not a content guarantee. A stronger property (a hash of
+    source inputs recorded in the dist commit) is deliberately out of
+    scope for this gate."""
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_root), "merge-base", "--is-ancestor", ancestor_sha, descendant_sha],
@@ -173,31 +181,34 @@ def check_dist_freshness(repo_root: Path) -> Dict[str, Any]:
             "message": "git is unavailable or this isn't a git worktree -- dist freshness cannot be checked.",
         }
 
-    source_fragments = _existing_source_pathspecs(dashboard_dir)
-    source_pathspecs = [str(DASHBOARD_REL / f) for f in source_fragments]
+    source_pathspecs = _source_pathspecs()
 
     # Uncommitted working-tree changes to source paths are treated as
     # stale, honestly -- this tool cannot know whether they're reflected
     # in the committed dist/, and /finish-feature runs pre-PR. No
     # --untracked-files=no here (unlike read_git_state's "dirty" check,
     # which deliberately ignores untracked files because an untracked
-    # issue file mid-`cairn new` is the routine case there): a brand-new,
-    # never-`git add`ed source file is the strongest possible signal that
-    # dist is out of date, so untracked source files count as dirty too.
-    if source_pathspecs:
-        dirty = _run_git(repo_root, "status", "--porcelain", "--", *source_pathspecs)
-        if dirty:
-            return {
-                "stale": True,
-                "reason": "uncommitted-src-changes",
-                "message": (
-                    "dashboard source has uncommitted (or untracked) changes -- commit them "
-                    "first so dist freshness can be verified against the committed source:\n" + dirty
-                ),
-            }
+    # issue file mid-`cairn new` is the routine case there -- a DIFFERENT
+    # question, "is the tree dirty for display", not "can we trust dist/
+    # matches source"; team-lead's ruling: don't harmonize these): a
+    # brand-new, never-`git add`ed source file is the strongest possible
+    # signal that dist is out of date, so untracked source files count as
+    # dirty too. Scoped to the watched path set via the same pathspecs --
+    # untracked noise elsewhere in the repo (or elsewhere in dashboard/,
+    # e.g. a stray file directly in dist/) never triggers this.
+    dirty = _run_git(repo_root, "status", "--porcelain", "--", *source_pathspecs)
+    if dirty:
+        return {
+            "stale": True,
+            "reason": "uncommitted-src-changes",
+            "message": (
+                "dashboard source has uncommitted (or untracked) changes -- commit them "
+                "first so dist freshness can be verified against the committed source:\n" + dirty
+            ),
+        }
 
-    last_src_sha = _last_commit_sha(repo_root, DASHBOARD_REL, source_fragments)
-    last_dist_sha = _last_commit_sha(repo_root, DASHBOARD_REL, ["dist"])
+    last_src_sha = _last_commit_sha(repo_root, source_pathspecs)
+    last_dist_sha = _last_commit_sha(repo_root, [str(DIST_REL)])
 
     if last_src_sha is None:
         # Nothing in history touches dashboard source at all -- nothing
