@@ -109,9 +109,18 @@ test("PT-57 (must NOT migrate): .chip.archived keeps italic + opacity 0.6, no to
   assert.match(decl, /opacity:\s*0\.6/);
 });
 
-test("PT-57 (must NOT migrate): .chip.repo keeps its monospace font-family (the label distinction, not a hue)", () => {
+test("PT-57/PT-63: .chip.repo keeps its monospace font-family (the label distinction, not a hue)", () => {
+  // PT-57's own text: "family is a label distinction, not a hue" -- what
+  // must survive is the MONOSPACE DISTINCTION, not any particular literal
+  // stack. PT-63 (pre-decided, no ruling gate) replaced every hardcoded
+  // `ui-monospace, SFMono-Regular, Menlo, monospace` stack in board.css --
+  // including this one -- with `var(--font-mono)` (the vendored Geist
+  // Mono Variable face). This is the anticipated evolution PT-57's own
+  // "must NOT migrate" list didn't foresee (it predates PT-63 entirely),
+  // not a violation of the constraint: the distinction this test guards
+  // is intact, just delivered through the token now.
   const decl = findRuleDeclarations(css, ".chip.repo");
-  assert.match(decl, /font-family:\s*ui-monospace/);
+  assert.match(decl, /font-family:\s*var\(--font-mono\)/);
 });
 
 // ---------------------------------------------------------------------------

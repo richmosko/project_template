@@ -5,9 +5,17 @@
  * Atlassian-derived palette migrates to these preset tokens. Linked from
  * board.html BEFORE board.css (`<link rel="stylesheet" href="/board/
  * tokens.css">`), served by the existing `/board/<rel>` static route --
- * zero server changes. Colors and radius ONLY; the type stack is out of
- * scope for this issue (board.css keeps its system-UI font stack) --
- * see PT-57's ruling for the pre-decided font follow-up.
+ * zero server changes.
+ *
+ * PT-63 (the font follow-up PT-57's ruling pre-decided): the three
+ * preset faces are self-hosted below via @font-face, sourced from
+ * scripts/cairn/board/vendor/fonts/ (checked in, zero CDN, zero build --
+ * see vendor/NOTICE.md for provenance/license/checksums). Latin +
+ * latin-ext subsets only, six .woff2 files, ~250KB. Explicitly rejected,
+ * permanently: pointing these @font-face rules at the dashboard's
+ * `/dashboard/assets/*.woff2` -- that would make the board's own
+ * rendering depend on the dashboard's build artifact, the dependency
+ * direction the spin-off constraint forbids.
  *
  * This is a THIRD copy of the same preset values (alongside
  * docs/DESIGN/tokens.css and scripts/cairn/dashboard/src/app.css) --
@@ -18,11 +26,11 @@
  *
  * PALETTE = shadcn-svelte "create" preset b6XadDxmQS -- same source as
  * the other two copies; see docs/DESIGN/design-system-spec.md for full
- * detail and usage rules. Deliberately NOT byte-identical to
- * docs/DESIGN/tokens.css: no --font-* lines (out of scope, see above).
+ * detail and usage rules.
  *
- * Owned by the ux-designer agent for its values; the board-specific
- * scoping (colors+radius only, no fonts) is this issue's own ruling.
+ * Owned by the ux-designer agent for its color/radius values; the
+ * board-specific font-delivery mechanism (self-hosted @font-face here,
+ * not app.css's Vite-bundled import) is PT-57/PT-63's own ruling.
  */
 
 :root {
@@ -70,6 +78,15 @@
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) * 1.4);
+
+  /* PT-63: face is by ROLE, not size (design-system-spec.md Typography) --
+     --font-sans carries the base/default UI (body, buttons, inputs,
+     table cells, badges/chips) despite the "sans" name; --font-heading
+     is headings/section-titles only; --font-mono is ids. Same strings as
+     docs/DESIGN/tokens.css and app.css -- parity-tested. */
+  --font-sans: 'Merriweather Variable', Georgia, 'Times New Roman', serif;
+  --font-heading: 'Space Grotesk Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .dark {
@@ -105,4 +122,71 @@
   --sidebar-accent-foreground: oklch(0.985 0.001 106.423);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.553 0.013 58.071);
+}
+
+/* PT-63: self-hosted faces, vendored under scripts/cairn/board/vendor/
+   fonts/ (see vendor/NOTICE.md for provenance, license, checksums).
+   Latin + latin-ext subsets only. Declarations copied verbatim from each
+   @fontsource-variable package's own generated CSS (unicode-range/
+   font-weight-range included), with only the src url() repointed at the
+   local vendored path -- never at the dashboard's build output. */
+
+/* merriweather-latin-wght-normal */
+@font-face {
+  font-family: 'Merriweather Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 900;
+  src: url(/board/vendor/fonts/merriweather-latin-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* merriweather-latin-ext-wght-normal */
+@font-face {
+  font-family: 'Merriweather Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 900;
+  src: url(/board/vendor/fonts/merriweather-latin-ext-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* space-grotesk-latin-wght-normal */
+@font-face {
+  font-family: 'Space Grotesk Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 700;
+  src: url(/board/vendor/fonts/space-grotesk-latin-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* space-grotesk-latin-ext-wght-normal */
+@font-face {
+  font-family: 'Space Grotesk Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 700;
+  src: url(/board/vendor/fonts/space-grotesk-latin-ext-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* geist-mono-latin-wght-normal */
+@font-face {
+  font-family: 'Geist Mono Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(/board/vendor/fonts/geist-mono-latin-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* geist-mono-latin-ext-wght-normal */
+@font-face {
+  font-family: 'Geist Mono Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(/board/vendor/fonts/geist-mono-latin-ext-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
 }

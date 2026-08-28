@@ -105,13 +105,17 @@ class BoardTokensRootParityTests(unittest.TestCase):
         self.assertGreater(len(self.board_root.keys() & self.docs_root.keys()), 5)
         self.assertGreater(len(self.board_root.keys() & self.app_root.keys()), 5)
 
-    def test_board_tokens_root_omits_font_family_vars_by_design(self):
-        # "Colors and radius ONLY" -- the scope cut, pinned as a positive
-        # assertion so a future accidental font-var addition to
-        # board/tokens.css (which would silently violate PT-57's own
-        # stated scope) fails loudly here.
+    def test_board_tokens_root_carries_font_vars_as_of_pt63(self):
+        # PT-57 scoped board/tokens.css to "colors and radius ONLY" and
+        # this test originally pinned that as a negative assertion (font
+        # vars must be ABSENT). PT-63 is the pre-decided follow-up that
+        # deliberately supersedes that scope cut -- the three preset faces
+        # are now self-hosted (see vendor/NOTICE.md), so the negative
+        # assertion flipped to a positive one: the font vars must be
+        # PRESENT, and (via the shared-keys-agree check in setUp/the two
+        # tests above) must match the sibling files' values exactly.
         for font_key in ("--font-sans", "--font-heading", "--font-mono"):
-            self.assertNotIn(font_key, self.board_root, "board/tokens.css must stay colors+radius only (PT-57 scope)")
+            self.assertIn(font_key, self.board_root, "board/tokens.css should carry font vars as of PT-63")
 
 
 class BoardTokensDarkParityTests(unittest.TestCase):
