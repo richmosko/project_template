@@ -919,6 +919,32 @@ def archived_issue_paths(data_dir: Path) -> List[Path]:
     return _dir_glob(data_dir / "archive" / "issues")
 
 
+def milestone_paths(data_dir: Path, include_archived: bool = False) -> List[Path]:
+    """Every LIVE milestone .md file, plus `archive/milestones/`'s too
+    when `include_archived=True`. PT-60: single-sources the "live dir
+    glob, optionally plus the archive dir glob" pattern that had drifted
+    across three call sites with identical logic and no shared name --
+    `_find_release_milestone` (always both, PT-54's release join),
+    `build_board_payload` (both when its own `archived` flag is set), and
+    `compute_etag` (mirrors `build_board_payload`'s flag exactly, since
+    the etag must change whenever the payload it fronts would).
+
+    Deliberately NOT threaded through `check_repo`'s PT-59 target_tag
+    lint, despite that lint reading the exact same two directories: that
+    loop needs to know WHICH directory each file came from (to run
+    archive-only checks like the done/cancelled-status requirement on
+    the archived half only), not just a combined path list -- a fourth
+    caller here would need to immediately re-derive that distinction,
+    which this helper's return type (a flat list) can't carry. See
+    `check_repo`'s own PT-59 comment at that scan.
+    """
+    data_dir = Path(data_dir)
+    paths = list(_dir_glob(data_dir / "milestones"))
+    if include_archived:
+        paths += _dir_glob(data_dir / "archive" / "milestones")
+    return paths
+
+
 def legacy_archived_issue_paths(data_dir: Path) -> List[Path]:
     """The legacy flat `archive/*.md` layout PT-52 stopped reading -- NOT
     a general-purpose helper; it exists for exactly two callers, and both
@@ -2200,7 +2226,10 @@ def _latest_semver_tag(tags: Optional[Set[str]]) -> Optional[str]:
     return max(tags, key=_key)
 
 
-def read_git_state(data_dir: Path) -> Dict[str, Any]:
+def read_git_state(
+    data_dir: Path,
+    git_tags: Optional[Tuple[Optional[Set[str]], Optional[str]]] = None,
+) -> Dict[str, Any]:
     """PT-54 (architect ruling §4): the `/api/dashboard` "git" group --
     `{branch, dirty, head, latest_tag, warning}`. Same `-C data_dir, walk
     up to find the repo, never raise` contract as `read_git_tags`/
@@ -2213,6 +2242,14 @@ def read_git_state(data_dir: Path) -> Dict[str, Any]:
     trustworthy than it is. `dirty` is `None` (not `False`) when the
     `status --porcelain` read itself failed, so "no changes" and "we
     don't know" stay distinguishable.
+
+    PT-60: `git_tags`, when given, is the exact `(tag_set, warning)` pair
+    `read_git_tags(data_dir)` itself returns -- lets `build_dashboard_payload`
+    read git tags ONCE and hand the same result to this function AND
+    `build_board_payload`, instead of two independent subprocess reads of
+    the same tag set per `/api/dashboard` request. `None` (the default)
+    preserves the exact original behavior -- read internally -- so every
+    other caller/test is unaffected.
     """
     import subprocess
 
@@ -2245,7 +2282,7 @@ def read_git_state(data_dir: Path) -> Dict[str, Any]:
     # a dirty working tree.
     status_out = _run("status", "--porcelain", "--untracked-files=no")
     dirty = None if status_out is None else bool(status_out)
-    tag_set, tags_warning = read_git_tags(data_dir)
+    tag_set, tags_warning = read_git_tags(data_dir) if git_tags is None else git_tags
 
     return {
         "branch": branch,
@@ -2266,7 +2303,7 @@ def _find_release_milestone(data_dir: Path, target_tag: str) -> Optional[Dict[st
     nothing matches.
     """
     data_dir = Path(data_dir)
-    for p in _dir_glob(data_dir / "milestones") + _dir_glob(data_dir / "archive" / "milestones"):
+    for p in milestone_paths(data_dir, include_archived=True):
         fm = _read_frontmatter_dict(p)
         if fm.get("target_tag") == target_tag:
             return fm
@@ -2303,11 +2340,19 @@ def build_dashboard_payload(data_dir: Path) -> Dict[str, Any]:
       end to end (v0.7.1's milestone is archived). `tracker.
       counts_by_status` stays live-only on purpose (matches what
       `/api/board` shows by default) -- only this lookup widens.
+
+    PT-60: reads git tags exactly ONCE per call (`read_git_tags(data_dir)`
+    below), then hands that same `(tag_set, warning)` pair to both
+    `read_git_state` (for `git.latest_tag`) and `build_board_payload` (for
+    each milestone's `released` field, a value this function doesn't even
+    read) -- previously two independent subprocess reads of identical
+    data per `/api/dashboard` request.
     """
     data_dir = Path(data_dir)
-    git_state = read_git_state(data_dir)
+    git_tags = read_git_tags(data_dir)
+    git_state = read_git_state(data_dir, git_tags=git_tags)
 
-    board = build_board_payload(data_dir)
+    board = build_board_payload(data_dir, git_tags=git_tags)
     counts_by_status = {status: 0 for status in STATUS_ORDER}
     for issue in board["issues"]:
         status = issue.get("status")
@@ -2540,7 +2585,11 @@ def build_roster_payload(data_dir: Path) -> Dict[str, Any]:
     return {"agents": agents}
 
 
-def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any]:
+def build_board_payload(
+    data_dir: Path,
+    archived: bool = False,
+    git_tags: Optional[Tuple[Optional[Set[str]], Optional[str]]] = None,
+) -> Dict[str, Any]:
     """{"majors": [...], "milestones": [...], "issues": [...]}.
 
     Board issues carry no "comments" key (spec: "without comment bodies").
@@ -2575,16 +2624,22 @@ def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any
     # PT-44 (ruling § 4): read once per call (== once per root, once per
     # payload build) -- never crashes (git missing / not a repo -> every
     # milestone's `released` below falls back to None, one stderr line).
-    tag_set, git_tags_warning = read_git_tags(data_dir)
+    # PT-60: `git_tags`, when given, is `read_git_tags(data_dir)`'s own
+    # return value, already fetched by a caller (`build_dashboard_payload`)
+    # that needs the SAME tag set for its own git.latest_tag/release join --
+    # skips a second, redundant subprocess read of identical data. `None`
+    # (the default) preserves the exact original per-call read, so every
+    # multi-root caller (`root.path` in the loop below the single-root
+    # dashboard's world) still gets its own fresh read, per root.
+    tag_set, git_tags_warning = read_git_tags(data_dir) if git_tags is None else git_tags
     if git_tags_warning:
         print(f"cairn: warning: {git_tags_warning}", file=sys.stderr)
 
     major_paths = list(_dir_glob(data_dir / "majors"))
-    milestone_paths = list(_dir_glob(data_dir / "milestones"))
+    milestone_file_paths = milestone_paths(data_dir, include_archived=archived)  # PT-60
     issue_paths = list(_dir_glob(data_dir / "issues"))
     if archived:
         major_paths += _dir_glob(data_dir / "archive" / "majors")
-        milestone_paths += _dir_glob(data_dir / "archive" / "milestones")
         issue_paths += archived_issue_paths(data_dir)  # PT-52: archive/issues/ only
 
     def _stamped(p: Path) -> Dict[str, Any]:
@@ -2633,7 +2688,7 @@ def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any
         return fm
 
     majors = [_stamped_with_body(p) for p in major_paths]
-    milestones = [_stamped_with_body(p, include_released=True) for p in milestone_paths]
+    milestones = [_stamped_with_body(p, include_released=True) for p in milestone_file_paths]
 
     # PT-25: no server-side child count -- the board's n/m badge is
     # computed client-side (board-logic.js's childProgress), mirroring
@@ -2772,11 +2827,11 @@ def compute_etag(data_dir: Path, archived: bool = False) -> str:
     hasher = hashlib.sha256()
     hasher.update(f"archived:{archived}\n".encode("utf-8"))
     paths: List[Path] = (
-        _dir_glob(data_dir / "majors") + _dir_glob(data_dir / "milestones") + _dir_glob(data_dir / "issues")
+        _dir_glob(data_dir / "majors") + milestone_paths(data_dir, include_archived=archived)
+        + _dir_glob(data_dir / "issues")
     )
     if archived:
         paths += _dir_glob(data_dir / "archive" / "majors")
-        paths += _dir_glob(data_dir / "archive" / "milestones")
         paths += archived_issue_paths(data_dir)  # PT-52: archive/issues/ only
     for p in paths:
         try:

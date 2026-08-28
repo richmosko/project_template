@@ -50,6 +50,7 @@ import subprocess
 import threading
 import time
 import unittest
+import unittest.mock
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -194,6 +195,21 @@ class LatestSemverTagTests(unittest.TestCase):
         self.assertEqual(
             cairn._latest_semver_tag({"v0.6.0", "v0.7.1", "v0.7.0", "v1.0.0"}),
             "v1.0.0",
+        )
+
+    def test_a_pre_release_of_a_higher_line_still_outranks_a_lower_final(self):
+        # PT-60 (architect, post-block-lift): the pre-release-outranked-
+        # by-final rule above is scoped to a tag's OWN version triple --
+        # v1.0.0-rc1 loses to v1.0.0, but must NOT lose to a final release
+        # of a LOWER line. (major, minor, patch) still decides first; the
+        # is_release tiebreak only ever resolves a tie WITHIN the same
+        # triple. Correct today by direct call -- this assertion guards
+        # against a future "simplification" that demoted pre-releases
+        # globally (sorting on is_release before the version triple)
+        # instead of only within their own triple.
+        self.assertEqual(
+            cairn._latest_semver_tag({"v2.0.0-rc.1", "v1.9.3"}),
+            "v2.0.0-rc.1",
         )
 
     def test_non_semver_tag_sorts_lowest_without_raising(self):
@@ -375,6 +391,46 @@ class DashboardApiGitUnavailableTests(_RunningServer, unittest.TestCase):
         payload = json.loads(resp.read())
         self.assertIn("counts_by_status", payload["tracker"])
         self.assertIn("ok", payload["check"])
+
+
+class BuildDashboardPayloadSingleGitTagsReadTests(unittest.TestCase):
+    """PT-60 (qa's own PT-54 observation, now scheduled): a single
+    `build_dashboard_payload` call reads git tags TWICE today --
+    once directly via `read_git_state` (for `git.latest_tag`/the release
+    join), and again inside `build_board_payload` (to compute each
+    milestone's `released` field, a value `build_dashboard_payload` never
+    even reads). Two subprocess calls for data read once is wasteful, not
+    incorrect -- this is a call-count assertion, not a behavior test (the
+    payload's VALUES are already covered by DashboardApiPayloadTests and
+    friends; this file only pins how many times the underlying read
+    happens).
+
+    RED today by construction: `cairn.read_git_tags` is patched and its
+    call count asserted == 1 per `build_dashboard_payload` call, which
+    currently fails at 2.
+    """
+
+    def test_read_git_tags_is_called_exactly_once_per_dashboard_payload_build(self):
+        data_dir = make_git_repo(self)
+        (data_dir / "milestones" / "PT-1.0.md").write_text(
+            MILESTONE_TMPL.format(
+                id="PT-1.0", name="MVP", kind="product", major="PT-V1",
+                status="done", target_tag="v1.0.0", ga="true",
+            ),
+            encoding="utf-8",
+        )
+        _run_git(data_dir, "tag", "v1.0.0")
+
+        with unittest.mock.patch.object(cairn, "read_git_tags", wraps=cairn.read_git_tags) as spy:
+            cairn.build_dashboard_payload(data_dir)
+
+        self.assertEqual(
+            spy.call_count, 1,
+            f"read_git_tags was called {spy.call_count} time(s) during a single "
+            f"build_dashboard_payload call -- expected exactly 1 (one git subprocess read, "
+            f"reused for both the git.latest_tag/release join AND whatever build_board_payload "
+            f"needs internally, not two independent reads of the same tag set)",
+        )
 
 
 # ---------------------------------------------------------------------------

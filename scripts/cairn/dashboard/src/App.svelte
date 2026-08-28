@@ -4,6 +4,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
+	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
 	import StatusCard from '$lib/components/StatusCard.svelte';
 	import {
 		fetchDashboard,
@@ -123,18 +124,27 @@
 			</p>
 		</div>
 		<div class="flex items-center gap-2">
-			{#if data}
-				<Badge variant={data.git.dirty ? 'outline' : 'secondary'}>
-					{data.git.branch ?? 'unknown branch'} · {data.git.dirty ? 'dirty' : 'clean'}
-				</Badge>
-				<Badge variant={data.release?.ga ? 'default' : 'outline'}>
-					{data.git.latest_tag ?? 'no tags yet'}
-				</Badge>
-			{:else if loadError}
-				<Badge variant="destructive">/api/dashboard unreachable</Badge>
-			{:else}
-				<Badge variant="outline">Loading…</Badge>
-			{/if}
+			<!-- PT-60 (architect's PT-54 forward note): this cluster cycles
+			     through Loading… / branch-state / unreachable text as the
+			     payload resolves -- a Badge isn't a live region by default,
+			     so without aria-live a screen reader never announces the
+			     transition at all. Scoped to just this cluster (not the
+			     Refresh button beside it); "polite" so the announcement
+			     waits for a pause rather than interrupting. -->
+			<div aria-live="polite" class="flex items-center gap-2">
+				{#if data}
+					<Badge variant={data.git.dirty ? 'outline' : 'secondary'}>
+						{data.git.branch ?? 'unknown branch'} · {data.git.dirty ? 'dirty' : 'clean'}
+					</Badge>
+					<Badge variant={data.release?.ga ? 'default' : 'outline'}>
+						{data.git.latest_tag ?? 'no tags yet'}
+					</Badge>
+				{:else if loadError}
+					<Badge variant="destructive">/api/dashboard unreachable</Badge>
+				{:else}
+					<Badge variant="outline">Loading…</Badge>
+				{/if}
+			</div>
 			<Button variant="outline" size="sm" onclick={refreshNow} disabled={refreshing}>
 				{refreshing ? 'Refreshing…' : 'Refresh'}
 			</Button>
@@ -152,32 +162,48 @@
 	{/if}
 
 	<section class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-		<StatusCard
-			eyebrow="Build"
-			value={data?.git.branch ?? '—'}
-			badgeLabel={data ? (data.git.dirty ? 'Dirty' : 'Clean') : undefined}
-			badgeVariant={data?.git.dirty ? 'outline' : 'secondary'}
-			detail={data?.git.head ? `@ ${data.git.head}` : (data?.git.warning ?? undefined)}
-		/>
-		<StatusCard
-			eyebrow="Release"
-			value={data?.git.latest_tag ?? '—'}
-			badgeLabel={data?.release?.status ?? (data && !data.release ? 'unreleased' : undefined)}
-			badgeVariant={data?.release?.ga ? 'default' : 'outline'}
-			detail={data?.release?.name ? `${data.release.id} — ${data.release.name}` : undefined}
-		/>
-		<StatusCard
-			eyebrow="Active Feature"
-			value={data ? activeFeatureLabel(data.git.branch) : '—'}
-			detail={data ? 'from the current branch' : undefined}
-		/>
-		<StatusCard
-			eyebrow="Tracker"
-			value={data ? String(trackerTotal(data.tracker.counts_by_status)) : '—'}
-			badgeLabel={data ? (data.check.ok ? 'Lint clean' : `${data.check.errors.length} lint error(s)`) : undefined}
-			badgeVariant={data?.check.ok ? 'secondary' : 'destructive'}
-			detail={data ? 'issues, live tree' : undefined}
-		/>
+		{#if data}
+			<StatusCard
+				eyebrow="Build"
+				value={data.git.branch ?? '—'}
+				badgeLabel={data.git.dirty ? 'Dirty' : 'Clean'}
+				badgeVariant={data.git.dirty ? 'outline' : 'secondary'}
+				detail={data.git.head ? `@ ${data.git.head}` : (data.git.warning ?? undefined)}
+			/>
+			<StatusCard
+				eyebrow="Release"
+				value={data.git.latest_tag ?? '—'}
+				badgeLabel={data.release?.status ?? (!data.release ? 'unreleased' : undefined)}
+				badgeVariant={data.release?.ga ? 'default' : 'outline'}
+				detail={data.release?.name ? `${data.release.id} — ${data.release.name}` : undefined}
+			/>
+			<StatusCard
+				eyebrow="Active Feature"
+				value={activeFeatureLabel(data.git.branch)}
+				detail="from the current branch"
+			/>
+			<StatusCard
+				eyebrow="Tracker"
+				value={String(trackerTotal(data.tracker.counts_by_status))}
+				badgeLabel={data.check.ok ? 'Lint clean' : `${data.check.errors.length} lint error(s)`}
+				badgeVariant={data.check.ok ? 'secondary' : 'destructive'}
+				detail="issues, live tree"
+			/>
+		{:else}
+			<!-- design-system-spec.md: every list/board fetch renders a
+			     skeleton shaped like the real card/row/table it's replacing --
+			     four bars matching StatusCard's own eyebrow/value/badge
+			     stack, not one decorative block standing in for the section. -->
+			{#each [0, 1, 2, 3] as i (i)}
+				<Card.Root class="[--card-spacing:1.5rem] gap-3">
+					<Card.Content class="flex flex-col gap-2">
+						<Skeleton class="h-3 w-20" />
+						<Skeleton class="h-7 w-16" />
+						<Skeleton class="h-5 w-14" />
+					</Card.Content>
+				</Card.Root>
+			{/each}
+		{/if}
 	</section>
 
 	{#if data}
@@ -205,6 +231,19 @@
 				</Card.Content>
 			</Card.Root>
 		</section>
+	{:else}
+		<!-- PT-60: same fetch boundary as the status cards above -- a
+		     skeleton shaped like the real table (header + STATUS_ORDER-
+		     length rows), not a blank gap while /api/dashboard is in flight. -->
+		<section aria-label="Tracker breakdown">
+			<Card.Root class="[--card-spacing:1.5rem]">
+				<Card.Content class="flex flex-col gap-2">
+					{#each [0, 1, 2, 3, 4, 5] as i (i)}
+						<Skeleton class="h-6 w-full" />
+					{/each}
+				</Card.Content>
+			</Card.Root>
+		</section>
 	{/if}
 
 	<!-- PT-56: agent-roster panel. Honest empty state -- no fabricated
@@ -227,7 +266,20 @@
 				{#if rosterError && !roster}
 					<p class="text-sm text-destructive">Couldn't load the roster: {rosterError}</p>
 				{:else if roster === null}
-					<p class="text-sm text-muted-foreground">Loading…</p>
+					<!-- PT-60: skeleton shaped like the real roster cards below
+					     (dot + name row, then a role-line bar) -- honest loading,
+					     not a spinner or a bare "Loading…" string. -->
+					<ul class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+						{#each [0, 1, 2] as i (i)}
+							<li class="rounded-md border border-border p-3">
+								<div class="flex items-center gap-2">
+									<Skeleton class="size-2.5 shrink-0 rounded-full" />
+									<Skeleton class="h-4 w-24" />
+								</div>
+								<Skeleton class="mt-2 h-3 w-32" />
+							</li>
+						{/each}
+					</ul>
 				{:else if roster.length === 0}
 					<p class="text-sm text-muted-foreground">
 						No agent identities found under .claude/agents/.
