@@ -50,8 +50,17 @@ function readBoardCss() {
   return fs.readFileSync(BOARD_CSS_PATH, "utf8");
 }
 
+function stripCssComments(cssSource) {
+  return cssSource.replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
 function findLegacyHexes(cssSource) {
-  const upper = cssSource.toUpperCase();
+  // Comments stripped first (hardening, added after a real near-miss:
+  // implementation-lead's own PT-57 fix commit added a comment that
+  // quotes "rgb(9, 30, 66)" in prose to EXPLAIN the fix -- a future
+  // comment quoting one of these seven hexes the same way would have
+  // false-positived against the un-hardened version of this check).
+  const upper = stripCssComments(cssSource).toUpperCase();
   return LEGACY_HEXES.filter((hex) => {
     // Whole-token match: not preceded/followed by a hex digit, so a
     // legitimate DIFFERENT color that happens to end in the same six
@@ -60,6 +69,23 @@ function findLegacyHexes(cssSource) {
     const re = new RegExp("(?<![0-9A-F])" + hex.slice(1) + "(?![0-9A-F])", "i");
     return re.test(upper);
   });
+}
+
+// Architect's addendum (2026-08-27, after the main ruling): the
+// Atlassian navy tint, rgb(9, 30, 66), hid inside THREE rgba() literals
+// (--shadow, .drawer-overlay's scrim, .drawer's box-shadow) -- invisible
+// to a bare "#" grep, and a hue the preset-pure direction forbids as
+// much as any hex. implementation-lead fixed all three (07a0557); this
+// guard exists so a regression (or a future rgba() literal that
+// re-introduces the same tint) fails loudly.
+// R,G,B components, matched with flexible whitespace so both "9, 30, 66"
+// and "9,30,66" are caught.
+const LEGACY_RGB_COMPONENTS = [9, 30, 66]; // Atlassian N800, the pre-migration --shadow/scrim tint
+
+function findLegacyRgbTint(cssSource) {
+  const stripped = stripCssComments(cssSource);
+  const re = new RegExp(LEGACY_RGB_COMPONENTS.join("\\s*,\\s*"));
+  return re.test(stripped);
 }
 
 test("PT-57: board.css no longer hardcodes any of design-system-spec.md's seven named legacy hex values", () => {
@@ -80,6 +106,26 @@ test("negative control: the extractor actually catches a legacy hex when present
 test("negative control: a different, unrelated hex is not miscounted as a legacy one", () => {
   const found = findLegacyHexes(":root { --something: #123456; }");
   assert.deepEqual(found, []);
+});
+
+test("PT-57 (architect's addendum): board.css no longer hides the Atlassian navy tint inside an rgba() literal", () => {
+  assert.equal(
+    findLegacyRgbTint(readBoardCss()), false,
+    `board.css still contains the legacy Atlassian navy RGB triplet (${LEGACY_RGB_COMPONENTS.join(", ")}) ` +
+      `inside an rgb()/rgba() color value -- a carried-forward hue is exactly what the preset-pure ` +
+      `direction forbids, hex or not (see 07a0557 for the original fix: drop the tint, keep the alpha)`
+  );
+});
+
+test("negative control: the rgb-tint extractor catches the tint when present", () => {
+  assert.equal(findLegacyRgbTint("--shadow: 0 1px 2px rgba(9, 30, 66, 0.12);"), true);
+});
+
+test("negative control: a comment mentioning the tint in prose is not read as a real usage", () => {
+  assert.equal(
+    findLegacyRgbTint("/* the old value was rgb(9, 30, 66) */\n--shadow: 0 1px 2px rgba(0, 0, 0, 0.12);"),
+    false
+  );
 });
 
 // ---------------------------------------------------------------------------
