@@ -1,0 +1,108 @@
+/*
+ * tokens.css — Design tokens for the vanilla cairn board.
+ *
+ * PT-57 (architect's token-delivery ruling): board.css's legacy
+ * Atlassian-derived palette migrates to these preset tokens. Linked from
+ * board.html BEFORE board.css (`<link rel="stylesheet" href="/board/
+ * tokens.css">`), served by the existing `/board/<rel>` static route --
+ * zero server changes. Colors and radius ONLY; the type stack is out of
+ * scope for this issue (board.css keeps its system-UI font stack) --
+ * see PT-57's ruling for the pre-decided font follow-up.
+ *
+ * This is a THIRD copy of the same preset values (alongside
+ * docs/DESIGN/tokens.css and scripts/cairn/dashboard/src/app.css) --
+ * accepted per the ruling ("where a copy is unavoidable, make drift
+ * loud"): scripts/cairn/tests/test_board_tokens_parity.py asserts every
+ * variable this file shares with the other two agrees on value. Copies
+ * are survivable; silent copies aren't.
+ *
+ * PALETTE = shadcn-svelte "create" preset b6XadDxmQS -- same source as
+ * the other two copies; see docs/DESIGN/design-system-spec.md for full
+ * detail and usage rules. Deliberately NOT byte-identical to
+ * docs/DESIGN/tokens.css: no --font-* lines (out of scope, see above).
+ *
+ * Owned by the ux-designer agent for its values; the board-specific
+ * scoping (colors+radius only, no fonts) is this issue's own ruling.
+ */
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.147 0.004 49.25);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.147 0.004 49.25);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.147 0.004 49.25);
+  --primary: oklch(0.5 0.134 242.749);
+  --primary-foreground: oklch(0.977 0.013 236.62);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.97 0.001 106.424);
+  --muted-foreground: oklch(0.553 0.013 58.071);
+  --accent: oklch(0.97 0.001 106.424);
+  --accent-foreground: oklch(0.216 0.006 56.043);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.97 0.01 17);
+  --border: oklch(0.923 0.003 48.717);
+  --input: oklch(0.923 0.003 48.717);
+  --ring: oklch(0.709 0.01 56.259);
+  --chart-1: oklch(0.905 0.182 98.111);
+  --chart-2: oklch(0.795 0.184 86.047);
+  --chart-3: oklch(0.681 0.162 75.834);
+  --chart-4: oklch(0.554 0.135 66.442);
+  --chart-5: oklch(0.476 0.114 61.907);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0.001 106.423);
+  --sidebar-foreground: oklch(0.147 0.004 49.25);
+  --sidebar-primary: oklch(0.588 0.158 241.966);
+  --sidebar-primary-foreground: oklch(0.977 0.013 236.62);
+  --sidebar-accent: oklch(0.97 0.001 106.424);
+  --sidebar-accent-foreground: oklch(0.216 0.006 56.043);
+  --sidebar-border: oklch(0.923 0.003 48.717);
+  --sidebar-ring: oklch(0.709 0.01 56.259);
+
+  /* Radius scale -- same multiplicative formula as the live shadcn-svelte
+     scaffold's generated @theme inline block (verified against real CLI
+     output, not derived on paper -- see docs/DESIGN/tokens.css's own
+     comment for the correction history). PT-57's ruling: pick per
+     component (badge/chip -> sm, button/input -> md, card/drawer -> lg),
+     never a blanket swap of the old flat 6px --radius. */
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+}
+
+.dark {
+  --background: oklch(0.147 0.004 49.25);
+  --foreground: oklch(0.985 0.001 106.423);
+  --card: oklch(0.216 0.006 56.043);
+  --card-foreground: oklch(0.985 0.001 106.423);
+  --popover: oklch(0.216 0.006 56.043);
+  --popover-foreground: oklch(0.985 0.001 106.423);
+  --primary: oklch(0.443 0.11 240.79);
+  --primary-foreground: oklch(0.977 0.013 236.62);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.268 0.007 34.298);
+  --muted-foreground: oklch(0.709 0.01 56.259);
+  --accent: oklch(0.268 0.007 34.298);
+  --accent-foreground: oklch(0.985 0.001 106.423);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.97 0.01 17);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.553 0.013 58.071);
+  --chart-1: oklch(0.905 0.182 98.111);
+  --chart-2: oklch(0.795 0.184 86.047);
+  --chart-3: oklch(0.681 0.162 75.834);
+  --chart-4: oklch(0.554 0.135 66.442);
+  --chart-5: oklch(0.476 0.114 61.907);
+  --sidebar: oklch(0.216 0.006 56.043);
+  --sidebar-foreground: oklch(0.985 0.001 106.423);
+  --sidebar-primary: oklch(0.685 0.169 237.323);
+  --sidebar-primary-foreground: oklch(0.293 0.066 243.157);
+  --sidebar-accent: oklch(0.268 0.007 34.298);
+  --sidebar-accent-foreground: oklch(0.985 0.001 106.423);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.553 0.013 58.071);
+}

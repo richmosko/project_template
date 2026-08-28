@@ -357,31 +357,58 @@ class RosterPayloadPresenceTests(unittest.TestCase):
                 qa = next(a for a in payload["agents"] if a["id"] == "qa-engineer")
                 self.assertNotEqual(qa["presence"], "working", f"{label} must never read as working, got {qa}")
 
-    def test_real_repo_claude_dir_yields_eleven_agents_mostly_unknown(self):
-        # Architect's explicit "cloner state" ask: a real assertion about
-        # the SHIPPED template, not a placeholder -- run against this
-        # actual checkout's real process/cairn (not a fixture). Ten
-        # agent files (see .claude/agents/) + team-lead's role = 11.
-        #
-        # Fragile-by-design, and this is the ruling's own anticipated
-        # evolution actually arriving: the claim-sets-assignee decision
-        # (team-lead, post-ruling) means live done issues now carry a
-        # real `assignee` -- e.g. PT-56/PT-62 both assigned to
-        # implementation-lead. That agent is correctly `idle` (a done
-        # assignment is real data, per the done-but-live addendum), not
-        # `unknown` -- this test was updated deliberately, not patched
-        # around, the day that became true. Every OTHER agent (nobody
-        # else has a live assignment yet) stays `unknown`.
+    def test_real_claude_agents_with_a_fresh_empty_tracker_yields_eleven_all_unknown(self):
+        # Architect's explicit "cloner state" ask, made STABLE: a real
+        # assertion about the SHIPPED template's identity files (ten real
+        # `.claude/agents/*.md` + team-lead's role = 11), against a
+        # genuinely fresh/empty tracker -- not this repo's own live
+        # process/cairn, whose issue statuses/assignees change constantly
+        # as the team works (this exact test broke twice already: once
+        # when claim-sets-assignee landed, once when implementation-lead
+        # picked up PT-57 mid-session -- see git blame). Copying the REAL
+        # .claude/ tree into a synthetic empty-tracker repo tests the
+        # thing architect actually asked for (a genuine fresh clone's
+        # first-run roster) without coupling to this repo's own churn.
+        import shutil
+
+        real_claude_dir = helpers.CAIRN_DIR.parent.parent / ".claude"
+        self.assertTrue(real_claude_dir.is_dir(), f"{real_claude_dir} missing -- can't run this smoke test")
+
+        tmp = helpers.make_empty_tmp_dir(self)
+        _run_git(tmp, "init", "-q")
+        _run_git(tmp, "config", "user.email", "test@example.com")
+        _run_git(tmp, "config", "user.name", "Test")
+        data_dir = tmp / "process" / "cairn"
+        for sub in ("issues", "archive", "milestones", "majors"):
+            (data_dir / sub).mkdir(parents=True)
+        (data_dir / "config.yml").write_text(
+            "prefix: PT\nport: 8766\ndata_dir: process/cairn\n", encoding="utf-8"
+        )
+        shutil.copytree(real_claude_dir / "agents", tmp / ".claude" / "agents")
+        shutil.copytree(real_claude_dir / "roles", tmp / ".claude" / "roles")
+        (tmp / "README.md").write_text("x\n", encoding="utf-8")
+        _run_git(tmp, "add", ".")
+        _run_git(tmp, "commit", "-q", "-m", "initial")
+
+        payload = cairn.build_roster_payload(data_dir)
+        self.assertEqual(len(payload["agents"]), 11, [a["id"] for a in payload["agents"]])
+        for agent in payload["agents"]:
+            self.assertEqual(agent["presence"], "unknown", agent)
+
+    def test_live_repo_roster_is_internally_consistent(self):
+        # A lighter, non-fragile companion against THIS repo's actual
+        # live tracker: doesn't hardcode which agent is in which state
+        # (that changes as the team works), only that the payload is
+        # well-formed -- eleven identities, every presence value legal,
+        # no crash. Real integration coverage (wrong id resolution, a
+        # crash reading the live issues/ tree) without being a slave to
+        # today's assignment snapshot.
         repo_root = helpers.CAIRN_DIR.parent.parent
         data_dir = repo_root / "process" / "cairn"
         payload = cairn.build_roster_payload(data_dir)
         self.assertEqual(len(payload["agents"]), 11, [a["id"] for a in payload["agents"]])
-        by_id = {a["id"]: a for a in payload["agents"]}
-        self.assertEqual(by_id["implementation-lead"]["presence"], "idle", by_id["implementation-lead"])
-        for agent_id, agent in by_id.items():
-            if agent_id == "implementation-lead":
-                continue
-            self.assertEqual(agent["presence"], "unknown", agent)
+        for agent in payload["agents"]:
+            self.assertIn(agent["presence"], {"working", "idle", "unknown"}, agent)
 
 
 class RosterEndpointHTTPTests(unittest.TestCase):

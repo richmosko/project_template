@@ -299,8 +299,8 @@
 			<Card.Content class="flex flex-col gap-3">
 				<p class="text-xs text-muted-foreground">
 					This is the real, live board (drag, drawer, filters, + New all work) — not a
-					lookalike. Its legacy pre-shadcn styling holds inside this panel until PT-57's
-					board migration.
+					lookalike. Runs on the same design tokens as this dashboard; its typography
+					still differs until the fonts follow-up (PT-63).
 				</p>
 				<iframe
 					src="/?embed=1"
