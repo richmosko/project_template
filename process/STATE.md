@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Dashboard: sidebar header shows repo name, not 'Cairn' |
-| Issue | PT-68 (cairn) |
-| Milestone | PT-0.8 (reopened for this issue; wraps + tags v0.8.0 at merge) |
-| Branch | `feature/pt-68-repo-name-header` |
-| Started | 2026-08-28 |
-| Goal | Repo name derived server-side, surfaced through the payload, rendered in the Sidebar header — uniquifies each clone's dashboard |
-| Status | In Progress |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Releases
 
@@ -31,6 +31,7 @@ Tagged releases across all major lines. Cut via `/merge-pr` when a product miles
 
 | Version | Date | Major line | Milestone shipped | Branch | Notes |
 |---|---|---|---|---|---|
+| v0.8.0 | 2026-08-28 | PT-V1 | PT-0.8 (project dashboard) | main | **Draft** — [release](https://github.com/richmosko/project_template/releases/tag/v0.8.0) awaiting curation + publish. 15 issues, PRs #121–#138: the `/dashboard` view as a real shadcn-svelte app (PT-54 shell, PT-55 board embed, PT-56 honest agent roster, PT-62 width, PT-60 polish, PT-67 skeleton error branches, PT-68 repo-name header), board on preset tokens + self-hosted fonts (PT-57, PT-63) with the full sub-13px face floor (PT-64), dashboard-01 Block anatomy — Sidebar nav + issue-flow chart on a git-blob-reconstructed `/api/flow` with a validator-re-stepped golden ramp (PT-61), structured roster work field (PT-65), engineering gates (PT-58 dist freshness, PT-59 target_tag 1:1, PT-66 archive-path single-sourcing). First real dashboard dependency tree: bits-ui + layerchart(+d3). |
 | v0.7.1 | 2026-08-24 | PT-V1 | PT-0.7.1 (board + archive follow-ups) | main | Published — [release](https://github.com/richmosko/project_template/releases/tag/v0.7.1). 7 issues, PRs #109–#115: ga-cap lint marks archived siblings (PT-47), archived badge on lane headers / major tabs / record drawer (PT-48), `archive/issues/` layout + `cairn migrate archive-issues` with this repo's 43 archived issues migrated as git renames (PT-50), stale board-server detection — engine fingerprint in the payload, persistent banner, `/cairn` auto-restart (PT-49), milestone/major cards editable + comments via new `POST /api/record/<id>` + `cairn comment` on any record (PT-51), then two pre-tag roll-ins (Mosko): legacy archive read leg deleted with a `cairn new` allocation guard (PT-52), `_git_mv_or_rename` nested-relative-path fix (PT-53). **BREAKING for downstream template instances:** the engine no longer reads flat `archive/*.md` — run `cairn migrate archive-issues` on upgrade; until then flat files are invisible, `cairn check` fails naming the count + command, and `cairn new` refuses to allocate. Board/CLI otherwise unaffected. |
 | v0.7.0 | 2026-08-24 | PT-V1 | PT-0.7.0 (milestone/major lifecycle + board surfaces) | main | Published — [release](https://github.com/richmosko/project_template/releases/tag/v0.7.0). 10 issues, PRs #94–#102: statusLabel fallback (PT-37), lifecycle — unified done vocabulary + `cairn migrate lifecycle-status` + `cairn set` on records + archive for milestones/majors with never-sweep-under-live preconditions (PT-39), setup-tracker Day-0 prefixed-id fix live since v0.6.1 (PT-45), board.columns + board.swimlane actually consumed (PT-38), Show-archived toggle + 403 on archived HTTP mutation (PT-42), archived-record status lint (PT-46), viewable milestone/major cards + status indicators (PT-40), progress strip retired into lane headers with git-tag release chips (PT-44, closes PT-43's 0/0), major naming Option A + ga-lint (PT-41). **BREAKING (lint-only) for downstream template instances:** old `completed`/`active` record statuses fail `cairn check` until `cairn migrate lifecycle-status` runs — one command, previewable via --dry-run; board/CLI otherwise unaffected. Migration note: hand-quoted frontmatter scalars are unquoted (representation-only, verified no data change) — diff noise, not data loss. |
 | v0.6.2 | 2026-08-23 | PT-V1 | PT-0.6.2 (board follow-ups — trackpad + cancelled column) | main | Published — [release](https://github.com/richmosko/project_template/releases/tag/v0.6.2). 3 issues, PRs #86/#87/#88: trackpad-overscroll pull-to-refresh adapter with quiet-gap momentum defense (PT-33), conditional cancelled column with honest counts via reference-identity enforcement (PT-35), cross-language column-list drift guard + Python single-sourcing (PT-36). Also first `cairn archive` run: 33 done issues swept to archive/ (exposed PT-43, filed to 0.7.0). |
