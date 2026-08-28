@@ -112,6 +112,17 @@ def _assert_structurally_sound(testcase: unittest.TestCase, path: Path, min_rule
     source = path.read_text(encoding="utf-8")
     scan = scan_css_structure(source)
     stray_lines = [_line_of(source, off) for off in scan.stray_comment_closers]
+    # Architect's measured correction (3bac0ea): against the ORIGINAL,
+    # broken board.css, this stray-closer assertion was the SOLE
+    # discriminating leg -- the rule-count floor below passed on that
+    # exact file too (126 rules found vs. a floor of 50; a premature
+    # comment close relocates where "code" starts, it doesn't shrink the
+    # rule count), and brace depth was already 0. Do not read the
+    # rule-count/brace-balance legs below as "the real check" with this
+    # one as redundant detail -- prune this assertion and the guard stops
+    # catching the exact bug it was born for. The other two legs are kept
+    # because they catch DIFFERENT shapes (an unterminated comment, an
+    # unbalanced/negative brace depth) that this one doesn't.
     testcase.assertEqual(
         scan.stray_comment_closers, [],
         f"{path}: found `*/` with no comment open, at line(s) {stray_lines} "
