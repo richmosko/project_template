@@ -29,17 +29,21 @@ if no commit in the repo's history touches source at all, there is
 nothing to compare `dist/`'s history against, so the gate reports fresh.
 
 "Dashboard source" is the whole `scripts/cairn/dashboard/` subtree EXCEPT
-`dist/` itself (`git ... -- scripts/cairn/dashboard ':(exclude)
-scripts/cairn/dashboard/dist'`) -- the INVERSE of an enumerated by-name
+`dist/` and a short, deliberate noise list (`_NOISE_EXCLUDES`: README.md,
+.gitignore, .vscode) -- the INVERSE of an enumerated by-name build-input
 list (architect's non-blocking review suggestion, adopted as in-scope:
 "did we remember to exclude it" beats "did we remember to list it"). An
-enumerated list silently stops watching the day someone adds a config
-file Vite picks up automatically (`.env`, `postcss.config.js`, a
+enumerated INCLUDE list silently stops watching the day someone adds a
+config file Vite picks up automatically (`.env`, `postcss.config.js`, a
 reintroduced `tailwind.config.js`) -- the exclude-formulation can't drift
-that way; only `dist/` is ever carved out. This deliberately overreaches
-in the safe direction: a types-only `tsconfig.json` edit, or even
-`.gitignore`/`README.md` inside the dashboard dir, demands a rebuild it
-doesn't strictly need. False-stale is the safe failure for a gate --
+that way; only a handful of provably-inert paths are ever carved out, and
+the asymmetry that makes this safe is the same one that made the inverse
+formulation right in the first place: a forgotten EXCLUSION is a
+false-stale (safe, visible, self-correcting), while a forgotten INCLUSION
+would be a false-fresh (silent -- the exact failure this gate exists to
+prevent). Beyond that noise list, this deliberately overreaches in the
+safe direction: a types-only `tsconfig.json` edit still demands a rebuild
+it doesn't strictly need. False-stale is the safe failure for a gate --
 don't optimize it away.
 
 This is a standalone script (sibling of cairn.py), not a new `cairn`
@@ -82,6 +86,21 @@ from typing import Any, Dict, List, Optional
 DASHBOARD_REL = Path("scripts") / "cairn" / "dashboard"
 DIST_REL = DASHBOARD_REL / "dist"
 
+# Paths that are part of the dashboard dir but provably CANNOT affect the
+# build output -- excluded alongside dist/ (architect's non-blocking
+# follow-up on the inverse formulation). This is a SMALL, deliberate
+# exception, not a reopening of the enumeration hazard the inverse
+# formulation exists to avoid: the asymmetry that made "exclude dist/"
+# right in the first place still holds here -- a forgotten exclusion here
+# is a false-stale (safe, visible, self-correcting: rebuild, commit,
+# move on), while a forgotten INCLUSION would be a false-fresh (silent,
+# the exact failure this gate exists to prevent). Without this, editing
+# scripts/cairn/dashboard/README.md -- the file most likely to be edited
+# BECAUSE it documents this very rebuild discipline -- forces a pointless
+# rebuild commit every time, and a gate that cries wolf teaches people to
+# bypass it.
+_NOISE_EXCLUDES = ("README.md", ".gitignore", ".vscode")
+
 
 def _run_git(repo_root: Path, *args: str) -> Optional[str]:
     """Same never-raise, `-C repo_root` contract as cairn.py's
@@ -103,11 +122,15 @@ def _run_git(repo_root: Path, *args: str) -> Optional[str]:
 
 def _source_pathspecs() -> List[str]:
     """The inverse-formulation pathspec: all of `scripts/cairn/dashboard/`
-    EXCEPT `dist/`. `:(exclude)` is git pathspec magic (supported since
-    git 1.9) -- two pathspecs given together mean "the first, minus the
-    second". Static (no filesystem scan): the exclusion is by PATH, not
-    by an enumerated, driftable list of names."""
-    return [str(DASHBOARD_REL), f":(exclude){DIST_REL}"]
+    EXCEPT `dist/` and a short, deliberate noise list (`_NOISE_EXCLUDES`)
+    of paths that provably cannot affect the build. `:(exclude)` is git
+    pathspec magic (supported since git 1.9) -- N pathspecs given
+    together mean "the first, minus every `:(exclude)` one". Static (no
+    filesystem scan): every exclusion is by PATH, not by an enumerated,
+    driftable list of build-input names."""
+    pathspecs = [str(DASHBOARD_REL), f":(exclude){DIST_REL}"]
+    pathspecs += [f":(exclude){DASHBOARD_REL / name}" for name in _NOISE_EXCLUDES]
+    return pathspecs
 
 
 def _last_commit_sha(repo_root: Path, pathspecs: List[str]) -> Optional[str]:

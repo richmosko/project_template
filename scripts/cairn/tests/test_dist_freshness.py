@@ -274,6 +274,21 @@ class DistFreshnessModuleTests(unittest.TestCase):
         self.assertIs(result["stale"], True, result)
         self.assertEqual(result["reason"], "stale", result)
 
+    def test_editing_the_dashboard_readme_does_not_trigger_a_pointless_rebuild(self):
+        # Architect's non-blocking follow-up on the inverse formulation:
+        # excluding only dist/ means README.md/.gitignore/.vscode inside
+        # the dashboard dir would otherwise count as build inputs --
+        # noise, since a doc edit can't affect what Vite builds, and the
+        # README is exactly the file most likely to get edited BECAUSE it
+        # documents this very rebuild discipline. A gate that cries wolf
+        # on its own documentation teaches people to bypass it.
+        repo_root = make_dashboard_repo(self)
+        dashboard = repo_root / "scripts" / "cairn" / "dashboard"
+        (dashboard / "README.md").write_text("# Dashboard\n\nHow to build/rebuild dist/.\n", encoding="utf-8")
+        _commit(repo_root, "docs: add dashboard README", when="2026-08-21T10:00:00")
+        result = self.module.check_dist_freshness(repo_root)
+        self.assertIs(result["stale"], False, result)
+
     def test_never_raises_on_a_repo_with_no_dashboard_directory_at_all(self):
         # A spin-off / a repo that never had the dashboard at all --
         # never-raises posture, matching every other engine-adjacent
