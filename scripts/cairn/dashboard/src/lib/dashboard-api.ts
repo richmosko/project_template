@@ -106,3 +106,60 @@ export function subscribeDashboard(
 		source.close();
 	};
 }
+
+// PT-56: the agent-roster panel's data source. Architect's ruling puts
+// this behind a SEPARATE endpoint (GET /api/roster, never a key on
+// /api/dashboard) -- kept as a separate type/fetch/subscribe trio here
+// too, mirroring that boundary on the client rather than folding it into
+// DashboardPayload's shape.
+export type RosterAgent = {
+	id: string;
+	name: string;
+	role: string;
+	presence: 'working' | 'idle' | 'unknown';
+	work: string | null;
+	stale_since: string | null;
+};
+
+export type RosterPayload = {
+	agents: RosterAgent[];
+};
+
+export async function fetchRoster(): Promise<RosterPayload> {
+	const res = await fetch('/api/roster');
+	if (!res.ok) {
+		throw new Error(`GET /api/roster -> ${res.status}`);
+	}
+	return (await res.json()) as RosterPayload;
+}
+
+/**
+ * Poll-only refresh, same 15s cadence as the dashboard's own poll --
+ * deliberately NOT wired to /api/events: the watcher backing that stream
+ * scans process/cairn/ only, so a change under .claude/agents/ (this
+ * panel's identity source) would never emit a frame. SSE would be pure
+ * decoration here, not a real freshness trigger.
+ */
+export function subscribeRoster(
+	onUpdate: (payload: RosterPayload) => void,
+	onError: (err: unknown) => void = () => {},
+): () => void {
+	let stopped = false;
+
+	const refresh = async () => {
+		try {
+			const payload = await fetchRoster();
+			if (!stopped) onUpdate(payload);
+		} catch (err) {
+			if (!stopped) onError(err);
+		}
+	};
+
+	void refresh();
+	const pollId = window.setInterval(() => void refresh(), POLL_INTERVAL_MS);
+
+	return () => {
+		stopped = true;
+		window.clearInterval(pollId);
+	};
+}

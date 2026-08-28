@@ -2282,6 +2282,209 @@ def build_dashboard_payload(data_dir: Path) -> Dict[str, Any]:
     }
 
 
+# --------------------------------------------------------------------------
+# Agent roster (PT-56) -- a SEPARATE composed reader + GET /api/roster,
+# deliberately NOT part of build_dashboard_payload/the engine proper.
+# `.claude/agents/` and `.claude/roles/` are a template concept, not a
+# tracker one -- reading them from inside cairn.py's engine functions would
+# cross the same "reads nothing outside process/cairn/ + git" boundary
+# read_git_tags's docstring protects, and would survive a cairn spin-off
+# incorrectly (the module would ship with cairn; the ruling says it must
+# stay with the template instead). Isolated here so an unreadable/missing
+# `.claude/` tree degrades the roster panel alone, never the rest of the
+# dashboard.
+# --------------------------------------------------------------------------
+
+_SENTENCE_END_RE = re.compile(r"^(.*?[.!?])(\s|$)")
+
+
+def _first_sentence(text: str) -> str:
+    """The role line's source text (architect ruling § "Identity"): an
+    agent's frontmatter `description` is usually several sentences of
+    operating detail (`.claude/agents/*.md` convention) -- the roster
+    card only has room for the first one. Falls back to the whole
+    (stripped) string if no sentence-ending punctuation is found, rather
+    than returning an empty role.
+    """
+    text = (text or "").strip()
+    if not text:
+        return ""
+    match = _SENTENCE_END_RE.match(text)
+    return match.group(1) if match else text
+
+
+def _repo_root_for(data_dir: Path) -> Path:
+    """The repo root `.claude/` lives at -- `git -C data_dir rev-parse
+    --show-toplevel`, falling back to `data_dir.parent.parent` (this
+    project's own process/cairn -> repo-root convention) when git is
+    unavailable or `data_dir` isn't inside a worktree. Same never-raises
+    contract as `read_git_tags`: the fallback is a plain Path computation
+    that cannot itself fail.
+    """
+    import subprocess
+
+    data_dir = Path(data_dir)
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(data_dir), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            out = result.stdout.strip()
+            if out:
+                return Path(out)
+    except (FileNotFoundError, OSError):
+        pass
+    return data_dir.parent.parent
+
+
+def _read_agent_identities(repo_root: Path) -> List[Dict[str, Any]]:
+    """PT-56 (architect ruling § "Identity"): `.claude/agents/*.md`
+    (`name`/`description` frontmatter) plus `.claude/roles/team-lead.md`
+    -- every clone of this template ships these, so a roster with zero
+    live team running still shows every identity (the ruling's "empty
+    state is not empty" point). `id` and `name` are both the frontmatter
+    `name` value -- this system has no separate "display name" concept.
+    Never raises: a missing `.claude/agents/` dir, a missing role file,
+    or one malformed agent file among many all degrade quietly (an
+    unreadable individual file is skipped, not fatal to the rest).
+    """
+    repo_root = Path(repo_root)
+    identities: List[Dict[str, Any]] = []
+
+    agents_dir = repo_root / ".claude" / "agents"
+    if agents_dir.is_dir():
+        for p in sorted(agents_dir.glob("*.md")):
+            try:
+                fm = _read_frontmatter_dict(p)
+            except Exception:  # noqa: BLE001 -- one bad file must not blank the roster
+                continue
+            name = fm.get("name")
+            if not name:
+                continue
+            identities.append({"id": name, "name": name, "role": _first_sentence(fm.get("description"))})
+
+    role_path = repo_root / ".claude" / "roles" / "team-lead.md"
+    if role_path.is_file():
+        try:
+            fm = _read_frontmatter_dict(role_path)
+            name = fm.get("name") or "team-lead"
+            identities.append({"id": name, "name": name, "role": _first_sentence(fm.get("description"))})
+        except Exception:  # noqa: BLE001
+            pass
+
+    return identities
+
+
+_WORKING_STATUSES = ("in-progress", "in-review")
+
+
+def build_roster_payload(data_dir: Path) -> Dict[str, Any]:
+    """`GET /api/roster`'s payload (PT-56) -- architect's presence-source
+    ruling in full: identity from `_read_agent_identities` (never
+    fabricated), work attribution from the tracker's `assignee` field on
+    LIVE issues only (`archive/` excluded -- matches every other
+    "live by default" convention in this codebase, PT-42's own
+    precedent), presence strictly one of `working`/`idle`/`unknown` --
+    never "active"/"online"/"live", which would claim an observation
+    this engine cannot make.
+
+    - `working`: assignee of >=1 live issue with status in
+      `in-progress`/`in-review` AND that issue's `updated` is today.
+    - `idle`: an assignment exists but doesn't qualify as `working`
+      right now -- a backlog/todo/done/cancelled assignment, or a
+      `working`-shaped one that's gone stale (its `updated` predates
+      today). Staleness degrades one-directionally: never silently
+      stays `working`.
+    - `unknown`: no live issue references this identity at all. This is
+      every agent's value on a fresh clone with no live team running --
+      the ruling's stated correct output, not a defect.
+
+    `work` carries a human-readable line for the card's "work line" --
+    `None` for `unknown` (nothing to report).
+    """
+    data_dir = Path(data_dir)
+    repo_root = _repo_root_for(data_dir)
+    identities = _read_agent_identities(repo_root)
+
+    live_issues = [_read_frontmatter_dict(p) for p in _dir_glob(data_dir / "issues")]
+    today = _today()
+
+    agents: List[Dict[str, Any]] = []
+    for identity in identities:
+        agent_id = identity["id"]
+        assigned = [issue for issue in live_issues if issue.get("assignee") == agent_id]
+
+        presence = "unknown"
+        work: Optional[str] = None
+        stale_since: Optional[str] = None
+        if assigned:
+            presence = "idle"
+            working_issue = next(
+                (i for i in assigned if i.get("status") in _WORKING_STATUSES and i.get("updated") == today),
+                None,
+            )
+            if working_issue is not None:
+                presence = "working"
+                work = f"{working_issue.get('id')}: {working_issue.get('title')}"
+            else:
+                stale = next((i for i in assigned if i.get("status") in _WORKING_STATUSES), None)
+                if stale is not None:
+                    # PT-56 (architect's explicit follow-up): the staleness
+                    # date must be a SURFACED field, not just implied by
+                    # `presence == "idle"` -- a UI can't render "last
+                    # tracker update 2026-08-01" from the enum value alone.
+                    stale_since = stale.get("updated")
+                    work = f"{stale.get('id')}: {stale.get('title')} (last tracker update {stale_since})"
+                else:
+                    # PT-56 (architect's diff-review fix): a live PENDING
+                    # assignment (backlog/todo -- anything that isn't
+                    # done/cancelled) outranks "last shipped" history.
+                    # The addendum's `done`-as-history framing was meant
+                    # as the FALLBACK, not the preference -- an agent
+                    # accumulates `done` issues over time while pending
+                    # work is the more useful thing a roster reader wants,
+                    # and once claim-time assignees populate for real,
+                    # "has a done issue" will be true for almost everyone.
+                    pending = next(
+                        (i for i in assigned if i.get("status") not in ("done", "cancelled")),
+                        None,
+                    )
+                    if pending is not None:
+                        work = f"{pending.get('id')}: {pending.get('title')} ({pending.get('status')})"
+                    elif any(i.get("status") == "done" for i in assigned):
+                        # PT-56 (architect's addendum, "done-but-live
+                        # cell"): team-lead's preserve-assignee-on-done
+                        # decision means a `done` issue stays in the live
+                        # `issues/` dir until archived -- the common case,
+                        # not an edge one. Presence stays `idle` (a
+                        # completed assignment is real data, not "no
+                        # data" -- collapsing it to `unknown` would
+                        # discard exactly the provenance preserve-on-done
+                        # exists to keep), but the work line must read as
+                        # HISTORY, never current work.
+                        done = next(i for i in assigned if i.get("status") == "done")
+                        work = f"last shipped {done.get('id')}: {done.get('title')}"
+                    else:
+                        # Ratified by architect: cancelled-only reads
+                        # idle with the status named, honest and
+                        # one-directional -- another cell the ruling
+                        # didn't originally enumerate.
+                        other = assigned[0]
+                        work = f"{other.get('id')}: {other.get('title')} ({other.get('status')})"
+
+        agents.append({
+            "id": agent_id,
+            "name": identity["name"],
+            "role": identity["role"],
+            "presence": presence,
+            "work": work,
+            "stale_since": stale_since,
+        })
+
+    return {"agents": agents}
+
+
 def build_board_payload(data_dir: Path, archived: bool = False) -> Dict[str, Any]:
     """{"majors": [...], "milestones": [...], "issues": [...]}.
 
@@ -3340,6 +3543,18 @@ def make_server(
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 self.wfile.write(body)
+                return
+            if path == "/api/roster":
+                # PT-56 (architect ruling § "Where the code lives"): a
+                # SEPARATE endpoint, never a key on /api/dashboard --
+                # keeps PT-54's five-key payload contract intact and
+                # isolates failure (an unreadable .claude/agents/ degrades
+                # only this endpoint). No SSE-driven freshness: the
+                # watcher scans process/cairn/ only, so a change under
+                # .claude/agents/ would emit nothing regardless -- the
+                # dashboard client polls this on its own cadence instead.
+                payload = build_roster_payload(roots[0].path)
+                self._send_json(200, payload)
                 return
             if path in ("/", "/list"):
                 self._send_static("board.html")

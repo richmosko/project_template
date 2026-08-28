@@ -5,11 +5,30 @@
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
 	import StatusCard from '$lib/components/StatusCard.svelte';
-	import { fetchDashboard, subscribeDashboard, type DashboardPayload } from '$lib/dashboard-api';
+	import {
+		fetchDashboard,
+		subscribeDashboard,
+		subscribeRoster,
+		type DashboardPayload,
+		type RosterAgent,
+	} from '$lib/dashboard-api';
 
 	let data = $state<DashboardPayload | null>(null);
 	let loadError = $state<string | null>(null);
 	let refreshing = $state(false);
+
+	// PT-56: separate state, separate poll -- the roster rides no SSE
+	// (the watcher never sees .claude/agents/ changes), matching the
+	// architect's ruling that this is a genuinely independent data source
+	// from the rest of the dashboard, not a variant of it.
+	let roster = $state<RosterAgent[] | null>(null);
+	let rosterError = $state<string | null>(null);
+
+	const PRESENCE_DOT_CLASS: Record<RosterAgent['presence'], string> = {
+		working: 'bg-primary',
+		idle: 'bg-chart-2',
+		unknown: 'bg-muted-foreground/30',
+	};
 
 	const unsubscribe = subscribeDashboard(
 		(payload) => {
@@ -24,6 +43,17 @@
 		},
 	);
 	onDestroy(unsubscribe);
+
+	const unsubscribeRoster = subscribeRoster(
+		(payload) => {
+			roster = payload.agents;
+			rosterError = null;
+		},
+		(err) => {
+			rosterError = err instanceof Error ? err.message : String(err);
+		},
+	);
+	onDestroy(unsubscribeRoster);
 
 	async function refreshNow() {
 		refreshing = true;
@@ -180,11 +210,63 @@
 	<!-- PT-56: agent-roster panel. Honest empty state -- no fabricated
 	     agents until the presence-source ruling lands and the panel is
 	     actually wired up. -->
+	<!-- PT-56 (architect ruling): identity from .claude/agents/*.md +
+	     .claude/roles/team-lead.md, work attribution from the tracker's
+	     assignee field on live issues, presence strictly working/idle/
+	     unknown -- never "active"/"online"/"live", which would claim an
+	     observation this system cannot make. The legend line is part of
+	     the ruling, not decoration: it's what keeps the color-coded dot
+	     from silently implying real-time presence. -->
 	<section aria-label="Agent roster">
 		<h2 class="font-heading mb-3 text-lg font-semibold text-foreground">Agents</h2>
 		<Card.Root>
-			<Card.Content class="py-8 text-center text-sm text-muted-foreground">
-				Agent roster not wired up yet (PT-56).
+			<Card.Content class="flex flex-col gap-3">
+				<p class="text-xs text-muted-foreground">
+					Derived from tracker assignments, not live presence — nobody is being pinged.
+				</p>
+				{#if rosterError && !roster}
+					<p class="text-sm text-destructive">Couldn't load the roster: {rosterError}</p>
+				{:else if roster === null}
+					<p class="text-sm text-muted-foreground">Loading…</p>
+				{:else if roster.length === 0}
+					<p class="text-sm text-muted-foreground">
+						No agent identities found under .claude/agents/.
+					</p>
+				{:else}
+					<ul class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+						{#each roster as agent (agent.id)}
+							<li class="rounded-md border border-border p-3">
+								<div class="flex items-center gap-2">
+									<span
+										class={`inline-block size-2.5 shrink-0 rounded-full ${PRESENCE_DOT_CLASS[agent.presence]}`}
+										aria-hidden="true"
+									></span>
+									<span class="font-heading text-sm font-semibold text-foreground">{agent.name}</span>
+									<Badge variant="outline" class="ml-auto">{agent.presence}</Badge>
+								</div>
+								<p class="mt-1 text-xs text-muted-foreground">{agent.role}</p>
+								{#if agent.work}
+									<details class="mt-2 text-xs text-muted-foreground">
+										<summary class="cursor-pointer select-none">
+											{agent.work.split(':')[0]}
+										</summary>
+										<p class="mt-1">{agent.work}</p>
+										{#if agent.stale_since}
+											<p class="mt-1">Last tracker update: {agent.stale_since}</p>
+										{/if}
+									</details>
+								{:else}
+									<!-- PT-56 (team-lead's browser-pass finding, architect's
+									     recommendation 58f6fc1): an `unknown` card previously
+									     stopped after role with no line at all -- ambiguous
+									     between "nothing to report" and "failed to load".
+									     One muted line makes the honest empty state explicit. -->
+									<p class="mt-2 text-xs text-muted-foreground">No tracked work.</p>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				{/if}
 			</Card.Content>
 		</Card.Root>
 	</section>
