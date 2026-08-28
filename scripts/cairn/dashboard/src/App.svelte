@@ -162,7 +162,33 @@
 	{/if}
 
 	<section class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-		{#if data}
+		{#if loadError && !data}
+			<!-- PT-67: mirrors the roster panel's three-state shape -- a
+			     failed initial load must switch this section to an error
+			     message, not leave the skeleton below pulsing forever
+			     underneath the separate top-level error card above. -->
+			<Card.Root class="sm:col-span-2 lg:col-span-4">
+				<Card.Content>
+					<p class="text-sm text-destructive">
+						Couldn't load dashboard data: {loadError}
+					</p>
+				</Card.Content>
+			</Card.Root>
+		{:else if data === null}
+			<!-- design-system-spec.md: every list/board fetch renders a
+			     skeleton shaped like the real card/row/table it's replacing --
+			     four bars matching StatusCard's own eyebrow/value/badge
+			     stack, not one decorative block standing in for the section. -->
+			{#each [0, 1, 2, 3] as i (i)}
+				<Card.Root class="[--card-spacing:1.5rem] gap-3">
+					<Card.Content class="flex flex-col gap-2">
+						<Skeleton class="h-3 w-20" />
+						<Skeleton class="h-7 w-16" />
+						<Skeleton class="h-5 w-14" />
+					</Card.Content>
+				</Card.Root>
+			{/each}
+		{:else}
 			<StatusCard
 				eyebrow="Build"
 				value={data.git.branch ?? '—'}
@@ -189,24 +215,37 @@
 				badgeVariant={data.check.ok ? 'secondary' : 'destructive'}
 				detail="issues, live tree"
 			/>
-		{:else}
-			<!-- design-system-spec.md: every list/board fetch renders a
-			     skeleton shaped like the real card/row/table it's replacing --
-			     four bars matching StatusCard's own eyebrow/value/badge
-			     stack, not one decorative block standing in for the section. -->
-			{#each [0, 1, 2, 3] as i (i)}
-				<Card.Root class="[--card-spacing:1.5rem] gap-3">
-					<Card.Content class="flex flex-col gap-2">
-						<Skeleton class="h-3 w-20" />
-						<Skeleton class="h-7 w-16" />
-						<Skeleton class="h-5 w-14" />
-					</Card.Content>
-				</Card.Root>
-			{/each}
 		{/if}
 	</section>
 
-	{#if data}
+	{#if loadError && !data}
+		<!-- PT-67: mirrors the roster panel's three-state shape -- a
+		     failed initial load must switch this section to an error
+		     message, not leave the skeleton below pulsing forever
+		     underneath the separate top-level error card above. -->
+		<section aria-label="Tracker breakdown">
+			<Card.Root class="[--card-spacing:1.5rem]">
+				<Card.Content>
+					<p class="text-sm text-destructive">
+						Couldn't load the tracker breakdown: {loadError}
+					</p>
+				</Card.Content>
+			</Card.Root>
+		</section>
+	{:else if data === null}
+		<!-- PT-60: same fetch boundary as the status cards above -- a
+		     skeleton shaped like the real table (header + STATUS_ORDER-
+		     length rows), not a blank gap while /api/dashboard is in flight. -->
+		<section aria-label="Tracker breakdown">
+			<Card.Root class="[--card-spacing:1.5rem]">
+				<Card.Content class="flex flex-col gap-2">
+					{#each [0, 1, 2, 3, 4, 5] as i (i)}
+						<Skeleton class="h-6 w-full" />
+					{/each}
+				</Card.Content>
+			</Card.Root>
+		</section>
+	{:else}
 		<section aria-label="Tracker breakdown">
 			<Card.Root class="[--card-spacing:1.5rem]">
 				<Card.Content>
@@ -228,19 +267,6 @@
 							{/each}
 						</Table.Body>
 					</Table.Root>
-				</Card.Content>
-			</Card.Root>
-		</section>
-	{:else}
-		<!-- PT-60: same fetch boundary as the status cards above -- a
-		     skeleton shaped like the real table (header + STATUS_ORDER-
-		     length rows), not a blank gap while /api/dashboard is in flight. -->
-		<section aria-label="Tracker breakdown">
-			<Card.Root class="[--card-spacing:1.5rem]">
-				<Card.Content class="flex flex-col gap-2">
-					{#each [0, 1, 2, 3, 4, 5] as i (i)}
-						<Skeleton class="h-6 w-full" />
-					{/each}
 				</Card.Content>
 			</Card.Root>
 		</section>

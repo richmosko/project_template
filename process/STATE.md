@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Dashboard: status cards + tracker table skeletons lack an error branch |
+| Issue | PT-67 (cairn) |
+| Milestone | PT-0.8 |
+| Branch | `feature/pt-67-skeleton-error-branch` |
+| Started | 2026-08-28 |
+| Goal | Mirror the roster's three-state shape (error → message, null → skeleton, data → content) at both sites, with a source-guard pinning the error branches |
+| Status | In Review — [PR #133](https://github.com/richmosko/project_template/pull/133) |
 
 ## Releases
 
