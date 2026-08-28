@@ -62,15 +62,26 @@ def write_milestone(data_dir: Path, filename: str, **overrides) -> None:
     # Callers that DO need ga:true already pass it explicitly as an
     # override (the function's own **overrides pattern) -- same collateral
     # class as every other "unmigrated fixture default" this session.
+    #
+    # PT-59: same collateral-damage class, target_tag half -- this
+    # helper's OWN "v1.0.0" default collided with make_tree()'s base
+    # milestone (PT-1.0.md, also target_tag v1.0.0) the moment check_repo
+    # gained the 1:1 target_tag uniqueness rule. Flipped to null, same fix
+    # as the ga default two lines up. Callers that need a real tag already
+    # pass one explicitly (CheckRepoTargetTagUniquenessTests below, and
+    # the GA target_tag-shape tests in test_ga_milestone_lint.py, which
+    # has its own separate helper, unaffected by this file's default).
     fields = dict(id='"PT-1.0"', name="MVP", kind="product", major="PT-V1", status="planned",
-                  target_tag="v1.0.0", ga="false")
+                  target_tag=None, ga="false")
     fields.update(overrides)
+    target_tag = fields["target_tag"]
+    target_tag_yaml = "null" if target_tag is None else target_tag
     text = (
         "---\n"
         "id: {id}\nname: {name}\nkind: {kind}\nmajor: {major}\nstatus: {status}\n"
-        "target_tag: {target_tag}\nga: {ga}\n"
+        f"target_tag: {target_tag_yaml}\nga: {{ga}}\n"
         "---\n\nDoD.\n"
-    ).format(**fields)
+    ).format(**{k: v for k, v in fields.items() if k != "target_tag"})
     (data_dir / "milestones" / filename).write_text(text, encoding="utf-8")
 
 
@@ -90,6 +101,29 @@ def write_milestone_major_field_omitted(data_dir: Path, filename: str, milestone
 def write_major(data_dir: Path, filename: str, major_id: str) -> None:
     text = f"---\nid: {major_id}\nstatus: in-progress\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n"
     (data_dir / "majors" / filename).write_text(text, encoding="utf-8")
+
+
+def write_archived_milestone(data_dir: Path, filename: str, **overrides) -> None:
+    """PT-59: same shape as write_milestone, but under archive/milestones/
+    -- the two-directory surface PT-54's release join reads (live +
+    archived), and the one glob order today silently tiebreaks for a
+    duplicate-target_tag state the 2026-08-23 1:1 decision says can't
+    exist. Status defaults to `done` (an archived milestone that's still
+    `planned` would itself be a PT-46 lint error, unrelated to what these
+    tests exercise)."""
+    fields = dict(id='"PT-9.0"', name="Old", kind="product", major="PT-V1", status="done",
+                  target_tag=None, ga="false")
+    fields.update(overrides)
+    (data_dir / "archive" / "milestones").mkdir(parents=True, exist_ok=True)
+    target_tag = fields["target_tag"]
+    target_tag_yaml = "null" if target_tag is None else target_tag
+    text = (
+        "---\n"
+        "id: {id}\nname: {name}\nkind: {kind}\nmajor: {major}\nstatus: {status}\n"
+        f"target_tag: {target_tag_yaml}\nga: {{ga}}\n"
+        "---\n\nDoD.\n"
+    ).format(**{k: v for k, v in fields.items() if k != "target_tag"})
+    (data_dir / "archive" / "milestones" / filename).write_text(text, encoding="utf-8")
 
 
 def write_issue_title_field_omitted(data_dir: Path, filename: str, issue_id: str) -> None:
@@ -931,6 +965,142 @@ class CheckCliTests(unittest.TestCase):
         self.assertIn("PT-1", combined)
         self.assertIn("PT-2", combined)
         self.assertIn("cycle", combined.lower())
+
+
+class CheckRepoTargetTagUniquenessTests(unittest.TestCase):
+    """PT-59: no two milestone records -- live OR archived, the same
+    two-directory surface PT-54's release join reads -- may carry the
+    same non-null `target_tag`. The 1:1 invariant was decision-recorded
+    2026-08-23 but never enforced; today, glob order is the silent
+    tiebreak for a state the decision says can't exist.
+
+    Nothing under test exists yet: `check_repo` has no target_tag
+    uniqueness rider. Every "must error" test below is expected to fail
+    (errors == [], or missing the expected message) until implementation-
+    lead's PT-59 slice lands -- never an import error.
+
+    IMPORTANT for whoever lands this: `write_milestone`'s own default
+    `target_tag` is `"v1.0.0"` -- the SAME value as `make_tree()`'s base
+    `PT-1.0.md`. All 18 pre-existing `write_milestone(...)` call sites in
+    this file rely on that default and don't override target_tag, so the
+    moment this lint is live, EVERY one of them will start colliding with
+    the base tree's PT-1.0.md under major PT-V1. This is the identical
+    collateral-damage class PT-41's `ga:true` default hit (see the
+    write_milestone docstring above) -- the fix there was flipping the
+    helper's default; the same fix likely applies here (flip
+    `write_milestone`'s default `target_tag` to `null`, add it explicitly
+    only where a test actually needs a real tag). Every test in THIS
+    class passes target_tag explicitly, on purpose, so it isn't itself
+    part of that collateral set.
+    """
+
+    def test_clean_tree_with_distinct_tags_has_no_error(self):
+        data_dir = make_tree(self)  # PT-1.0.md: target_tag v1.0.0
+        write_milestone(data_dir, "PT-2.0.md", id='"PT-2.0"', major="PT-V1", target_tag="v2.0.0")
+        errors = cairn.check_repo(data_dir)
+        self.assertEqual(errors, [], errors)
+
+    def test_same_tag_twice_live_is_an_error_naming_both_ids_and_the_tag(self):
+        data_dir = make_tree(self)  # PT-1.0.md: target_tag v1.0.0
+        write_milestone(data_dir, "PT-2.0.md", id='"PT-2.0"', major="PT-V1", target_tag="v1.0.0")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(errors)
+        self.assertTrue(
+            any("PT-1.0" in e and "PT-2.0" in e and "v1.0.0" in e for e in errors),
+            errors,
+        )
+        # Reported per offending record (same convention as the GA-cap
+        # lint above), not once for the whole group.
+        self.assertTrue(any(e.startswith("PT-1.0:") for e in errors), errors)
+        self.assertTrue(any(e.startswith("PT-2.0:") for e in errors), errors)
+
+    def test_same_tag_live_and_archived_is_an_error_the_canonical_case(self):
+        # The case glob order currently hides: PT-54's release join reads
+        # live-then-archived (or whatever order _dir_glob happens to
+        # produce) and silently picks one -- this is the state that must
+        # never be allowed to exist at all.
+        data_dir = make_tree(self)  # PT-1.0.md: target_tag v1.0.0
+        write_archived_milestone(data_dir, "PT-9.0.md", id='"PT-9.0"', target_tag="v1.0.0")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(errors)
+        self.assertTrue(
+            any("PT-1.0" in e and "PT-9.0" in e and "v1.0.0" in e for e in errors),
+            errors,
+        )
+
+    def test_same_tag_twice_archived_is_an_error(self):
+        data_dir = make_tree(self)
+        write_milestone(data_dir, "PT-1.0.md", id='"PT-1.0"', major="PT-V1", target_tag="null")  # neutralize the base tree's own tag
+        write_archived_milestone(data_dir, "PT-8.0.md", id='"PT-8.0"', target_tag="v3.0.0")
+        write_archived_milestone(data_dir, "PT-9.0.md", id='"PT-9.0"', target_tag="v3.0.0")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(errors)
+        self.assertTrue(
+            any("PT-8.0" in e and "PT-9.0" in e and "v3.0.0" in e for e in errors),
+            errors,
+        )
+
+    def test_null_target_tag_never_collides_no_matter_how_many_share_it(self):
+        # Only NON-NULL tags participate -- kind:process/letter milestones
+        # (and any development milestone not yet targeting a tag) commonly
+        # carry target_tag: null, and there is nothing to compare.
+        data_dir = make_tree(self)
+        write_milestone(data_dir, "PT-1.0.md", id='"PT-1.0"', major="PT-V1", target_tag="null")  # neutralize the base tree's own tag
+        write_milestone(data_dir, "PT-A.md", id='"PT-A"', major="PT-V1", kind="process", target_tag=None)
+        write_milestone(data_dir, "PT-B.md", id='"PT-B"', major="PT-V1", kind="process", target_tag=None)
+        write_archived_milestone(data_dir, "PT-9.0.md", id='"PT-9.0"', target_tag=None)
+        errors = cairn.check_repo(data_dir)
+        self.assertEqual(errors, [], errors)
+
+    def test_target_tag_comparison_is_case_sensitive(self):
+        # Pinned, not assumed: git tags are case-sensitive strings
+        # everywhere else this codebase compares them (read_git_tags'
+        # membership test, _find_release_milestone's `==`) -- "V1.0.0"
+        # and "v1.0.0" are two different strings and two different tags,
+        # so two milestones naming them are NOT a collision.
+        data_dir = make_tree(self)  # PT-1.0.md: target_tag v1.0.0 (lowercase)
+        write_milestone(data_dir, "PT-2.0.md", id='"PT-2.0"', major="PT-V1", target_tag="V1.0.0")
+        errors = cairn.check_repo(data_dir)
+        self.assertEqual(errors, [], errors)
+
+    def test_three_way_collision_reports_every_offending_id(self):
+        data_dir = make_tree(self)  # PT-1.0.md: target_tag v1.0.0
+        write_milestone(data_dir, "PT-2.0.md", id='"PT-2.0"', major="PT-V1", target_tag="v1.0.0")
+        write_archived_milestone(data_dir, "PT-9.0.md", id='"PT-9.0"', target_tag="v1.0.0")
+        errors = cairn.check_repo(data_dir)
+        for expected_id in ("PT-1.0", "PT-2.0", "PT-9.0"):
+            self.assertTrue(
+                any(e.startswith(f"{expected_id}:") and "v1.0.0" in e for e in errors),
+                (expected_id, errors),
+            )
+
+    def test_a_record_that_trips_an_earlier_check_still_contributes_its_tag(self):
+        # Architect's regression fixture (self-correction on their own
+        # PT-59 bubble-up): the live-loop target_tag collection sits right
+        # after that same loop's major check, and is only safe from a
+        # future "flip elif into continue-on-invalid-major" refactor
+        # because nothing between the two checks currently skips ahead.
+        # Two milestones share target_tag v1.0.0 while naming a major that
+        # doesn't exist (PT-V9, never defined) -- both an "unknown major"
+        # error AND both duplicate-tag errors must fire. If a future
+        # refactor turned the major check's elif into `continue`, these
+        # two records would stop reaching the collection entirely: the
+        # duplicate-tag errors would silently vanish (only the two
+        # unknown-major errors would remain) and this test would catch
+        # exactly that regression.
+        data_dir = make_tree(self)
+        write_milestone(data_dir, "PT-1.0.md", id='"PT-1.0"', major="PT-V9", target_tag="v1.0.0")
+        write_milestone(data_dir, "PT-2.0.md", id='"PT-2.0"', major="PT-V9", target_tag="v1.0.0")
+        errors = cairn.check_repo(data_dir)
+        self.assertTrue(any("unknown major" in e for e in errors), errors)
+        self.assertTrue(
+            any(e.startswith("PT-1.0:") and "target_tag" in e and "v1.0.0" in e for e in errors),
+            errors,
+        )
+        self.assertTrue(
+            any(e.startswith("PT-2.0:") and "target_tag" in e and "v1.0.0" in e for e in errors),
+            errors,
+        )
 
 
 if __name__ == "__main__":
