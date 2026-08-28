@@ -2252,17 +2252,26 @@ def read_git_state(
     git_tags: Optional[Tuple[Optional[Set[str]], Optional[str]]] = None,
 ) -> Dict[str, Any]:
     """PT-54 (architect ruling §4): the `/api/dashboard` "git" group --
-    `{branch, dirty, head, latest_tag, warning}`. Same `-C data_dir, walk
-    up to find the repo, never raise` contract as `read_git_tags`/
-    `_git_mv_or_rename`; reuses `read_git_tags` for the tag set rather
-    than a fourth subprocess call, per the ruling.
+    `{branch, dirty, head, latest_tag, warning, repo_name}`. Same `-C
+    data_dir, walk up to find the repo, never raise` contract as
+    `read_git_tags`/`_git_mv_or_rename`; reuses `read_git_tags` for the
+    tag set rather than a fourth subprocess call, per the ruling.
 
-    A single failure anywhere in this group (git missing, or `data_dir`
-    not inside a worktree) degrades the WHOLE group to `None` fields plus
-    a warning -- never a partially-populated dict that could look more
-    trustworthy than it is. `dirty` is `None` (not `False`) when the
-    `status --porcelain` read itself failed, so "no changes" and "we
-    don't know" stay distinguishable.
+    A single failure anywhere in the GIT-DEPENDENT half of this group
+    (git missing, or `data_dir` not inside a worktree) degrades
+    `branch`/`dirty`/`head`/`latest_tag` to `None` plus a warning --
+    never a partially-populated dict that could look more trustworthy
+    than it is. `dirty` is `None` (not `False`) when the `status
+    --porcelain` read itself failed, so "no changes" and "we don't know"
+    stay distinguishable.
+
+    `repo_name` (PT-68) is the ONE deliberate exception to "whole group
+    degrades together": it's a directory basename, not a git read, so it
+    needs no subprocess to exist at all -- `_repo_root_for` already falls
+    back to `data_dir.parent.parent` when git is unavailable, so a repo
+    with no git history (or git itself missing) still gets an honest
+    sidebar header instead of one that goes blank alongside the fields
+    that genuinely can't be known without git.
 
     PT-60: `git_tags`, when given, is the exact `(tag_set, warning)` pair
     `read_git_tags(data_dir)` itself returns -- lets `build_dashboard_payload`
@@ -2286,6 +2295,8 @@ def read_git_state(
             return None
         return result.stdout.strip()
 
+    repo_name = _repo_root_for(data_dir).name
+
     branch = _run("rev-parse", "--abbrev-ref", "HEAD")
     if branch is None:
         return {
@@ -2294,6 +2305,7 @@ def read_git_state(
             "head": None,
             "latest_tag": None,
             "warning": "git unavailable or not a worktree -- every dashboard git field is null",
+            "repo_name": repo_name,
         }
 
     head = _run("rev-parse", "--short", "HEAD")
@@ -2311,6 +2323,7 @@ def read_git_state(
         "head": head,
         "latest_tag": _latest_semver_tag(tag_set),
         "warning": tags_warning,
+        "repo_name": repo_name,
     }
 
 

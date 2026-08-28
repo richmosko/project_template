@@ -158,8 +158,18 @@
 <Sidebar.Provider>
 	<Sidebar.Root collapsible="icon">
 		<Sidebar.Header>
+			<!-- PT-68 (Mosko's scope): every template clone showed the same
+			     hardcoded "Cairn" label here -- now the repo's own name,
+			     server-derived (git.repo_name, /api/dashboard) so each
+			     project's dashboard identifies itself. `data` is null only
+			     during the initial fetch; repo_name itself is never null
+			     once loaded (read_git_state's one field that survives a
+			     git-unavailable degrade -- a directory basename needs no
+			     git subprocess to exist). -->
 			<div class="flex items-center gap-2 px-2 py-1.5">
-				<span class="font-heading text-sm font-semibold text-sidebar-foreground">Cairn</span>
+				<span class="font-heading text-sm font-semibold text-sidebar-foreground">
+					{data?.git.repo_name ?? '…'}
+				</span>
 			</div>
 		</Sidebar.Header>
 		<Sidebar.Content>
