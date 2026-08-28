@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | finish-feature: dashboard dist freshness check |
-| Issue | PT-58 (cairn) |
-| Milestone | PT-0.8 — project dashboard |
-| Branch | `feature/pt-58-dist-freshness` |
-| Started | 2026-08-28 |
-| Goal | /finish-feature refuses (or warns loudly) when scripts/cairn/dashboard/dist/ is older than the source it ships — converting the committed-dist staleness risk from PR discipline into a checked gate. Standing merge authorization through PT-0.8 |
-| Status | In Progress |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Releases
 
