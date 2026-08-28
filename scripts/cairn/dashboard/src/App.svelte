@@ -101,7 +101,20 @@
 	};
 </script>
 
-<div class="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 bg-muted px-7 py-7">
+<!-- PT-62 (hotfix, team-lead ruling): design-system-spec.md's Dashboard
+     scale defines 28px page MARGINS, not a max-width -- the preset's own
+     preview is full-bleed. The previous `max-w-6xl` cap here was an
+     implementation artifact, not a spec requirement, and it strangled the
+     embedded board (PT-55): six kanban columns with Show-cancelled on
+     don't fit inside a 1152px-capped page. Full-bleed root (28px margins
+     via px-7/py-7 only); the Board section below gets the whole viewport.
+     Everything ABOVE the board (header, status cards, tracker table,
+     agent roster) stays inside its own `max-w-6xl` wrapper -- capping
+     four stat cards at nothing would stretch them across an ultrawide
+     monitor with mostly empty padding, which is the "spec's card scale
+     holds" judgment call this issue's AC leaves to implementation. -->
+<div class="flex min-h-screen flex-col gap-6 bg-muted px-7 py-7">
+	<div class="mx-auto flex w-full max-w-6xl flex-col gap-6">
 	<header class="flex flex-wrap items-center justify-between gap-4">
 		<div class="flex flex-col gap-1">
 			<h1 class="font-heading text-2xl font-bold text-foreground">Project Dashboard</h1>
@@ -257,7 +270,12 @@
 			</Card.Content>
 		</Card.Root>
 	</section>
+	</div>
 
+	<!-- PT-62 (hotfix): the Board section is deliberately OUTSIDE the
+	     max-w-6xl wrapper above -- it's the one section this hotfix exists
+	     to give the full viewport to (28px margins only, via the outer
+	     div's px-7). -->
 	<!-- PT-55 (architect ruling): same-origin iframe of the real board at
 	     `/?embed=1` -- maximal reuse (same files, same fetch, same PT-36
 	     column list), not a rewrite. `embed=1` suppresses only the

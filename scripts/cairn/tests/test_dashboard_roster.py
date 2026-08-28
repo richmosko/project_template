@@ -357,21 +357,30 @@ class RosterPayloadPresenceTests(unittest.TestCase):
                 qa = next(a for a in payload["agents"] if a["id"] == "qa-engineer")
                 self.assertNotEqual(qa["presence"], "working", f"{label} must never read as working, got {qa}")
 
-    def test_real_repo_claude_dir_yields_eleven_agents_all_unknown(self):
+    def test_real_repo_claude_dir_yields_eleven_agents_mostly_unknown(self):
         # Architect's explicit "cloner state" ask: a real assertion about
         # the SHIPPED template, not a placeholder -- run against this
         # actual checkout's real process/cairn (not a fixture). Ten
         # agent files (see .claude/agents/) + team-lead's role = 11.
-        # Fragile-by-design: this is expected to need updating the day
-        # `assignee` actually starts getting set for real (a named
-        # follow-up in the ruling itself, not an accident) -- if this
-        # test breaks because a real issue now has a real assignee, that
-        # is the ruling's own anticipated evolution, not a regression.
+        #
+        # Fragile-by-design, and this is the ruling's own anticipated
+        # evolution actually arriving: the claim-sets-assignee decision
+        # (team-lead, post-ruling) means live done issues now carry a
+        # real `assignee` -- e.g. PT-56/PT-62 both assigned to
+        # implementation-lead. That agent is correctly `idle` (a done
+        # assignment is real data, per the done-but-live addendum), not
+        # `unknown` -- this test was updated deliberately, not patched
+        # around, the day that became true. Every OTHER agent (nobody
+        # else has a live assignment yet) stays `unknown`.
         repo_root = helpers.CAIRN_DIR.parent.parent
         data_dir = repo_root / "process" / "cairn"
         payload = cairn.build_roster_payload(data_dir)
         self.assertEqual(len(payload["agents"]), 11, [a["id"] for a in payload["agents"]])
-        for agent in payload["agents"]:
+        by_id = {a["id"]: a for a in payload["agents"]}
+        self.assertEqual(by_id["implementation-lead"]["presence"], "idle", by_id["implementation-lead"])
+        for agent_id, agent in by_id.items():
+            if agent_id == "implementation-lead":
+                continue
             self.assertEqual(agent["presence"], "unknown", agent)
 
 
