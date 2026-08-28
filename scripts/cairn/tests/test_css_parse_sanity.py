@@ -152,6 +152,17 @@ def _assert_structurally_sound(testcase: unittest.TestCase, path: Path, min_rule
         f"{path}: a `}}` appeared with no matching `{{` before it (brace depth went negative) -- "
         f"the file has more closing braces than could possibly be real rule closures at that point.",
     )
+    # Architect verified (independently, via postcss.parse()): this
+    # scanner's top_level_rule_count and a real CSS parser's rule count
+    # can legitimately differ by a small amount on the SAME valid file --
+    # 126 here vs. postcss's 127 on the fixed board.css -- because they
+    # count different things. This counts every `{` seen at brace depth 0
+    # (so an `@media {...}` block counts ONCE, its nested rules don't add
+    # to the total); postcss counts parsed rule NODES, where an at-rule's
+    # children are their own nodes. Harmless for a floor (both numbers
+    # move together, and neither is anywhere near collapsing), but not a
+    # discrepancy to "fix" if you ever see it -- they're answering
+    # slightly different questions on purpose.
     testcase.assertGreaterEqual(
         scan.top_level_rule_count, min_rules,
         f"{path}: only {scan.top_level_rule_count} top-level rule(s) found (expected at least "
