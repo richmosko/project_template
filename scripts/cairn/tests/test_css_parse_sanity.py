@@ -101,18 +101,30 @@ def scan_css_structure(source: str) -> CssStructuralScan:
     )
 
 
+def _line_of(source: str, offset: int) -> int:
+    """1-indexed line number containing `offset` -- turns a raw char
+    position into something a human can jump to directly, per architect's
+    "pinpoints the line" ask."""
+    return source.count("\n", 0, offset) + 1
+
+
 def _assert_structurally_sound(testcase: unittest.TestCase, path: Path, min_rules: int) -> None:
     source = path.read_text(encoding="utf-8")
     scan = scan_css_structure(source)
+    stray_lines = [_line_of(source, off) for off in scan.stray_comment_closers]
     testcase.assertEqual(
         scan.stray_comment_closers, [],
-        f"{path}: found `*/` with no comment open at char offset(s) "
-        f"{scan.stray_comment_closers} -- a comment earlier in the file almost certainly "
-        f"contains a literal `*/` in its own prose, closing it early (CSS comments cannot "
-        f"nest -- the FIRST `*/` after a `/*` always wins) and turning everything after into "
-        f"literal, likely-invalid CSS code. This is the exact PT-57 bug class: a real browser "
-        f"can drop the ENTIRE stylesheet from this, while text-pattern-matching guards miss it "
-        f"completely because they don't require the file to parse as one coherent whole.",
+        f"{path}: found `*/` with no comment open, at line(s) {stray_lines} "
+        f"(char offset(s) {scan.stray_comment_closers}) -- a comment EARLIER in the file "
+        f"almost certainly contains a literal `*/` in its own prose (architect's PT-57 finding: "
+        f"the auditable shape is any `*` immediately followed by `/` inside comment prose, "
+        f"however innocuous-looking -- e.g. `--chart-*/--radius`, where the `*` belongs to one "
+        f"token and the `/` to the next), closing that comment early (CSS comments cannot nest "
+        f"-- the FIRST `*/` after a `/*` always wins) and turning everything after into literal, "
+        f"likely-invalid CSS code -- including this now-orphaned `*/` itself. This is the exact "
+        f"PT-57 bug class: a real browser can drop the ENTIRE stylesheet from this, while text-"
+        f"pattern-matching guards miss it completely because they don't require the file to "
+        f"parse as one coherent whole.",
     )
     testcase.assertFalse(
         scan.unterminated_comment,
@@ -185,6 +197,12 @@ class ScanCssStructureSelfTests(unittest.TestCase):
         self.assertEqual(scan.final_brace_depth, 0)
         self.assertEqual(scan.min_brace_depth, 0)
         self.assertEqual(scan.top_level_rule_count, 2)
+
+    def test_line_of_reports_the_correct_1_indexed_line(self):
+        source = "line one\nline two\nline three"
+        self.assertEqual(_line_of(source, 0), 1)
+        self.assertEqual(_line_of(source, 9), 2)  # first char of "line two"
+        self.assertEqual(_line_of(source, 19), 3)  # first char of "line three"
 
     def test_unterminated_comment_is_detected(self):
         scan = scan_css_structure("/* never closes\n:root { --x: 1; }")
