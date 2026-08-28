@@ -29,7 +29,15 @@ else
   echo "NOTE: board.js JS suite skipped (Node absent or no *.test.js files) — Python suite is the hard gate."
 fi
 
-# 3. No uncommitted changes beyond the tracker's own status edits
+# 3. Dashboard dist/ is not stale relative to its committed source — HARD GATE
+#    (PT-58: committed dist/ used to rely on PR discipline alone; this makes it
+#    checked. Git-aware, not mtime — mtimes lie after a clone/checkout. Only
+#    fires when the feature branch actually touched the dashboard; a doc-only
+#    or non-dashboard PR reports fresh untouched.)
+python3 scripts/cairn/check_dist_freshness.py \
+  || { echo "GATE FAIL: scripts/cairn/dashboard/dist/ is stale or has uncommitted source changes — rebuild/commit dist/ before proceeding"; exit 1; }
+
+# 4. No uncommitted changes beyond the tracker's own status edits
 git status --porcelain
 ```
 
