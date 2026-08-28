@@ -180,6 +180,7 @@ class RosterPayloadPresenceTests(unittest.TestCase):
         payload = cairn.build_roster_payload(data_dir)
         qa = next(a for a in payload["agents"] if a["id"] == "qa-engineer")
         self.assertEqual(qa["presence"], "working")
+        self.assertIsNone(qa.get("stale_since"), "a genuinely working row must not carry a staleness date")
 
     def test_working_also_holds_for_in_review_status(self):
         data_dir = make_git_repo_with_agents(self)
@@ -208,12 +209,16 @@ class RosterPayloadPresenceTests(unittest.TestCase):
     def test_a_stale_in_progress_assignment_degrades_to_idle_not_working(self):
         # Staleness: updated: predates today -> idle, annotated with the
         # date, never working -- this is the ruling's central honesty
-        # requirement, so it gets its own dedicated test.
+        # requirement, so it gets its own dedicated test. The date must be
+        # SURFACED (architect's explicit follow-up), not just implied by
+        # the presence value -- a UI showing "idle" alone can't render
+        # "last tracker update 2026-08-01" without this field.
         data_dir = make_git_repo_with_agents(self)
         write_issue(data_dir, id="PT-1", title="Stalled", status="in-progress", assignee="qa-engineer", updated="2026-08-01")
         payload = cairn.build_roster_payload(data_dir)
         qa = next(a for a in payload["agents"] if a["id"] == "qa-engineer")
         self.assertEqual(qa["presence"], "idle")
+        self.assertEqual(qa.get("stale_since"), "2026-08-01", qa)
 
     def test_archived_issues_do_not_count_toward_presence(self):
         # "Live issues only" -- an archived issue assigned to this agent
@@ -237,6 +242,79 @@ class RosterPayloadPresenceTests(unittest.TestCase):
         payload = cairn.build_roster_payload(data_dir)
         for agent in payload["agents"]:
             self.assertIn(agent["presence"], {"working", "idle", "unknown"}, agent)
+
+    def test_vocabulary_guard_no_fabricated_liveness_words_anywhere_in_presence_values(self):
+        # Architect's explicit ask: assert the served payload's EXTRACTED
+        # status values never include "active"/"online"/"live" -- the
+        # exact fabrication the AC forbids. Targets the actual `presence`
+        # values (a real payload field), not a whole-file text scan --
+        # same "extracted value, not file prose" discipline as PT-55's
+        # sandbox-attribute correction.
+        data_dir = make_git_repo_with_agents(self)
+        today = datetime.date.today().isoformat()
+        write_issue(data_dir, id="PT-1", title="A", status="in-progress", assignee="qa-engineer", updated=today)
+        payload = cairn.build_roster_payload(data_dir)
+        forbidden = {"active", "online", "live"}
+        presence_values = {agent["presence"] for agent in payload["agents"]}
+        self.assertEqual(
+            presence_values & forbidden, set(),
+            f"presence values must never include {forbidden} -- got {presence_values}, "
+            f"the ruling's vocabulary is strictly working/idle/unknown",
+        )
+
+    def test_one_directional_invariant_nothing_stale_or_absent_ever_reads_as_working(self):
+        # The AC's honesty clause, expressed as a property rather than an
+        # example (architect's explicit ask): sweep every kind of
+        # stale/absent/weak input this contract defines and confirm NONE
+        # of them ever produce "working". A single example test (like the
+        # staleness test above) can't catch a future implementation that
+        # special-cases one shape of staleness but not another.
+        today = datetime.date.today().isoformat()
+
+        def _no_assignment(d):
+            pass
+
+        def _archived_in_progress_updated_today(d):
+            (d / "archive" / "issues").mkdir(parents=True, exist_ok=True)
+            (d / "archive" / "issues" / "PT-9.md").write_text(
+                ISSUE_TMPL.format(id="PT-9", title="x", status="in-progress", assignee="qa-engineer", updated=today),
+                encoding="utf-8",
+            )
+
+        scenarios = [
+            ("no assignment at all", _no_assignment),
+            ("backlog assignment", lambda d: write_issue(d, id="PT-1", title="x", status="backlog", assignee="qa-engineer", updated=today)),
+            ("todo assignment", lambda d: write_issue(d, id="PT-1", title="x", status="todo", assignee="qa-engineer", updated=today)),
+            ("done assignment", lambda d: write_issue(d, id="PT-1", title="x", status="done", assignee="qa-engineer", updated=today)),
+            ("stale in-progress (1 day old)", lambda d: write_issue(d, id="PT-1", title="x", status="in-progress", assignee="qa-engineer", updated="2026-08-26")),
+            ("stale in-progress (long ago)", lambda d: write_issue(d, id="PT-1", title="x", status="in-progress", assignee="qa-engineer", updated="2020-01-01")),
+            ("stale in-review", lambda d: write_issue(d, id="PT-1", title="x", status="in-review", assignee="qa-engineer", updated="2026-08-01")),
+            ("archived in-progress (updated today)", _archived_in_progress_updated_today),
+        ]
+        for label, setup in scenarios:
+            with self.subTest(label):
+                data_dir = make_git_repo_with_agents(self)
+                setup(data_dir)
+                payload = cairn.build_roster_payload(data_dir)
+                qa = next(a for a in payload["agents"] if a["id"] == "qa-engineer")
+                self.assertNotEqual(qa["presence"], "working", f"{label} must never read as working, got {qa}")
+
+    def test_real_repo_claude_dir_yields_eleven_agents_all_unknown(self):
+        # Architect's explicit "cloner state" ask: a real assertion about
+        # the SHIPPED template, not a placeholder -- run against this
+        # actual checkout's real process/cairn (not a fixture). Ten
+        # agent files (see .claude/agents/) + team-lead's role = 11.
+        # Fragile-by-design: this is expected to need updating the day
+        # `assignee` actually starts getting set for real (a named
+        # follow-up in the ruling itself, not an accident) -- if this
+        # test breaks because a real issue now has a real assignee, that
+        # is the ruling's own anticipated evolution, not a regression.
+        repo_root = helpers.CAIRN_DIR.parent.parent
+        data_dir = repo_root / "process" / "cairn"
+        payload = cairn.build_roster_payload(data_dir)
+        self.assertEqual(len(payload["agents"]), 11, [a["id"] for a in payload["agents"]])
+        for agent in payload["agents"]:
+            self.assertEqual(agent["presence"], "unknown", agent)
 
 
 class RosterEndpointHTTPTests(unittest.TestCase):
@@ -283,6 +361,73 @@ class RosterEndpointHTTPTests(unittest.TestCase):
         payload = json.loads(resp.read())
         self.assertNotIn("agents", payload)
         self.assertNotIn("roster", payload)
+
+
+class RosterEndpointMissingClaudeDirDegradationTests(unittest.TestCase):
+    """Architect's explicit follow-up: missing `.claude/agents/` must
+    degrade `/api/roster` (empty roster, never a 500) AND leave
+    `/api/dashboard` fully intact on the SAME server -- that isolation is
+    the whole reason the ruling insists on a separate endpoint rather than
+    a key on the existing payload, so it gets its own dedicated HTTP-level
+    test rather than resting on the Python-level `build_roster_payload`
+    never-raises test alone.
+    """
+
+    def setUp(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        _run_git(tmp, "init", "-q")
+        _run_git(tmp, "config", "user.email", "test@example.com")
+        _run_git(tmp, "config", "user.name", "Test")
+        self.data_dir = tmp / "process" / "cairn"
+        for sub in ("issues", "archive", "milestones", "majors"):
+            (self.data_dir / sub).mkdir(parents=True)
+        (self.data_dir / "config.yml").write_text(
+            "prefix: PT\nport: 8766\ndata_dir: process/cairn\n", encoding="utf-8"
+        )
+        # Deliberately NO .claude/ tree anywhere under tmp.
+        (tmp / "README.md").write_text("x\n", encoding="utf-8")
+        _run_git(tmp, "add", ".")
+        _run_git(tmp, "commit", "-q", "-m", "initial")
+
+        self.server = cairn.make_server(self.data_dir, port=0)
+        self.port = self.server.server_address[1]
+        self.base_url = f"http://127.0.0.1:{self.port}"
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self._shutdown)
+        self._wait_until_up()
+
+    def _shutdown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+
+    def _wait_until_up(self):
+        last_exc = None
+        for _ in range(50):
+            try:
+                urllib.request.urlopen(f"{self.base_url}/api/board", timeout=5).close()
+                return
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                time.sleep(0.05)
+        raise AssertionError(f"server never came up: {last_exc}")
+
+    def test_api_roster_degrades_to_200_empty_list_never_500(self):
+        resp = urllib.request.urlopen(f"{self.base_url}/api/roster", timeout=5)
+        self.assertEqual(resp.status, 200)
+        payload = json.loads(resp.read())
+        self.assertEqual(payload["agents"], [])
+
+    def test_api_dashboard_is_fully_intact_when_claude_dir_is_missing(self):
+        resp = urllib.request.urlopen(f"{self.base_url}/api/dashboard", timeout=5)
+        self.assertEqual(resp.status, 200)
+        payload = json.loads(resp.read())
+        self.assertEqual(
+            set(payload.keys()),
+            {"git", "tracker", "check", "release", "generated_at"},
+            "the roster source being entirely absent must not touch /api/dashboard's own contract at all",
+        )
 
 
 if __name__ == "__main__":
