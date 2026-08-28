@@ -12,6 +12,11 @@ export type GitState = {
 	head: string | null;
 	latest_tag: string | null;
 	warning: string | null;
+	// PT-68: the ONE field in this group that's never null, even when
+	// every other git-dependent field degrades -- a directory basename
+	// needs no git subprocess to exist, so the sidebar header stays
+	// honest instead of blank on a repo with no git history.
+	repo_name: string;
 };
 
 export type TrackerCounts = Record<string, number>;

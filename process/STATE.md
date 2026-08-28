@@ -17,12 +17,12 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | check_repo: archived_milestone_paths() helper mirroring archived_issue_paths() |
-| Issue | PT-66 (cairn) |
-| Milestone | PT-0.8 |
-| Branch | `feature/pt-66-archived-milestone-paths` |
+| Feature | Dashboard: sidebar header shows repo name, not 'Cairn' |
+| Issue | PT-68 (cairn) |
+| Milestone | PT-0.8 (reopened for this issue; wraps + tags v0.8.0 at merge) |
+| Branch | `feature/pt-68-repo-name-header` |
 | Started | 2026-08-28 |
-| Goal | Single-source the archive/milestones/ path spelling; behavior unchanged. Last open issue of PT-0.8 — milestone completes at merge |
+| Goal | Repo name derived server-side, surfaced through the payload, rendered in the Sidebar header — uniquifies each clone's dashboard |
 | Status | In Progress |
 
 ## Releases

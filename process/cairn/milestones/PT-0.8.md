@@ -3,7 +3,7 @@ id: PT-0.8
 name: project dashboard
 kind: product
 major: PT-V1
-status: done
+status: in-progress
 target_tag: v0.8.0
 ga: false
 ---
