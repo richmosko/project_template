@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Dashboard: agent-roster panel — presence source ruling + implementation |
-| Issue | PT-56 (cairn) |
-| Milestone | PT-0.8 — project dashboard |
-| Branch | `feature/pt-56-agent-roster` |
-| Started | 2026-08-27 |
-| Goal | The dashboard's roster section shows real agents with real work state from an architect-ruled presence source, degrading honestly when presence is absent or stale — no sample data, no fabricated "active" |
-| Status | In Review — [PR #124](https://github.com/richmosko/project_template/pull/124) |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Releases
 
