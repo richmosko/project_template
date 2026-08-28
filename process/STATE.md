@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-55-board-embed` |
 | Started | 2026-08-27 |
 | Goal | The dashboard's board section renders the live kanban/list board off the same data path as the root board — no second fetch layer, interactions deliberately ruled (work or read-only), reusing board.js rendering rather than forking it |
-| Status | In Progress |
+| Status | In Review — [PR #122](https://github.com/richmosko/project_template/pull/122) |
 
 ## Releases
 
