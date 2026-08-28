@@ -2436,21 +2436,42 @@ def build_roster_payload(data_dir: Path) -> Dict[str, Any]:
                     # tracker update 2026-08-01" from the enum value alone.
                     stale_since = stale.get("updated")
                     work = f"{stale.get('id')}: {stale.get('title')} (last tracker update {stale_since})"
-                elif any(i.get("status") == "done" for i in assigned):
-                    # PT-56 (architect's addendum, "done-but-live cell"):
-                    # team-lead's preserve-assignee-on-done decision means
-                    # a `done` issue stays in the live `issues/` dir until
-                    # archived -- the common case, not an edge one.
-                    # Presence stays `idle` (a completed assignment is
-                    # real data, not "no data" -- collapsing it to
-                    # `unknown` would discard exactly the provenance
-                    # preserve-on-done exists to keep), but the work line
-                    # must read as HISTORY, never current work.
-                    done = next(i for i in assigned if i.get("status") == "done")
-                    work = f"last shipped {done.get('id')}: {done.get('title')}"
                 else:
-                    other = assigned[0]
-                    work = f"{other.get('id')}: {other.get('title')} ({other.get('status')})"
+                    # PT-56 (architect's diff-review fix): a live PENDING
+                    # assignment (backlog/todo -- anything that isn't
+                    # done/cancelled) outranks "last shipped" history.
+                    # The addendum's `done`-as-history framing was meant
+                    # as the FALLBACK, not the preference -- an agent
+                    # accumulates `done` issues over time while pending
+                    # work is the more useful thing a roster reader wants,
+                    # and once claim-time assignees populate for real,
+                    # "has a done issue" will be true for almost everyone.
+                    pending = next(
+                        (i for i in assigned if i.get("status") not in ("done", "cancelled")),
+                        None,
+                    )
+                    if pending is not None:
+                        work = f"{pending.get('id')}: {pending.get('title')} ({pending.get('status')})"
+                    elif any(i.get("status") == "done" for i in assigned):
+                        # PT-56 (architect's addendum, "done-but-live
+                        # cell"): team-lead's preserve-assignee-on-done
+                        # decision means a `done` issue stays in the live
+                        # `issues/` dir until archived -- the common case,
+                        # not an edge one. Presence stays `idle` (a
+                        # completed assignment is real data, not "no
+                        # data" -- collapsing it to `unknown` would
+                        # discard exactly the provenance preserve-on-done
+                        # exists to keep), but the work line must read as
+                        # HISTORY, never current work.
+                        done = next(i for i in assigned if i.get("status") == "done")
+                        work = f"last shipped {done.get('id')}: {done.get('title')}"
+                    else:
+                        # Ratified by architect: cancelled-only reads
+                        # idle with the status named, honest and
+                        # one-directional -- another cell the ruling
+                        # didn't originally enumerate.
+                        other = assigned[0]
+                        work = f"{other.get('id')}: {other.get('title')} ({other.get('status')})"
 
         agents.append({
             "id": agent_id,
