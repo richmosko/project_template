@@ -919,6 +919,23 @@ def archived_issue_paths(data_dir: Path) -> List[Path]:
     return _dir_glob(data_dir / "archive" / "issues")
 
 
+def archived_milestone_paths(data_dir: Path) -> List[Path]:
+    """Every archived milestone .md file -- `archive/milestones/` ONLY.
+    Mirrors `archived_issue_paths` above (PT-66, architect's non-blocking
+    PT-60-review suggestion, approved 666dcd3): single-sources the
+    `archive/milestones/` spelling for a caller that needs the ARCHIVED
+    half specifically and distinctly from the live half -- unlike
+    `milestone_paths(include_archived=True)` below, which flattens both
+    into one list. `check_repo`'s PT-59 target_tag lint is exactly that
+    caller: it needs to know WHICH directory each file came from (to run
+    archive-only checks like the done/cancelled-status requirement on the
+    archived half only), so it can't use the flattening helper -- see that
+    function's own docstring.
+    """
+    data_dir = Path(data_dir)
+    return _dir_glob(data_dir / "archive" / "milestones")
+
+
 def milestone_paths(data_dir: Path, include_archived: bool = False) -> List[Path]:
     """Every LIVE milestone .md file, plus `archive/milestones/`'s too
     when `include_archived=True`. PT-60: single-sources the "live dir
@@ -1292,7 +1309,11 @@ def check_repo(data_dir: Path) -> List[str]:
     # this decision says can't exist at all.
     target_tag_owners: Dict[str, List[str]] = {}
     target_tag_owners_archived: Set[str] = set()
-    for p in _dir_glob(data_dir / "archive" / "milestones"):
+    # PT-66: single-sources the archive/milestones/ spelling via the
+    # named helper (mirrors archived_issue_paths' own reasoning) instead
+    # of this loop carrying that path fragment inline -- same directory,
+    # same files, purely a naming/single-source change.
+    for p in archived_milestone_paths(data_dir):
         try:
             fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
         except CairnError:

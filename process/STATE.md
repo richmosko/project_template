@@ -17,12 +17,12 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Roster payload: structured work field (replace .split(':') parsing) |
-| Issue | PT-65 (cairn) |
+| Feature | check_repo: archived_milestone_paths() helper mirroring archived_issue_paths() |
+| Issue | PT-66 (cairn) |
 | Milestone | PT-0.8 |
-| Branch | `feature/pt-65-roster-structured-work` |
+| Branch | `feature/pt-66-archived-milestone-paths` |
 | Started | 2026-08-28 |
-| Goal | Structured `work` {id, title, status, kind} in the roster payload; component renders from fields, no prose re-parsing. PT-66 queued next to close PT-0.8 |
+| Goal | Single-source the archive/milestones/ path spelling; behavior unchanged. Last open issue of PT-0.8 — milestone completes at merge |
 | Status | In Progress |
 
 ## Releases
