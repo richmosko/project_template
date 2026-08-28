@@ -37,6 +37,61 @@
 var CairnLogic = (function () {
   "use strict";
 
+  // PT-55 (architect ruling § 3): pure predicate over a query string --
+  // board.js calls this with `window.location.search` to decide whether
+  // to add the `embed` class to `<body>` (which board.css uses to hide
+  // exactly two things: the wordmark and the Dashboard tab -- the latter
+  // would otherwise let a viewer load the whole dashboard SPA inside its
+  // own board panel). Hand-parsed rather than `new URLSearchParams(...)`
+  // -- this file's own node:vm test harness (helpers.js) evaluates it in
+  // a bare vm context with no Node/Web-platform globals beyond core
+  // ECMAScript (URLSearchParams is a WHATWG URL-API global, not part of
+  // the language itself, so it's absent there the same way `fetch`/
+  // `console`/`URL` are), and every other CairnLogic function is already
+  // dependency-free by the same convention -- this one shouldn't be the
+  // first exception. First-match-wins on a repeated key, matching
+  // `URLSearchParams#get`'s own semantics even though this doesn't use
+  // it. Only the literal `"1"` counts as on -- `?embed` (no value),
+  // `?embed=true`, `?embed=0` are all off, same "one accepted spelling"
+  // posture PT-42's `?archived=1` already established. Never throws on
+  // `null`/`undefined` input.
+  function isEmbedMode(search) {
+    var qs = search || "";
+    if (qs.charAt(0) === "?") qs = qs.slice(1);
+    if (qs === "") return false;
+    var pairs = qs.split("&");
+    for (var i = 0; i < pairs.length; i++) {
+      var eq = pairs[i].indexOf("=");
+      var key = eq === -1 ? pairs[i] : pairs[i].slice(0, eq);
+      if (key !== "embed") continue;
+      var value = eq === -1 ? "" : pairs[i].slice(eq + 1);
+      return value === "1";
+    }
+    return false;
+  }
+
+  // PT-55 (Validate-phase fix, team-lead's browser-tested repro): the
+  // board's own Kanban/List view-tab `href`s are static markup in
+  // board.html ("/" and "/list", no query string) -- clicking one inside
+  // the dashboard's embedded frame navigated the frame WITHOUT `embed=1`,
+  // un-suppressing the wordmark/#tab-dashboard the instant a viewer
+  // switched views (the exact recursive-load bug `isEmbedMode` exists to
+  // prevent, reintroduced one click later). Pure function, not a DOM
+  // write, so it's unit-testable without a DOM: appends `embed=1` to
+  // `path` when `embedOn` is true, returns `path` unchanged otherwise.
+  //
+  // Architect's diff-review nit: merges into an EXISTING query string
+  // rather than assuming `path` is always bare. Both current callers
+  // ("/", "/list") happen to be bare, so this was previously harmless in
+  // practice -- but the function is exported and reads general, and a
+  // future caller passing e.g. "/list?foo=1" would otherwise get back
+  // "/list?foo=1?embed=1", a malformed URL. One extra character
+  // (`indexOf` check) removes a trap that would only surface on reuse.
+  function embedAwareHref(path, embedOn) {
+    if (!embedOn) return path;
+    return path + (path.indexOf("?") === -1 ? "?" : "&") + "embed=1";
+  }
+
   // The distinct truthy values among `values`, sorted ascending -- the
   // filter-assignee/filter-label dropdown dedup. PT-23 extraction from
   // board.js's own uniqueSorted, fixed in the same move: uses
@@ -1135,5 +1190,7 @@ var CairnLogic = (function () {
     wheelPullDistance: wheelPullDistance,
     wheelPullReduce: wheelPullReduce,
     wheelPullShouldFire: wheelPullShouldFire,
+    isEmbedMode: isEmbedMode,
+    embedAwareHref: embedAwareHref,
   };
 })();

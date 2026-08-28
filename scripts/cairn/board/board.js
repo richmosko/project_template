@@ -128,6 +128,76 @@
 
   var isListView = window.location.pathname === "/list";
 
+  // PT-55 (architect ruling § 3; framed-detection backstop added after
+  // team-lead's Validate FAIL on in-frame navigation, cbfbd1c): computed
+  // once at module load, same precedent as isListView above -- board.js
+  // embedded via PT-55's iframe is loaded fresh each time (it's a real
+  // page load, not a client-side route change), so there's no case where
+  // this needs to be re-derived mid-session.
+  //
+  // `|| window.self !== window.top`: composed at this call site, not
+  // inside CairnLogic.isEmbedMode itself, so the pure function stays pure
+  // and vm-testable (window.self/window.top don't exist in the node
+  // harness's bare sandbox). embedAwareHref's per-link rewriting (the
+  // cbfbd1c fix) is enumerative -- it covers #tab-kanban/#tab-list today,
+  // but the NEXT navigating link this board ever grows would silently
+  // fail to propagate ?embed=1 unless someone remembers to rewrite it
+  // too. Being framed at all is the actual hazard PT-55 exists to guard
+  // against, so framing is the backstop: even if a future link's rewrite
+  // is missed, the page still recognizes itself as embedded and still
+  // hides the wordmark/#tab-dashboard.
+  //
+  // Accepted cost, on record: this masks a missed-propagation bug rather
+  // than surfacing it loudly -- a future navigating link that forgets
+  // embedAwareHref will still LOOK correct (wordmark/tab stay hidden)
+  // even though its own URL lacks ?embed=1, so the omission would only
+  // be caught by code review or a source-guard test, never by visibly
+  // broken suppression. Ruled acceptable: the alternative (no backstop)
+  // fails open -- an unguarded miss looks correct on the surface AND
+  // fails to suppress, which is strictly worse.
+  var isEmbedMode = CairnLogic.isEmbedMode(window.location.search) || window.self !== window.top;
+
+  // PT-55 (architect's "flash disposition" ruling, withdrawing the
+  // earlier "wait for the Validate browser pass to arbitrate" call): a
+  // NEGATIVE sighting in a browser pass can't prove the flash doesn't
+  // happen -- paint timing depends on cache/CPU/whether board.js is
+  // already warm -- so the question could only be closed by removing the
+  // ordering that permits it, not by looking harder for it. `init()` only
+  // runs on `DOMContentLoaded`, which fires after the whole document --
+  // including the wordmark and `#tab-dashboard` -- has already painted at
+  // least once; applying the class HERE, at the point these two
+  // `<script>` tags actually execute, closes that gap instead of
+  // accepting it.
+  //
+  // Precondition this depends on, verified (not assumed): `board-logic.js`
+  // and `board.js` are the LAST TWO elements before `</body>` in
+  // board.html, in that order, and the header markup carrying
+  // `#tab-kanban`/`#tab-list` sits well above them -- so at this exact
+  // point in module evaluation, the DOM has already been parsed far
+  // enough that `document.body` and both anchors exist and are reachable.
+  // Moving either script tag to `<head>`, or adding `defer`/`async` to
+  // either, breaks this precondition with a null-deref at load (loud, not
+  // silent) -- pinned by a source guard, scripts/cairn/tests/js/
+  // script-tag-order.test.js, precisely so that breakage is caught in the
+  // test suite, not in a browser.
+  //
+  // Kept as ONE cohesive block (class add + both href rewrites) rather
+  // than split across module scope and `init()`: all the embed-mode setup
+  // reads in one place, right next to the `isEmbedMode` computation it
+  // depends on. The href-rewrite rationale is unchanged from when this
+  // lived inside `init()`: #tab-kanban/#tab-list are static navigating
+  // <a href> markup in board.html ("/" and "/list") -- clicking one
+  // inside the dashboard's embedded frame previously lost `?embed=1`
+  // entirely (team-lead's Validate-phase FAIL, fixed in cbfbd1c);
+  // rewritten ONCE here, not per-render in `renderHeader` (which only
+  // ever toggles these two elements' `className` for active/inactive
+  // state), because embed mode is fixed for the page's whole lifetime.
+  if (isEmbedMode) {
+    document.body.classList.add("embed");
+    document.getElementById("tab-kanban").href = CairnLogic.embedAwareHref("/", true);
+    document.getElementById("tab-list").href = CairnLogic.embedAwareHref("/list", true);
+  }
+
   var state = {
     board: null,       // last-known-good /api/board payload
     etag: null,

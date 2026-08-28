@@ -176,14 +176,37 @@
 		</Card.Root>
 	</section>
 
-	<!-- PT-55: embedded kanban/list board. Honest empty state -- no forked
-	     board rendering here until the real embed lands. -->
+	<!-- PT-55 (architect ruling): same-origin iframe of the real board at
+	     `/?embed=1` -- maximal reuse (same files, same fetch, same PT-36
+	     column list), not a rewrite. `embed=1` suppresses only the
+	     wordmark and the Dashboard tab (board-logic.js's `isEmbedMode`,
+	     board.js/board.css). Full read-write: drag/drawer/inline-edit/
+	     +New all work because it IS the board -- a read-only mode would
+	     mean forking new state into board.js to deliver LESS. Kanban⇄List
+	     and lane collapse come free (the board's own <a> tabs navigate the
+	     frame; PT-30's localStorage view state is shared across the
+	     origin). No sandbox (breaks same-origin storage), no postMessage
+	     auto-height (the board owns its own scrolling/sticky chrome --
+	     auto-height would fight that and grow unboundedly), fixed height. -->
 	<section aria-label="Board">
-		<h2 class="font-heading mb-3 text-lg font-semibold text-foreground">Board</h2>
-		<Card.Root>
-			<Card.Content class="flex flex-col items-center gap-3 py-8 text-center text-sm text-muted-foreground">
-				<p>Board embed not wired up yet (PT-55).</p>
-				<Button variant="secondary" size="sm" href="/">Open the full board</Button>
+		<Card.Root class="[--card-spacing:1.5rem]">
+			<Card.Header>
+				<Card.Title class="text-lg">Board</Card.Title>
+				<Card.Action>
+					<Button variant="secondary" size="sm" href="/">Open full board</Button>
+				</Card.Action>
+			</Card.Header>
+			<Card.Content class="flex flex-col gap-3">
+				<p class="text-xs text-muted-foreground">
+					This is the real, live board (drag, drawer, filters, + New all work) — not a
+					lookalike. Its legacy pre-shadcn styling holds inside this panel until PT-57's
+					board migration.
+				</p>
+				<iframe
+					src="/?embed=1"
+					title="Cairn board"
+					class="h-[70vh] w-full rounded-md border border-border"
+				></iframe>
 			</Card.Content>
 		</Card.Root>
 	</section>

@@ -131,6 +131,18 @@ header.app-header {
   margin-right: 8px;
 }
 
+/* PT-55 (architect ruling § 3): `body.embed` (toggled by board.js's
+   init() when board-logic.js's isEmbedMode reads `?embed=1`) hides
+   EXACTLY two things -- the wordmark and the Dashboard tab. The latter
+   would otherwise let a viewer inside the dashboard's own board panel
+   load the whole dashboard SPA into that same panel. Everything else
+   (filters, majors tabs, expand/collapse, + New) stays -- the dashboard
+   has no replacement for any of it. */
+body.embed .app-title,
+body.embed #tab-dashboard {
+  display: none;
+}
+
 /* PT-1: minimal live/polling connection indicator, driven by board.js's
    connectLive() toggling the "live"/"polling" class + text. */
 .connection-state {
