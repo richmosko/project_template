@@ -299,8 +299,7 @@
 			<Card.Content class="flex flex-col gap-3">
 				<p class="text-xs text-muted-foreground">
 					This is the real, live board (drag, drawer, filters, + New all work) — not a
-					lookalike. Its legacy pre-shadcn styling holds inside this panel until PT-57's
-					board migration.
+					lookalike.
 				</p>
 				<iframe
 					src="/?embed=1"
