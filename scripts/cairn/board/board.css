@@ -3,10 +3,11 @@
  * PT-57 (architect's token-delivery ruling): colors and radius now come
  * from tokens.css (linked before this file in board.html), NOT this
  * :root -- --background/--foreground/--card/--muted/--primary/
- * --secondary/--destructive/--border/--ring/--chart-*/--radius(-sm/md/lg)
- * etc. are all defined there. This :root keeps only what ISN'T a preset
- * token: layout spacing (--col-gap, --card-gap) and the shadow (not part
- * of the preset; mapped by eye to the spec's shadow-sm/md guidance).
+ * --secondary/--destructive/--border/--ring/--chart-1..5/
+ * --radius(-sm/md/lg) etc. are all defined there. This :root keeps only
+ * what ISN'T a preset token: layout spacing (--col-gap, --card-gap) and
+ * the shadow (not part of the preset; mapped by eye to the spec's
+ * shadow-sm/md guidance).
  *
  * ⚠ --accent changes MEANING, not just value, in this migration: the old
  * --accent here was the legacy palette's primary blue (see design-system-
