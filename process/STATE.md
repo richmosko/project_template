@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-61-dashboard01-blocks` |
 | Started | 2026-08-28 |
 | Goal | shadcn-svelte Sidebar as cross-surface nav + issue-flow-over-time chart panel on the golden ramp; status cards unregressed |
-| Status | In Progress |
+| Status | In Review — [PR #135](https://github.com/richmosko/project_template/pull/135) |
 
 ## Releases
 
