@@ -1,25 +1,27 @@
 "use strict";
 
-// PT-57 (Board: migrate board.css to preset tokens) -- guard written
-// BEFORE the architect's token-delivery ruling lands (link vs inline
-// tokens.css, font hosting location for the board's own document, and
-// interplay with embed-visibility-scope.test.js's CSS extractors are all
-// still open). Same posture as PT-55/PT-56's own pending-ruling tests:
-// don't guess at the delivery mechanism ahead of an open architectural
-// decision.
+// PT-57 (Board: migrate board.css to preset tokens) -- the first test here
+// was written before the architect's token-delivery ruling landed
+// (committed 4785853: a new scripts/cairn/board/tokens.css, linked from
+// board.html, colors+radius only). The legacy-hex guard held regardless
+// of the ruling's outcome, per PT-55/PT-56's own pending-ruling-test
+// posture.
 //
-// What IS testable regardless of which mechanism wins is the literal, AC-
-// stated claim "legacy hexes gone" -- docs/DESIGN/design-system-spec.md's
-// own Legacy/migration table names the exact seven hex values board.css
-// must stop hardcoding, independent of how the replacement tokens get
-// delivered. RED today (board.css still carries every one of them); goes
-// green the moment the migration actually removes them, regardless of
-// link-vs-inline or where the fonts end up.
+// The second test (--accent collision) is the ruling's own explicit ask:
+// board.css uses --accent as its PRIMARY BLUE (#0052cc historically), but
+// the preset's --accent is a near-white hover/active surface. Once
+// tokens.css is linked, every remaining `var(--accent)` call site that
+// meant "primary blue" silently repaints near-white-on-white -- a bug the
+// referenced-variable-closure guard (test_board_tokens_parity.py) CANNOT
+// catch, because --accent still resolves to a real, defined value; it's
+// just the WRONG one. The ruling names exactly one legitimate remaining
+// use: table.issue-list tr:hover (the preset's hover-surface role really
+// is what --accent means now).
 //
-// NOT covered here (deliberately, pending the ruling): the badge-variant
-// re-expression of the chip taxonomy, and the regression pass ("board
-// remains functional in both views + drawer") -- both depend on shapes
-// the ruling hasn't decided yet.
+// NOT covered here (deliberately, pending further migration work): the
+// badge-variant re-expression of the chip taxonomy, and the regression
+// pass ("board remains functional in both views + drawer") -- both
+// depend on shapes/state the migration hasn't finished yet.
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -78,4 +80,57 @@ test("negative control: the extractor actually catches a legacy hex when present
 test("negative control: a different, unrelated hex is not miscounted as a legacy one", () => {
   const found = findLegacyHexes(":root { --something: #123456; }");
   assert.deepEqual(found, []);
+});
+
+// ---------------------------------------------------------------------------
+// The --accent collision guard (architect's explicit ruling ask)
+// ---------------------------------------------------------------------------
+
+const ACCENT_ALLOWED_SELECTOR = "table.issue-list tr:hover";
+
+function stripCssComments(cssSource) {
+  return cssSource.replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
+// Every rule (selector-list -> declaration body) whose declarations
+// reference var(--accent), as {selector, declarations} pairs -- same
+// rule-boundary technique as embed-visibility-scope.test.js's
+// extractEmbedHiddenSelectors, comments stripped first for the same
+// reason (a prose comment mentioning "--accent" must not be read as a
+// real reference).
+function findAccentUsingRules(cssSource) {
+  const stripped = stripCssComments(cssSource);
+  const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+  const matches = [];
+  let ruleMatch;
+  while ((ruleMatch = ruleRe.exec(stripped))) {
+    const selector = ruleMatch[1].trim();
+    const declarations = ruleMatch[2];
+    if (/var\(\s*--accent\b/.test(declarations)) {
+      matches.push({ selector, declarations: declarations.trim() });
+    }
+  }
+  return matches;
+}
+
+test("PT-57: var(--accent) is used in board.css ONLY at the one legitimate hover-surface rule", () => {
+  const rules = findAccentUsingRules(readBoardCss());
+  const selectors = rules.map((r) => r.selector);
+  assert.deepEqual(
+    selectors, [ACCENT_ALLOWED_SELECTOR],
+    `var(--accent) must appear in exactly one rule (${ACCENT_ALLOWED_SELECTOR}, the preset's real ` +
+      `hover-surface role) -- got ${JSON.stringify(selectors)}. Any OTHER selector using var(--accent) ` +
+      `almost certainly meant the OLD --accent (primary blue, #0052cc) and will silently repaint ` +
+      `near-white-on-white once tokens.css is linked -- it should reference var(--primary) instead.`
+  );
+});
+
+test("negative control: the accent-usage extractor finds a real match", () => {
+  const rules = findAccentUsingRules(".foo:hover { background: var(--accent); }");
+  assert.deepEqual(rules.map((r) => r.selector), [".foo:hover"]);
+});
+
+test("negative control: a comment mentioning --accent is not read as a real reference", () => {
+  const rules = findAccentUsingRules("/* uses var(--accent) in prose, not code */\n.foo { color: red; }");
+  assert.deepEqual(rules, []);
 });
