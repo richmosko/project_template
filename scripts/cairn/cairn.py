@@ -2831,8 +2831,29 @@ def build_roster_payload(data_dir: Path) -> Dict[str, Any]:
       every agent's value on a fresh clone with no live team running --
       the ruling's stated correct output, not a defect.
 
-    `work` carries a human-readable line for the card's "work line" --
-    `None` for `unknown` (nothing to report).
+    `work` is `None` for `unknown` (nothing to report), else a structured
+    `{id, title, status, kind}` -- PT-65 (split out of PT-56/PT-60): the
+    server used to compose an English sentence here ("last shipped PT-1:
+    ...", "PT-2: ... (backlog)") that the client re-parsed with
+    `.split(':')`. `id`/`title`/`status` are the underlying issue's raw
+    field values, no punctuation glued in; `kind` is one of:
+
+    - `"current"`: queued current-cycle work -- actively `working` today,
+      or a pending backlog/todo assignment waiting to start. Never a
+      `done`/`cancelled` issue.
+    - `"stale"`: working-shaped (in-progress/in-review) but `updated`
+      predates today -- the one cell where `stale_since` (below) also
+      populates.
+    - `"history"`: a terminal (`done` or `cancelled`) issue kept for
+      provenance (team-lead's preserve-assignee-on-done decision keeps it
+      in the live `issues/` dir until archived) -- reads as PAST work,
+      never current. Team-lead's ruling (PT-65 issue thread, 2026-08-28)
+      extends PT-56's original "a done assignment renders only as
+      history" principle to the other terminal status: cancelled-only
+      also reads `"history"`, not `"current"` -- pairing a live-work kind
+      with a status that can never become live work again would
+      contradict PT-56's own honesty framing. `status` still carries
+      which terminal status it was, for the client to render.
     """
     data_dir = Path(data_dir)
     repo_root = _repo_root_for(data_dir)
@@ -2841,13 +2862,21 @@ def build_roster_payload(data_dir: Path) -> Dict[str, Any]:
     live_issues = [_read_frontmatter_dict(p) for p in _dir_glob(data_dir / "issues")]
     today = _today()
 
+    def _work(issue: Dict[str, Any], kind: str) -> Dict[str, Any]:
+        return {
+            "id": issue.get("id"),
+            "title": issue.get("title"),
+            "status": issue.get("status"),
+            "kind": kind,
+        }
+
     agents: List[Dict[str, Any]] = []
     for identity in identities:
         agent_id = identity["id"]
         assigned = [issue for issue in live_issues if issue.get("assignee") == agent_id]
 
         presence = "unknown"
-        work: Optional[str] = None
+        work: Optional[Dict[str, Any]] = None
         stale_since: Optional[str] = None
         if assigned:
             presence = "idle"
@@ -2857,7 +2886,7 @@ def build_roster_payload(data_dir: Path) -> Dict[str, Any]:
             )
             if working_issue is not None:
                 presence = "working"
-                work = f"{working_issue.get('id')}: {working_issue.get('title')}"
+                work = _work(working_issue, "current")
             else:
                 stale = next((i for i in assigned if i.get("status") in _WORKING_STATUSES), None)
                 if stale is not None:
@@ -2866,7 +2895,7 @@ def build_roster_payload(data_dir: Path) -> Dict[str, Any]:
                     # `presence == "idle"` -- a UI can't render "last
                     # tracker update 2026-08-01" from the enum value alone.
                     stale_since = stale.get("updated")
-                    work = f"{stale.get('id')}: {stale.get('title')} (last tracker update {stale_since})"
+                    work = _work(stale, "stale")
                 else:
                     # PT-56 (architect's diff-review fix): a live PENDING
                     # assignment (backlog/todo -- anything that isn't
@@ -2882,7 +2911,7 @@ def build_roster_payload(data_dir: Path) -> Dict[str, Any]:
                         None,
                     )
                     if pending is not None:
-                        work = f"{pending.get('id')}: {pending.get('title')} ({pending.get('status')})"
+                        work = _work(pending, "current")
                     elif any(i.get("status") == "done" for i in assigned):
                         # PT-56 (architect's addendum, "done-but-live
                         # cell"): team-lead's preserve-assignee-on-done
@@ -2895,14 +2924,13 @@ def build_roster_payload(data_dir: Path) -> Dict[str, Any]:
                         # exists to keep), but the work line must read as
                         # HISTORY, never current work.
                         done = next(i for i in assigned if i.get("status") == "done")
-                        work = f"last shipped {done.get('id')}: {done.get('title')}"
+                        work = _work(done, "history")
                     else:
-                        # Ratified by architect: cancelled-only reads
-                        # idle with the status named, honest and
-                        # one-directional -- another cell the ruling
-                        # didn't originally enumerate.
+                        # Cancelled-only -- team-lead's ruling (this
+                        # function's own docstring): reads as "history"
+                        # too, same terminal-status principle as done.
                         other = assigned[0]
-                        work = f"{other.get('id')}: {other.get('title')} ({other.get('status')})"
+                        work = _work(other, "history")
 
         agents.append({
             "id": agent_id,

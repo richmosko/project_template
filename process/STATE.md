@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Dashboard: adopt dashboard-01 Block anatomy — sidebar nav + chart panel |
-| Issue | PT-61 (cairn) |
+| Feature | Roster payload: structured work field (replace .split(':') parsing) |
+| Issue | PT-65 (cairn) |
 | Milestone | PT-0.8 |
-| Branch | `feature/pt-61-dashboard01-blocks` |
+| Branch | `feature/pt-65-roster-structured-work` |
 | Started | 2026-08-28 |
-| Goal | shadcn-svelte Sidebar as cross-surface nav + issue-flow-over-time chart panel on the golden ramp; status cards unregressed |
-| Status | In Review — [PR #135](https://github.com/richmosko/project_template/pull/135) |
+| Goal | Structured `work` {id, title, status, kind} in the roster payload; component renders from fields, no prose re-parsing. PT-66 queued next to close PT-0.8 |
+| Status | In Progress |
 
 ## Releases
 

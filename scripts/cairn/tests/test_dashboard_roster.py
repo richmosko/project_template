@@ -268,6 +268,13 @@ class RosterPayloadPresenceTests(unittest.TestCase):
         # fallback for when nothing is pending, not the preferred read.
         # Presence is idle either way; this pins the work-line CONTENT,
         # not the presence value (already covered above).
+        #
+        # PT-65: updated for the structured `work` shape ({id, title,
+        # status, kind}) -- `work` is no longer a composed string, so
+        # this no longer does substring checks. See
+        # test_dashboard_roster_structured_work.py for the full shape
+        # contract; this test keeps its original business-rule scope
+        # (pending outranks done) expressed against the new fields.
         data_dir = make_git_repo_with_agents(self)
         today = datetime.date.today().isoformat()
         write_issue(data_dir, id="PT-1", title="Ship it", status="done", assignee="qa-engineer", updated=today)
@@ -275,8 +282,8 @@ class RosterPayloadPresenceTests(unittest.TestCase):
         payload = cairn.build_roster_payload(data_dir)
         qa = next(a for a in payload["agents"] if a["id"] == "qa-engineer")
         self.assertEqual(qa["presence"], "idle")
-        self.assertIn("PT-2", qa["work"], qa)
-        self.assertNotIn("last shipped", qa["work"], qa)
+        self.assertEqual(qa["work"]["id"], "PT-2", qa)
+        self.assertNotEqual(qa["work"]["kind"], "history", qa)
 
     def test_archived_issues_do_not_count_toward_presence(self):
         # "Live issues only" -- an archived issue assigned to this agent

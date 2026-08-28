@@ -111,6 +111,28 @@
 		return Object.values(counts).reduce((sum, n) => sum + n, 0);
 	}
 
+	// PT-65: the roster's work line is now client-composed from the
+	// structured {id, title, status, kind} payload -- the framing that
+	// used to be server-composed English (re-parsed by the component with
+	// .split(':')) is derived here instead. Team-lead's ruling folds
+	// cancelled-only into kind: 'history' alongside done (same terminal-
+	// status principle), but "Last shipped" only fits a shipped (done)
+	// issue -- a cancelled one gets its status named instead, same text
+	// the server used to compose for that cell. Staleness is NOT
+	// re-stated inline here -- that's stale_since's own line below,
+	// unchanged, avoiding the old double mention (once inline in the
+	// sentence, once in its own line).
+	function formatWorkLine(work: NonNullable<RosterAgent['work']>): string {
+		if (work.kind === 'history') {
+			return work.status === 'done'
+				? `Last shipped ${work.id}: ${work.title}`
+				: `${work.id}: ${work.title} (${work.status})`;
+		}
+		if (work.kind === 'stale') return `${work.id}: ${work.title}`;
+		const isActive = work.status === 'in-progress' || work.status === 'in-review';
+		return isActive ? `${work.id}: ${work.title}` : `${work.id}: ${work.title} (${work.status})`;
+	}
+
 	// design-system-spec.md § Project extensions: record-status vocabulary,
 	// expressed as badge variants against existing preset tokens (never a
 	// per-category hue). "in-review" maps to the chart-2 tier
@@ -404,9 +426,9 @@
 								{#if agent.work}
 									<details class="mt-2 text-xs text-muted-foreground">
 										<summary class="cursor-pointer select-none">
-											{agent.work.split(':')[0]}
+											{agent.work.id}
 										</summary>
-										<p class="mt-1">{agent.work}</p>
+										<p class="mt-1">{formatWorkLine(agent.work)}</p>
 										{#if agent.stale_since}
 											<p class="mt-1">Last tracker update: {agent.stale_since}</p>
 										{/if}

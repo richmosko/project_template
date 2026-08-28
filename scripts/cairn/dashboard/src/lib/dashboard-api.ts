@@ -112,12 +112,25 @@ export function subscribeDashboard(
 // /api/dashboard) -- kept as a separate type/fetch/subscribe trio here
 // too, mirroring that boundary on the client rather than folding it into
 // DashboardPayload's shape.
+// PT-65 (split out of PT-56/PT-60): `work` used to be a server-composed
+// English sentence ("last shipped PT-1: ...") the component re-parsed
+// with `.split(':')` -- now a structured object, `id`/`title`/`status`
+// straight off the underlying issue, `kind` classifying how to frame it
+// (current: a live not-yet-shipped assignment; stale: working-shaped but
+// its `updated` predates today, pairs with the `stale_since` field below;
+// history: a kept-for-provenance `done` issue, reads as past work). `null`
+// only when the agent has no live assignment at all (presence: 'unknown').
 export type RosterAgent = {
 	id: string;
 	name: string;
 	role: string;
 	presence: 'working' | 'idle' | 'unknown';
-	work: string | null;
+	work: {
+		id: string;
+		title: string;
+		status: string;
+		kind: 'current' | 'stale' | 'history';
+	} | null;
 	stale_since: string | null;
 };
 
