@@ -2436,6 +2436,18 @@ def build_roster_payload(data_dir: Path) -> Dict[str, Any]:
                     # tracker update 2026-08-01" from the enum value alone.
                     stale_since = stale.get("updated")
                     work = f"{stale.get('id')}: {stale.get('title')} (last tracker update {stale_since})"
+                elif any(i.get("status") == "done" for i in assigned):
+                    # PT-56 (architect's addendum, "done-but-live cell"):
+                    # team-lead's preserve-assignee-on-done decision means
+                    # a `done` issue stays in the live `issues/` dir until
+                    # archived -- the common case, not an edge one.
+                    # Presence stays `idle` (a completed assignment is
+                    # real data, not "no data" -- collapsing it to
+                    # `unknown` would discard exactly the provenance
+                    # preserve-on-done exists to keep), but the work line
+                    # must read as HISTORY, never current work.
+                    done = next(i for i in assigned if i.get("status") == "done")
+                    work = f"last shipped {done.get('id')}: {done.get('title')}"
                 else:
                     other = assigned[0]
                     work = f"{other.get('id')}: {other.get('title')} ({other.get('status')})"
