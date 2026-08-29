@@ -13,6 +13,13 @@
 	// `child` snippet.
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import StatusCard from '$lib/components/StatusCard.svelte';
+	// PT-69: theme/color settings popover -- top-right header placement,
+	// alongside Refresh (ux-designer's ruling, 2026-08-29, supersedes the
+	// original Sidebar.Footer plan -- it wasn't discovered there in
+	// Mosko's live test). One reactive state instance at app root;
+	// ThemeSettings.svelte reads/writes it.
+	import ThemeSettings from '$lib/components/ThemeSettings.svelte';
+	import { ThemeSettingsState } from '$lib/theme-settings.svelte.js';
 	import {
 		fetchDashboard,
 		subscribeDashboard,
@@ -24,6 +31,12 @@
 	let data = $state<DashboardPayload | null>(null);
 	let loadError = $state<string | null>(null);
 	let refreshing = $state(false);
+
+	// PT-69: constructed once -- the inline bootstrap script (index.html's
+	// <head>) already applied the stored/system preference before this
+	// component ever mounts, so this just picks up that same localStorage
+	// state, not a fresh resolve.
+	const themeSettings = new ThemeSettingsState();
 
 	// PT-61: no client router in this app -- the sidebar's active-item
 	// state is derived once from the real location, matching board.js's
@@ -48,9 +61,12 @@
 	let roster = $state<RosterAgent[] | null>(null);
 	let rosterError = $state<string | null>(null);
 
+	// PT-69 (architect's ruling 1db6053): idle moved off --chart-2 -- same
+	// "status affordance must not depend on the user's Chart Color choice"
+	// reasoning as the board's paused chip and the "accent" badge variant.
 	const PRESENCE_DOT_CLASS: Record<RosterAgent['presence'], string> = {
 		working: 'bg-primary',
-		idle: 'bg-chart-2',
+		idle: 'bg-accent',
 		unknown: 'bg-muted-foreground/30',
 	};
 
@@ -135,13 +151,14 @@
 
 	// design-system-spec.md § Project extensions: record-status vocabulary,
 	// expressed as badge variants against existing preset tokens (never a
-	// per-category hue). "in-review" maps to the chart-2 tier
-	// ("Paused / In Review"); "done" to the inverted foreground tier.
-	const STATUS_BADGE_VARIANT: Record<string, 'outline' | 'secondary' | 'default' | 'chart' | 'inverted' | 'destructive'> = {
+	// per-category hue). "in-review" maps to the accent tier
+	// ("Paused / In Review" -- PT-69: moved off --chart-2, see badge.svelte);
+	// "done" to the inverted foreground tier.
+	const STATUS_BADGE_VARIANT: Record<string, 'outline' | 'secondary' | 'default' | 'accent' | 'inverted' | 'destructive'> = {
 		backlog: 'outline',
 		todo: 'secondary',
 		'in-progress': 'default',
-		'in-review': 'chart',
+		'in-review': 'accent',
 		done: 'inverted',
 		cancelled: 'destructive',
 	};
@@ -153,8 +170,8 @@
      entries, not as further top-nav links); Sidebar.Inset is the main
      content plane. design-system-spec.md's Sidebar row: `Sidebar.Provider >
      Sidebar.Root > Sidebar.Header, Sidebar.Content (Sidebar.Group), Sidebar.
-     Footer` -- Footer omitted for now, nothing to put there yet (no
-     account/user surface exists). -->
+     Footer` -- Footer landed PT-69 (the theme/color settings dropdown;
+     previously omitted, "nothing to put there yet"). -->
 <Sidebar.Provider>
 	<Sidebar.Root collapsible="icon">
 		<Sidebar.Header>
@@ -250,6 +267,10 @@
 			<Button variant="outline" size="sm" onclick={refreshNow} disabled={refreshing}>
 				{refreshing ? 'Refreshing…' : 'Refresh'}
 			</Button>
+			<!-- PT-69 (ux-designer's ruling, 2026-08-29): top-right header,
+			     same position as the board's trigger -- supersedes the
+			     original Sidebar.Footer placement. -->
+			<ThemeSettings themeState={themeSettings} />
 		</div>
 	</header>
 

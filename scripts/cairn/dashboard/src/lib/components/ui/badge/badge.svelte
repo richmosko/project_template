@@ -14,9 +14,15 @@
 				/* design-system-spec.md § Project extensions: two additions
 				   beyond the stock shadcn variants, each pointed at an
 				   existing preset token (never an invented hue) --
-				   "chart" = Paused/In Review (--chart-2 fill), "inverted" =
-				   Done (--foreground fill, --background text). */
-				chart: "bg-chart-2 text-foreground [a]:hover:bg-chart-2/80",
+				   "accent" = Paused/In Review, "inverted" = Done
+				   (--foreground fill, --background text).
+				   PT-69 (architect's ruling 1db6053): renamed off "chart"
+				   and moved from --chart-2 to --accent -- a status badge's
+				   legibility must not depend on the user's (now user-
+				   selectable) Chart Color choice. --accent is Base-Color-
+				   owned, inverts correctly per mode, and clears AA across
+				   every Base variant. */
+				accent: "bg-accent text-accent-foreground [a]:hover:bg-accent/80",
 				inverted: "bg-foreground text-background [a]:hover:bg-foreground/80",
 			},
 		},

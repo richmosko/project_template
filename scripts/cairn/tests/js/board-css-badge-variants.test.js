@@ -132,9 +132,15 @@ test("PT-57: .chip.status in-progress is --primary/--primary-foreground", () => 
   assertDeclarationsReference(decl, ["--primary", "--primary-foreground"], "status in-progress");
 });
 
-test("PT-57: .chip.status paused is --chart-2 fill / --foreground text", () => {
+// PT-69 (architect's ruling 1db6053 + ux-designer's replacement): moved
+// OFF --chart-2 -- a status chip's legibility can't depend on the user's
+// (now user-selectable) Chart Color choice. --accent/--accent-foreground
+// is Base-Color-owned, inverts correctly per mode. .major-status-dot's own
+// paused fill (below) is a deliberate exception -- a non-text graphical
+// object that's supposed to track Chart Color, not repointed.
+test("PT-69: .chip.status paused is --accent fill / --accent-foreground text", () => {
   const decl = findRuleDeclarations(css, '.chip.status[data-status="paused"]');
-  assertDeclarationsReference(decl, ["--chart-2", "--foreground"], "status paused");
+  assertDeclarationsReference(decl, ["--accent", "--accent-foreground"], "status paused");
 });
 
 test("PT-57: .chip.status done is inverted (--foreground fill / --background text)", () => {

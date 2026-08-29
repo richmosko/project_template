@@ -132,7 +132,29 @@ test("negative control: a comment mentioning the tint in prose is not read as a 
 // The --accent collision guard (architect's explicit ruling ask)
 // ---------------------------------------------------------------------------
 
-const ACCENT_ALLOWED_SELECTOR = "table.issue-list tr:hover";
+// PT-69: three more legitimate uses landed alongside the theme/color
+// settings dropdown. Two are the same "hover/active surface accent" role
+// table.issue-list tr:hover already established (.theme-settings-option's
+// selected/:hover states). The third is a deliberate, ux-designer-ruled
+// role OVERLOAD, not a repeat of the old primary-blue meaning: the Paused/
+// In Review status chip moved OFF --chart-2 (architect's ruling 1db6053 --
+// a status chip's legibility can't depend on the user's Chart Color pick)
+// onto --accent as a STATIC fill, reusing the hover-surface token for a
+// second role ux-designer explicitly accepted rather than inventing a new
+// token (design-system-spec.md's Project extensions section records the
+// tradeoff).
+const ACCENT_ALLOWED_SELECTORS = [
+  "table.issue-list tr:hover",
+  ".theme-settings-option.selected",
+  ".theme-settings-option:hover",
+  '.chip.status[data-status="paused"]',
+  // PT-69 (ux-designer's Popover-row ruling): the row trigger itself
+  // also takes the hover/active-surface accent treatment, same role,
+  // now that rows are real Popover triggers rather than always-expanded
+  // group headings.
+  ".theme-settings-row-trigger:hover",
+  '.theme-settings-row-trigger[aria-expanded="true"]',
+];
 
 function stripCssComments(cssSource) {
   return cssSource.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -159,15 +181,16 @@ function findAccentUsingRules(cssSource) {
   return matches;
 }
 
-test("PT-57: var(--accent) is used in board.css ONLY at the one legitimate hover-surface rule", () => {
+test("PT-57/PT-69: var(--accent) is used in board.css ONLY at the known legitimate hover-surface rules", () => {
   const rules = findAccentUsingRules(readBoardCss());
-  const selectors = rules.map((r) => r.selector);
+  const selectors = rules.map((r) => r.selector).slice().sort();
+  const allowed = ACCENT_ALLOWED_SELECTORS.slice().sort();
   assert.deepEqual(
-    selectors, [ACCENT_ALLOWED_SELECTOR],
-    `var(--accent) must appear in exactly one rule (${ACCENT_ALLOWED_SELECTOR}, the preset's real ` +
-      `hover-surface role) -- got ${JSON.stringify(selectors)}. Any OTHER selector using var(--accent) ` +
-      `almost certainly meant the OLD --accent (primary blue, #0052cc) and will silently repaint ` +
-      `near-white-on-white once tokens.css is linked -- it should reference var(--primary) instead.`
+    selectors, allowed,
+    `var(--accent) must appear in exactly the known rules (${JSON.stringify(allowed)}, the preset's ` +
+      `real hover-surface role) -- got ${JSON.stringify(selectors)}. Any OTHER selector using ` +
+      `var(--accent) almost certainly meant the OLD --accent (primary blue, #0052cc) and will silently ` +
+      `repaint near-white-on-white once tokens.css is linked -- it should reference var(--primary) instead.`
   );
 });
 

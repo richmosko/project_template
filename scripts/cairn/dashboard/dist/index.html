@@ -5,6 +5,57 @@
     <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Project Dashboard</title>
+    <!-- PT-69 (architect's ruling §3): inline, not external -- must run and
+         apply BEFORE the module script below so the correct theme
+         variant/mode is already in effect at first paint (no FOUC; this
+         is a static Vite SPA, no SSR/hydration gap to design around).
+         Reads the origin-global `cairn.theme` localStorage key and sets
+         data-cairn-base/theme/chart + the .dark class synchronously.
+         Generated from scripts/cairn/design/variants.json by
+         scripts/cairn/design/gen_variants.py (see
+         scripts/cairn/design/bootstrap.snippet.html) -- byte-identical to
+         the copy in board/board.html's <head>
+         (test_theme_bootstrap_and_dropdown.py asserts this). -->
+    <script id="cairn-theme-bootstrap">
+(function () {
+  try {
+    var KEY = "cairn.theme";
+    var DEFAULTS = { mode: "system", base: "stone", theme: "sky", chart: "yellow" };
+    var VALID_MODE = ["system", "light", "dark"];
+    var VALID_BASE = ["stone", "mauve", "mist", "neutral", "olive", "taupe", "zinc"];
+    var VALID_THEME = ["sky", "amber", "blue", "cyan", "emerald", "fuchsia", "green", "indigo", "mauve", "mist", "neutral", "olive", "orange", "pink", "purple", "red", "rose", "stone", "taupe", "teal", "violet", "yellow", "zinc"];
+    var VALID_CHART = ["yellow", "amber", "blue", "cyan", "emerald", "fuchsia", "green", "indigo", "lime", "mauve", "mist", "neutral", "olive", "orange", "pink", "purple", "red", "rose", "sky", "stone", "taupe", "teal", "violet", "zinc"];
+    var raw = null;
+    try {
+      raw = localStorage.getItem(KEY);
+    } catch (e) {}
+    var parsed = null;
+    if (raw) {
+      try {
+        parsed = JSON.parse(raw);
+      } catch (e) {}
+    }
+    if (!parsed || parsed.v !== 1) parsed = {};
+    // Per-dimension fallback (architect's ruling §3): an unrecognized or
+    // absent value on ANY one field falls back to that field's own
+    // default, independently -- never a whole-blob rejection.
+    var mode = VALID_MODE.indexOf(parsed.mode) !== -1 ? parsed.mode : DEFAULTS.mode;
+    var base = VALID_BASE.indexOf(parsed.base) !== -1 ? parsed.base : DEFAULTS.base;
+    var theme = VALID_THEME.indexOf(parsed.theme) !== -1 ? parsed.theme : DEFAULTS.theme;
+    var chart = VALID_CHART.indexOf(parsed.chart) !== -1 ? parsed.chart : DEFAULTS.chart;
+    var root = document.documentElement;
+    var systemDark = false;
+    try {
+      systemDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    } catch (e) {}
+    var dark = mode === "dark" || (mode === "system" && systemDark);
+    root.classList.toggle("dark", dark);
+    if (base !== DEFAULTS.base) root.setAttribute("data-cairn-base", base);
+    if (theme !== DEFAULTS.theme) root.setAttribute("data-cairn-theme", theme);
+    if (chart !== DEFAULTS.chart) root.setAttribute("data-cairn-chart", chart);
+  } catch (e) {}
+})();
+</script>
     <script type="module" crossorigin src="/dashboard/assets/index.js"></script>
     <link rel="stylesheet" crossorigin href="/dashboard/assets/index.css">
   </head>

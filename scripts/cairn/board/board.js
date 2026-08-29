@@ -87,6 +87,14 @@
   var serializeExpandedLanes = CairnLogic.serializeExpandedLanes;
   var parseExpandedLanes = CairnLogic.parseExpandedLanes;
   var expandAllLanes = CairnLogic.expandAllLanes;
+  // PT-69: the theme/color settings dropdown's pure half -- schema
+  // constants + the validate/fallback and dark-mode-resolution functions,
+  // same pure/impure split as the PT-30 view-state block above.
+  var THEME_STORAGE_KEY = CairnLogic.THEME_STORAGE_KEY;
+  var THEME_DEFAULTS = CairnLogic.THEME_DEFAULTS;
+  var THEME_MODE_IDS = CairnLogic.THEME_MODE_IDS;
+  var parseThemePrefs = CairnLogic.parseThemePrefs;
+  var resolveDarkMode = CairnLogic.resolveDarkMode;
   // PT-32: the pull-down-to-refresh gesture's pure, input-agnostic half --
   // board.js supplies the touch listeners, the `passive: false`
   // registration, and the #pull-indicator DOM; every decision (arming,
@@ -472,6 +480,335 @@
     state.viewStateRestored = true;
     var raw = readViewState(viewStateKey(primaryRootId(state.board)));
     state.expandedLanes = parseExpandedLanes(raw);
+  }
+
+  // ------------------------------------------------------------------
+  // PT-69: theme/color settings dropdown -- Mode, Base Color, Theme,
+  // Chart Color. The board has no Svelte DropdownMenu primitive (ux-
+  // designer's proposal), so this is a small vanilla trigger + menu
+  // pinned to the header, built here rather than in board.html.
+  //
+  // Option catalogs -- id (matches variants.json's variant keys / the
+  // data-cairn-* attribute values the generated CSS selects on) + display
+  // label. Kept in sync BY HAND with scripts/cairn/design/variants.json;
+  // the CSS token VALUES those ids resolve to are fully generated
+  // (gen_variants.py) and byte-compared against variants.json, so drift
+  // here can only ever mean "wrong menu label/order", never "wrong
+  // color" -- see scripts/cairn/design/NOTICE.md.
+  // ------------------------------------------------------------------
+  var THEME_MODE_OPTIONS = [
+    { id: "system", label: "System" },
+    { id: "light", label: "Light" },
+    { id: "dark", label: "Dark" },
+  ];
+  var THEME_BASE_OPTIONS = [
+    { id: "stone", label: "Stone" },
+    { id: "neutral", label: "Neutral" },
+    { id: "zinc", label: "Zinc" },
+    { id: "mauve", label: "Mauve" },
+    { id: "olive", label: "Olive" },
+    { id: "mist", label: "Mist" },
+    { id: "taupe", label: "Taupe" },
+  ];
+  // PT-69 (Mosko's live-test feedback, 2026-08-29): the ≤5/≤7 curated
+  // caps are lifted -- full reference sets from the live generator (all
+  // 24 PRESET_THEME_KEYS/PRESET_CHART_COLORS names, minus each
+  // dimension's own default), enumerated on the PT-69 issue thread.
+  var THEME_THEME_OPTIONS = [
+    { id: "sky", label: "Sky" },
+    { id: "amber", label: "Amber" },
+    { id: "blue", label: "Blue" },
+    { id: "cyan", label: "Cyan" },
+    { id: "emerald", label: "Emerald" },
+    { id: "fuchsia", label: "Fuchsia" },
+    { id: "green", label: "Green" },
+    { id: "indigo", label: "Indigo" },
+    // PT-69 (qa's contrast gate, 2026-08-29): 'lime' dropped -- Theme's
+    // drop-don't-rederive fence, per-variant defect (4.4612:1 dark,
+    // below the 4.5:1 floor; every other Theme variant clears the same
+    // pair fine). Chart Color's own 'lime' below is unaffected -- a
+    // different pair, different gate.
+    { id: "mauve", label: "Mauve" },
+    { id: "mist", label: "Mist" },
+    { id: "neutral", label: "Neutral" },
+    { id: "olive", label: "Olive" },
+    { id: "orange", label: "Orange" },
+    { id: "pink", label: "Pink" },
+    { id: "purple", label: "Purple" },
+    { id: "red", label: "Red" },
+    { id: "rose", label: "Rose" },
+    { id: "stone", label: "Stone" },
+    { id: "taupe", label: "Taupe" },
+    { id: "teal", label: "Teal" },
+    { id: "violet", label: "Violet" },
+    { id: "yellow", label: "Yellow" },
+    { id: "zinc", label: "Zinc" },
+  ];
+  var THEME_CHART_OPTIONS = [
+    { id: "yellow", label: "Yellow" },
+    { id: "amber", label: "Amber" },
+    { id: "blue", label: "Blue" },
+    { id: "cyan", label: "Cyan" },
+    { id: "emerald", label: "Emerald" },
+    { id: "fuchsia", label: "Fuchsia" },
+    { id: "green", label: "Green" },
+    { id: "indigo", label: "Indigo" },
+    { id: "lime", label: "Lime" },
+    { id: "mauve", label: "Mauve" },
+    { id: "mist", label: "Mist" },
+    { id: "neutral", label: "Neutral" },
+    { id: "olive", label: "Olive" },
+    { id: "orange", label: "Orange" },
+    { id: "pink", label: "Pink" },
+    { id: "purple", label: "Purple" },
+    { id: "red", label: "Red" },
+    { id: "rose", label: "Rose" },
+    { id: "sky", label: "Sky" },
+    { id: "stone", label: "Stone" },
+    { id: "taupe", label: "Taupe" },
+    { id: "teal", label: "Teal" },
+    { id: "violet", label: "Violet" },
+    { id: "zinc", label: "Zinc" },
+  ];
+  var THEME_VALID_IDS = {
+    base: THEME_BASE_OPTIONS.map(function (o) { return o.id; }),
+    theme: THEME_THEME_OPTIONS.map(function (o) { return o.id; }),
+    chart: THEME_CHART_OPTIONS.map(function (o) { return o.id; }),
+  };
+
+  // Guarded localStorage access -- same PT-30 contract as
+  // readViewState/writeViewState above (the `localStorage` reference
+  // lives INSIDE each try, never hoisted, no cached availability flag).
+  function readThemePrefs() {
+    var raw = null;
+    try {
+      raw = localStorage.getItem(THEME_STORAGE_KEY);
+    } catch (e) {}
+    return parseThemePrefs(raw, THEME_VALID_IDS);
+  }
+
+  function writeThemePrefs(prefs) {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({
+        v: 1, mode: prefs.mode, base: prefs.base, theme: prefs.theme, chart: prefs.chart,
+      }));
+    } catch (e) {
+      // Private mode / blocked storage / quota exceeded -- degrade
+      // silently, same contract as writeViewState above. The change has
+      // already applied to <html> via applyThemePrefs; only the NEXT
+      // load fails to remember it.
+    }
+  }
+
+  function systemPrefersDark() {
+    try {
+      return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Applies `prefs` to <html> -- mirrors the inline bootstrap script's own
+  // logic (board.html's <head>) so a post-load selection change and the
+  // pre-paint bootstrap never disagree on how a given prefs object maps
+  // to DOM state.
+  function applyThemePrefs(prefs) {
+    var root = document.documentElement;
+    root.classList.toggle("dark", resolveDarkMode(prefs.mode, systemPrefersDark()));
+    if (prefs.base !== THEME_DEFAULTS.base) root.setAttribute("data-cairn-base", prefs.base);
+    else root.removeAttribute("data-cairn-base");
+    if (prefs.theme !== THEME_DEFAULTS.theme) root.setAttribute("data-cairn-theme", prefs.theme);
+    else root.removeAttribute("data-cairn-theme");
+    if (prefs.chart !== THEME_DEFAULTS.chart) root.setAttribute("data-cairn-chart", prefs.chart);
+    else root.removeAttribute("data-cairn-chart");
+  }
+
+  // PT-69 (ux-designer's ruling, 2026-08-29): row interaction is Popover,
+  // cascading LEFT -- each row is a trigger; clicking it opens a NESTED
+  // flyout (positioned to the row's left, `side="left"` in the reference
+  // Popover's own vocabulary) listing that dimension's options. Only one
+  // row flyout is open at a time (opening a new row closes the previous
+  // one, same as the dashboard's real Popover primitive does implicitly).
+  // Selecting an option closes ONLY the row flyout, never the top-level
+  // panel -- multiple dimensions can be set in one visit.
+  var openRowDim = null;
+
+  function closeOpenRowFlyout() {
+    if (openRowDim === null) return;
+    var flyout = document.getElementById("theme-settings-row-flyout-" + openRowDim);
+    var rowBtn = document.getElementById("theme-settings-row-" + openRowDim);
+    if (flyout) flyout.hidden = true;
+    if (rowBtn) rowBtn.setAttribute("aria-expanded", "false");
+    openRowDim = null;
+  }
+
+  function renderThemeMenu(prefs) {
+    var menu = document.getElementById("theme-settings-menu");
+    if (!menu) return;
+    var rows = [
+      { dim: "mode", label: "Mode", options: THEME_MODE_OPTIONS, current: prefs.mode },
+      { dim: "base", label: "Base Color", options: THEME_BASE_OPTIONS, current: prefs.base },
+      { dim: "theme", label: "Theme", options: THEME_THEME_OPTIONS, current: prefs.theme },
+      { dim: "chart", label: "Chart Color", options: THEME_CHART_OPTIONS, current: prefs.chart },
+    ];
+    menu.innerHTML = "";
+    openRowDim = null;
+    rows.forEach(function (row) {
+      var currentOption = row.options.filter(function (o) { return o.id === row.current; })[0] || row.options[0];
+      var rowEl = document.createElement("div");
+      rowEl.className = "theme-settings-row";
+
+      var rowBtn = document.createElement("button");
+      rowBtn.type = "button";
+      rowBtn.id = "theme-settings-row-" + row.dim;
+      rowBtn.className = "theme-settings-row-trigger";
+      rowBtn.setAttribute("aria-haspopup", "true");
+      rowBtn.setAttribute("aria-expanded", "false");
+      rowBtn.textContent = row.label + ": " + (currentOption ? currentOption.label : row.current);
+
+      var flyout = document.createElement("div");
+      flyout.id = "theme-settings-row-flyout-" + row.dim;
+      flyout.className = "theme-settings-row-flyout";
+      flyout.hidden = true;
+      flyout.setAttribute("role", "radiogroup");
+      flyout.setAttribute("aria-label", row.label);
+      row.options.forEach(function (opt) {
+        var selected = opt.id === row.current;
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "theme-settings-option" + (selected ? " selected" : "");
+        btn.setAttribute("role", "radio");
+        btn.setAttribute("aria-checked", String(selected));
+        btn.textContent = (selected ? "✓ " : "") + opt.label;
+        btn.addEventListener("click", function () {
+          var next = readThemePrefs();
+          next[row.dim] = opt.id;
+          writeThemePrefs(next);
+          applyThemePrefs(next);
+          // Re-render (updates every row's summary text + selection
+          // state), but only THIS row's flyout should end up open again
+          // -- closing it here (before renderThemeMenu) keeps the
+          // "selecting closes only its own row" contract even though
+          // the whole menu content gets rebuilt.
+          openRowDim = null;
+          renderThemeMenu(next);
+        });
+        flyout.appendChild(btn);
+      });
+
+      rowBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var opening = openRowDim !== row.dim;
+        closeOpenRowFlyout();
+        if (opening) {
+          flyout.hidden = false;
+          rowBtn.setAttribute("aria-expanded", "true");
+          openRowDim = row.dim;
+        }
+      });
+
+      rowEl.appendChild(rowBtn);
+      rowEl.appendChild(flyout);
+      menu.appendChild(rowEl);
+    });
+  }
+
+  function wireThemeSettings() {
+    var trigger = document.getElementById("theme-settings-trigger");
+    var menu = document.getElementById("theme-settings-menu");
+    if (!trigger || !menu) return;
+    // PT-69 (ux-designer's embed-dedup ruling, issue thread, 2026-08-29):
+    // when the board renders EMBEDDED in the dashboard (isEmbedMode --
+    // the existing signal, PT-55/PT-32), it must carry NO theme-settings
+    // trigger at all -- the host page's own trigger governs, and this is
+    // simultaneously the fix for Mosko's "permanently open" finding in
+    // the embed context: no trigger reachable from inside the iframe
+    // means no way to open the embedded panel in the first place, so
+    // there's nothing left that needs cross-frame close handling.
+    // Deliberately `.remove()`, NOT `trigger.hidden = true` / `display:
+    // none` -- ux's ruling explicitly rejects hiding: a hidden-but-
+    // present control still sits in the tab order, a real keyboard-nav
+    // defect. Removes the whole `.theme-settings` wrapper (trigger +
+    // menu together), not just the trigger, so no orphaned menu node is
+    // left behind either.
+    if (isEmbedMode) {
+      var wrapper = trigger.closest(".theme-settings");
+      (wrapper || trigger).remove();
+      return;
+    }
+    trigger.addEventListener("click", function () {
+      var wasHidden = menu.hidden;
+      menu.hidden = !wasHidden;
+      trigger.setAttribute("aria-expanded", String(wasHidden));
+    });
+    document.addEventListener("click", function (e) {
+      if (!menu.hidden && e.target !== trigger && !menu.contains(e.target) && !trigger.contains(e.target)) {
+        // Outside the whole panel -- close everything (the open row
+        // flyout is a DOM descendant of menu, so hiding menu already
+        // hides it; still reset the tracked state so a later reopen of
+        // the top-level panel doesn't believe a row is open).
+        menu.hidden = true;
+        trigger.setAttribute("aria-expanded", "false");
+        openRowDim = null;
+        return;
+      }
+      // PT-69 (ux-designer's Popover ruling): a click landing INSIDE the
+      // still-open top-level panel but on neither the currently-open
+      // row's own trigger (that button's own handler owns toggling it)
+      // nor inside its flyout (an option button, handled by that
+      // button's own click handler) closes just the row flyout --
+      // clicking elsewhere in the panel (e.g. a different row's
+      // trigger, whitespace) shouldn't leave a stale flyout open.
+      if (openRowDim !== null) {
+        var openFlyout = document.getElementById("theme-settings-row-flyout-" + openRowDim);
+        var openRowBtn = document.getElementById("theme-settings-row-" + openRowDim);
+        if (openFlyout && !openFlyout.contains(e.target) && e.target !== openRowBtn) {
+          closeOpenRowFlyout();
+        }
+      }
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      // Innermost-first: an open row flyout absorbs the first Escape,
+      // the top-level panel absorbs the next one -- matches the
+      // reference Popover's own nested-dismissal behavior.
+      if (openRowDim !== null) {
+        var dim = openRowDim;
+        closeOpenRowFlyout();
+        var rowBtn = document.getElementById("theme-settings-row-" + dim);
+        if (rowBtn) rowBtn.focus();
+        return;
+      }
+      if (!menu.hidden) {
+        menu.hidden = true;
+        trigger.setAttribute("aria-expanded", "false");
+        trigger.focus();
+      }
+    });
+    renderThemeMenu(readThemePrefs());
+
+    // PT-69 (architect's ruling § 3): cross-tab propagation -- the
+    // `storage` event fires in OTHER tabs on write, so a same-origin
+    // board+dashboard pair open side by side stays in sync on reload-free
+    // change.
+    window.addEventListener("storage", function (e) {
+      if (e.key !== null && e.key !== THEME_STORAGE_KEY) return;
+      var prefs = readThemePrefs();
+      applyThemePrefs(prefs);
+      renderThemeMenu(prefs);
+    });
+
+    // PT-69 (architect's addendum item 3 + ux-designer's Mode addendum):
+    // mode=system must keep tracking the OS LIVE while the page stays
+    // open, not just resolve once at load -- distinct from the storage
+    // listener above (that one is cross-TAB; this one is cross-OS-
+    // setting, same tab).
+    try {
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
+        var prefs = readThemePrefs();
+        if (prefs.mode === "system") applyThemePrefs(prefs);
+      });
+    } catch (e) {}
   }
 
   // ------------------------------------------------------------------
@@ -2557,6 +2894,7 @@
     wireFilters();
     wireNewIssueForm();
     wirePullToRefresh();
+    wireThemeSettings();
     apiGetBoard().then(function (data) {
       state.board = data;
       // PT-38 (architect's ruling § 6): swimlanesOn's payload-driven
