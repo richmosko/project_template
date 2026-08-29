@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Dashboard + board: theme settings dropdown (Mode, Base Color, Theme, Chart Color) |
-| Issue | PT-69 (cairn) |
-| Milestone | PT-0.9 |
-| Branch | `feature/pt-69-theme-settings-dropdown` |
+| Feature | Embedded board: live theme propagation + disable pull-to-refresh |
+| Issue | PT-70 (cairn) |
+| Milestone | PT-0.9 (reopened for Mosko's 6 post-merge findings; PT-71 icons + PT-72 unified shell queued; v0.9.0 tag deferred until all land) |
+| Branch | `feature/pt-70-embed-theme-ptr` |
 | Started | 2026-08-29 |
-| Goal | shadcn settings-pull-down pattern; preset b6XadDxmQS stays default, variants along shadcn's own dimensions; one localStorage choice honored by both surfaces; every chart-color variant validator-passed |
-| Status | In Progress — architect ruling + ux proposal in flight |
+| Goal | Embed follows theme changes live (all dimensions, no reload); PT-33 pull-to-refresh adapter disabled in embed context only |
+| Status | In Progress |
 
 ## Releases
 

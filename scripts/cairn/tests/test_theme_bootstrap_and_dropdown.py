@@ -76,6 +76,7 @@ DASHBOARD_INDEX_HTML = helpers.CAIRN_DIR / "dashboard" / "index.html"
 VARIANTS_JSON = helpers.CAIRN_DIR / "design" / "variants.json"
 APP_CSS = helpers.CAIRN_DIR / "dashboard" / "src" / "app.css"
 BOARD_JS = helpers.CAIRN_DIR / "board" / "board.js"
+BOARD_CSS = helpers.CAIRN_DIR / "board" / "board.css"
 DASHBOARD_SRC = helpers.CAIRN_DIR / "dashboard" / "src"
 
 # The exact id architect's ruling implies a single shared generated snippet
@@ -355,6 +356,86 @@ class ModeThreeStateShapeTests(unittest.TestCase):
             "no 'RadioGroup' reference found under dashboard/src -- ux-designer's ruled "
             "submenu idiom is DropdownMenu.Sub + DropdownMenu.RadioGroup for every row, "
             "Mode included, not a cycle-on-click interaction.",
+        )
+
+
+class HeadTimeEmbedClassAssignmentTests(unittest.TestCase):
+    """PT-70 scope addition (architect's flash-window residue, folded in
+    by team-lead): `wireThemeSettings()` removes the embedded trigger from
+    the DOM, but that removal runs from `init()` -- AFTER the page has
+    already parsed and (briefly) painted the trigger. In an embedded
+    context that's a real flash: visible trigger, then gone a moment
+    later. Fix: the inline bootstrap script (already synchronous, head-
+    time, before first paint -- the same mechanism PT-69 uses for theme)
+    ALSO sets a `:root`-level embed class the instant `window.self !==
+    window.top` is true, and board.css keys a rule off `:root.embed` to
+    hide the trigger before board.js ever runs -- no flash window,
+    because the hide happens before the browser paints anything at all.
+
+    Also covers, implicitly: byte-identity across both heads' bootstrap
+    scripts is ALREADY asserted by `BootstrapScriptsAreByteIdenticalTests`
+    above -- this class doesn't re-test that, only that the embed-class
+    assignment specifically is present in each snippet (which, combined
+    with the existing byte-identity test, is equivalent to "present and
+    identical on both").
+    """
+
+    def _snippet_for(self, html_path):
+        html = html_path.read_text(encoding="utf-8") if html_path.is_file() else ""
+        return _extract_script_by_id(_head(html), BOOTSTRAP_SCRIPT_ID)
+
+    def _assert_sets_embed_class_at_head_time(self, surface_label: str, snippet):
+        # Search the COMMENT-STRIPPED code, not the raw snippet: this
+        # exact class of test bit implementation-lead for real once
+        # already -- an explanatory comment ABOVE the real code contained
+        # the literal string "window.self !== window.top" in backticks,
+        # which a naive `re.search` on the raw text matches FIRST (it
+        # appears earlier in source than the real code), landing the real
+        # `classList.add("embed")` call just past a short lookahead
+        # window. Same self-sabotage shape as an earlier comment
+        # collision this feature hit (test_css_parse_sanity.py's PT-57
+        # `--chart-*/--radius` finding). Stripping comments first means
+        # this guard can no longer be fooled by its own documentation.
+        self.assertIsNotNone(snippet, f"{surface_label}: bootstrap script not found")
+        code = _strip_js_comments(snippet)
+        self_top_match = re.search(r"self\s*!==\s*window\.top", code)
+        self.assertIsNotNone(
+            self_top_match,
+            f"{surface_label}: bootstrap script's actual CODE (comments stripped) never checks "
+            f"`window.self !== window.top` -- the head-time embed-class assignment has nothing "
+            f"to key off.",
+        )
+        neighborhood = code[max(0, self_top_match.start() - 50):self_top_match.end() + 250]
+        self.assertTrue(
+            "classList.add" in neighborhood and "embed" in neighborhood,
+            f"{surface_label}: no classList.add(...'embed'...) found near the `window.self !== "
+            f"window.top` check in the bootstrap script's actual code -- the embed class must be "
+            f"assigned at head time, synchronously, before board.js/main.ts ever runs, or the "
+            f"trigger still flashes visible for a moment in the embedded context.",
+        )
+
+    def test_board_bootstrap_sets_an_embed_class_at_head_time(self):
+        self._assert_sets_embed_class_at_head_time("board.html", self._snippet_for(BOARD_HTML))
+
+    def test_dashboard_bootstrap_sets_an_embed_class_at_head_time(self):
+        self._assert_sets_embed_class_at_head_time("dashboard/index.html", self._snippet_for(DASHBOARD_INDEX_HTML))
+
+    def test_board_css_hides_the_trigger_via_a_root_embed_selector(self):
+        self.assertTrue(BOARD_CSS.is_file(), f"{BOARD_CSS} does not exist")
+        source = BOARD_CSS.read_text(encoding="utf-8")
+        stripped = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+        match = re.search(r":root\.embed\b[^{]*\{([^}]*)\}", stripped)
+        self.assertIsNotNone(
+            match,
+            f"{BOARD_CSS}: no `:root.embed {{ ... }}` (or a selector compounding on it, e.g. "
+            f"`:root.embed .theme-settings`) found -- the head-time embed class needs a CSS "
+            f"rule to actually hide the trigger before board.js runs.",
+        )
+        rule_body = match.group(1)
+        self.assertTrue(
+            re.search(r"display\s*:\s*none", rule_body) is not None,
+            f"{BOARD_CSS}: found a `:root.embed`-keyed rule but it doesn't set `display: none` "
+            f"-- that's the actual hiding mechanism this pre-JS fix needs.",
         )
 
 

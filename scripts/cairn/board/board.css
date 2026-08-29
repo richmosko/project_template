@@ -1040,6 +1040,19 @@ table.issue-list tr:hover { background: var(--accent); cursor: pointer; }
   cursor: pointer;
 }
 
+/* PT-70 (architect's finding): head-time embed flash prevention. The
+   trigger is static markup and board.js (which removes it at runtime
+   for the embedded case) loads at body-end -- without this, the button
+   can paint for one frame before script ever runs. The inline bootstrap
+   script (board.html's <head>, generated -- see
+   scripts/cairn/design/gen_variants.py) adds `embed` to <html>'s
+   classList synchronously, before body paints, so this rule applies
+   before the flash window opens. :root, not body -- the class exists on
+   <html> at head-time; body doesn't exist yet when the bootstrap runs. */
+:root.embed #theme-settings-trigger {
+  display: none;
+}
+
 .theme-settings-menu {
   position: absolute;
   top: calc(100% + 4px);

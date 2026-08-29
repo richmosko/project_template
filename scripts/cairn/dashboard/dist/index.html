@@ -53,6 +53,14 @@
     if (base !== DEFAULTS.base) root.setAttribute("data-cairn-base", base);
     if (theme !== DEFAULTS.theme) root.setAttribute("data-cairn-theme", theme);
     if (chart !== DEFAULTS.chart) root.setAttribute("data-cairn-chart", chart);
+    // PT-70 (architect's finding): head-time embed detection, before
+    // board.js (loaded at body-end) ever runs -- static markup like the
+    // theme-settings trigger button can otherwise paint for one frame
+    // before script removes it. Same iframe check board.js's own
+    // isEmbedMode uses; :root, not body -- the class must exist before
+    // body itself has painted. Harmless on the dashboard's own head (it
+    // is never itself framed).
+    if (window.self !== window.top) root.classList.add("embed");
   } catch (e) {}
 })();
 </script>
