@@ -673,7 +673,17 @@ main > .swimlane .column {
    the base outline chip (no override needed); the other four states
    override background/border/color explicitly. */
 .chip.status[data-status="in-progress"] { background: var(--primary); border-color: transparent; color: var(--primary-foreground); }
-.chip.status[data-status="paused"] { background: var(--chart-2); border-color: transparent; color: var(--foreground); }
+/* PT-69 (architect's ruling 1db6053 + ux-designer's replacement token):
+   moved OFF --chart-2 -- a status chip's legibility must not depend on
+   the user's (now user-selectable) Chart Color choice. --accent/
+   --accent-foreground is Base-Color-owned (inverts correctly per mode)
+   and passes 13.79-16.42:1 across every Base variant, both modes.
+   Deliberately KEEPS the 1px var(--border) outline (doesn't follow the
+   other filled variants' border-color: transparent) -- cheap insurance
+   against --accent's other role as this system's hover/active surface;
+   if a status chip ever lands in a hoverable row, the border keeps it
+   visible instead of disappearing into an identical hover fill. */
+.chip.status[data-status="paused"] { background: var(--accent); color: var(--accent-foreground); }
 .chip.status[data-status="done"] { background: var(--foreground); border-color: transparent; color: var(--background); }
 .chip.status[data-status="cancelled"] { background: var(--destructive); border-color: transparent; color: var(--destructive-foreground); }
 /* GA is the one milestone marker that should dominate -- `default`
@@ -1007,4 +1017,133 @@ table.issue-list tr:hover { background: var(--accent); cursor: pointer; }
   color: var(--muted-foreground);
   font-size: 13px;
   padding: 8px 4px;
+}
+
+/* PT-69 (ux-designer's placement proposal): styled from the Legacy/
+   migration token map (popover surface, radius-lg, shadow-sm) even
+   though the board can't mount the real Svelte DropdownMenu primitive --
+   content built by board.js's wireThemeSettings()/renderThemeMenu().
+   PT-64 (full face floor): every sub-13px/13px text below gets an
+   explicit font-family -- buttons don't inherit it by default. */
+.theme-settings {
+  position: relative;
+}
+
+.theme-settings-trigger {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--foreground);
+  padding: 4px 10px;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+
+.theme-settings-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 210;
+  min-width: 220px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  /* shadow-sm value, literal -- the board has no --shadow-* custom
+     property (Shadows section of design-system-spec.md: shadcn's stock
+     scale isn't re-tuned per preset, so there's nothing to vendor here). */
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* PT-69 (Mosko's live-test finding, 2026-08-29): the `hidden` attribute
+   and this class's own `display: flex` above are the SAME specificity
+   (one class selector, one attribute selector), so without this rule
+   the browser's UA-stylesheet `[hidden] { display: none }` LOSES the
+   cascade tie to whichever rule loads later -- this class's `display:
+   flex` always wins, and board.js's `menu.hidden = true` (the close
+   path: outside-click, Escape, and the trigger's own close-toggle) has
+   no visual effect at all. This is the "board panel cannot be closed
+   once opened" bug -- the JS state was toggling correctly the whole
+   time; nothing ever obeyed it. `!important`-free fix: raise this
+   selector's specificity above the bare class rule instead. */
+.theme-settings-menu[hidden] {
+  display: none;
+}
+
+.theme-settings-row {
+  position: relative;
+}
+
+/* PT-69 (ux-designer's ruling, 2026-08-29): the row is now a Popover
+   TRIGGER, not an always-expanded group heading -- clicking it opens a
+   nested flyout (.theme-settings-row-flyout below), cascading to the
+   row's LEFT (side="left" in the reference Popover's own vocabulary). */
+.theme-settings-row-trigger {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--popover-foreground);
+  padding: 4px 6px;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme-settings-row-trigger:hover { background: var(--accent); color: var(--accent-foreground); }
+.theme-settings-row-trigger[aria-expanded="true"] { background: var(--accent); color: var(--accent-foreground); }
+
+.theme-settings-row-flyout {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 4px);
+  z-index: 220;
+  min-width: 160px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* Same specificity-tie fix as .theme-settings-menu[hidden] above --
+   this element also combines the `hidden` attribute with its own
+   `display: flex`. */
+.theme-settings-row-flyout[hidden] {
+  display: none;
+}
+
+.theme-settings-option {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--popover-foreground);
+  padding: 3px 8px;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+
+.theme-settings-option.selected {
+  background: var(--accent);
+  color: var(--accent-foreground);
+  border-color: var(--ring);
+}
+
+.theme-settings-option:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
 }

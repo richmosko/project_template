@@ -1,22 +1,4 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Project Dashboard</title>
-    <!-- PT-69 (architect's ruling §3): inline, not external -- must run and
-         apply BEFORE the module script below so the correct theme
-         variant/mode is already in effect at first paint (no FOUC; this
-         is a static Vite SPA, no SSR/hydration gap to design around).
-         Reads the origin-global `cairn.theme` localStorage key and sets
-         data-cairn-base/theme/chart + the .dark class synchronously.
-         Generated from scripts/cairn/design/variants.json by
-         scripts/cairn/design/gen_variants.py (see
-         scripts/cairn/design/bootstrap.snippet.html) -- byte-identical to
-         the copy in board/board.html's <head>
-         (test_theme_bootstrap_and_dropdown.py asserts this). -->
-    <script id="cairn-theme-bootstrap">
+<script id="cairn-theme-bootstrap">
 (function () {
   try {
     var KEY = "cairn.theme";
@@ -56,9 +38,3 @@
   } catch (e) {}
 })();
 </script>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
-</html>

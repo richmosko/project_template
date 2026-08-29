@@ -932,6 +932,60 @@ var CairnLogic = (function () {
     return next;
   }
 
+  // ------------------------------------------------------------------
+  // PT-69 (architect's theme-variant ruling § 3): the theme/color settings
+  // dropdown's persisted-preference schema. Deliberately origin-global, NOT
+  // repo-scoped like viewStateKey above -- a theme is a fact about the
+  // person looking, not the project being viewed (the ruling's own
+  // departure note from PT-30's precedent). One key, shared verbatim by
+  // the board and the dashboard (same origin, one Python process serves
+  // both).
+  // ------------------------------------------------------------------
+  var THEME_STORAGE_KEY = "cairn.theme";
+  var THEME_STORAGE_VERSION = 1;
+  var THEME_DEFAULTS = { mode: "system", base: "stone", theme: "sky", chart: "yellow" };
+  var THEME_MODE_IDS = ["system", "light", "dark"];
+
+  // PT-69 (architect's ruling § 3): per-DIMENSION fallback, not whole-blob
+  // rejection -- an unrecognized or absent `base` falls back to the
+  // default base while leaving a valid `chart` choice intact. `validIds`
+  // is `{base: [...], theme: [...], chart: [...]}`, the vendored option
+  // sets from variants.json (always includes each dimension's own
+  // default, since the default is never dropped). A `v` this function
+  // doesn't recognize is treated as absent -- ignore the blob entirely,
+  // same discipline as parseExpandedLanes above (never throw, always
+  // return a usable value).
+  function parseThemePrefs(raw, validIds) {
+    var parsed = null;
+    if (typeof raw === "string" && raw !== "") {
+      try {
+        parsed = JSON.parse(raw);
+      } catch (e) {
+        parsed = null;
+      }
+    }
+    if (!parsed || typeof parsed !== "object" || parsed.v !== THEME_STORAGE_VERSION) parsed = {};
+    function pick(value, validList, fallback) {
+      return typeof value === "string" && validList.indexOf(value) !== -1 ? value : fallback;
+    }
+    return {
+      mode: pick(parsed.mode, THEME_MODE_IDS, THEME_DEFAULTS.mode),
+      base: pick(parsed.base, (validIds && validIds.base) || [THEME_DEFAULTS.base], THEME_DEFAULTS.base),
+      theme: pick(parsed.theme, (validIds && validIds.theme) || [THEME_DEFAULTS.theme], THEME_DEFAULTS.theme),
+      chart: pick(parsed.chart, (validIds && validIds.chart) || [THEME_DEFAULTS.chart], THEME_DEFAULTS.chart),
+    };
+  }
+
+  // PT-69 (architect's ruling § 3 + ux-designer's Mode addendum): the
+  // effective light/dark resolution -- `mode: "dark"` is always dark;
+  // `mode: "system"` (the default, and the only state a stored/absent
+  // value that ISN'T "light"/"dark" ever resolves to, per parseThemePrefs
+  // above) follows `systemPrefersDark`, re-evaluated live by the caller on
+  // every `prefers-color-scheme` `change` event, not just once at load.
+  function resolveDarkMode(mode, systemPrefersDark) {
+    return mode === "dark" || (mode === "system" && !!systemPrefersDark);
+  }
+
   // PT-32 (architect's ruling § 5): the pull-down-to-refresh gesture's
   // constants, exported so tests assert the exact values the code uses.
   var PULL_THRESHOLD = 64;
@@ -1192,5 +1246,11 @@ var CairnLogic = (function () {
     wheelPullShouldFire: wheelPullShouldFire,
     isEmbedMode: isEmbedMode,
     embedAwareHref: embedAwareHref,
+    THEME_STORAGE_KEY: THEME_STORAGE_KEY,
+    THEME_STORAGE_VERSION: THEME_STORAGE_VERSION,
+    THEME_DEFAULTS: THEME_DEFAULTS,
+    THEME_MODE_IDS: THEME_MODE_IDS,
+    parseThemePrefs: parseThemePrefs,
+    resolveDarkMode: resolveDarkMode,
   };
 })();

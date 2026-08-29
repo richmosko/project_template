@@ -45,11 +45,24 @@
   --secondary: oklch(0.967 0.001 286.375);
   --secondary-foreground: oklch(0.21 0.006 285.885);
   --muted: oklch(0.97 0.001 106.424);
-  --muted-foreground: oklch(0.553 0.013 58.071);
+  /* PT-69 (Mosko's ruling, 2026-08-29, "darken the ink"; re-derived under
+     the "two-model rule"): darkened from the preset's own oklch(0.553
+     0.013 58.071), which fails WCAG AA against --muted above (4.39:1 <
+     4.5:1 floor) -- clears the floor under BOTH the quantized-hex and
+     float contrast models (4.58:1 / 4.56:1). See app.css's own copy of
+     this comment and scripts/cairn/design/gen_variants.py's
+     derive_muted_foreground() for the full rationale/method. */
+  --muted-foreground: oklch(0.5450 0.013 58.071);
   --accent: oklch(0.97 0.001 106.424);
   --accent-foreground: oklch(0.216 0.006 56.043);
   --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.97 0.01 17);
+  /* PT-69 (ux-designer's ruling, 2026-08-29, on architect's f26dbad): see
+     app.css's own copy of this comment for the full rationale --
+     lightened (the direction-correct fix here) to pure white, the only
+     value with real headroom (4.35:1 -> 4.76:1); costs the preset's
+     slight warm-pink tint. See .dark's own copy for the opposite-
+     direction dark-mode fix. */
+  --destructive-foreground: oklch(1 0 0);
   --border: oklch(0.923 0.003 48.717);
   --input: oklch(0.923 0.003 48.717);
   --ring: oklch(0.709 0.01 56.259);
@@ -105,7 +118,15 @@
   --accent: oklch(0.268 0.007 34.298);
   --accent-foreground: oklch(0.985 0.001 106.423);
   --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.97 0.01 17);
+  /* PT-69 (architect's ruling, 2026-08-29, f26dbad): SPLIT from :root's
+     value above -- see app.css's own copy of this comment for the full
+     rationale (one shared ink can't clear both modes; dark's fill is
+     unusually lighter than light's own). Re-derived under the "two-model
+     rule" -- a bare-minimum single-model search first landed on
+     L=0.3145 (4.53:1 quantized, but only 4.4955:1 float, below floor);
+     L=0.31 clears both (4.60:1 quantized / 4.57:1 float). Also fixes
+     .engine-stale-banner below, which pairs the same two tokens. */
+  --destructive-foreground: oklch(0.31 0.01 17.0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.553 0.013 58.071);

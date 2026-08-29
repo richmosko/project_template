@@ -43,6 +43,14 @@ BOARD_TOKENS_CSS = helpers.CAIRN_DIR / "board" / "tokens.css"
 DOCS_TOKENS_CSS = REPO_ROOT / "docs" / "DESIGN" / "tokens.css"
 DASHBOARD_DIST_INDEX_CSS = REPO_ROOT / "scripts" / "cairn" / "dashboard" / "dist" / "assets" / "index.css"
 
+# PT-69 (architect's theme-variant ruling, §2): "All three go into
+# test_css_parse_sanity.py's file list -- a generated stylesheet is exactly
+# as capable of shipping dead as a hand-written one, and a 0 cssRules
+# variants.css would fail silently as 'theme just doesn't change.'"
+BOARD_VARIANTS_CSS = helpers.CAIRN_DIR / "board" / "variants.css"
+DASHBOARD_VARIANTS_CSS = helpers.CAIRN_DIR / "dashboard" / "src" / "variants.css"
+DOCS_VARIANTS_CSS = REPO_ROOT / "docs" / "DESIGN" / "variants.css"
+
 
 class CssStructuralScan(NamedTuple):
     stray_comment_closers: list  # char offsets of `*/` seen with no comment open
@@ -197,6 +205,30 @@ class DashboardBuiltCssParseSanityTests(unittest.TestCase):
         if not DASHBOARD_DIST_INDEX_CSS.is_file():
             self.skipTest(f"{DASHBOARD_DIST_INDEX_CSS} not built yet")
         _assert_structurally_sound(self, DASHBOARD_DIST_INDEX_CSS, min_rules=10)
+
+
+class ThemeVariantsCssParseSanityTests(unittest.TestCase):
+    """PT-69: unlike DashboardBuiltCssParseSanityTests below, these are
+    checked-in AUTHORED (generated-then-committed) artifacts, not a build
+    output that might legitimately not exist yet pre-build -- so a missing
+    file here is a hard failure, not a skip. See test_theme_variants_
+    generator.py for the generator/regeneration contract these files come
+    from."""
+
+    def test_board_variants_css_is_one_structurally_coherent_stylesheet(self):
+        self.assertTrue(BOARD_VARIANTS_CSS.is_file(), f"{BOARD_VARIANTS_CSS} does not exist")
+        if BOARD_VARIANTS_CSS.is_file():
+            _assert_structurally_sound(self, BOARD_VARIANTS_CSS, min_rules=10)
+
+    def test_dashboard_variants_css_is_one_structurally_coherent_stylesheet(self):
+        self.assertTrue(DASHBOARD_VARIANTS_CSS.is_file(), f"{DASHBOARD_VARIANTS_CSS} does not exist")
+        if DASHBOARD_VARIANTS_CSS.is_file():
+            _assert_structurally_sound(self, DASHBOARD_VARIANTS_CSS, min_rules=10)
+
+    def test_docs_variants_css_is_one_structurally_coherent_stylesheet(self):
+        self.assertTrue(DOCS_VARIANTS_CSS.is_file(), f"{DOCS_VARIANTS_CSS} does not exist")
+        if DOCS_VARIANTS_CSS.is_file():
+            _assert_structurally_sound(self, DOCS_VARIANTS_CSS, min_rules=10)
 
 
 class ScanCssStructureSelfTests(unittest.TestCase):

@@ -9,7 +9,9 @@ migration touches none of that JS, but it's exactly the kind of change
 that COULD silently orphan a class (a selector renamed or a rule deleted
 during the token rewrite, while the JS side keeps toggling the old name)
 -- the AC's "remains functional" claim, made concrete: every class board.js
-ever toggles must still have at least one real CSS rule in board.css
+ever toggles must still have at least one real CSS rule SOMEWHERE the board
+loads it from (board.css, board/tokens.css, or board/variants.css --
+widened for PT-69, see the comment on BOARD_TOKENS_CSS_PATH below)
 referencing it, cross-language, same JC1 rationale as test_column_parity.py
 (Python is the unconditional hard gate; this lives here, not only in the
 JS suite, so it's enforced regardless of whether `node` is available).
@@ -28,6 +30,18 @@ import helpers  # noqa: F401
 
 BOARD_JS_PATH = helpers.CAIRN_DIR / "board" / "board.js"
 BOARD_CSS_PATH = helpers.CAIRN_DIR / "board" / "board.css"
+
+# PT-69 (implementation-lead's finding, 2026-08-29): board.js's first-ever
+# `classList.toggle("dark", ...)` call (the new Mode mechanism) legitimately
+# has ITS selector -- `.dark` -- live in board/tokens.css (the custom-
+# property override block board.css's own rules consume via var()), not in
+# board.css itself; board.css was never meant to carry its own duplicate
+# `.dark` selector. Widened to also scan board/tokens.css and board/
+# variants.css (a future variant could in principle add its own toggled
+# class) so this guard doesn't flag a real, correctly-placed selector as
+# orphaned just because it isn't physically inside board.css.
+BOARD_TOKENS_CSS_PATH = helpers.CAIRN_DIR / "board" / "tokens.css"
+BOARD_VARIANTS_CSS_PATH = helpers.CAIRN_DIR / "board" / "variants.css"
 
 
 class ExtractionError(AssertionError):
@@ -71,7 +85,16 @@ def extract_css_defined_classes(css_source: str) -> set:
 class BoardJsCssClassContractTests(unittest.TestCase):
     def setUp(self):
         self.js_source = BOARD_JS_PATH.read_text(encoding="utf-8")
-        self.css_source = BOARD_CSS_PATH.read_text(encoding="utf-8")
+        # Concatenated, not just board.css: a selector board.js toggles can
+        # legitimately live in tokens.css/variants.css (custom-property
+        # override blocks) rather than board.css's own rules -- see the
+        # PT-69 comment on BOARD_TOKENS_CSS_PATH above. variants.css may
+        # not exist yet on a given checkout (generated artifact), so it's
+        # included only if present.
+        css_sources = [BOARD_CSS_PATH.read_text(encoding="utf-8"), BOARD_TOKENS_CSS_PATH.read_text(encoding="utf-8")]
+        if BOARD_VARIANTS_CSS_PATH.is_file():
+            css_sources.append(BOARD_VARIANTS_CSS_PATH.read_text(encoding="utf-8"))
+        self.css_source = "\n".join(css_sources)
 
     def test_every_class_board_js_toggles_has_a_real_css_rule(self):
         toggled = extract_toggled_classes(self.js_source)
