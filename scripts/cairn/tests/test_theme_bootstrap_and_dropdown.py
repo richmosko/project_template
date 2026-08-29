@@ -103,6 +103,68 @@ def _extract_script_by_id(html: str, script_id: str):
     return match.group(1) if match else None
 
 
+def _strip_js_comments(source: str) -> str:
+    """`//` line comments and `/* */` block comments removed, single/
+    double/template-literal string contents left untouched (so a `//` or
+    `/*` sitting inside a string isn't mistaken for a comment opener) --
+    the exact discipline this file's own `HeadTimeEmbedClassAssignmentTests`
+    needed after an explanatory comment containing the literal searched-for
+    code string fooled a plain `re.search` on raw source. Not a full JS
+    tokenizer (no regex-literal `/.../ ` handling, no escape-sequence
+    awareness inside strings) -- this bootstrap snippet is small,
+    generated, stdlib-simple JS; a real tokenizer is overkill for it."""
+    out = []
+    i, n = 0, len(source)
+    in_string = None  # None, or the quote character currently open
+    in_line_comment = False
+    in_block_comment = False
+    while i < n:
+        two = source[i : i + 2]
+        ch = source[i]
+        if in_line_comment:
+            if ch == "\n":
+                in_line_comment = False
+                out.append(ch)
+            i += 1
+            continue
+        if in_block_comment:
+            if two == "*/":
+                in_block_comment = False
+                i += 2
+                continue
+            i += 1
+            continue
+        if in_string:
+            out.append(ch)
+            if ch == "\\":
+                # Preserve the escaped character verbatim too, so an
+                # escaped quote (`\"`) doesn't end the string early.
+                if i + 1 < n:
+                    out.append(source[i + 1])
+                i += 2
+                continue
+            if ch == in_string:
+                in_string = None
+            i += 1
+            continue
+        if two == "//":
+            in_line_comment = True
+            i += 2
+            continue
+        if two == "/*":
+            in_block_comment = True
+            i += 2
+            continue
+        if ch in ("'", '"', "`"):
+            in_string = ch
+            out.append(ch)
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _tag_offset(html: str, needle_pattern: str):
     match = re.search(needle_pattern, html, flags=re.IGNORECASE | re.DOTALL)
     return match.start() if match else None
@@ -748,6 +810,49 @@ class SourceTextExtractorSelfTests(unittest.TestCase):
     def test_extract_script_by_id_returns_none_when_absent(self):
         html = "<head><script>no id here</script></head>"
         self.assertIsNone(_extract_script_by_id(html, "cairn-theme-bootstrap"))
+
+    def test_strip_js_comments_removes_line_and_block_comments(self):
+        source = "// a line comment\nvar x = 1; /* a block\ncomment */ var y = 2;"
+        stripped = _strip_js_comments(source)
+        self.assertNotIn("a line comment", stripped)
+        self.assertNotIn("a block", stripped)
+        self.assertIn("var x = 1;", stripped)
+        self.assertIn("var y = 2;", stripped)
+
+    def test_strip_js_comments_leaves_string_contents_with_comment_like_text_alone(self):
+        source = 'var url = "http://example.com"; // trailing comment'
+        stripped = _strip_js_comments(source)
+        self.assertIn('"http://example.com"', stripped)
+        self.assertNotIn("trailing comment", stripped)
+
+    def test_strip_js_comments_reproduces_the_real_self_sabotage_bug(self):
+        # The EXACT shape implementation-lead hit: an explanatory comment
+        # containing the literal searched-for code string, positioned
+        # BEFORE the real code, so a naive re.search on raw source finds
+        # the comment's occurrence first and a short lookahead window
+        # never reaches the real classList.add call.
+        source = (
+            "// head-time embed detection: `window.self !== window.top` is the same check\n"
+            "// board.js's isEmbedMode already uses, so we don't invent a second signal here.\n"
+            "// This whole explanatory aside is deliberately long enough that a naive fixed-\n"
+            "// width lookahead window from the FIRST raw-text match (this comment) would\n"
+            "// land short of the real code below, exactly like the bug that motivated this.\n"
+            "if (window.self !== window.top) root.classList.add(\"embed\");\n"
+        )
+        raw_match = re.search(r"self\s*!==\s*window\.top", source)
+        raw_neighborhood = source[raw_match.start():raw_match.end() + 250]
+        # Reproduces the bug: the raw-text search, unstripped, does NOT
+        # find classList.add within the short window (it's stuck inside
+        # the long comment).
+        self.assertNotIn("classList.add", raw_neighborhood)
+        # The stripped version fixes it: the comment is gone, so the
+        # FIRST (and only) match is the real code, immediately followed
+        # by classList.add.
+        stripped = _strip_js_comments(source)
+        stripped_match = re.search(r"self\s*!==\s*window\.top", stripped)
+        self.assertIsNotNone(stripped_match)
+        stripped_neighborhood = stripped[stripped_match.start():stripped_match.end() + 250]
+        self.assertIn("classList.add", stripped_neighborhood)
 
     def test_tag_offset_orders_two_tags_correctly(self):
         html = '<a id="first"></a><b id="second"></b>'
