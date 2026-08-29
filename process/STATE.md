@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Dashboard + board: theme settings dropdown (Mode, Base Color, Theme, Chart Color) |
+| Issue | PT-69 (cairn) |
+| Milestone | PT-0.9 |
+| Branch | `feature/pt-69-theme-settings-dropdown` |
+| Started | 2026-08-29 |
+| Goal | shadcn settings-pull-down pattern; preset b6XadDxmQS stays default, variants along shadcn's own dimensions; one localStorage choice honored by both surfaces; every chart-color variant validator-passed |
+| Status | In Progress — architect ruling + ux proposal in flight |
 
 ## Releases
 

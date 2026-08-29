@@ -215,6 +215,35 @@ Usage: `shadow-xs` on inputs/buttons (barely-there depth cue), `shadow-sm` on ca
 
 ---
 
+## Theme & color variants (PT-69)
+
+**What this is:** a user-selectable settings dropdown — **Mode, Base Color, Theme, Chart Color** — that lets a person pick their own point in a small, curated variant space, while preset b6XadDxmQS stays the **default**. This relaxes the 2026-08-26 preset-pure ruling (see **What governs this system** above) into "preset-as-default, shadcn-native variants on top." Full design rationale — the counting logic behind each option set, and a state-by-state behavior spec — lives in the PT-69 issue comment thread (`process/cairn/issues/PT-69.md`); this section is the settled summary other agents should build from, not the working record.
+
+**Architecture (ruled by architect, PT-69, 2026-08-29):** four dimensions. Three are CSS `data-cairn-*` attributes on `<html>` (Base Color → `data-cairn-base`, Theme → `data-cairn-theme`, Chart Color → `data-cairn-chart`); the fourth (Mode) reuses the existing `.dark` class. The three attribute dimensions **partition** the token set — no token belongs to more than one dimension, mechanically enforced by a test. Values are vendored, not fetched at runtime, from shadcn-svelte's own generator (browser-extracted, same method as the 2026-08-26 preset extraction) into `scripts/cairn/design/variants.json`; a generator script emits three CSS copies — `scripts/cairn/board/variants.css`, `scripts/cairn/dashboard/src/variants.css`, and `docs/DESIGN/variants.css` (this system's copy). Persistence is one origin-global `localStorage` key, `cairn.theme`, shared by the dashboard and the board — a theme is a fact about the person looking, not the project being viewed, so it is deliberately not repo-scoped.
+
+### Dimensions, token ownership, and option sets
+
+| Dimension | Attribute | Owns (tokens) | Default | Offered options |
+|---|---|---|---|---|
+| **Mode** | `.dark` class | selects the light/dark half of every block below | `system` | System, Light, Dark |
+| **Base Color** | `data-cairn-base` | neutrals: `--background --foreground --card(-foreground) --popover(-foreground) --secondary(-foreground) --muted(-foreground) --accent(-foreground) --border --input --ring --destructive(-foreground) --sidebar --sidebar-foreground --sidebar-accent(-foreground) --sidebar-border --sidebar-ring` | `stone` | **Stone** (default), Neutral, Zinc, Gray, Slate |
+| **Theme** | `data-cairn-theme` | brand hue: `--primary --primary-foreground --sidebar-primary --sidebar-primary-foreground` | `sky` | **Sky** (default), Blue, Violet, Rose, Orange, Green, Amber |
+| **Chart Color** | `data-cairn-chart` | `--chart-1..5` + `--chart-flow-*` (the PT-61 ordinal ramp, re-derived per variant — see **Chart-local ramp** above) | `yellow` | **Yellow** (default), Blue, Violet |
+
+Sizing logic: **Base** ships shadcn's complete, closed 5-way neutral set — nothing to trim, nothing to add. **Theme** is sized generously (7) per architect's "cheap, spend the option-count budget here" call — deliberately excludes "Yellow" as a Theme option even though it's a valid shadcn accent, since Chart Color's default is already named Yellow and the same color word meaning two different token groups across two submenus of one dropdown is an avoidable mixup; Amber covers that hue territory instead. **Chart Color** is capped at 3 (architect's ≤5 ceiling) because every variant costs its own validator-passing derivation of *two* ramps (`--chart-1..5` sequential + the 6-step ordinal `--chart-flow-*`), checked against both light- and dark-mode `--card` extremes.
+
+### Dropdown UI spec
+
+All four rows share one anatomy: label + current-value text + a right-side indicator — a colored dot showing the actual resolved token for Base/Theme/Chart rows, or a `Monitor`/`Sun`/`Moon` icon (Lucide) for the Mode row, reflecting the user's *selection* rather than the OS-resolved effective appearance (so the row never silently disagrees with what's stored). Every row opens a `DropdownMenu.Sub` + `DropdownMenu.RadioGroup` submenu listing that dimension's full option set with a native checkmark on the current selection — **no cycle-on-click anywhere in this dropdown**, so the whole option set and current position in it are visible in one view. Mode's submenu is ordered System, Light, Dark (System first, matching its default).
+
+Placement: dashboard = `Sidebar.Footer` (icon button, Lucide `Settings2`, "Appearance" label when the sidebar is expanded, icon-only when collapsed); board = a trigger pinned to the board's own top-right header (the board has no Svelte sidebar), styled from the **Legacy/migration** token map to match the shadcn popover surface (`--popover`, `radius-lg`, `shadow-sm`) even though it can't mount the real `DropdownMenu.Sub` primitive.
+
+**Reset is out of scope** for this dropdown — it isn't one of the four named controls, and hand-resetting four settings is cheap enough not to warrant one. Revisit if a future ticket grows this dropdown past roughly four knobs.
+
+**Mode's `system` state needs live-follow, not just a one-time read:** when `mode="system"`, the effective `.dark` class must track `prefers-color-scheme` while the page stays open (a `change` listener on the media query), in addition to architect's cross-tab `storage` event listener — two different triggers for the same "the visible mode can change without a click" requirement. The inline FOUC-avoidance bootstrap script must evaluate `matchMedia('(prefers-color-scheme: dark)').matches` synchronously on first paint for `system`, not fall through to the light default.
+
+---
+
 ## Components
 
 Map to shadcn-svelte's shipped components — install via `bunx shadcn-svelte@latest add <name>`, don't hand-roll. Anatomy follows shadcn's documented structure; the right column is what the cairn board specifically needs from each.
@@ -230,6 +259,7 @@ Map to shadcn-svelte's shipped components — install via `bunx shadcn-svelte@la
 | **Chart** | `Chart.Container config={ChartConfig}` wrapping a `layerchart` primitive (`AreaChart`/`Area` etc.), `Chart.Tooltip` for hover | **Landed (PT-61):** the dashboard's issue-flow-over-time stacked area chart — see **Chart-local ramp** above for the color tokens it uses. Pulls in `layerchart` + `d3-scale`/`d3-shape` as real new dependencies (dynamically imported so they land in their own bundle chunk, not the main one) |
 | **Sonner (toast)** | `<Toaster />` mounted once at app root, imperative `toast.success()/toast.error()` calls | Direct replacement for the old bespoke `.toast`/`.toast.error` — ships enter/exit animation and stacking for free |
 | **Skeleton** | `<Skeleton class="h-4 w-full" />` composed to match real layout | New capability — the old system had **no loading state at all** (documented gap). Every list/board fetch should render a skeleton shaped like the real card/row/table it's replacing, per the "no decorative loading states" working principle |
+| **DropdownMenu** | `DropdownMenu.Root > DropdownMenu.Trigger, DropdownMenu.Content > DropdownMenu.Sub > DropdownMenu.SubTrigger, DropdownMenu.SubContent > DropdownMenu.RadioGroup > DropdownMenu.RadioItem` | **Landed (PT-69):** the theme/color settings dropdown — Mode/Base Color/Theme/Chart Color rows, each a submenu radio group — see **Theme & color variants** above for the full spec |
 
 **shadcn closes the old spec's two biggest flagged gaps automatically:** every interactive shadcn-svelte primitive ships a `focus-visible:ring-ring` treatment and a `disabled:opacity-50 disabled:pointer-events-none` state out of the box — adopting the library, not just its tokens, is what fixes this, so don't reintroduce ad hoc unstyled buttons/inputs that bypass the primitives.
 
