@@ -17,12 +17,12 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Embedded board: live theme propagation + disable pull-to-refresh |
-| Issue | PT-70 (cairn) |
-| Milestone | PT-0.9 (reopened for Mosko's 6 post-merge findings; PT-71 icons + PT-72 unified shell queued; v0.9.0 tag deferred until all land) |
-| Branch | `feature/pt-70-embed-theme-ptr` |
-| Started | 2026-08-29 |
-| Goal | Embed follows theme changes live (all dimensions, no reload); PT-33 pull-to-refresh adapter disabled in embed context only |
+| Feature | Icon consistency: sidebar nav icons + Lucide trigger on board |
+| Issue | PT-71 (cairn) |
+| Milestone | PT-0.9 (PT-72 unified shell is last; v0.9.0 tag after it lands) |
+| Branch | `feature/pt-71-lucide-icons` |
+| Started | 2026-08-30 |
+| Goal | LayoutDashboard + Kanban nav icons (collapsed rail usable); Settings2 trigger parity — board vendors the real Lucide SVG |
 | Status | In Progress |
 
 ## Releases

@@ -20,6 +20,12 @@
 	// ThemeSettings.svelte reads/writes it.
 	import ThemeSettings from '$lib/components/ThemeSettings.svelte';
 	import { ThemeSettingsState } from '$lib/theme-settings.svelte.js';
+	// PT-71 (Mosko's live-test finding #3 + ux's icon picks, 2026-08-30):
+	// the collapsed icon rail had no icons at all -- Dashboard =
+	// LayoutDashboard, Board = Kanban ("better rail-size silhouette than
+	// ListTodo, distinct from LayoutDashboard's grid shape").
+	import LayoutDashboard from '@lucide/svelte/icons/layout-dashboard';
+	import Kanban from '@lucide/svelte/icons/kanban';
 	import {
 		fetchDashboard,
 		subscribeDashboard,
@@ -197,14 +203,20 @@
 						<Sidebar.MenuItem>
 							<Sidebar.MenuButton isActive={currentPath.startsWith('/dashboard')}>
 								{#snippet child({ props })}
-									<a href="/dashboard" {...props}>Dashboard</a>
+									<a href="/dashboard" {...props}>
+										<LayoutDashboard />
+										<span>Dashboard</span>
+									</a>
 								{/snippet}
 							</Sidebar.MenuButton>
 						</Sidebar.MenuItem>
 						<Sidebar.MenuItem>
 							<Sidebar.MenuButton isActive={currentPath === '/'}>
 								{#snippet child({ props })}
-									<a href="/" {...props}>Board</a>
+									<a href="/" {...props}>
+										<Kanban />
+										<span>Board</span>
+									</a>
 								{/snippet}
 							</Sidebar.MenuButton>
 						</Sidebar.MenuItem>

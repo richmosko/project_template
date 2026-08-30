@@ -1029,15 +1029,28 @@ table.issue-list tr:hover { background: var(--accent); cursor: pointer; }
   position: relative;
 }
 
+/* PT-71 (ux's icon-fidelity ruling): icon-only trigger now, matching the
+   dashboard's own icon-only Settings2 button -- a fixed square rather
+   than text-driven padding. The vendored <svg> (board.html) renders at
+   its native 24x24; scaled down slightly here so it sits comfortably
+   inside the header row alongside the board's other controls. */
 .theme-settings-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--foreground);
-  padding: 4px 10px;
-  font-size: 13px;
-  font-family: var(--font-sans);
+  padding: 0;
   cursor: pointer;
+}
+
+.theme-settings-trigger svg {
+  width: 18px;
+  height: 18px;
 }
 
 /* PT-70 (architect's finding): head-time embed flash prevention. The
