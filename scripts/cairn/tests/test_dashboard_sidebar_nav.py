@@ -69,30 +69,44 @@ class SidebarNavContractTests(unittest.TestCase):
         )
 
     def test_board_nav_entry_links_to_the_board(self):
-        # Same-tag pairing (href immediately followed by the exact label,
-        # no intervening `<` tag boundary) -- deliberately excludes the
-        # pre-existing embedded-board-panel's Card.Title text "Board"
-        # (no href on that tag at all) and its "Open full board" Button
-        # (href="/", but the text is "Open full board", not the exact
-        # capitalized standalone label "Board" the AC names).
+        # RETARGETED (PT-71): the original regex required the label
+        # immediately after `>` with no intervening `<` tag boundary --
+        # PT-71 added a Lucide icon element (`<Kanban />`) inside the same
+        # `<a href="/">`, ahead of the label (now itself wrapped in
+        # `<span>Board</span>`), which broke that same-tag-pairing
+        # assumption. This file's own docstring already disclaimed caring
+        # about icons ("deliberately loose about the sidebar's INTERNAL
+        # composition... icons"), so the fix is to match on the whole
+        # `<a>...</a>` block's TEXT CONTENT (tags stripped) rather than
+        # requiring the label immediately after the opening tag --
+        # tolerates an icon (or anything else) before the label without
+        # losing the original exclusions (the embedded board panel's own
+        # "Board"/"Open full board" text, which live on different tags
+        # entirely -- a `Card.Title` with no href, and a `Button` whose
+        # full text is "Open full board", not the bare label "Board").
         source = _read_app_svelte()
-        match = re.search(r'href=["\']/["\'][^<]*>Board<', source)
-        self.assertIsNotNone(
-            match,
-            "no sidebar nav entry found linking href=\"/\" to the exact label "
-            "\"Board\" -- PT-61 AC #1 names Dashboard/Board/future-surfaces as "
-            "the sidebar's nav entries",
+        match = re.search(r'<a\s+href=["\']/["\'][^>]*>(.*?)</a>', source, re.DOTALL)
+        label = re.sub(r"<[^>]*>", "", match.group(1)).strip() if match else None
+        self.assertEqual(
+            label, "Board",
+            f"no sidebar nav <a href=\"/\">...</a> found whose text content (tags stripped) "
+            f"is exactly \"Board\" -- PT-61 AC #1 names Dashboard/Board/future-surfaces as "
+            f"the sidebar's nav entries. Found text content: {label!r}.",
         )
 
     def test_dashboard_nav_entry_links_to_the_dashboard(self):
+        # RETARGETED (PT-71) -- same reasoning as the Board entry above:
+        # `<LayoutDashboard />` now sits ahead of `<span>Dashboard</span>`
+        # inside the same `<a href="/dashboard">`.
         source = _read_app_svelte()
-        match = re.search(r'href=["\']/dashboard["\'][^<]*>Dashboard<', source)
-        self.assertIsNotNone(
-            match,
-            "no sidebar nav entry found linking href=\"/dashboard\" to the exact "
-            "label \"Dashboard\" -- board.html's existing top-nav tab links to "
-            "the same /dashboard URL (see #tab-dashboard), the sidebar entry "
-            "should be consistent with it",
+        match = re.search(r'<a\s+href=["\']/dashboard["\'][^>]*>(.*?)</a>', source, re.DOTALL)
+        label = re.sub(r"<[^>]*>", "", match.group(1)).strip() if match else None
+        self.assertEqual(
+            label, "Dashboard",
+            f"no sidebar nav <a href=\"/dashboard\">...</a> found whose text content (tags "
+            f"stripped) is exactly \"Dashboard\" -- board.html's existing top-nav tab links to "
+            f"the same /dashboard URL (see #tab-dashboard), the sidebar entry should be "
+            f"consistent with it. Found text content: {label!r}.",
         )
 
     def test_boards_own_top_nav_link_role_is_addressed_not_silently_untouched(self):

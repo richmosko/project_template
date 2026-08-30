@@ -116,8 +116,24 @@
          wireThemeSettings()/renderThemeMenu() (four rows: Mode / Base
          Color / Theme / Chart Color, each a submenu radiogroup). -->
     <div class="theme-settings">
-      <button id="theme-settings-trigger" class="theme-settings-trigger" type="button" aria-haspopup="true" aria-expanded="false" title="Appearance">
-        ⚙ Appearance
+      <!-- PT-71 (ux's icon-fidelity ruling): vendored inline, the real
+           Lucide "settings-2" glyph -- path/circle data extracted
+           verbatim from the installed @lucide/svelte v1.37.0 package
+           (dashboard/node_modules/@lucide/svelte/dist/icons/
+           settings-2.svelte's iconNode + Icon.svelte's default <svg>
+           attributes), not a unicode stand-in and not a lookalike.
+           24x24 viewBox, stroke-width 2 (ux: "do not thin the stroke"),
+           same shape the dashboard's real Settings2 component renders.
+           Icon-only per ux's PT-69 placement ruling ("icon-only with
+           aria-label/tooltip 'Appearance' rather than a visible text
+           label") -- matches the dashboard trigger exactly. -->
+      <button id="theme-settings-trigger" class="theme-settings-trigger" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Appearance" title="Appearance">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-settings-2" aria-hidden="true">
+          <path d="M14 17H5" />
+          <path d="M19 7h-9" />
+          <circle cx="17" cy="17" r="3" />
+          <circle cx="7" cy="7" r="3" />
+        </svg>
       </button>
       <div id="theme-settings-menu" class="theme-settings-menu" hidden></div>
     </div>
