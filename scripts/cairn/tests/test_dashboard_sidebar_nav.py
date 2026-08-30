@@ -69,29 +69,28 @@ class SidebarNavContractTests(unittest.TestCase):
         )
 
     def test_board_nav_entry_links_to_the_board(self):
-        # RETARGETED (PT-71): the original regex required the label
-        # immediately after `>` with no intervening `<` tag boundary --
-        # PT-71 added a Lucide icon element (`<Kanban />`) inside the same
-        # `<a href="/">`, ahead of the label (now itself wrapped in
-        # `<span>Board</span>`), which broke that same-tag-pairing
-        # assumption. This file's own docstring already disclaimed caring
-        # about icons ("deliberately loose about the sidebar's INTERNAL
-        # composition... icons"), so the fix is to match on the whole
-        # `<a>...</a>` block's TEXT CONTENT (tags stripped) rather than
-        # requiring the label immediately after the opening tag --
-        # tolerates an icon (or anything else) before the label without
-        # losing the original exclusions (the embedded board panel's own
-        # "Board"/"Open full board" text, which live on different tags
-        # entirely -- a `Card.Title` with no href, and a `Button` whose
-        # full text is "Open full board", not the bare label "Board").
+        # RETARGETED AGAIN (PT-72, architect's unified-shell ruling +
+        # ux-designer's paired spec): the "Board" (href="/") sidebar entry
+        # is superseded entirely -- Mosko's own framing was that the old
+        # href "navigates OUT of the shell", which is precisely the
+        # unified-shell problem PT-72 exists to fix. The nav item is now
+        # "Issue Tracking" at href="/dashboard/issues" (soft-nav, stays
+        # inside the persistent shell chrome), confirmed live in
+        # App.svelte: `<a href="/dashboard/issues" ...><Kanban />
+        # <span>Issue Tracking</span></a>`. Same tag-stripped-text-content
+        # matching approach as the PT-71 retarget (kept, since PT-72
+        # didn't change the icon-before-label shape) -- the exclusions
+        # this test cares about (the embedded board panel's own text,
+        # different tags/hrefs entirely) still apply unchanged.
         source = _read_app_svelte()
-        match = re.search(r'<a\s+href=["\']/["\'][^>]*>(.*?)</a>', source, re.DOTALL)
+        match = re.search(r'<a\s+href=["\']/dashboard/issues["\'][^>]*>(.*?)</a>', source, re.DOTALL)
         label = re.sub(r"<[^>]*>", "", match.group(1)).strip() if match else None
         self.assertEqual(
-            label, "Board",
-            f"no sidebar nav <a href=\"/\">...</a> found whose text content (tags stripped) "
-            f"is exactly \"Board\" -- PT-61 AC #1 names Dashboard/Board/future-surfaces as "
-            f"the sidebar's nav entries. Found text content: {label!r}.",
+            label, "Issue Tracking",
+            f"no sidebar nav <a href=\"/dashboard/issues\">...</a> found whose text content "
+            f"(tags stripped) is exactly \"Issue Tracking\" -- PT-72 renamed the AC #1 nav "
+            f"entry (architect's unified-shell ruling §6, ux-designer's confirmed label). "
+            f"Found text content: {label!r}.",
         )
 
     def test_dashboard_nav_entry_links_to_the_dashboard(self):

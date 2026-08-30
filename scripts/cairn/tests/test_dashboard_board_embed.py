@@ -150,53 +150,81 @@ class EmbedQueryParamRoutingTests(unittest.TestCase):
 
 class DashboardIframeEmbedTests(unittest.TestCase):
     """Architect's ruling § 2 ("iframe attributes -- convert the part that
-    can be behavioural"): the `<iframe>`'s attribute claims (exactly one,
-    has a `title`, no `sandbox`) stay source-text checks against
-    App.svelte -- there's no jsdom/vitest harness to render the Svelte
-    component for real (same limitation as the board.js DOM checks). The
-    `src` literal is different: it's taken from source as text, then fed
-    to a REAL running server, converting "does this URL resolve" from a
-    source claim into a behavioural one, exactly as ruled.
+    can be behavioural"): the `<iframe>`'s attribute claims (has a
+    `title`, no `sandbox`) stay source-text checks against App.svelte --
+    there's no jsdom/vitest harness to render the Svelte component for
+    real (same limitation as the board.js DOM checks). The `src` literal
+    is different: it's taken from source as text, then fed to a REAL
+    running server, converting "does this URL resolve" from a source
+    claim into a behavioural one, exactly as ruled.
+
+    RETARGETED (PT-72, architect's unified-shell ruling): the original
+    "exactly one <iframe>" assumption is superseded, not violated --
+    App.svelte legitimately carries TWO now: the read-only home preview
+    (`/?embed=1&readonly=1`) and the Issue Tracking page's own full-edit
+    embed (`/?embed=1{issueTrackingOpenSuffix}`, a Svelte template literal
+    whose dynamic suffix is empty at rest -- no `?issue=` in the shell
+    URL). Every test below now walks ALL iframes rather than assuming one;
+    src resolution/dist-containment checks operate on each iframe's STATIC
+    prefix (the part before any `{...}` interpolation), which is what the
+    iframe actually requests with no issue param set -- the dynamic
+    `&open=<id>` suffix itself is board.js's own concern
+    (`test_shell_readonly_embed.py`'s `OpenIdDeepLinkTests`), not
+    re-tested here.
     """
 
     def setUp(self):
         self.source = DASHBOARD_APP_SVELTE.read_text(encoding="utf-8")
-        iframe_tags = re.findall(r"<iframe\b[^>]*>", self.source)
-        self.assertEqual(
-            len(iframe_tags), 1,
-            f"expected exactly one <iframe> in {DASHBOARD_APP_SVELTE}, found {len(iframe_tags)}: {iframe_tags}",
+        self.iframe_tags = re.findall(r"<iframe\b[^>]*>", self.source, re.DOTALL)
+        self.assertGreaterEqual(
+            len(self.iframe_tags), 2,
+            f"expected at least 2 <iframe>s in {DASHBOARD_APP_SVELTE} (PT-72: the read-only "
+            f"home preview + the Issue Tracking page's own full-edit embed), found "
+            f"{len(self.iframe_tags)}: {self.iframe_tags}",
         )
-        self.iframe_tag = iframe_tags[0]
 
-    def test_exactly_one_iframe_present(self):
+    def test_at_least_two_iframes_present(self):
         # The assertion already ran in setUp (it must hold before any
         # other test in this class can meaningfully run) -- this test
-        # exists so "exactly one iframe" has its own named, independently
-        # reportable pass/fail line rather than being an implicit
-        # side-effect of setUp.
+        # exists so "at least two iframes" has its own named,
+        # independently reportable pass/fail line rather than being an
+        # implicit side-effect of setUp.
         pass
 
-    def test_iframe_has_a_title_attribute(self):
-        self.assertRegex(
-            self.iframe_tag, r'\btitle\s*=\s*"[^"]+"',
-            f"<iframe> must have a non-empty title attribute for screen-reader traversal "
-            f"across the document boundary (ruling): {self.iframe_tag}",
-        )
+    def test_every_iframe_has_a_title_attribute(self):
+        for tag in self.iframe_tags:
+            self.assertRegex(
+                tag, r'\btitle\s*=\s*"[^"]+"',
+                f"<iframe> must have a non-empty title attribute for screen-reader traversal "
+                f"across the document boundary (ruling): {tag}",
+            )
 
-    def test_iframe_has_no_sandbox_attribute(self):
-        self.assertNotRegex(
-            self.iframe_tag, r"\bsandbox\b",
-            f"<iframe> must NOT carry a sandbox attribute -- it would break same-origin "
-            f"storage/access for our own same-origin code (ruling, explicit): {self.iframe_tag}",
-        )
+    def test_no_iframe_has_a_sandbox_attribute(self):
+        for tag in self.iframe_tags:
+            self.assertNotRegex(
+                tag, r"\bsandbox\b",
+                f"<iframe> must NOT carry a sandbox attribute -- it would break same-origin "
+                f"storage/access for our own same-origin code (ruling, explicit): {tag}",
+            )
 
-    def _iframe_src(self) -> str:
-        match = re.search(r'\bsrc\s*=\s*"([^"]+)"', self.iframe_tag)
-        self.assertIsNotNone(match, f"<iframe> has no src attribute: {self.iframe_tag}")
-        return match.group(1)
+    def _static_iframe_srcs(self) -> list:
+        # `src="..."` for each iframe, truncated at the first `{` --
+        # i.e. the STATIC prefix, ignoring any Svelte template
+        # interpolation. For the home preview this is the whole literal
+        # unchanged (`/?embed=1&readonly=1`, no interpolation at all);
+        # for the Issue Tracking embed it strips the dynamic
+        # `{issueTrackingOpenSuffix}` down to `/?embed=1`, which is
+        # exactly what that iframe requests when no `?issue=` is present
+        # in the shell URL (the suffix is empty at rest).
+        srcs = []
+        for tag in self.iframe_tags:
+            match = re.search(r'src="([^"]*)"', tag)
+            self.assertIsNotNone(match, f"<iframe> has no src attribute: {tag}")
+            srcs.append(match.group(1).split("{")[0])
+        return srcs
 
-    def test_iframe_src_resolves_to_200_on_a_live_server(self):
-        src = self._iframe_src()
+    def test_every_iframe_src_resolves_to_200_on_a_live_server(self):
+        srcs = self._static_iframe_srcs()
         data_dir = helpers.make_tmp_data_dir(self)
         server = cairn.make_server(data_dir, port=0)
         port = server.server_address[1]
@@ -222,25 +250,35 @@ class DashboardIframeEmbedTests(unittest.TestCase):
         else:
             raise AssertionError(f"server never came up: {last_exc}")
 
-        resp = urllib.request.urlopen(f"{base_url}{src}", timeout=5)
-        self.assertEqual(resp.status, 200, f"iframe src {src!r} did not resolve to 200")
+        for src in srcs:
+            resp = urllib.request.urlopen(f"{base_url}{src}", timeout=5)
+            self.assertEqual(resp.status, 200, f"iframe src {src!r} did not resolve to 200")
 
-    def test_committed_dist_contains_the_same_src_literal(self):
+    def test_committed_dist_contains_every_iframe_src_static_prefix(self):
         # PT-54 §3's committed-dist staleness risk (general fix: PT-58),
         # caught here specifically for this feature: if App.svelte's src
         # ever changes without a rebuild+recommit of dist/, this fails
         # loudly instead of silently shipping a stale embed URL.
-        src = self._iframe_src()
+        srcs = self._static_iframe_srcs()
         self.assertTrue(
             DASHBOARD_DIST_INDEX_JS.is_file(),
             f"{DASHBOARD_DIST_INDEX_JS} missing -- dist/ not built/committed",
         )
         dist_js = DASHBOARD_DIST_INDEX_JS.read_text(encoding="utf-8")
-        self.assertIn(
-            src, dist_js,
-            f"committed dist/assets/index.js does not contain the iframe src literal {src!r} "
-            f"-- stale or half-committed dist (PT-54 §3 staleness risk)",
-        )
+        for src in set(srcs):
+            # Svelte's compiler HTML-entity-escapes `&` in static
+            # attribute text (`&` -> `&amp;`) -- never surfaced by the
+            # original single-iframe test since its only src (`/?embed=1`)
+            # had no `&` at all. The home preview's new
+            # `/?embed=1&readonly=1` does, so accept either form: this is
+            # a real compile-time transform, not staleness.
+            escaped = src.replace("&", "&amp;")
+            self.assertTrue(
+                src in dist_js or escaped in dist_js,
+                f"committed dist/assets/index.js does not contain the iframe src static "
+                f"prefix {src!r} (checked both the raw literal and its HTML-entity-escaped "
+                f"form {escaped!r}) -- stale or half-committed dist (PT-54 §3 staleness risk)",
+            )
 
 
 if __name__ == "__main__":
