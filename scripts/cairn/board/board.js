@@ -731,61 +731,71 @@
     // defect. Removes the whole `.theme-settings` wrapper (trigger +
     // menu together), not just the trigger, so no orphaned menu node is
     // left behind either.
+    // PT-70 (Mosko's post-merge finding #1, team-lead's + qa's root-cause
+    // diagnosis): this branch used to `return` unconditionally, which
+    // ALSO skipped the cross-context `storage`/`matchMedia` listeners
+    // registered further down in this same function -- an unintended
+    // side effect PT-69's embed-dedup ruling never asked for (that
+    // ruling was specifically about the TRIGGER, not the follow
+    // mechanism). No `return` here anymore: the trigger-specific UI
+    // wiring below is skipped via `if (!isEmbedMode)` instead, so the
+    // listeners at the bottom of this function always register.
     if (isEmbedMode) {
       var wrapper = trigger.closest(".theme-settings");
       (wrapper || trigger).remove();
-      return;
     }
-    trigger.addEventListener("click", function () {
-      var wasHidden = menu.hidden;
-      menu.hidden = !wasHidden;
-      trigger.setAttribute("aria-expanded", String(wasHidden));
-    });
-    document.addEventListener("click", function (e) {
-      if (!menu.hidden && e.target !== trigger && !menu.contains(e.target) && !trigger.contains(e.target)) {
-        // Outside the whole panel -- close everything (the open row
-        // flyout is a DOM descendant of menu, so hiding menu already
-        // hides it; still reset the tracked state so a later reopen of
-        // the top-level panel doesn't believe a row is open).
-        menu.hidden = true;
-        trigger.setAttribute("aria-expanded", "false");
-        openRowDim = null;
-        return;
-      }
-      // PT-69 (ux-designer's Popover ruling): a click landing INSIDE the
-      // still-open top-level panel but on neither the currently-open
-      // row's own trigger (that button's own handler owns toggling it)
-      // nor inside its flyout (an option button, handled by that
-      // button's own click handler) closes just the row flyout --
-      // clicking elsewhere in the panel (e.g. a different row's
-      // trigger, whitespace) shouldn't leave a stale flyout open.
-      if (openRowDim !== null) {
-        var openFlyout = document.getElementById("theme-settings-row-flyout-" + openRowDim);
-        var openRowBtn = document.getElementById("theme-settings-row-" + openRowDim);
-        if (openFlyout && !openFlyout.contains(e.target) && e.target !== openRowBtn) {
-          closeOpenRowFlyout();
+    if (!isEmbedMode) {
+      trigger.addEventListener("click", function () {
+        var wasHidden = menu.hidden;
+        menu.hidden = !wasHidden;
+        trigger.setAttribute("aria-expanded", String(wasHidden));
+      });
+      document.addEventListener("click", function (e) {
+        if (!menu.hidden && e.target !== trigger && !menu.contains(e.target) && !trigger.contains(e.target)) {
+          // Outside the whole panel -- close everything (the open row
+          // flyout is a DOM descendant of menu, so hiding menu already
+          // hides it; still reset the tracked state so a later reopen of
+          // the top-level panel doesn't believe a row is open).
+          menu.hidden = true;
+          trigger.setAttribute("aria-expanded", "false");
+          openRowDim = null;
+          return;
         }
-      }
-    });
-    document.addEventListener("keydown", function (e) {
-      if (e.key !== "Escape") return;
-      // Innermost-first: an open row flyout absorbs the first Escape,
-      // the top-level panel absorbs the next one -- matches the
-      // reference Popover's own nested-dismissal behavior.
-      if (openRowDim !== null) {
-        var dim = openRowDim;
-        closeOpenRowFlyout();
-        var rowBtn = document.getElementById("theme-settings-row-" + dim);
-        if (rowBtn) rowBtn.focus();
-        return;
-      }
-      if (!menu.hidden) {
-        menu.hidden = true;
-        trigger.setAttribute("aria-expanded", "false");
-        trigger.focus();
-      }
-    });
-    renderThemeMenu(readThemePrefs());
+        // PT-69 (ux-designer's Popover ruling): a click landing INSIDE the
+        // still-open top-level panel but on neither the currently-open
+        // row's own trigger (that button's own handler owns toggling it)
+        // nor inside its flyout (an option button, handled by that
+        // button's own click handler) closes just the row flyout --
+        // clicking elsewhere in the panel (e.g. a different row's
+        // trigger, whitespace) shouldn't leave a stale flyout open.
+        if (openRowDim !== null) {
+          var openFlyout = document.getElementById("theme-settings-row-flyout-" + openRowDim);
+          var openRowBtn = document.getElementById("theme-settings-row-" + openRowDim);
+          if (openFlyout && !openFlyout.contains(e.target) && e.target !== openRowBtn) {
+            closeOpenRowFlyout();
+          }
+        }
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.key !== "Escape") return;
+        // Innermost-first: an open row flyout absorbs the first Escape,
+        // the top-level panel absorbs the next one -- matches the
+        // reference Popover's own nested-dismissal behavior.
+        if (openRowDim !== null) {
+          var dim = openRowDim;
+          closeOpenRowFlyout();
+          var rowBtn = document.getElementById("theme-settings-row-" + dim);
+          if (rowBtn) rowBtn.focus();
+          return;
+        }
+        if (!menu.hidden) {
+          menu.hidden = true;
+          trigger.setAttribute("aria-expanded", "false");
+          trigger.focus();
+        }
+      });
+      renderThemeMenu(readThemePrefs());
+    }
 
     // PT-69 (architect's ruling § 3): cross-tab propagation -- the
     // `storage` event fires in OTHER tabs on write, so a same-origin
@@ -2893,7 +2903,13 @@
   function init() {
     wireFilters();
     wireNewIssueForm();
-    wirePullToRefresh();
+    // PT-70 (team-lead's ruling, finding #2): pull-to-refresh (both the
+    // PT-32 touch gesture and the PT-33 trackpad/wheel adapter) stays
+    // standalone-only -- the dashboard's embedded card context makes the
+    // whole mechanism awkward UI, and the dashboard already has its own
+    // Refresh button. The wiring function itself has no isEmbedMode
+    // awareness; gating this call site is the whole fix.
+    if (!isEmbedMode) wirePullToRefresh();
     wireThemeSettings();
     apiGetBoard().then(function (data) {
       state.board = data;

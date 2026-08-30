@@ -76,6 +76,7 @@ DASHBOARD_INDEX_HTML = helpers.CAIRN_DIR / "dashboard" / "index.html"
 VARIANTS_JSON = helpers.CAIRN_DIR / "design" / "variants.json"
 APP_CSS = helpers.CAIRN_DIR / "dashboard" / "src" / "app.css"
 BOARD_JS = helpers.CAIRN_DIR / "board" / "board.js"
+BOARD_CSS = helpers.CAIRN_DIR / "board" / "board.css"
 DASHBOARD_SRC = helpers.CAIRN_DIR / "dashboard" / "src"
 
 # The exact id architect's ruling implies a single shared generated snippet
@@ -100,6 +101,68 @@ def _extract_script_by_id(html: str, script_id: str):
     )
     match = pattern.search(html)
     return match.group(1) if match else None
+
+
+def _strip_js_comments(source: str) -> str:
+    """`//` line comments and `/* */` block comments removed, single/
+    double/template-literal string contents left untouched (so a `//` or
+    `/*` sitting inside a string isn't mistaken for a comment opener) --
+    the exact discipline this file's own `HeadTimeEmbedClassAssignmentTests`
+    needed after an explanatory comment containing the literal searched-for
+    code string fooled a plain `re.search` on raw source. Not a full JS
+    tokenizer (no regex-literal `/.../ ` handling, no escape-sequence
+    awareness inside strings) -- this bootstrap snippet is small,
+    generated, stdlib-simple JS; a real tokenizer is overkill for it."""
+    out = []
+    i, n = 0, len(source)
+    in_string = None  # None, or the quote character currently open
+    in_line_comment = False
+    in_block_comment = False
+    while i < n:
+        two = source[i : i + 2]
+        ch = source[i]
+        if in_line_comment:
+            if ch == "\n":
+                in_line_comment = False
+                out.append(ch)
+            i += 1
+            continue
+        if in_block_comment:
+            if two == "*/":
+                in_block_comment = False
+                i += 2
+                continue
+            i += 1
+            continue
+        if in_string:
+            out.append(ch)
+            if ch == "\\":
+                # Preserve the escaped character verbatim too, so an
+                # escaped quote (`\"`) doesn't end the string early.
+                if i + 1 < n:
+                    out.append(source[i + 1])
+                i += 2
+                continue
+            if ch == in_string:
+                in_string = None
+            i += 1
+            continue
+        if two == "//":
+            in_line_comment = True
+            i += 2
+            continue
+        if two == "/*":
+            in_block_comment = True
+            i += 2
+            continue
+        if ch in ("'", '"', "`"):
+            in_string = ch
+            out.append(ch)
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def _tag_offset(html: str, needle_pattern: str):
@@ -355,6 +418,86 @@ class ModeThreeStateShapeTests(unittest.TestCase):
             "no 'RadioGroup' reference found under dashboard/src -- ux-designer's ruled "
             "submenu idiom is DropdownMenu.Sub + DropdownMenu.RadioGroup for every row, "
             "Mode included, not a cycle-on-click interaction.",
+        )
+
+
+class HeadTimeEmbedClassAssignmentTests(unittest.TestCase):
+    """PT-70 scope addition (architect's flash-window residue, folded in
+    by team-lead): `wireThemeSettings()` removes the embedded trigger from
+    the DOM, but that removal runs from `init()` -- AFTER the page has
+    already parsed and (briefly) painted the trigger. In an embedded
+    context that's a real flash: visible trigger, then gone a moment
+    later. Fix: the inline bootstrap script (already synchronous, head-
+    time, before first paint -- the same mechanism PT-69 uses for theme)
+    ALSO sets a `:root`-level embed class the instant `window.self !==
+    window.top` is true, and board.css keys a rule off `:root.embed` to
+    hide the trigger before board.js ever runs -- no flash window,
+    because the hide happens before the browser paints anything at all.
+
+    Also covers, implicitly: byte-identity across both heads' bootstrap
+    scripts is ALREADY asserted by `BootstrapScriptsAreByteIdenticalTests`
+    above -- this class doesn't re-test that, only that the embed-class
+    assignment specifically is present in each snippet (which, combined
+    with the existing byte-identity test, is equivalent to "present and
+    identical on both").
+    """
+
+    def _snippet_for(self, html_path):
+        html = html_path.read_text(encoding="utf-8") if html_path.is_file() else ""
+        return _extract_script_by_id(_head(html), BOOTSTRAP_SCRIPT_ID)
+
+    def _assert_sets_embed_class_at_head_time(self, surface_label: str, snippet):
+        # Search the COMMENT-STRIPPED code, not the raw snippet: this
+        # exact class of test bit implementation-lead for real once
+        # already -- an explanatory comment ABOVE the real code contained
+        # the literal string "window.self !== window.top" in backticks,
+        # which a naive `re.search` on the raw text matches FIRST (it
+        # appears earlier in source than the real code), landing the real
+        # `classList.add("embed")` call just past a short lookahead
+        # window. Same self-sabotage shape as an earlier comment
+        # collision this feature hit (test_css_parse_sanity.py's PT-57
+        # `--chart-*/--radius` finding). Stripping comments first means
+        # this guard can no longer be fooled by its own documentation.
+        self.assertIsNotNone(snippet, f"{surface_label}: bootstrap script not found")
+        code = _strip_js_comments(snippet)
+        self_top_match = re.search(r"self\s*!==\s*window\.top", code)
+        self.assertIsNotNone(
+            self_top_match,
+            f"{surface_label}: bootstrap script's actual CODE (comments stripped) never checks "
+            f"`window.self !== window.top` -- the head-time embed-class assignment has nothing "
+            f"to key off.",
+        )
+        neighborhood = code[max(0, self_top_match.start() - 50):self_top_match.end() + 250]
+        self.assertTrue(
+            "classList.add" in neighborhood and "embed" in neighborhood,
+            f"{surface_label}: no classList.add(...'embed'...) found near the `window.self !== "
+            f"window.top` check in the bootstrap script's actual code -- the embed class must be "
+            f"assigned at head time, synchronously, before board.js/main.ts ever runs, or the "
+            f"trigger still flashes visible for a moment in the embedded context.",
+        )
+
+    def test_board_bootstrap_sets_an_embed_class_at_head_time(self):
+        self._assert_sets_embed_class_at_head_time("board.html", self._snippet_for(BOARD_HTML))
+
+    def test_dashboard_bootstrap_sets_an_embed_class_at_head_time(self):
+        self._assert_sets_embed_class_at_head_time("dashboard/index.html", self._snippet_for(DASHBOARD_INDEX_HTML))
+
+    def test_board_css_hides_the_trigger_via_a_root_embed_selector(self):
+        self.assertTrue(BOARD_CSS.is_file(), f"{BOARD_CSS} does not exist")
+        source = BOARD_CSS.read_text(encoding="utf-8")
+        stripped = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+        match = re.search(r":root\.embed\b[^{]*\{([^}]*)\}", stripped)
+        self.assertIsNotNone(
+            match,
+            f"{BOARD_CSS}: no `:root.embed {{ ... }}` (or a selector compounding on it, e.g. "
+            f"`:root.embed .theme-settings`) found -- the head-time embed class needs a CSS "
+            f"rule to actually hide the trigger before board.js runs.",
+        )
+        rule_body = match.group(1)
+        self.assertTrue(
+            re.search(r"display\s*:\s*none", rule_body) is not None,
+            f"{BOARD_CSS}: found a `:root.embed`-keyed rule but it doesn't set `display: none` "
+            f"-- that's the actual hiding mechanism this pre-JS fix needs.",
         )
 
 
@@ -667,6 +810,49 @@ class SourceTextExtractorSelfTests(unittest.TestCase):
     def test_extract_script_by_id_returns_none_when_absent(self):
         html = "<head><script>no id here</script></head>"
         self.assertIsNone(_extract_script_by_id(html, "cairn-theme-bootstrap"))
+
+    def test_strip_js_comments_removes_line_and_block_comments(self):
+        source = "// a line comment\nvar x = 1; /* a block\ncomment */ var y = 2;"
+        stripped = _strip_js_comments(source)
+        self.assertNotIn("a line comment", stripped)
+        self.assertNotIn("a block", stripped)
+        self.assertIn("var x = 1;", stripped)
+        self.assertIn("var y = 2;", stripped)
+
+    def test_strip_js_comments_leaves_string_contents_with_comment_like_text_alone(self):
+        source = 'var url = "http://example.com"; // trailing comment'
+        stripped = _strip_js_comments(source)
+        self.assertIn('"http://example.com"', stripped)
+        self.assertNotIn("trailing comment", stripped)
+
+    def test_strip_js_comments_reproduces_the_real_self_sabotage_bug(self):
+        # The EXACT shape implementation-lead hit: an explanatory comment
+        # containing the literal searched-for code string, positioned
+        # BEFORE the real code, so a naive re.search on raw source finds
+        # the comment's occurrence first and a short lookahead window
+        # never reaches the real classList.add call.
+        source = (
+            "// head-time embed detection: `window.self !== window.top` is the same check\n"
+            "// board.js's isEmbedMode already uses, so we don't invent a second signal here.\n"
+            "// This whole explanatory aside is deliberately long enough that a naive fixed-\n"
+            "// width lookahead window from the FIRST raw-text match (this comment) would\n"
+            "// land short of the real code below, exactly like the bug that motivated this.\n"
+            "if (window.self !== window.top) root.classList.add(\"embed\");\n"
+        )
+        raw_match = re.search(r"self\s*!==\s*window\.top", source)
+        raw_neighborhood = source[raw_match.start():raw_match.end() + 250]
+        # Reproduces the bug: the raw-text search, unstripped, does NOT
+        # find classList.add within the short window (it's stuck inside
+        # the long comment).
+        self.assertNotIn("classList.add", raw_neighborhood)
+        # The stripped version fixes it: the comment is gone, so the
+        # FIRST (and only) match is the real code, immediately followed
+        # by classList.add.
+        stripped = _strip_js_comments(source)
+        stripped_match = re.search(r"self\s*!==\s*window\.top", stripped)
+        self.assertIsNotNone(stripped_match)
+        stripped_neighborhood = stripped[stripped_match.start():stripped_match.end() + 250]
+        self.assertIn("classList.add", stripped_neighborhood)
 
     def test_tag_offset_orders_two_tags_correctly(self):
         html = '<a id="first"></a><b id="second"></b>'
