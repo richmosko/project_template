@@ -17,12 +17,12 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Unified shell: board inside dashboard chrome; read-only home embed; rename to Issue Tracking |
-| Issue | PT-72 (cairn) |
-| Milestone | PT-0.9 (last issue — milestone flips at merge, v0.9.0 tags after) |
-| Branch | `feature/pt-72-unified-shell` |
-| Started | 2026-08-30 |
-| Goal | /dashboard/issues shell route (soft nav, zero server changes), ?embed=1&readonly=1 home preview (single-point suppression), standalone board survives |
+| Feature | Dashboard chrome polish: repo icon in collapsed rail + section width consistency |
+| Issue | PT-73 (cairn) |
+| Milestone | PT-0.9 (reopened; v0.9.0 tags after this lands) |
+| Branch | `feature/pt-73-chrome-polish` |
+| Started | 2026-08-31 |
+| Goal | Repo-name header follows the menu-item icon/collapse pattern; home sections match the Board card's width |
 | Status | In Progress |
 
 ## Releases
