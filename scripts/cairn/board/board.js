@@ -206,6 +206,20 @@
     document.getElementById("tab-list").href = CairnLogic.embedAwareHref("/list", true);
   }
 
+  // PT-72 (architect's unified-shell ruling § 3): `readonly=1`, orthogonal
+  // to `embed=1` -- is the chrome suppressed and is mutation allowed are
+  // independent questions. Single point of suppression, per the ruling's
+  // own explicit failure-mode warning: this flag is read ONCE here, adds
+  // `body.readonly` once, and every other consumer below only ever READS
+  // this same module-level variable at the exact point it gates a handler
+  // attachment or a state override -- never re-derives it, never branches
+  // inside a render function beyond that one guard. Real `URLSearchParams`
+  // (not CairnLogic's hand-parsed `isEmbedMode` style) -- this flag has no
+  // pure-function/bare-vm-test-harness constraint to honor, unlike
+  // isEmbedMode, so there's no reason to hand-roll the parse here.
+  var isReadOnly = new URLSearchParams(window.location.search).get("readonly") === "1";
+  if (isReadOnly) document.body.classList.add("readonly");
+
   var state = {
     board: null,       // last-known-good /api/board payload
     etag: null,
@@ -1060,21 +1074,46 @@
     // guard calls below -- including its null-guard (architect review,
     // 2026-08-21: a payload with no `roots` dimension at all must read as
     // "everything is the primary", not "nothing is draggable").
-    card.draggable = isDraggable(issue, primaryRootId(state.board));
+    // PT-72 (architect's ruling § 3, ux's strip list: "drag affordances --
+    // do not attach dragstart/drop, and set draggable=false"): the ONE
+    // place the module-level isReadOnly flag needs a real per-card
+    // decision (drag is inherently a per-card affordance, not something a
+    // single top-level toggle can suppress on its own) -- reads the same
+    // flag set once above, doesn't re-derive it.
+    if (isReadOnly) {
+      card.draggable = false;
+    } else {
+      card.draggable = isDraggable(issue, primaryRootId(state.board));
+    }
     card.dataset.id = issue.id;
-    card.addEventListener("dragstart", function (e) {
-      card.classList.add("dragging");
-      // PT-32 (architect's ruling § 2, cancel condition 2): a flag set at
-      // the SAME two call sites that already toggle .dragging, not
-      // inferred later by querying the DOM for it -- one fact, not two.
-      state.cardDragActive = true;
-      e.dataTransfer.setData("text/plain", issue.id);
-    });
+    if (!isReadOnly) {
+      card.addEventListener("dragstart", function (e) {
+        card.classList.add("dragging");
+        // PT-32 (architect's ruling § 2, cancel condition 2): a flag set at
+        // the SAME two call sites that already toggle .dragging, not
+        // inferred later by querying the DOM for it -- one fact, not two.
+        state.cardDragActive = true;
+        e.dataTransfer.setData("text/plain", issue.id);
+      });
+    }
     card.addEventListener("dragend", function () {
       card.classList.remove("dragging");
       state.cardDragActive = false;
     });
-    card.addEventListener("click", function () { openDrawer(issue.id); });
+    card.addEventListener("click", function () {
+      // PT-72 (ux's spec): read-only card click navigates the SHELL
+      // (window.top.location -- same-origin, no postMessage needed) to
+      // the full Issue Tracking page with this issue's drawer already
+      // open, rather than opening a local drawer -- "not an inline edit,
+      // not a read-only modal in place," the second detail-view PT-55
+      // rejected read-only over. Standalone/full-edit: window.top ===
+      // window, so this is a no-op branch there, never reached anyway.
+      if (isReadOnly) {
+        window.top.location = "/dashboard/issues?issue=" + encodeURIComponent(issue.id);
+      } else {
+        openDrawer(issue.id);
+      }
+    });
 
     var idEl = document.createElement("div");
     idEl.className = "card-id";
@@ -1158,17 +1197,25 @@
     }
     issues.forEach(function (issue) { col.appendChild(cardEl(issue)); });
 
-    col.addEventListener("dragover", function (e) {
-      e.preventDefault();
-      col.classList.add("drop-target");
-    });
-    col.addEventListener("dragleave", function () { col.classList.remove("drop-target"); });
-    col.addEventListener("drop", function (e) {
-      e.preventDefault();
-      col.classList.remove("drop-target");
-      var id = e.dataTransfer.getData("text/plain");
-      handleDrop(id, status);
-    });
+    // PT-72 (ux's strip list: "do not attach dragstart/drop"): cards are
+    // already non-draggable in read-only (isReadOnly gates card.draggable
+    // in cardEl above), so these could never fire from this board's own
+    // cards regardless -- gated anyway, defense-in-depth against an
+    // unrelated draggable (e.g. a browser text selection) landing on a
+    // column and calling handleDrop with garbage data.
+    if (!isReadOnly) {
+      col.addEventListener("dragover", function (e) {
+        e.preventDefault();
+        col.classList.add("drop-target");
+      });
+      col.addEventListener("dragleave", function () { col.classList.remove("drop-target"); });
+      col.addEventListener("drop", function (e) {
+        e.preventDefault();
+        col.classList.remove("drop-target");
+        var id = e.dataTransfer.getData("text/plain");
+        handleDrop(id, status);
+      });
+    }
 
     return col;
   }
@@ -2924,10 +2971,21 @@
       // and `undefined !== "none"` is `true` -- the pre-PT-38 hardcoded
       // default, preserved for forward/backward compat.
       state.swimlanesOn = data.swimlane !== "none";
-      // PT-30: the ONE call site on the board-load path -- restoreViewStateOnce
-      // is a no-op on every subsequent apiGetBoard resolution (refreshBoardSilently's
-      // 4s poll, SSE push, focus/visibilitychange), guarded by state.viewStateRestored.
-      restoreViewStateOnce();
+      // PT-72 (architect's ruling § 3): read-only ALWAYS renders fully
+      // expanded, ignoring cairn.board.expandedLanes entirely -- no
+      // restoreViewStateOnce() call, no new storage key. A render pass
+      // must run first so renderedLaneKeys reflects this payload's
+      // actual lanes (expandAllLanes's other input, same as the "Expand
+      // all" button uses), then force them open and render again.
+      if (isReadOnly) {
+        render();
+        state.expandedLanes = expandAllLanes(state.expandedLanes, state.renderedLaneKeys);
+      } else {
+        // PT-30: the ONE call site on the board-load path -- restoreViewStateOnce
+        // is a no-op on every subsequent apiGetBoard resolution (refreshBoardSilently's
+        // 4s poll, SSE push, focus/visibilitychange), guarded by state.viewStateRestored.
+        restoreViewStateOnce();
+      }
       render();
     });
     connectLive();
@@ -2935,6 +2993,14 @@
       if (document.visibilityState === "visible") refreshBoardSilently();
     });
     window.addEventListener("focus", refreshBoardSilently);
+
+    // PT-72 (architect's ruling § 4): "/?embed=1&open=PT-42" -- a new
+    // board capability, independent of isReadOnly (the Issue Tracking
+    // page's FULL-EDIT embed uses this too, not just the read-only
+    // preview). Read once, on load; openDrawer does its own fetch, so
+    // this doesn't need to wait on apiGetBoard's own resolution.
+    var openId = new URLSearchParams(window.location.search).get("open");
+    if (openId) openDrawer(openId);
   }
 
   document.addEventListener("DOMContentLoaded", init);

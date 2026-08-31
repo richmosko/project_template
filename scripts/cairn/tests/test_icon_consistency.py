@@ -172,15 +172,26 @@ class SidebarNavIconsTests(unittest.TestCase):
         )
 
     def test_board_nav_item_renders_the_kanban_icon(self):
+        # RETARGETED (PT-72, architect's unified-shell ruling + ux-
+        # designer's paired spec): the Board nav item's href moved from
+        # "/" to "/dashboard/issues" (renamed to "Issue Tracking") --
+        # confirmed live in App.svelte. The Kanban icon itself is
+        # unaffected by the rename (PT-71's icon choice stands; PT-72
+        # only moved the href/label), so this test only needs to key off
+        # the new href, not re-litigate the icon choice.
         item_match = re.search(
-            r'<Sidebar\.MenuItem>(?:(?!</Sidebar\.MenuItem>).)*?href="/"(?:(?!</Sidebar\.MenuItem>).)*?</Sidebar\.MenuItem>',
+            r'<Sidebar\.MenuItem>(?:(?!</Sidebar\.MenuItem>).)*?href="/dashboard/issues"(?:(?!</Sidebar\.MenuItem>).)*?</Sidebar\.MenuItem>',
             self.nav_block, re.DOTALL,
         )
-        self.assertIsNotNone(item_match, f'{DASHBOARD_APP_SVELTE}: no <Sidebar.MenuItem> wrapping the href="/" link found')
+        self.assertIsNotNone(
+            item_match,
+            f'{DASHBOARD_APP_SVELTE}: no <Sidebar.MenuItem> wrapping the href="/dashboard/issues" '
+            f"link found -- PT-72 renamed this nav entry's target from the old bare \"/\".",
+        )
         self.assertTrue(
             "<Kanban" in item_match.group(0),
-            f"{DASHBOARD_APP_SVELTE}: the Board nav item's <Sidebar.MenuItem> doesn't render "
-            f"<Kanban ... /> -- an import alone isn't wiring.",
+            f"{DASHBOARD_APP_SVELTE}: the Issue Tracking nav item's <Sidebar.MenuItem> doesn't "
+            f"render <Kanban ... /> -- an import alone isn't wiring.",
         )
 
 

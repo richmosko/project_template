@@ -44,10 +44,61 @@
 	// state, not a fresh resolve.
 	const themeSettings = new ThemeSettingsState();
 
-	// PT-61: no client router in this app -- the sidebar's active-item
-	// state is derived once from the real location, matching board.js's
-	// own no-router convention rather than introducing one for two links.
-	const currentPath = window.location.pathname;
+	// PT-72 (architect ruling): PT-61's no-router convention held for two
+	// links with no shared-chrome persistence requirement; the unified
+	// shell introduces exactly that requirement (Dashboard <-> Issue
+	// Tracking must swap content without remounting the sidebar/header),
+	// so the conclusion changes with the premise. Soft nav in ~15 lines,
+	// not a router library: `$state`-backed route pieces, intercepted
+	// anchor clicks -> `history.pushState`, a `popstate` listener below.
+	// The anchors keep real `href` values, so a hard load still works
+	// through PT-54's existing SPA fallback -- soft nav is pure
+	// enhancement, not the only path in.
+	let currentPath = $state(window.location.pathname);
+	let currentSearch = $state(window.location.search);
+
+	function navigate(event: MouseEvent, path: string) {
+		// Let modified/non-plain clicks (new tab, etc.) behave natively.
+		if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+			return;
+		}
+		event.preventDefault();
+		if (path === currentPath + currentSearch) return;
+		history.pushState({}, '', path);
+		const url = new URL(path, window.location.origin);
+		currentPath = url.pathname;
+		currentSearch = url.search;
+	}
+
+	// Curried, not an inline arrow function at each call site -- an
+	// inline `(e) => navigate(e, path)` written directly inside a tag's
+	// opening `<a ...>` puts a literal `=>` between the tag's `<` and
+	// `>`, which broke a source-text `[^>]*` guard reading the compiled
+	// markup as plain text (caught while wiring this up: the guard's
+	// `<a href="...">...</a>` match terminated at the arrow's `>` instead
+	// of the tag's own, swallowing the label). Keeping `=>` out of the
+	// markup itself sidesteps that class of guard entirely.
+	function navigateTo(path: string) {
+		return (event: MouseEvent) => navigate(event, path);
+	}
+
+	function handlePopState() {
+		currentPath = window.location.pathname;
+		currentSearch = window.location.search;
+	}
+	window.addEventListener('popstate', handlePopState);
+	onDestroy(() => window.removeEventListener('popstate', handlePopState));
+
+	// PT-72: the Issue Tracking route's embed reads its own `open=<id>`
+	// param, derived here from the shell's OWN `?issue=<id>` query --
+	// architect's ruling §4: "two params in two layers... the shell must
+	// pass it down." No issue param (or a bare Dashboard-route visit)
+	// yields an empty suffix -- the iframe still gets plain `/?embed=1`.
+	let issueTrackingOpenSuffix = $derived.by(() => {
+		const issueId = new URLSearchParams(currentSearch).get('issue');
+		return issueId ? `&open=${encodeURIComponent(issueId)}` : '';
+	});
+	let onIssueTracking = $derived(currentPath === '/dashboard/issues');
 
 	// PT-61 (architect ruling): dynamic-import the chart panel so
 	// layerchart (a real dependency step-up: bits-ui/Sheet/Tooltip for the
@@ -201,21 +252,27 @@
 				<Sidebar.GroupContent>
 					<Sidebar.Menu>
 						<Sidebar.MenuItem>
-							<Sidebar.MenuButton isActive={currentPath.startsWith('/dashboard')}>
+							<Sidebar.MenuButton isActive={currentPath === '/dashboard'}>
 								{#snippet child({ props })}
-									<a href="/dashboard" {...props}>
+									<a href="/dashboard" {...props} onclick={navigateTo('/dashboard')}>
 										<LayoutDashboard />
 										<span>Dashboard</span>
 									</a>
 								{/snippet}
 							</Sidebar.MenuButton>
 						</Sidebar.MenuItem>
+						<!-- PT-72 (team-lead/architect/ux ruling): "Board" (href="/") ->
+						     "Issue Tracking" (href="/dashboard/issues") -- the old href
+						     navigated the user OUT of the shell entirely, which was
+						     Mosko's actual complaint. The standalone board at bare `/`
+						     still exists unchanged (architect's ruling §5); this link
+						     just no longer points at it. -->
 						<Sidebar.MenuItem>
-							<Sidebar.MenuButton isActive={currentPath === '/'}>
+							<Sidebar.MenuButton isActive={onIssueTracking}>
 								{#snippet child({ props })}
-									<a href="/" {...props}>
+									<a href="/dashboard/issues" {...props} onclick={navigateTo('/dashboard/issues')}>
 										<Kanban />
-										<span>Board</span>
+										<span>Issue Tracking</span>
 									</a>
 								{/snippet}
 							</Sidebar.MenuButton>
@@ -285,7 +342,17 @@
 			<ThemeSettings themeState={themeSettings} />
 		</div>
 	</header>
+	</div>
 
+	<!-- PT-72 (architect ruling §1): chrome above (Sidebar.Root + this
+	     header) mounts once and never remounts across Dashboard <->
+	     Issue Tracking navigation -- only the content below swaps. The
+	     Issue Tracking branch gets the full viewport width (outside the
+	     max-w-6xl cap, same full-bleed treatment PT-62 already gave the
+	     home preview's board section) and full remaining height (no
+	     h-[70vh] cap -- architect's ruling §2, ux's spec). -->
+	{#if !onIssueTracking}
+	<div class="mx-auto flex w-full max-w-6xl flex-col gap-6">
 	{#if loadError && !data}
 		<Card.Root>
 			<Card.Content>
@@ -497,39 +564,55 @@
 	     max-w-6xl wrapper above -- it's the one section this hotfix exists
 	     to give the full viewport to (28px margins only, via the outer
 	     div's px-7). -->
-	<!-- PT-55 (architect ruling): same-origin iframe of the real board at
-	     `/?embed=1` -- maximal reuse (same files, same fetch, same PT-36
-	     column list), not a rewrite. `embed=1` suppresses only the
-	     wordmark and the Dashboard tab (board-logic.js's `isEmbedMode`,
-	     board.js/board.css). Full read-write: drag/drawer/inline-edit/
-	     +New all work because it IS the board -- a read-only mode would
-	     mean forking new state into board.js to deliver LESS. Kanban⇄List
-	     and lane collapse come free (the board's own <a> tabs navigate the
-	     frame; PT-30's localStorage view state is shared across the
-	     origin). No sandbox (breaks same-origin storage), no postMessage
-	     auto-height (the board owns its own scrolling/sticky chrome --
-	     auto-height would fight that and grow unboundedly), fixed height. -->
+	<!-- PT-55 (architect ruling): same-origin iframe of the real board.
+	     PT-72 (architect ruling §2, §3, ux spec): this preview is now
+	     read-only (`readonly=1`, additive to `embed=1`) -- filters, view
+	     tabs, create-issue, drag, per-lane/column toggles all suppressed
+	     board-side (single point in board.js's `init()`, never render-
+	     function branching -- PT-55's original "would mean forking new
+	     state to deliver LESS" objection still binds the implementation,
+	     it just no longer forecloses a SECOND surface). Full editing now
+	     lives only on the Issue Tracking page (branch above). Card click
+	     navigates the shell to that page with the drawer pre-opened
+	     (architect's ruling §4) -- not a second inline/modal editor. No
+	     sandbox (breaks same-origin storage), no postMessage auto-height
+	     (the board owns its own scrolling/sticky chrome), fixed height. -->
 	<section aria-label="Board">
 		<Card.Root class="[--card-spacing:1.5rem]">
 			<Card.Header>
 				<Card.Title class="text-lg">Board</Card.Title>
 				<Card.Action>
-					<Button variant="secondary" size="sm" href="/">Open full board</Button>
+					<!-- ux spec: explicit "View full board" escape hatch,
+					     independent of card-click -- the standing lesson
+					     from the Sidebar.Footer placement miss is not to
+					     rely on users guessing that cards are click-through. -->
+					<Button variant="secondary" size="sm" href="/dashboard/issues" onclick={navigateTo('/dashboard/issues')}>
+						View full board
+					</Button>
 				</Card.Action>
 			</Card.Header>
 			<Card.Content class="flex flex-col gap-3">
 				<p class="text-xs text-muted-foreground">
-					This is the real, live board (drag, drawer, filters, + New all work) — not a
-					lookalike.
+					A live, read-only glance at the board (click a card to open it on the full
+					Issue Tracking page) -- editing lives there, not here.
 				</p>
 				<iframe
-					src="/?embed=1"
+					src="/?embed=1&readonly=1"
 					title="Cairn board"
 					class="h-[70vh] w-full rounded-md border border-border"
 				></iframe>
 			</Card.Content>
 		</Card.Root>
 	</section>
+	{:else}
+		<section aria-label="Issue Tracking" class="flex min-h-0 flex-1 flex-col">
+			<iframe
+				src="/?embed=1{issueTrackingOpenSuffix}"
+				title="Cairn board"
+				class="w-full flex-1 rounded-md border border-border"
+			></iframe>
+		</section>
+	{/if}
 	</div>
 	</Sidebar.Inset>
 </Sidebar.Provider>

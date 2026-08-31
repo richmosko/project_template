@@ -3,7 +3,7 @@ id: PT-0.9
 name: theme settings
 kind: product
 major: PT-V1
-status: in-progress
+status: done
 target_tag: v0.9.0
 ga: false
 ---
