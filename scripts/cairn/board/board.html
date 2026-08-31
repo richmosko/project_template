@@ -103,7 +103,14 @@
     <span class="connection-state polling" id="connection-state">○ polling</span>
     <div class="majors-tabs" id="majors-tabs"></div>
     <div class="view-tabs">
-      <a href="/" id="tab-kanban">Kanban</a>
+      <!-- PT-73 (architect ruling §5): points at the new never-
+           redirecting /board alias, not bare `/` -- once dist is
+           present, `/` server-side-redirects into the dashboard, which
+           would otherwise bounce a standalone-Kanban click straight out
+           of the board. board.js needs no change: it selects its view
+           by `pathname === "/list"`, so any other path already renders
+           kanban. -->
+      <a href="/board" id="tab-kanban">Kanban</a>
       <a href="/list" id="tab-list">List</a>
       <!-- PT-54 nit (architect): an unreachable surface is a broken one --
            the real shadcn-svelte dashboard is a separate app at /dashboard,

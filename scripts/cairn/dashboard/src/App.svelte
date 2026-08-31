@@ -26,6 +26,14 @@
 	// ListTodo, distinct from LayoutDashboard's grid shape").
 	import LayoutDashboard from '@lucide/svelte/icons/layout-dashboard';
 	import Kanban from '@lucide/svelte/icons/kanban';
+	// PT-73 (Mosko's finding + ux's ruling, 2026-08-30/31): the repo
+	// header (PT-68) adopts the same icon-left menu-item pattern as the
+	// nav items above -- FolderGit2 over Box/Package: "specifically
+	// represents which git repo you're looking at... the more distinct
+	// silhouette next to the rail's other two icons" (a folder outline
+	// reads as a different shape class than LayoutDashboard's grid or
+	// Kanban's columns, avoiding "three flavors of boxes").
+	import FolderGit2 from '@lucide/svelte/icons/folder-git-2';
 	import {
 		fetchDashboard,
 		subscribeDashboard,
@@ -239,9 +247,18 @@
 			     during the initial fetch; repo_name itself is never null
 			     once loaded (read_git_state's one field that survives a
 			     git-unavailable degrade -- a directory basename needs no
-			     git subprocess to exist). -->
+			     git subprocess to exist).
+			     PT-73: this row now follows the same collapse-aware
+			     icon-left pattern as the nav items below it -- icon-only
+			     when the rail collapses, name beside it expanded. The
+			     label's `group-data-[collapsible=icon]:hidden` is the
+			     same class family every other collapse-aware element in
+			     this sidebar component family already uses (sidebar-
+			     menu-badge.svelte, sidebar-group-label.svelte, ...); this
+			     row simply never adopted it before. -->
 			<div class="flex items-center gap-2 px-2 py-1.5">
-				<span class="font-heading text-sm font-semibold text-sidebar-foreground">
+				<FolderGit2 class="size-4 shrink-0 text-sidebar-foreground" />
+				<span class="font-heading text-sm font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">
 					{data?.git.repo_name ?? '…'}
 				</span>
 			</div>
@@ -351,8 +368,18 @@
 	     max-w-6xl cap, same full-bleed treatment PT-62 already gave the
 	     home preview's board section) and full remaining height (no
 	     h-[70vh] cap -- architect's ruling §2, ux's spec). -->
+	<!-- PT-73 (Mosko's finding + ux's ruling, 2026-08-30/31): the
+	     max-w-6xl cap on this wrapper is a deliberate SUPERSESSION of
+	     PT-62's own hotfix, not a silent drift from it -- PT-62 kept the
+	     cap when the Board card was the one section escaping it; PT-72
+	     moved the Board card itself full-bleed, and ux's ruling confirms
+	     the rest widen to match it ("the widest existing section... sets
+	     the standard rather than the Board card shrinking to match its
+	     narrower siblings"), not the reverse. No cap here anymore --
+	     status cards/tracker/chart/agents now share the same full-bleed
+	     container the Board section already had. -->
 	{#if !onIssueTracking}
-	<div class="mx-auto flex w-full max-w-6xl flex-col gap-6">
+	<div class="mx-auto flex w-full flex-col gap-6">
 	{#if loadError && !data}
 		<Card.Root>
 			<Card.Content>

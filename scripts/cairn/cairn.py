@@ -3720,6 +3720,40 @@ def engine_is_stale(source_path: Path, boot: Dict[str, Any]) -> bool:
     return current_sha != boot["sha"]
 
 
+def _dashboard_is_servable(dashboard_dir: Path) -> bool:
+    """PT-73 (architect ruling §2): the ONE shared predicate the root
+    redirect and `/dashboard` route both call, so the two routes can
+    never drift into disagreeing about whether the dashboard exists --
+    that disagreement's only failure modes are a redirect loop or a dead
+    end, and it would only ever surface in the exact "half-built dist"
+    state nobody tests by hand. Deliberately `(dashboard_dir /
+    "index.html").is_file()`, NOT `dashboard_dir.is_dir()`: a dist/ that
+    exists but is empty or partially cleaned must not send a user away
+    from a perfectly serviceable board and into a broken dashboard.
+    """
+    return (dashboard_dir / "index.html").is_file()
+
+
+def _is_embed_request(query: str) -> bool:
+    """PT-73 (architect ruling §3): the root redirect's embed carve-out
+    is a RECURSION GUARD, not a convenience -- the dashboard shell
+    iframes `/?embed=1`. If that request redirected, the iframe would
+    load `/dashboard`, which renders the SPA, which mounts an iframe
+    pointing at `/?embed=1`, which would redirect again. This is the
+    exact infinite-recursion bug board-logic.js's `isEmbedMode` was
+    created for in PT-55, and this function mirrors its semantics
+    EXACTLY: key `embed` present with value `"1"`, position in the query
+    string irrelevant, other params (`readonly`, `open`) ignored,
+    first-match-wins on a repeated key. A mismatch between this and the
+    JS-side reading of the same param would be a recursion, not a
+    cosmetic bug -- keep the two in lockstep if either ever changes.
+    """
+    for key, value in urllib.parse.parse_qsl(query, keep_blank_values=True):
+        if key == "embed":
+            return value == "1"
+    return False
+
+
 # --------------------------------------------------------------------------
 # HTTP server — a lens, not a source of truth. No state held here.
 # --------------------------------------------------------------------------
@@ -4086,14 +4120,48 @@ def make_server(
                 self.end_headers()
                 self.wfile.write(body)
                 return
-            if path in ("/", "/list"):
+            if path == "/":
+                # PT-73 (Mosko's ruling: "bare / loads the dashboard" +
+                # architect's mechanics ruling): 302 (never 301/308 --
+                # the predicate is filesystem state that CHANGES when
+                # dist/ gets built or deleted, and a permanent redirect
+                # would get cached past the point it stops being true,
+                # with no way for the server to correct a browser that's
+                # stopped asking) + Cache-Control: no-store (some
+                # browsers/proxies cache 302s too). Query strings are
+                # NOT forwarded -- nothing today needs to survive the
+                # hop to bare /dashboard. The embed carve-out below is
+                # the recursion guard _is_embed_request's own docstring
+                # names -- without it, the shell's `/?embed=1` iframe
+                # would redirect into /dashboard, which mounts another
+                # `/?embed=1` iframe, forever.
+                if _dashboard_is_servable(dashboard_dir) and not _is_embed_request(parsed.query):
+                    self.send_response(302)
+                    self.send_header("Location", "/dashboard")
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    return
+                self._send_static("board.html")
+                return
+            if path in ("/list", "/board"):
+                # PT-73 (architect ruling §5): `/list` was always a
+                # deep-link and stays one. `/board` is new -- a never-
+                # redirecting alias so the standalone Kanban view stays
+                # reachable once `/` starts redirecting when dist is
+                # present (board.html's Kanban tab now points here
+                # instead of bare `/`, which would otherwise bounce a
+                # standalone user into the dashboard mid-click).
                 self._send_static("board.html")
                 return
             if path.startswith("/board/"):
                 self._send_static(path[len("/board/"):])
                 return
             if path in ("/dashboard", "/dashboard/"):
-                if not dashboard_dir.is_dir():
+                # PT-73 (architect ruling §2, §6): same shared predicate
+                # as the `/` redirect above -- this route must never
+                # itself gain a redirect, or the shared helper's "can't
+                # drift" guarantee becomes a loop.
+                if not _dashboard_is_servable(dashboard_dir):
                     self._send_dashboard_unbuilt_503()
                     return
                 self._send_static("index.html", base=dashboard_dir)
