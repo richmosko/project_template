@@ -316,7 +316,12 @@
 	     Sidebar.Inset (architect's landmine note) -- Inset owns page-level
 	     layout/peer-margins now, this div no longer wraps a bare <body>. -->
 	<div class="flex min-h-screen flex-col gap-6 bg-muted px-7 py-7">
-	<div class="mx-auto flex w-full max-w-6xl flex-col gap-6">
+	<!-- PT-74 (Mosko's finding, 2026-08-31): this wrapper kept the old
+	     max-w-6xl inset when PT-73 unified the sections below it -- match
+	     the same rule the content wrapper already uses (no cap), on both
+	     routes (this header renders before the route switch, so it's
+	     already shared chrome -- no per-route duplication to fix). -->
+	<div class="mx-auto flex w-full flex-col gap-6">
 	<header class="flex flex-wrap items-center justify-between gap-4">
 		<div class="flex items-center gap-3">
 			<Sidebar.Trigger />

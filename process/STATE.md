@@ -17,12 +17,12 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Dashboard chrome polish: repo icon in collapsed rail + section width consistency |
-| Issue | PT-73 (cairn) |
-| Milestone | PT-0.9 (reopened; v0.9.0 tags after this lands) |
-| Branch | `feature/pt-73-chrome-polish` |
+| Feature | Dashboard title bar padding matches the unified card width |
+| Issue | PT-74 (cairn) |
+| Milestone | PT-0.9 (reopened; v0.9.0 tags after this micro-loop) |
+| Branch | `feature/pt-74-header-padding` |
 | Started | 2026-08-31 |
-| Goal | Repo-name header follows the menu-item icon/collapse pattern; home sections match the Board card's width |
+| Goal | Header container adopts the unified sections' horizontal rule |
 | Status | In Progress |
 
 ## Releases
