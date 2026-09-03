@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-76-new-issue-form-hidden` |
 | Started | 2026-09-03 |
 | Goal | Generic `[hidden]` reset so `+ New` actually toggles the form; form hidden under `readonly=1`; browser-verified across all three placements. |
-| Status | In Progress |
+| Status | In Review — https://github.com/richmosko/project_template/pull/151 |
 
 ## Releases
 
