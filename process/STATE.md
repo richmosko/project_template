@@ -31,7 +31,7 @@ Full history, every tagged release with its notes, lives at [the GitHub Releases
 
 | Version | Date | Major line | Milestone shipped | Branch | Notes |
 |---|---|---|---|---|---|
-| v0.9.0 | 2026-08-31 | PT-V1 | PT-0.9 (theme settings) — [release](https://github.com/richmosko/project_template/releases/tag/v0.9.0) | main | Published |
+| v0.10.0 | 2026-09-03 | PT-V1 | PT-0.10 (ledger hygiene) — [release](https://github.com/richmosko/project_template/releases/tag/v0.10.0) | main | Published |
 
 ## Decisions
 
