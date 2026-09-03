@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | New-issue form is permanently open on every board surface and visible in the read-only dashboard card |
+| Issue | PT-76 (cairn) |
+| Milestone | PT-0.10 (ledger hygiene → v0.10.0) |
+| Branch | `feature/pt-76-new-issue-form-hidden` |
+| Started | 2026-09-03 |
+| Goal | Generic `[hidden]` reset so `+ New` actually toggles the form; form hidden under `readonly=1`; browser-verified across all three placements. |
+| Status | In Progress |
 
 ## Releases
 

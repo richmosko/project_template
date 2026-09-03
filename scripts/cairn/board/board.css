@@ -37,6 +37,35 @@
 
 * { box-sizing: border-box; }
 
+/* PT-76 (architect's ruling, correcting the cascade model recorded at
+   PT-69): `hidden` only works via the UA stylesheet's own
+   `[hidden] { display: none }` rule, which is UA-ORIGIN. Cascade origin is
+   compared before specificity or source order (CSS Cascade §6.1), so any
+   author-origin `display` declaration beats it unconditionally -- not "wins
+   the tie because it loads later" (PT-69's original explanation), not "wins
+   because of matching specificity." That's why `.theme-settings-menu`,
+   `.theme-settings-row-flyout` and `.new-issue-form` (all author
+   `display: flex`) stayed visible under `hidden` 100% of the time rather
+   than intermittently, and why raising a selector's specificity -- PT-69's
+   original, `!important`-free fix -- only holds until some future
+   higher-specificity rule (an id selector, say) displaces it again; the
+   pairing has to be re-remembered for every element that ever grows its own
+   `display` declaration, and it was already forgotten once, silently, for
+   `.new-issue-form` across four releases. Only an author-origin
+   `!important` is both origin- and specificity-independent, so a single
+   generic reset here makes the whole bug class unrepresentable instead of
+   patching instances one at a time. This deliberately OVERRIDES PT-69's
+   stated `!important`-free preference -- correct for that ruling's
+   one-element scope, but it doesn't generalize. Verified
+   behaviour-preserving everywhere else: every element in board.html that
+   carries `hidden` with no author `display` rule (#pull-indicator,
+   #engine-stale-banner, #filter-repo, #expand-all-btn, #collapse-all-btn)
+   already resolved to `display: none` before this rule existed, so nothing
+   changes for them -- only for the elements that were actually broken. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   /* PT-63: base/default UI face (design-system-spec.md Typography --
@@ -177,10 +206,16 @@ body.embed #tab-dashboard {
    (card.draggable + the dragstart/drop listeners never attach), not via
    CSS -- a display:none on the cards would remove the content this mode
    exists to show. Kept: column headers, cards (click-through), the
-   connection-state indicator (informational). */
+   connection-state indicator (informational). PT-76: `#new-issue-form`
+   (the button's own toggle target) is listed explicitly alongside
+   `#new-issue-btn` -- this is the POLICY statement that read-only carries
+   no create affordance, and it must hold even if the form is reached some
+   other way, independent of whatever fixes the `[hidden]` mechanism
+   itself (see the generic reset near the top of this file). */
 body.readonly .filters,
 body.readonly .view-tabs,
 body.readonly #new-issue-btn,
+body.readonly #new-issue-form,
 body.readonly #expand-all-btn,
 body.readonly #collapse-all-btn,
 body.readonly .swimlane-toggle,
@@ -1106,21 +1141,6 @@ table.issue-list tr:hover { background: var(--accent); cursor: pointer; }
   gap: 2px;
 }
 
-/* PT-69 (Mosko's live-test finding, 2026-08-29): the `hidden` attribute
-   and this class's own `display: flex` above are the SAME specificity
-   (one class selector, one attribute selector), so without this rule
-   the browser's UA-stylesheet `[hidden] { display: none }` LOSES the
-   cascade tie to whichever rule loads later -- this class's `display:
-   flex` always wins, and board.js's `menu.hidden = true` (the close
-   path: outside-click, Escape, and the trigger's own close-toggle) has
-   no visual effect at all. This is the "board panel cannot be closed
-   once opened" bug -- the JS state was toggling correctly the whole
-   time; nothing ever obeyed it. `!important`-free fix: raise this
-   selector's specificity above the bare class rule instead. */
-.theme-settings-menu[hidden] {
-  display: none;
-}
-
 .theme-settings-row {
   position: relative;
 }
@@ -1163,13 +1183,6 @@ table.issue-list tr:hover { background: var(--accent); cursor: pointer; }
   gap: 2px;
   max-height: 320px;
   overflow-y: auto;
-}
-
-/* Same specificity-tie fix as .theme-settings-menu[hidden] above --
-   this element also combines the `hidden` attribute with its own
-   `display: flex`. */
-.theme-settings-row-flyout[hidden] {
-  display: none;
 }
 
 .theme-settings-option {
