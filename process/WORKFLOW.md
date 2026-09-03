@@ -261,7 +261,7 @@ Because the shared task list and mailbox are transient, the **lead promotes dura
 
 ### Milestone-close hygiene (formerly: Completed-table rolloff)
 
-`STATE.md` no longer carries Completed / In-Flight / Backlog feature tables — they dissolved into the tracker when cairn replaced Linear (ruled 2026-08-19; see `process/TRACKER.md` → Relationship to STATE.md). Done issues *are* the completed table; the board renders them; git history and [GitHub Releases](https://github.com/richmosko/project_template/releases) carry the summary that outlives everything — the [Releases](STATE.md#releases) row in this file is a one-row pointer to the latest tag, not a log (ruled 2026-09-02, PT-75; see `TEMPLATE_DECISIONS.md`).
+`STATE.md` no longer carries Completed / In-Flight / Backlog feature tables — they dissolved into the tracker when cairn replaced Linear (ruled 2026-08-19; see `process/TRACKER.md` → Relationship to STATE.md). Done issues *are* the completed table; the board renders them; git history and [GitHub Releases](https://github.com/<owner>/<repo>/releases) carry the summary that outlives everything — the [Releases](STATE.md#releases) row in this file is a one-row pointer to the latest tag, not a log (ruled 2026-09-02, PT-75; see `TEMPLATE_DECISIONS.md`).
 
 What remains at milestone close is a small lead duty:
 1. Set the closing milestone file's `status: done` (`process/cairn/milestones/<name>.md`, via `scripts/cairn/cairn set <id> status=done`) — folded into the closing PR's final commit by `/merge-pr` step 2, so it lands atomically with the merge (never as a direct edit on `main`).
@@ -797,9 +797,9 @@ Releases are **human decisions**, never automatic. The `/merge-pr` skill prompts
    The `--generate-notes` flag auto-populates from PR titles merged since the previous tag. The `--draft` flag holds it unpublished so you can curate for end-user framing (turn engineering subject lines into user-facing prose) before publishing.
 5. Edit the draft at `https://github.com/<owner>/<repo>/releases` — re-group by user impact, soften jargon, add migration notes if applicable.
 6. **Publish** when curated. The release is then immutable, has its own URL, RSS feed, and API endpoint — no extra file in the repo to maintain.
-7. **Replace** the single data row in `STATE.md` → Releases with this release — never append. The section holds exactly one row (the latest tag); older releases live at [GitHub Releases](https://github.com/richmosko/project_template/releases), never in this file (ruled 2026-09-02, PT-75). Hard limit: the whole markdown row — outer pipes, link URL, everything — is **≤ 200 characters**, machine-checked by `scripts/cairn/tests/test_state_releases_bound.py`. Fixed row template (quoted identically in `.claude/skills/merge-pr/SKILL.md`):
+7. **Replace** the single data row in `STATE.md` → Releases with this release — never append. The section holds exactly one row (the latest tag); older releases live at [GitHub Releases](https://github.com/<owner>/<repo>/releases), never in this file (ruled 2026-09-02, PT-75). Hard limit: the whole markdown row — outer pipes, link URL, everything — is **≤ 200 characters**, machine-checked by `scripts/cairn/tests/test_state_releases_bound.py`. Fixed row template (quoted identically in `.claude/skills/merge-pr/SKILL.md`):
    ```
-   | vX.Y.Z | YYYY-MM-DD | <major-line> | <milestone-id> (<short milestone name>) — [release](https://github.com/richmosko/project_template/releases/tag/vX.Y.Z) | <branch> | Draft|Published |
+   | vX.Y.Z | YYYY-MM-DD | <major-line> | <milestone-id> (<short milestone name>) — [release](https://github.com/<owner>/<repo>/releases/tag/vX.Y.Z) | <branch> | Draft|Published |
    ```
 
 **Why GitHub Releases instead of `CHANGELOG.md`:** publishing happens once per release (low overhead), the auto-draft from PR titles is a real time-saver, and the artifact lives where downstream users naturally look (the repo's Releases page). If a project later wants both surfaces, they can add `CHANGELOG.md` and sync it manually — but it's not a default.
