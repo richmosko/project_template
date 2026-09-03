@@ -152,7 +152,7 @@ claude
 
 ## Session startup
 
-Every session starts minimal. Only the files needed to re-orient are auto-loaded; everything else is read lazily as the work demands. Three `SessionStart` hooks in `.claude/settings.json` do the injection: the first loads the team-lead role definition (`.claude/roles/team-lead.md` — main-session identity; spawned teammates keep their own agent-file identity), the second runs an `awk` extractor over `process/STATE.md` so the auto-loaded state slice stays compact even as the Releases table grows, and the third reports the `temp/` hand-off buffer's pending count whenever it's non-empty (silent when clean).
+Every session starts minimal. Only the files needed to re-orient are auto-loaded; everything else is read lazily as the work demands. Three `SessionStart` hooks in `.claude/settings.json` do the injection: the first loads the team-lead role definition (`.claude/roles/team-lead.md` — main-session identity; spawned teammates keep their own agent-file identity), the second runs an `awk` extractor over `process/STATE.md` that stops at the `## Releases` heading, so the auto-loaded state slice never includes it — the section is a fixed one-row pointer to the latest tag since PT-75 (2026-09-02), not a growing log, but the extractor excludes it unconditionally either way, and the third reports the `temp/` hand-off buffer's pending count whenever it's non-empty (silent when clean).
 
 ```mermaid
 flowchart TD
@@ -162,7 +162,7 @@ flowchart TD
 
   A --> A1["<b>CLAUDE.md</b> — full<br/><i>session bootstrap + first-run checklist</i>"]
   A --> A2["<b>memory/MEMORY.md</b> — full<br/><i>auto-memory index only;<br/>individual memory files load lazily</i>"]
-  A --> A3["<b>process/STATE.md</b> — partial<br/><i>SessionStart hook runs awk;<br/>top → just before</i> <code>## Releases</code>"]
+  A --> A3["<b>process/STATE.md</b> — partial<br/><i>SessionStart hook runs awk;<br/>top → just before</i> <code>## Releases</code><br/><i>(a fixed 1-row pointer, excluded regardless of size)</i>"]
   A --> A4["<b>.claude/roles/team-lead.md</b> — full<br/><i>SessionStart hook; main-session<br/>identity + operating directives</i>"]
   A --> A5["<b>System reminders</b><br/><i>date · skills list · MCP instructions ·<br/>deferred tool names (no schemas)</i>"]
 
