@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-75-state-releases-pointer` |
 | Started | 2026-09-02 |
 | Goal | Collapse the Releases log to one ≤200-char pointer row, correct every append surface, add the test gate, ledger entry. |
-| Status | In Progress |
+| Status | In Review — https://github.com/richmosko/project_template/pull/150 |
 
 ## Releases
 
