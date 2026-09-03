@@ -3,7 +3,7 @@ id: PT-0.10
 name: ledger hygiene
 kind: product
 major: PT-V1
-status: in-progress
+status: done
 target_tag: v0.10.0
 ga: false
 ---
