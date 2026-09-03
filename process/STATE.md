@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | STATE.md Releases table becomes a one-row pointer, machine-bounded at 200 characters |
-| Issue | PT-75 (cairn) |
-| Milestone | PT-0.10 (ledger hygiene → v0.10.0) |
-| Branch | `feature/pt-75-state-releases-pointer` |
-| Started | 2026-09-02 |
-| Goal | Collapse the Releases log to one ≤200-char pointer row, correct every append surface, add the test gate, ledger entry. |
-| Status | In Review — https://github.com/richmosko/project_template/pull/150 |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Releases
 
