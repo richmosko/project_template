@@ -18,6 +18,30 @@ never parsed as structured markdown -- there is no markdown-table parser
 in this codebase's dependency tree (same reasoning as PT-36/PT-45 reading
 their targets as text), so every extractor below is a regex anchored on
 STATE.md's own heading/table conventions.
+
+Two defects fixed post-review (architect, PT-75, 2026-09-03), both
+reproduced against the real code before the fix:
+
+1. The GitHub Releases URL used to be hardcoded to this repo
+   (`richmosko/project_template`). Every downstream template instance
+   would inherit this file verbatim and fail `/finish-feature`'s hard
+   gate on day one, pointing at ITS OWN releases page -- the exact PT-45
+   defect class this file's own docstring cites as the model to follow.
+   Fixed by deriving `<owner>/<repo>` from whatever GitHub Releases URL
+   the lead-in prose actually links to, then cross-checking the data
+   row's release link uses that SAME owner/repo -- template-generic, and
+   strictly stronger than the pinned assert (it also catches a lead-in
+   pointing at a different repo than the row).
+2. The data-row filter keyed on the literal leading `v` (`^\\|\\s*v...`),
+   so a row whose version cell was blank, malformed, or simply missing
+   the `v` prefix was invisible to BOTH the row-count check and the
+   200-char check -- reproduced with a 320-char non-`v`-prefixed row
+   appended below v0.9.0: the full suite still reported `OK`. Fixed by
+   extracting data rows STRUCTURALLY (every table line that is neither
+   the header nor the `|---|...` separator, by position, not content),
+   with the `v`-prefix now checked as a separate, explicit shape
+   assertion on each extracted row -- so a malformed row is COUNTED and
+   then fails loudly on shape, instead of never being seen at all.
 """
 from __future__ import annotations
 
@@ -28,30 +52,39 @@ import helpers  # noqa: F401
 
 STATE_MD = helpers.CAIRN_DIR.parent.parent / "process" / "STATE.md"
 
-RELEASES_URL = "https://github.com/richmosko/project_template/releases"
-
 # Anchored on the STRUCTURAL shape: a `## Releases` heading, running until
 # the next `## `-level heading or EOF. Not a bare "grep for '| v'" search,
 # so a row that drifts outside the Releases section (e.g. an example row
 # quoted inside `## Decisions` prose) can never be silently counted.
 SECTION_RE = re.compile(r"^## Releases\n(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 
-# A release data row: a markdown table row beginning `| v` (a version
-# literal like `| v0.9.0 |`) -- excludes the header row (`| Version | ...`)
-# and the separator row (`|---|---|...`) by construction, since neither
-# starts with `| v`.
-DATA_ROW_RE = re.compile(r"^\|\s*v\S*.*$", re.MULTILINE)
+# A markdown table separator row: `|---|---|...`, optionally with alignment
+# colons (`|:---|---:|`) and internal whitespace. Used to find where the
+# header row ends and the data rows begin, STRUCTURALLY -- position in the
+# table, not row content.
+SEPARATOR_ROW_RE = re.compile(r"^\|(?:\s*:?-+:?\s*\|)+\s*$")
+
+# The SHAPE a valid release data row's first cell must have -- checked as a
+# property of an already-extracted row, never as the filter that decides
+# whether a row gets extracted in the first place (that was defect 2).
+VERSION_CELL_RE = re.compile(r"^\|\s*v\S*")
+
+# A GitHub Releases page URL, `https://github.com/<owner>/<repo>/releases`,
+# with owner/repo captured so the template stays generic across every repo
+# it's instantiated into -- never pinned to this repo's own org/name (that
+# was defect 1).
+GITHUB_RELEASES_URL_RE = re.compile(r"https://github\.com/([^/\s)]+)/([^/\s)]+)/releases\b")
 
 
 class ExtractionError(AssertionError):
-    """Raised when the Releases section or its table can't be located in
-    STATE.md's text.
+    """Raised when the Releases section, its table, or its GitHub Releases
+    link can't be located in STATE.md's text.
 
     A plain AssertionError subclass (not a bare `return None`/`[]`),
     mirroring PT-45's (test_skill_id_literals.py) and PT-36's
     (test_column_parity.py) contract: a caller that forgets to check for
     an empty result still sees a loud, NAMED failure -- there is no code
-    path in which "the heading/table wasn't found" silently becomes
+    path in which "the heading/table/link wasn't found" silently becomes
     "compare zero rows to zero expectations and pass".
     """
 
@@ -92,20 +125,73 @@ def extract_lead_in(section: str) -> str:
     return lead_in
 
 
+def extract_table_lines(section: str) -> list[str]:
+    """Every contiguous line starting with `|` in the section, from the
+    first such line onward -- the whole markdown table as written (header,
+    separator, and data rows together). Raises ExtractionError if no line
+    starts with `|` at all."""
+    lines = section.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.strip().startswith("|")), None)
+    if start is None:
+        raise ExtractionError(
+            "found a '## Releases' section but no markdown table (no line starting "
+            "with '|') inside it -- if the table was removed or restructured, this "
+            "guard needs to be updated, not silenced."
+        )
+    table_lines = []
+    for line in lines[start:]:
+        if not line.strip().startswith("|"):
+            break
+        table_lines.append(line)
+    return table_lines
+
+
 def extract_data_rows(section: str) -> list[str]:
-    """Every table row that looks like a release data row (`| v...`),
-    excluding the header and separator rows. Raises ExtractionError if
-    none are found -- a table with zero data rows and this returning []
-    silently would let 'exactly one row' collapse into 'zero rows',
-    which is a different (and unintended) success mode."""
-    rows = DATA_ROW_RE.findall(section)
+    """Every table row that is neither the header nor the separator --
+    excluded STRUCTURALLY by position (row 1 is the header, row 2 must be
+    the `|---|---|` separator), never by content. A data row whose version
+    cell is blank, malformed, or missing its `v` prefix is still counted
+    here; VERSION_CELL_RE / the shape test below is what catches that,
+    not silent exclusion from the count (defect 2, architect review
+    2026-09-03: a 320-char non-`v`-prefixed row previously passed every
+    check invisibly). Raises ExtractionError if the second table line
+    isn't a separator row, or if zero rows remain after it -- 'exactly
+    one row' must never silently mean 'zero'."""
+    table_lines = extract_table_lines(section)
+    if len(table_lines) < 2 or not SEPARATOR_ROW_RE.match(table_lines[1].strip()):
+        second_line = table_lines[1] if len(table_lines) > 1 else "<missing>"
+        raise ExtractionError(
+            f"found a table in the '## Releases' section but its second line doesn't "
+            f"look like a markdown separator row ('|---|---|...') -- if the table's "
+            f"shape changed, this guard needs to be updated, not silenced. Second "
+            f"line was: {second_line!r}"
+        )
+    rows = table_lines[2:]
     if not rows:
         raise ExtractionError(
-            "found a '## Releases' table but zero data rows (lines starting with "
-            "'| v') inside it -- the section must retain exactly one pointer row "
-            "(PT-75 acceptance criteria); zero rows is not the target state either."
+            "found a '## Releases' table but zero data rows (lines after the header "
+            "and separator) inside it -- the section must retain exactly one pointer "
+            "row (PT-75 acceptance criteria); zero rows is not the target state either."
         )
     return rows
+
+
+def extract_github_owner_repo(lead_in: str) -> tuple[str, str]:
+    """The `(owner, repo)` a `https://github.com/<owner>/<repo>/releases`
+    link in the lead-in prose points at. Raises ExtractionError if no such
+    link is present -- deliberately NOT hardcoded to this repo's own
+    owner/repo (defect 1, architect review 2026-09-03), so this guard
+    stays correct verbatim in every repo instantiated from the template,
+    each pointing at its own Releases page."""
+    match = GITHUB_RELEASES_URL_RE.search(lead_in)
+    if not match:
+        raise ExtractionError(
+            "the Releases section's lead-in prose has no "
+            "'https://github.com/<owner>/<repo>/releases' link -- the section must "
+            "link to the GitHub Releases page as the full history (PT-75 acceptance "
+            f"criteria); got lead-in: {lead_in!r}"
+        )
+    return match.group(1), match.group(2)
 
 
 class ExtractorSelfTests(unittest.TestCase):
@@ -163,6 +249,84 @@ class ExtractorSelfTests(unittest.TestCase):
         self.assertNotEqual(len(rows), 1, "sanity: this fixture is deliberately two rows")
         self.assertEqual(len(rows), 2)
 
+    def test_data_row_extraction_is_structural_not_content_based(self):
+        """Defect 2 regression fixture: a data row whose version cell is
+        NOT `v`-prefixed must still be extracted (and therefore still
+        counted, still length-checked) -- it was previously invisible to
+        `DATA_ROW_RE`, letting an over-limit, miscounted row through the
+        gate undetected."""
+        section = "\nLead-in.\n\n| Version | Date |\n|---|---|\n| 0.10.0 | 2026-09-03 |\n"
+        rows = extract_data_rows(section)
+        self.assertEqual(rows, ["| 0.10.0 | 2026-09-03 |"])
+
+    def test_version_shape_check_catches_a_row_missing_the_v_prefix(self):
+        """The `v`-prefix is validated as an explicit, separate shape
+        property of an already-extracted row -- never as the extraction
+        filter itself (that coupling was defect 2)."""
+        self.assertIsNone(VERSION_CELL_RE.match("| 0.10.0 | 2026-09-03 |"))
+        self.assertIsNotNone(VERSION_CELL_RE.match("| v0.10.0 | 2026-09-03 |"))
+
+    def test_github_owner_repo_extraction_finds_a_releases_link(self):
+        lead_in = "Full history lives at https://github.com/acme-corp/widget-api/releases -- see it."
+        owner, repo = extract_github_owner_repo(lead_in)
+        self.assertEqual((owner, repo), ("acme-corp", "widget-api"))
+
+    def test_github_owner_repo_extraction_raises_loudly_when_no_link_exists(self):
+        with self.assertRaises(ExtractionError) as ctx:
+            extract_github_owner_repo("No GitHub link here at all.")
+        self.assertIn("github.com", str(ctx.exception))
+
+    def test_github_owner_repo_extraction_is_not_pinned_to_this_repo(self):
+        """Defect 1 regression fixture: the extractor must work for ANY
+        owner/repo, not just this template's own -- proving it wasn't
+        silently re-hardcoded during the fix."""
+        owner, repo = extract_github_owner_repo(
+            "See https://github.com/someone-else/some-other-project/releases for history."
+        )
+        self.assertEqual((owner, repo), ("someone-else", "some-other-project"))
+
+    def test_synthetic_full_section_with_matching_owner_repo_passes_end_to_end(self):
+        """A full synthetic Releases section for a downstream fork
+        (acme-corp/widget-api -- deliberately NOT richmosko/project_template)
+        run through every extractor in sequence (section -> lead-in ->
+        owner/repo -> rows -> repo cross-check) and found consistent --
+        proves the template-generic fix works as a WHOLE pipeline, not
+        just at the level of each extractor tested in isolation above."""
+        source = (
+            "## Releases\n\n"
+            "Full history at https://github.com/acme-corp/widget-api/releases.\n\n"
+            "| Version | Date | Notes |\n|---|---|---|\n"
+            "| v1.0.0 | 2026-01-01 | [release](https://github.com/acme-corp/widget-api/releases/tag/v1.0.0) |\n"
+            "\n## Decisions\n"
+        )
+        section = extract_releases_section(source)
+        lead_in = extract_lead_in(section)
+        owner, repo = extract_github_owner_repo(lead_in)
+        rows = extract_data_rows(section)
+        expected_prefix = f"https://github.com/{owner}/{repo}/releases/tag/"
+        mismatched = [row for row in rows if expected_prefix not in row]
+        self.assertEqual(mismatched, [], "sanity: this fixture is deliberately consistent and must pass")
+
+    def test_synthetic_mismatched_row_and_lead_in_repo_is_caught(self):
+        """Same fixture shape as the passing test above, except the row's
+        release link points at a DIFFERENT repo (other-org) than the
+        lead-in claims (acme-corp) -- proves the cross-check can actually
+        fail, not just always report agreement."""
+        source = (
+            "## Releases\n\n"
+            "Full history at https://github.com/acme-corp/widget-api/releases.\n\n"
+            "| Version | Date | Notes |\n|---|---|---|\n"
+            "| v1.0.0 | 2026-01-01 | [release](https://github.com/other-org/widget-api/releases/tag/v1.0.0) |\n"
+            "\n## Decisions\n"
+        )
+        section = extract_releases_section(source)
+        lead_in = extract_lead_in(section)
+        owner, repo = extract_github_owner_repo(lead_in)
+        rows = extract_data_rows(section)
+        expected_prefix = f"https://github.com/{owner}/{repo}/releases/tag/"
+        mismatched = [row for row in rows if expected_prefix not in row]
+        self.assertNotEqual(mismatched, [], "sanity: this fixture is deliberately mismatched and must be caught")
+
 
 class StateReleasesBoundTests(unittest.TestCase):
     """The real guard, against the actual `process/STATE.md`."""
@@ -195,12 +359,38 @@ class StateReleasesBoundTests(unittest.TestCase):
             f"the limit: {too_long}",
         )
 
+    def test_every_data_row_starts_with_a_version_literal(self):
+        rows = extract_data_rows(self.section)  # raises loudly if extraction itself breaks
+        bad = [row for row in rows if not VERSION_CELL_RE.match(row)]
+        self.assertEqual(
+            bad, [],
+            f"every Releases data row's first cell must be a version literal like "
+            f"'| vX.Y.Z |' -- found row(s) without one: {bad}",
+        )
+
     def test_lead_in_links_to_the_github_releases_page(self):
         lead_in = extract_lead_in(self.section)  # raises loudly if extraction itself breaks
-        self.assertIn(
-            RELEASES_URL, lead_in,
-            f"the Releases section's lead-in prose must link to {RELEASES_URL} as "
-            f"the full history -- got lead-in: {lead_in!r}",
+        owner, repo = extract_github_owner_repo(lead_in)  # raises loudly if the link is missing
+        self.assertTrue(
+            owner and repo,
+            f"extracted an empty owner/repo from the Releases lead-in link: {lead_in!r}",
+        )
+
+    def test_data_row_release_link_matches_the_lead_ins_repo(self):
+        """Not just 'links somewhere on GitHub' -- the data row's own
+        release link must point at the SAME owner/repo the lead-in
+        advertises as the full history, so the two can never silently
+        disagree (a check the old hardcoded-URL assert couldn't make,
+        since it only ever compared against a literal)."""
+        lead_in = extract_lead_in(self.section)
+        owner, repo = extract_github_owner_repo(lead_in)
+        rows = extract_data_rows(self.section)
+        expected_prefix = f"https://github.com/{owner}/{repo}/releases/tag/"
+        mismatched = [row for row in rows if expected_prefix not in row]
+        self.assertEqual(
+            mismatched, [],
+            f"every Releases data row must link to a release tag under the lead-in's "
+            f"own repo ({expected_prefix}...) -- found row(s) that don't: {mismatched}",
         )
 
 

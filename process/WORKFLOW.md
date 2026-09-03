@@ -799,7 +799,7 @@ Releases are **human decisions**, never automatic. The `/merge-pr` skill prompts
 6. **Publish** when curated. The release is then immutable, has its own URL, RSS feed, and API endpoint — no extra file in the repo to maintain.
 7. **Replace** the single data row in `STATE.md` → Releases with this release — never append. The section holds exactly one row (the latest tag); older releases live at [GitHub Releases](https://github.com/richmosko/project_template/releases), never in this file (ruled 2026-09-02, PT-75). Hard limit: the whole markdown row — outer pipes, link URL, everything — is **≤ 200 characters**, machine-checked by `scripts/cairn/tests/test_state_releases_bound.py`. Fixed row template (quoted identically in `.claude/skills/merge-pr/SKILL.md`):
    ```
-   | vX.Y.Z | YYYY-MM-DD | <major-line> | <milestone-id> (<short milestone name>) — [release](https://github.com/richmosko/project_template/releases/tag/vX.Y.Z) | <branch> | Draft\|Published |
+   | vX.Y.Z | YYYY-MM-DD | <major-line> | <milestone-id> (<short milestone name>) — [release](https://github.com/richmosko/project_template/releases/tag/vX.Y.Z) | <branch> | Draft|Published |
    ```
 
 **Why GitHub Releases instead of `CHANGELOG.md`:** publishing happens once per release (low overhead), the auto-draft from PR titles is a real time-saver, and the artifact lives where downstream users naturally look (the repo's Releases page). If a project later wants both surfaces, they can add `CHANGELOG.md` and sync it manually — but it's not a default.
