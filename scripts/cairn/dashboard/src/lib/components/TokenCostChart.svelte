@@ -176,15 +176,48 @@
 		return ids.filter((id, i) => i % step === 0 || id === 'main');
 	});
 
+	// Browser-verified regression (team-lead's re-check on b934262): once the
+	// y-axis-clipping fix below supplied an explicit `padding` object,
+	// layerchart's own default padding computation (states/chart.svelte.js's
+	// `padding` getter, node_modules/layerchart/dist/states/chart.svelte.js:816
+	// -- only calls `defaultChartPadding({ axis, legend, ... })` when the
+	// caller's padding prop is null) was bypassed entirely; any explicit
+	// padding object merges against a bare `{top:0,right:0,bottom:0,left:0}`
+	// instead. `defaultChartPadding` normally reserves bottom: 20 (x-axis
+	// labels) + 32 (one legend row) -- dropping that same reservation to 0 is
+	// exactly why the legend (position: absolute; bottom: 0, per layerchart's
+	// own Legend.svelte) ended up drawn on top of the bars and x-axis instead
+	// of in its own row below them. Reproduce the rest of the library's
+	// default here (top/right unchanged, left overridden as before), and
+	// enlarge the bottom reservation to cover a WRAPPED legend, not just the
+	// single row the library's own 32px constant assumes -- this view's
+	// largest legend (cost mode's role palette) can carry up to 11 entries,
+	// which wraps to multiple rows well before the single-row constant would
+	// suffice, and delta 6 (legend flex-wrap, still to be re-checked at
+	// narrow widths) depends on that headroom actually being there.
+	const LEGEND_ROWS_RESERVED = 3;
+	const LEGEND_ROW_HEIGHT = 24;
+	const CHART_PADDING = {
+		top: 4,
+		right: 4,
+		left: 64,
+		bottom: 20 + LEGEND_ROW_HEIGHT * LEGEND_ROWS_RESERVED,
+	};
+
 	function onBarClick(_event: MouseEvent, detail: { data: Record<string, string | number> }): void {
 		const issue = detail.data.issue as string;
 		// Ruling § 4: main "must not look clickable" -- no drawer link.
 		if (issue === 'main') return;
-		// AC4's drawer lives in board.js, a different page entirely --
-		// a real navigation (App.svelte's own anchors carry real hrefs
-		// for the identical reason: a hard load still works through
-		// PT-54's SPA fallback).
-		window.location.href = `/dashboard/issues?open=${encodeURIComponent(issue)}`;
+		// Browser-verified defect (team-lead's re-check on b934262): the
+		// drawer never opened. Root cause -- App.svelte (PT-72) reads its
+		// OWN shell-level `?issue=<id>` query param and translates THAT
+		// into `&open=<id>` for the embedded Issue Tracking board's own
+		// iframe src (see App.svelte's `issueTrackingOpenSuffix`); a link
+		// carrying `?open=` directly is a key the shell never reads, so
+		// it's silently ignored. board.js's own equivalent navigation
+		// (Kanban card -> full board) already uses the shell's real param
+		// name -- match it exactly.
+		window.location.href = `/dashboard/issues?issue=${encodeURIComponent(issue)}`;
 	}
 
 	// Browser-verified defect: a real click on a bar did nothing.
@@ -272,14 +305,30 @@
 						legend
 						{onBarClick}
 						tooltipContext={{ onclick: onTooltipClick }}
-						padding={{ left: 64 }}
-						fillOpacity={(d: Record<string, string | number>) => (d.issue === 'main' ? 0.55 : 1)}
+						padding={CHART_PADDING}
 						props={{
 							xAxis: {
 								ticks: xAxisTicks,
 							},
 							yAxis: {
 								format: (v: number) => (mode === 'cost' ? formatUsd(v) : formatTokens(v)),
+							},
+							bars: {
+								// Browser-verified defect (team-lead's re-check on
+								// b934262): a top-level fillOpacity prop directly on
+								// BarChart is not a real prop of the component --
+								// BarChart.base.svelte spreads unrecognized props onto
+								// Chart via restProps, never down into Bars/Bar, so it
+								// never reached a rendered rect (every computed
+								// fillOpacity read back as 1). This props.bars nesting
+								// IS spread onto each Bars instance by
+								// BarChart.base.svelte's marks snippet, which forwards
+								// unrecognized props straight through to Bar via
+								// extractLayerProps -- see Bars.base.svelte -- and Bar
+								// explicitly supports fillOpacity as a per-datum
+								// accessor via resolveStyleProp -- this is the layer
+								// that actually reaches the rect.
+								fillOpacity: (d: Record<string, string | number>) => (d.issue === 'main' ? 0.55 : 1),
 							},
 						}}
 					>

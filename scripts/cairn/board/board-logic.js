@@ -1186,6 +1186,35 @@ var CairnLogic = (function () {
     );
   }
 
+  // PT-79 delta (team-lead's Chrome re-check on b934262): pure parse step
+  // extracted out of board.js's init(), which previously inlined `new
+  // URLSearchParams(window.location.search).get("open")` directly --
+  // same logic, just testable without a real browser/DOM (PT-72's
+  // "/?embed=1&open=PT-42" contract, ruling §4). `URLSearchParams` itself
+  // isn't a safe dependency here -- it's absent from this file's
+  // vm-sandboxed test realm (see helpers.js's "Loading contract" --
+  // board-logic.js runs with no browser/Node globals) -- so this follows
+  // isEmbedMode's own established manual-parse idiom just above rather
+  // than introducing a new global dependency. Deliberately does NOT
+  // resolve live-vs-archived (that's server-side, via GET /api/issue/<id>
+  // -- INTERFACE.md's find_issue_path contract) or validate the id shape
+  // -- this only answers "what string, if any, follows ?open= in this
+  // search string", exactly what URLSearchParams itself would return.
+  function parseOpenIssueId(search) {
+    var qs = search || "";
+    if (qs.charAt(0) === "?") qs = qs.slice(1);
+    if (qs === "") return null;
+    var pairs = qs.split("&");
+    for (var i = 0; i < pairs.length; i++) {
+      var eq = pairs[i].indexOf("=");
+      var key = eq === -1 ? pairs[i] : pairs[i].slice(0, eq);
+      if (key !== "open") continue;
+      var value = eq === -1 ? "" : pairs[i].slice(eq + 1);
+      return decodeURIComponent(value.replace(/\+/g, " "));
+    }
+    return null;
+  }
+
   // PT-79 AC4: the issue drawer's token-usage section is a pure LOOKUP
   // against the already-fetched GET /api/tokens payload, filtered
   // client-side by issue id -- no second endpoint (PT-51's "no GET
@@ -1277,6 +1306,7 @@ var CairnLogic = (function () {
     wheelPullShouldFire: wheelPullShouldFire,
     isEmbedMode: isEmbedMode,
     embedAwareHref: embedAwareHref,
+    parseOpenIssueId: parseOpenIssueId,
     THEME_STORAGE_KEY: THEME_STORAGE_KEY,
     THEME_STORAGE_VERSION: THEME_STORAGE_VERSION,
     THEME_DEFAULTS: THEME_DEFAULTS,

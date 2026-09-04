@@ -124,6 +124,7 @@
   var wheelPullReduce = CairnLogic.wheelPullReduce;
   var wheelPullShouldFire = CairnLogic.wheelPullShouldFire;
   var tokenTotalsForIssue = CairnLogic.tokenTotalsForIssue;
+  var parseOpenIssueId = CairnLogic.parseOpenIssueId;
 
   // PT-5: "" is the sentinel option value for a null priority — inlineSelect
   // translates it to/from JSON null at the DOM boundary (see inlineSelect).
@@ -3097,6 +3098,17 @@
         // 4s poll, SSE push, focus/visibilitychange), guarded by state.viewStateRestored.
         restoreViewStateOnce();
       }
+      // PT-72 (architect's ruling § 4): "/?embed=1&open=PT-42" -- a new
+      // board capability, independent of isReadOnly (the Issue Tracking
+      // page's FULL-EDIT embed uses this too, not just the read-only
+      // preview). PT-79 delta (team-lead's explicit instruction,
+      // superseding this code's own prior reasoning that openDrawer's
+      // own fetch made waiting unnecessary): moved INSIDE this callback,
+      // after state.board is set -- reading it before apiGetBoard
+      // resolves raced the embedded board's own load, at least
+      // sometimes losing the deep-link open.
+      var openId = parseOpenIssueId(window.location.search);
+      if (openId) openDrawer(openId);
       render();
     });
     connectLive();
@@ -3104,14 +3116,6 @@
       if (document.visibilityState === "visible") refreshBoardSilently();
     });
     window.addEventListener("focus", refreshBoardSilently);
-
-    // PT-72 (architect's ruling § 4): "/?embed=1&open=PT-42" -- a new
-    // board capability, independent of isReadOnly (the Issue Tracking
-    // page's FULL-EDIT embed uses this too, not just the read-only
-    // preview). Read once, on load; openDrawer does its own fetch, so
-    // this doesn't need to wait on apiGetBoard's own resolution.
-    var openId = new URLSearchParams(window.location.search).get("open");
-    if (openId) openDrawer(openId);
   }
 
   document.addEventListener("DOMContentLoaded", init);
