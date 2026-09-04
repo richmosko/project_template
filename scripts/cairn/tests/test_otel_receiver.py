@@ -331,6 +331,75 @@ class BranchAttributionTests(unittest.TestCase):
         self.assertEqual(issues, {"PT-1"}, "a milestone branch resolves to main, so the cairn.issue fallback must engage")
 
 
+class ResourceAttributeFlatteningTests(unittest.TestCase):
+    """Architect's review delta on 74a36c7 (0beb593): `parse_export` never
+    read `resourceMetrics[].resource.attributes` at all, so a
+    `cairn.issue` present ONLY at resource level was silently dropped --
+    "no impact today (Claude Code copies resource attrs down), but a
+    silent-degradation path... cheaper to land now than to rediscover the
+    day the payload shape changes." All four cases pinned with
+    `--repo-root` on `main` so the fallback engages and the fixture's
+    `cairn.issue` (not the branch) is what's under test."""
+
+    def test_cairn_issue_present_only_at_resource_level_is_still_read(self):
+        repo = make_repo_on_branch(self, "main")
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        result = ingest("cairn_issue_resource_only.json", out_path, repo_root=repo)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        issues = {l["issue"] for l in read_jsonl(out_path)}
+        self.assertEqual(issues, {"PT-77"}, f"a resource-only cairn.issue must not be silently dropped -- got {issues}")
+
+    def test_cairn_issue_present_only_at_datapoint_level_still_works(self):
+        repo = make_repo_on_branch(self, "main")
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        result = ingest("cairn_issue_datapoint_only.json", out_path, repo_root=repo)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        issues = {l["issue"] for l in read_jsonl(out_path)}
+        self.assertEqual(issues, {"PT-88"}, issues)
+
+    def test_conflicting_values_at_both_levels_the_datapoint_wins(self):
+        # Amendment A's exact rule: "resource attributes overlaid by
+        # datapoint attributes, datapoint winning on conflict." Resource
+        # says PT-11, datapoint says PT-22 -- PT-22 must win.
+        repo = make_repo_on_branch(self, "main")
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        result = ingest("cairn_issue_conflicting_levels.json", out_path, repo_root=repo)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        issues = {l["issue"] for l in read_jsonl(out_path)}
+        self.assertEqual(issues, {"PT-22"}, f"datapoint-level cairn.issue must win over a conflicting resource-level value -- got {issues}")
+
+    def test_cairn_issue_at_neither_level_lands_in_main(self):
+        repo = make_repo_on_branch(self, "main")
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        result = ingest("no_cairn_issue.json", out_path, repo_root=repo)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        issues = {l["issue"] for l in read_jsonl(out_path)}
+        self.assertEqual(issues, {"main"}, issues)
+
+    def test_identity_attributes_at_resource_level_are_still_stripped_by_the_allow_list(self):
+        # Amendment A's own fixture assumption (identity always at
+        # datapoint level) is exactly what made this delta invisible to
+        # every existing privacy test -- this fixture deliberately puts
+        # identity at RESOURCE level (the "wrong" level per the measured
+        # wire shape) to prove the allow-list is applied to the FLATTENED
+        # dict, not just to whichever level a given fixture happened to
+        # populate.
+        repo = make_repo_on_branch(self, "main")
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        result = ingest("identity_at_resource_level.json", out_path, repo_root=repo)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        raw = out_path.read_text(encoding="utf-8")
+        for forbidden in ["resource-level-leak@example.com", "resource-level-fake-session", "resource-level-fake-user-id"]:
+            self.assertNotIn(forbidden, raw, f"{forbidden!r} leaked into the output from a resource-level identity attribute")
+        issues = {l["issue"] for l in read_jsonl(out_path)}
+        self.assertEqual(issues, {"PT-66"}, "the fixture's resource-level cairn.issue must still be read even though its identity attrs are correctly dropped")
+
+
 class MergeWithBackfillTests(unittest.TestCase):
     """Ruling §7/§8 -- append-only, own-source-only, non-overlap
     invariant."""
