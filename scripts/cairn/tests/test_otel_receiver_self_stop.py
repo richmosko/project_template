@@ -649,6 +649,71 @@ class PidNullNeverReapedTests(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------
+# Architect's re-review Follow-up 4 (0d9f0b5): a fourth --status token,
+# agreed with implementation-lead as `dead-pending`. Rendering a
+# definitively-dead pid as `alive` just because its transcript is still
+# fresh hides the exact entry an operator hunting "why won't the
+# receiver stop" needs to see.
+# --------------------------------------------------------------------------
+
+class StatusFourStateTests(unittest.TestCase):
+    """All four --status tokens, side by side, in one registry: `alive`
+    (a genuinely live pid) must stay distinct from `dead-pending` (pid
+    confirmed dead, transcript still fresh -- reap-INeligible for up to
+    30 minutes, per addendum C, but must never be reported as `alive`)
+    and from `dead` (pid dead, transcript stale -- reap-eligible) and
+    from `unknown` (no pid captured at all). No --session-ended, no
+    export, no wait long enough to trip any reap trigger -- this test is
+    purely about the LABEL, not about reaping."""
+
+    def test_all_four_status_tokens_are_distinct_and_correctly_assigned(self):
+        port = _free_port()
+        fake_root = make_fake_engine_root(self, otel_port=port)
+        env = _base_env(port)
+        transcripts_dir = _make_transcripts_dir(self)
+        self.addCleanup(_stop_fake_receiver, fake_root, env)
+
+        alive_pid = os.getpid()
+        _write_transcript(transcripts_dir, "dead-fresh", stale=False)
+        _write_transcript(transcripts_dir, "dead-stale", stale=True)
+
+        r1 = run_fake_receiver(
+            fake_root,
+            ["--ensure-running", "--session-id", "alive", "--session-pid", str(alive_pid), "--transcripts-dir", str(transcripts_dir)],
+            env=env,
+        )
+        self.assertEqual(r1.returncode, 0, r1.stdout + r1.stderr)
+        _wait_for_status_running(fake_root, env)
+
+        for session_id, pid in (("dead-fresh", _dead_pid()), ("dead-stale", _dead_pid()), ("no-pid", 0)):
+            r = run_fake_receiver(fake_root, ["--ensure-running", "--session-id", session_id, "--session-pid", str(pid)], env=env)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+        status = run_fake_receiver(fake_root, ["--status"], env=env)
+        self.assertIn("sessions: 4", status.stdout, status.stdout)
+        self.assertIn("session alive: alive", status.stdout, f"a genuinely live pid must render 'alive' -- got {status.stdout!r}")
+        self.assertIn(
+            "session dead-fresh: dead-pending", status.stdout,
+            f"a dead pid with a FRESH transcript must render the new 'dead-pending' token, NEVER 'alive' -- got {status.stdout!r}",
+        )
+        self.assertIn(
+            "session dead-stale: dead", status.stdout,
+            f"a dead pid with a STALE transcript (reap-eligible) must render plain 'dead' -- got {status.stdout!r}",
+        )
+        self.assertIn("session no-pid: unknown", status.stdout, f"a null pid must render 'unknown' -- got {status.stdout!r}")
+
+        # The four tokens must actually be four DIFFERENT strings -- a
+        # regression that collapses dead-pending back into alive or dead
+        # would still pass a substring-only check against session ids
+        # that happen not to collide, so pin the distinct token SET too.
+        tokens = {line.split(": ", 1)[1] for line in status.stdout.splitlines() if line.startswith("session ")}
+        self.assertEqual(
+            tokens, {"alive", "dead", "dead-pending", "unknown"},
+            f"expected exactly these four distinct tokens -- got {tokens} from {status.stdout!r}",
+        )
+
+
+# --------------------------------------------------------------------------
 # AC2: the final flush provably contains a datapoint received during grace.
 # --------------------------------------------------------------------------
 
