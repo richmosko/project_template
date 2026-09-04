@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-80-load-config-raises` |
 | Started | 2026-09-04 |
 | Goal | The config loader raises a named error for a missing data dir or config.yml; every CLI entry point exits 1 instead of silently using defaults. |
-| Status | In Progress |
+| Status | In Review — [PR #156](https://github.com/richmosko/project_template/pull/156) |
 
 ## Releases
 
