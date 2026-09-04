@@ -200,7 +200,7 @@ class BackfillGoldenPathTests(unittest.TestCase):
     def test_bucketing_by_issue_role_and_model_matches_the_hand_counted_totals(self):
         # Hand-derived from the golden fixture -- see this file's module
         # docstring / the fixture files themselves for how each of these
-        # 9 buckets was built. Every count below is the value of the
+        # 10 buckets was built. Every count below is the value of the
         # single (deduped) contributing record for that bucket.
         result = self._run_golden()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -209,6 +209,7 @@ class BackfillGoldenPathTests(unittest.TestCase):
 
         expected = {
             ("PT-7", "impl2", "claude-sonnet-5"): (3, 4, 5, 1),
+            ("PT-19", "custom-worker-7", "claude-sonnet-5"): (9, 9, 9, 9),
             ("PT-28", "team-lead", "claude-sonnet-5"): (100, 200, 300, 50),
             ("PT-28", "backend-lead", "claude-fable-5-1"): (10, 20, 30, 5),
             ("PT-28", "qa-engineer", "claude-sonnet-5"): (50, 60, 70, 20),
@@ -294,18 +295,40 @@ class BackfillGoldenPathTests(unittest.TestCase):
         self.assertNotIn("qa-engineer-76", roles)
 
     def test_adhoc_role_name_stays_verbatim_even_with_a_trailing_digit(self):
-        # agentName "impl2" -- stripping a trailing -<digits> gives stem
-        # "impl", which is NOT a roster file -- must stay "impl2"
-        # verbatim, not get folded to "impl" or stripped at all. Separately,
+        # CORRECTED comment (architect's per-test ruling, 2af05ed): agentName
+        # "impl2" stays verbatim NOT because the roster gate declines a
+        # match -- `_normalize_role`'s pattern is `^(.+)-\d+$`, which
+        # requires a literal HYPHEN before the digits, and "impl2" has
+        # none (it's "impl" + "2" concatenated, not "impl-2"). The
+        # pattern simply never matches, so this case alone cannot tell
+        # "roster-gated strip" apart from "the strip never fires" --
+        # verbatim by NON-MATCH, not by the roster gate. Separately,
         # "impl" (impl_adhoc_milestone_branch_main.jsonl, no trailing
-        # digit) is unambiguously ad-hoc and must also stay verbatim.
-        # Both roles are unique to their own fixture file -- no other
-        # record produces "impl2" or "impl", so no scoping ambiguity.
+        # digit at all) is unambiguously ad-hoc and must also stay
+        # verbatim -- same non-match reasoning, no hyphen-digit suffix
+        # to even consider stripping.
+        #
+        # custom_worker_adhoc_pt19.jsonl's "custom-worker-7" is the
+        # record that actually exercises the roster gate: its pattern
+        # DOES match (`^(.+)-\d+$` -> stem "custom-worker"), and that
+        # stem IS absent from the roster -- so the gate is what declines
+        # the strip here, not a regex non-match. This is what
+        # discriminates "roster-gated" from "always strip when the
+        # pattern matches" (the mutation-matrix's row 6 for this test,
+        # 9d28e54/2af05ed) -- "impl2" alone stays green under an
+        # unconditional-strip mutation, since the pattern never matches
+        # it either way.
         result = self._run_golden()
         lines = read_jsonl(self.out_path)
         roles = {line["role"] for line in lines}
-        self.assertIn("impl2", roles, "impl2's stem (impl) is not a roster name -- must not be normalised")
+        self.assertIn("impl2", roles, "impl2 has no hyphen at all -- the -<digits> pattern never matches it, verbatim by non-match")
         self.assertIn("impl", roles)
+        buckets = bucket_map(lines)
+        self.assertIn(
+            ("PT-19", "custom-worker-7", "claude-sonnet-5"), buckets,
+            "custom-worker-7's pattern DOES match (stem custom-worker, not a roster name) -- the roster "
+            "gate, not a regex non-match, is what keeps it verbatim here",
+        )
 
     def test_roster_suffixed_role_with_multi_word_stem_is_normalised(self):
         # agentName "implementation-lead-2" -- stem "implementation-lead"
@@ -406,10 +429,12 @@ class BackfillGoldenPathTests(unittest.TestCase):
         result = self._run_golden()
         lines = read_jsonl(self.out_path)
         total_records = sum(line.get("records", 1) for line in lines)
-        # 9 real contributing records total (see the bucketing test); the
+        # 10 real contributing records total (see the bucketing test,
+        # which carries 10 buckets since custom_worker_adhoc_pt19.jsonl
+        # was added for row 6 of the mutation matrix, 2af05ed); the
         # <synthetic> record and the type:"user" record must not appear
         # in this count under any bucket.
-        self.assertEqual(total_records, 9, "the <synthetic>-model record and the non-assistant record must not be counted anywhere")
+        self.assertEqual(total_records, 10, "the <synthetic>-model record and the non-assistant record must not be counted anywhere")
 
     def test_output_contains_no_session_ids_uuids_or_message_text(self):
         result = self._run_golden()
