@@ -78,6 +78,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -118,10 +119,16 @@ FORBIDDEN_SUBSTRINGS = [
 ]
 
 
-def run_backfill(args: list[str]) -> subprocess.CompletedProcess:
+def run_backfill(
+    args: list[str],
+    cwd: Path | None = None,
+    env: dict | None = None,
+) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(SCRIPT_PATH), *args],
         capture_output=True, text=True,
+        cwd=str(cwd) if cwd is not None else None,
+        env=env,
     )
 
 
@@ -572,6 +579,105 @@ class BackfillFailLoudlyTests(unittest.TestCase):
         result = run_backfill(["--transcripts-dir", str(nonexistent), "--out-file", str(out_path)])
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse(out_path.exists(), "a missing transcript dir must never produce an (empty) output file -- 'no data here' and 'no tracker here' must not render identically")
+
+
+class BackfillWorkingDirectoryAndConfigResolutionTests(unittest.TestCase):
+    """Architect's blocking finding on the 99725d0 review (0e8832c): the
+    tracker prefix was resolved via `cairn.find_data_dir()`, which walks up
+    from `Path.cwd()` rather than the repo root the script already
+    computes. Combined with `load_config`'s SILENT default of
+    `prefix: "ISS"` when `config.yml` is missing, a run from outside the
+    repo collapses every issue bucket into `main` at exit 0 -- a total
+    mis-attribution that looks like a successful run, exactly what AC4
+    exists to prevent. Every OTHER test in this file runs with an implicit
+    cwd of the repo root (subprocess.run inherits the parent's cwd), so
+    none of them could ever have caught this -- these three are the ones
+    that actually vary cwd/CAIRN_DATA_DIR."""
+
+    def test_cwd_outside_the_repo_still_resolves_issue_buckets_correctly(self):
+        # The architect's own repro: same script, same fixtures, cwd =
+        # somewhere outside the repo -- must still see real PT-N buckets,
+        # not collapse to ['main'] only. --transcripts-dir/--out-file are
+        # absolute paths, so only the PREFIX resolution (which depends on
+        # finding process/cairn/config.yml) is under test here.
+        outside_cwd = helpers.make_empty_tmp_dir(self)
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+
+        result = run_backfill(
+            ["--transcripts-dir", str(TRANSCRIPTS_FIXTURES / "golden"), "--out-file", str(out_path)],
+            cwd=outside_cwd,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(out_path.is_file(), "a run from outside the repo must still write real output, not silently produce nothing")
+        lines = read_jsonl(out_path)
+        issues = {line["issue"] for line in lines}
+        self.assertTrue(
+            any(issue != "main" for issue in issues),
+            f"cwd outside the repo must not collapse every issue bucket into 'main' -- got {issues!r}. "
+            f"This is the architect's blocking finding on 99725d0: the prefix must resolve from the "
+            f"script's own repo root, not from cwd via cairn.find_data_dir().",
+        )
+        self.assertIn("PT-28", issues, "the golden fixture's PT-28 records must still bucket correctly regardless of cwd")
+
+    def test_cairn_data_dir_pointing_at_a_dir_with_no_config_yml_is_a_loud_error(self):
+        # CAIRN_DATA_DIR is a real seam (cairn.py itself honors it) -- but
+        # per the architect's required fix, pointing it at a directory
+        # with NO config.yml must be a loud, named error (exit 1, message
+        # names the path), never the silent prefix:"ISS" fallback
+        # cairn.load_config provides for every OTHER cairn.py caller.
+        bogus_data_dir = helpers.make_empty_tmp_dir(self)  # deliberately no config.yml inside
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        # A WELL-FORMED pre-existing line -- deliberately not the minimal
+        # sentinel used elsewhere in this file. A minimal/incomplete
+        # sentinel here would confound this test with the unrelated
+        # architect's-minor-2 bug (a malformed existing line crashing
+        # _sort_key with a raw KeyError) instead of cleanly isolating the
+        # CAIRN_DATA_DIR/prefix-resolution bug this test targets -- verified
+        # by hand against 99725d0: a minimal sentinel crashes on missing
+        # "issue" before ever reaching the prefix-resolution code path.
+        sentinel = json.dumps({
+            "source": "otel", "generated": "2026-09-01T00:00:00Z",
+            "window_start": "2026-09-01", "window_end": "2026-09-01",
+            "issue": "PT-1", "role": "frontend-lead", "model": "claude-sonnet-5",
+            "input": 1, "cache_write": 1, "cache_read": 1, "output": 1,
+        }) + "\n"
+        out_path.write_text(sentinel, encoding="utf-8")
+
+        env = dict(os.environ)
+        env["CAIRN_DATA_DIR"] = str(bogus_data_dir)
+        result = run_backfill(
+            ["--transcripts-dir", str(TRANSCRIPTS_FIXTURES / "golden"), "--out-file", str(out_path)],
+            env=env,
+        )
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        combined = result.stdout + result.stderr
+        self.assertIn(str(bogus_data_dir), combined, f"error must name the offending path -- got: {combined!r}")
+        self.assertEqual(out_path.read_text(encoding="utf-8"), sentinel, "a loud config-resolution error must leave a pre-existing --out-file completely untouched")
+
+    def test_existing_output_line_missing_role_fails_cleanly_not_a_traceback(self):
+        # Architect's minor 2: an existing (foreign-source) line missing a
+        # required key (role) currently raises a bare KeyError out of the
+        # sort key, dumping a Python traceback. Required: a clean,
+        # named BackfillError-style message instead -- still exit
+        # non-zero, still nothing corrupted (the atomic write means the
+        # bad pre-existing content itself must also survive untouched,
+        # same contract as every other hard-fail path in this file).
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        broken_foreign_line = '{"source":"otel","generated":"2026-09-01T00:00:00Z","window_start":"2026-09-01","window_end":"2026-09-01","issue":"PT-1","model":"claude-sonnet-5","input":1,"cache_write":1,"cache_read":1,"output":1}\n'
+        out_path.write_text(broken_foreign_line, encoding="utf-8")  # no "role" key
+
+        result = run_backfill([
+            "--transcripts-dir", str(TRANSCRIPTS_FIXTURES / "golden"),
+            "--out-file", str(out_path),
+        ])
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        combined = result.stdout + result.stderr
+        self.assertNotIn("Traceback (most recent call last)", combined, f"a malformed existing line must produce a clean, named error, not a raw Python traceback -- got: {combined!r}")
+        self.assertIn("role", combined, f"the error should name the specific missing field -- got: {combined!r}")
+        self.assertEqual(out_path.read_text(encoding="utf-8"), broken_foreign_line, "a hard-fail on a malformed existing line must leave the file completely untouched")
 
 
 class BackfillTruncatedFinalLineTests(unittest.TestCase):
