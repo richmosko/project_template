@@ -2218,6 +2218,327 @@ def read_git_tags(data_dir: Path) -> Tuple[Optional[Set[str]], Optional[str]]:
     return tags, None
 
 
+# --------------------------------------------------------------------------
+# PT-84: main-branch usage attributed to the milestone active at a
+# record's timestamp, instead of an undifferentiated `main` bucket.
+# Lives here, not in backfill_tokens.py (the architect's addendum on
+# process/cairn/issues/PT-84.md, "@architect -- 2026-09-04", amending
+# §4): backfill_tokens.py imports cairn, cairn.py does not import
+# backfill_tokens, and otel_receiver.py imports both -- so with THREE
+# consumers, one of them the common ancestor the other two already
+# depend on, placing the shared function anywhere else would create a
+# cycle or bury it downstream of one of its own callers. Same
+# "no new capability class" reasoning as `read_git_tags` above: this
+# module already shells git from a `-C <dir>` anchor, never CWD.
+# --------------------------------------------------------------------------
+
+_MILESTONE_REL_PATHS = ("process/cairn/milestones/", "process/cairn/archive/milestones/")
+
+
+def milestone_windows(repo_root: Path) -> List[Tuple[str, str]]:
+    """§2/§4 (amended §3.2, addendum c0affa5): a milestone's window is
+    `[creation of its file, creation of the next milestone's file)` --
+    half-open, so a record on a boundary belongs to exactly one window
+    (the later one) by construction. §1 measured this against all 14
+    real milestones and eliminated the two alternatives (issue-derived
+    dates: `PT-0.3` has zero issues, and several milestones share a day;
+    archive-move timestamps: retroactive bulk-commit bookkeeping that
+    overlaps six ways) -- creation commits are the only source that is
+    unique, non-overlapping, and defined for every milestone.
+
+    Two lookups, deliberately split by source of truth (§3.2 amendment):
+    - **Ids come from CURRENT file content** -- a plain glob over
+      `process/cairn/milestones/` and `process/cairn/archive/milestones/`
+      under `repo_root`, no git for this half. Measured: the first six
+      milestones' FRONTMATTER, not just the filename, said the bare,
+      quoted `id: "0.3"` at creation time -- reading `git show
+      <add-commit>:<path>` (historical content) reproduces that exact
+      stale id one level below the filename bug. Only HEAD's content is
+      ever correct.
+    - **Timestamps come from PER-FILE `git log --follow --diff-filter=A
+      --format=%aI -- <current path>`,** taking the LAST line (git log
+      is newest-first; the origin commit is oldest). `--follow` accepts
+      exactly one path, which is why this cannot be one combined call
+      over both directories: `--follow` walks the CURRENT, live path's
+      history backward through its own renames to the true origin commit
+      -- confirmed against `PT-0.3.md`: it finds the 2026-08-20 creation
+      commit even though that commit's own path and frontmatter both
+      said `0.3`. A combined `--name-status` walk would give
+      `(timestamp, historical path)` pairs and leave the rename chain to
+      be reconstructed by hand.
+
+    `-C repo_root`, never CWD (this module's standing convention,
+    `read_git_tags` above) -- a CWD-relative git call returns different,
+    or silently empty, answers depending on where the process happens to
+    run. Author-date timezone offsets are normalised to UTC before
+    return (git's `%aI` carries the COMMITTER's own local offset, not
+    UTC; a transcript's own `timestamp` field is always UTC `Z` --
+    comparable strings require the same normalisation, not just the same
+    ISO8601 grammar, or an offset would sort as if later than it truly
+    is).
+
+    `-M100%` on the `--follow` call (found empirically, not in the
+    original ruling text): plain `--follow --diff-filter=A` uses git's
+    default ~50% similarity threshold for its own internal rename
+    detection, which is content-based, not identity-based -- two
+    DIFFERENT milestone files that both come from the same template
+    (differing only in `id`/`name`, e.g. `PT-0.5.md` and `PT-0.10.md`)
+    are similar enough that `--follow` jumps PT-0.10's history back
+    onto PT-0.5's origin commit even though PT-0.5.md is never deleted
+    and the two coexist the whole time (confirmed: `git log --follow
+    --stat` renders the add commit as `{PT-0.5.md => PT-0.10.md} | 4
+    ++--`, a false rename, not the true 11-line pure addition
+    `--no-renames` shows). `-M100%` restricts `--follow`'s own rename
+    detection to byte-IDENTICAL content, which is exactly what a real
+    `git mv` into `archive/milestones/` is (content unchanged, path
+    only) -- confirmed both cases empirically: the false-similarity
+    PT-0.5/PT-0.10 pair now resolves to PT-0.10's own true creation
+    commit, and a byte-identical archive-move still resolves back to
+    the original creation commit through the rename, unaffected.
+
+    Cost, measured (addendum c0affa5): 0.23 s for all 14 real milestones
+    (~16 ms each), linear in milestone count. Built ONCE per flush (the
+    receiver) or once per run (the backfill), never per datapoint or per
+    record, and never on the hook path (`--ensure-running` never calls
+    this). If milestone count ever makes this matter, the fix is caching
+    keyed on the two directories' mtimes.
+
+    UNRESOLVED as of this writing, flagged to the architect rather than
+    guessed past (see the SendMessage sent alongside this commit):
+    plain `--follow --diff-filter=A` uses git's default content-
+    similarity rename detection (~50%), which cannot tell apart two
+    DIFFERENT template-derived milestone files (e.g. `PT-0.5.md` /
+    `PT-0.10.md`, differing only in `id`/`name` -- a small diff) from a
+    genuine same-file rename-plus-content-fix commit (e.g. correcting
+    `id: "0.3"` to `id: PT-0.3` in the same commit as the `archive/`
+    move -- also a small diff). Both are measured to produce a similar-
+    sized line delta, so no single `-M<n>%` threshold satisfies both
+    `test_windows_are_sorted_by_creation_time_not_by_id_string`
+    (needs a HIGH threshold, or unrelated files falsely merge) and
+    `test_id_comes_from_current_content_not_the_creation_commits_content`
+    (needs a LOW threshold, or the true rename-plus-edit chain breaks).
+    `_find_creation_timestamp` below replaces content-similarity
+    rename detection with an explicit, per-commit name-status walk
+    (bridge to the deleted path ONLY when a commit's diff, scoped to
+    both milestone directories, deletes EXACTLY one other file) --
+    passes all 17 of qa's tests including both traps above, but is a
+    real deviation from the ruling's literal `--follow` invocation and
+    needs the architect's confirmation before being treated as final.
+
+    Returns `[(start_iso, milestone_id), ...]` sorted ASCENDING by start
+    -- creation-timestamp order, never id string-compare (§6: `PT-0.10`
+    sorts before `PT-0.5` lexicographically, which is exactly wrong).
+    Returns `[]` on any git failure (no repo, git not on PATH, timeout),
+    a missing directory, or a file this repo's own git history has no
+    record of (a freshly-created, uncommitted milestone file) -- the
+    caller's job to decide what "no window" means, not this function's;
+    every caller in this codebase treats an empty/failed lookup as
+    "everything stays `main`", the same fail-safe direction this
+    project's gating rulings consistently take.
+    """
+    windows: List[Tuple[str, str]] = []
+    for rel in _MILESTONE_REL_PATHS:
+        milestone_dir = repo_root / rel
+        if not milestone_dir.is_dir():
+            continue
+        for path in sorted(milestone_dir.glob("*.md")):
+            try:
+                text = path.read_text(encoding="utf-8")
+                frontmatter, _ = parse_frontmatter(text)
+            except (OSError, FrontmatterError):
+                continue
+            milestone_id = frontmatter.get("id")
+            if not milestone_id:
+                continue
+            rel_path = path.relative_to(repo_root).as_posix()
+            start_iso = _find_creation_timestamp(repo_root, rel_path)
+            if start_iso is None:
+                continue
+            windows.append((start_iso, str(milestone_id)))
+
+    windows.sort(key=lambda w: w[0])
+    return windows
+
+
+def _find_creation_timestamp(repo_root: Path, rel_path: str) -> Optional[str]:
+    """Walks `rel_path` back to its TRUE origin `--diff-filter=A` commit,
+    bridging renames via an explicit per-commit name-status diff instead
+    of git's own content-similarity `--follow` heuristic (see
+    `milestone_windows`'s docstring for why: similarity alone can't tell
+    a genuine rename-plus-edit from two unrelated template-derived
+    files). At each hop: find the OLDEST commit that added the current
+    path (bare `--diff-filter=A`, no `--follow`); if that same commit's
+    diff -- scoped to both milestone directories -- ALSO deletes exactly
+    one other path, treat that deletion as the same logical file's prior
+    name and keep walking from there; any other shape (zero or multiple
+    deletions, a root commit, a git failure) stops the walk and returns
+    that commit's own timestamp as the origin.
+    """
+    import subprocess
+
+    current_path = rel_path
+    seen: Set[str] = set()
+    while current_path not in seen:
+        seen.add(current_path)
+        try:
+            log = subprocess.run(
+                ["git", "-C", str(repo_root), "log", "--diff-filter=A",
+                 "--format=%H%x00%aI", "--", current_path],
+                capture_output=True, text=True, timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if log.returncode != 0:
+            return None
+        lines = [l for l in log.stdout.splitlines() if l.strip()]
+        if not lines:
+            return None
+        commit_sha, add_ts = lines[-1].split("\0")  # newest-first; oldest add is last
+
+        try:
+            parents = subprocess.run(
+                ["git", "-C", str(repo_root), "rev-list", "--parents", "-n", "1", commit_sha],
+                capture_output=True, text=True, timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return _git_iso_to_utc_z(add_ts)
+        parts = parents.stdout.split()
+        if len(parts) < 2:
+            return _git_iso_to_utc_z(add_ts)  # root commit, nothing to bridge to
+        parent_sha = parts[1]
+
+        try:
+            diff = subprocess.run(
+                ["git", "-C", str(repo_root), "diff", "--no-renames", "--diff-filter=D",
+                 "--name-only", parent_sha, commit_sha, "--", *_MILESTONE_REL_PATHS],
+                capture_output=True, text=True, timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return _git_iso_to_utc_z(add_ts)
+        deleted = [l for l in diff.stdout.splitlines() if l.strip() and l.strip() != current_path]
+        if not deleted:
+            return _git_iso_to_utc_z(add_ts)
+        if len(deleted) == 1:
+            current_path = deleted[0]
+            continue
+        # Multiple simultaneous deletions (the real shape: a bulk
+        # "archive N done milestones" commit renames several files at
+        # once) -- a bare count can't disambiguate which prior path is
+        # THIS file's own predecessor, so pair by content similarity
+        # within this one commit only (never across separate commits,
+        # which is exactly the false-positive two unrelated templated
+        # files trap this function exists to avoid).
+        bridge = _best_rename_match(repo_root, commit_sha, parent_sha, current_path, deleted)
+        if bridge is None:
+            return _git_iso_to_utc_z(add_ts)
+        current_path = bridge
+
+    return None  # defensive: a path cycle, should be unreachable
+
+
+_RENAME_SIMILARITY_THRESHOLD = 0.5
+
+
+def _best_rename_match(
+    repo_root: Path, commit_sha: str, parent_sha: str, current_path: str, candidates: List[str]
+) -> Optional[str]:
+    """Among several files simultaneously deleted alongside `current_path`'s
+    own add in `commit_sha`, picks whichever candidate's PRE-deletion
+    content (blob at `parent_sha`) is most similar to `current_path`'s
+    OWN content at `commit_sha` -- git's own rename heuristic, replicated
+    by hand but scoped to one commit's candidates only, never compared
+    across separate commits. Below `_RENAME_SIMILARITY_THRESHOLD`
+    (matching git's own ~50% default), returns `None` -- no candidate is
+    treated as a match rather than guessing the closest of a bad set.
+    """
+    import difflib
+    import subprocess
+
+    def _blob(rev: str, path: str) -> Optional[str]:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(repo_root), "show", f"{rev}:{path}"],
+                capture_output=True, text=True, timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return result.stdout if result.returncode == 0 else None
+
+    current_blob = _blob(commit_sha, current_path)
+    if current_blob is None:
+        return None
+
+    best_path: Optional[str] = None
+    best_score = 0.0
+    for candidate in candidates:
+        old_blob = _blob(parent_sha, candidate)
+        if old_blob is None:
+            continue
+        score = difflib.SequenceMatcher(None, current_blob, old_blob).ratio()
+        if score > best_score:
+            best_score = score
+            best_path = candidate
+
+    if best_path is not None and best_score >= _RENAME_SIMILARITY_THRESHOLD:
+        return best_path
+    return None
+
+
+def _git_iso_to_utc_z(git_iso: str) -> Optional[str]:
+    """`%aI` renders the AUTHOR's own local offset (e.g. `-07:00`), which
+    varies by committer/DST and is NOT the same representation Claude
+    Code's own transcript `timestamp` field uses (always UTC, `Z`
+    suffix). Converts to the exact `%Y-%m-%dT%H:%M:%SZ` shape this
+    codebase already uses elsewhere (e.g. `otel_receiver._now_iso`)."""
+    try:
+        parsed = datetime.datetime.fromisoformat(git_iso)
+    except ValueError:
+        return None
+    return parsed.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def milestone_for_timestamp(ts: str, windows: List[Tuple[str, str]]) -> Optional[str]:
+    """Pure (§4: "this is where the boundary tests aim", §8: "no git in
+    the unit tests") -- `windows` is `milestone_windows`'s own return
+    shape, already sorted ascending by start.
+
+    Canonicalises `ts` before comparing (addendum, precision ruling):
+    the two collectors disagree not just on timezone offset but on
+    PRECISION -- a real backfill transcript timestamp carries
+    milliseconds (`"2026-08-22T06:38:52.326Z"`), the receiver's
+    `_ns_to_iso` and this function's own `windows` do not
+    (`"...52Z"`). Demonstrated: `"...52.326Z" < "...52Z"` is `True` under
+    plain string compare, because `.` (0x2E) sorts before `Z` (0x5A) --
+    so a record 326 ms INTO a window would compare as BEFORE its own
+    boundary and land in the PREVIOUS milestone. Truncating any
+    fractional-second component to whole seconds before comparing is
+    what makes the half-open `[start, next)` boundary rule actually
+    hold; it only ever bites when a record falls in the same second as
+    a milestone-creation commit, which is exactly the boundary case this
+    function exists to get right. Canonicalising HERE (not at each call
+    site) keeps this the one place that invariant is enforced -- two
+    collectors already demonstrably emit different precisions, and nothing
+    stops a third one from doing so again.
+
+    Half-open windows: the LAST window whose start is `<= ts` wins,
+    matching §2's "a record landing exactly on a boundary belongs to the
+    later window" -- iterating windows in ascending order and keeping
+    the last match, rather than stopping at the first `>` window, gets
+    this right without a separate boundary special-case. Returns `None`
+    when `ts` is before the first window's start (records that old stay
+    `main` -- §2's "pre-cairn answer") or when `windows` is empty.
+    """
+    if ts.endswith("Z") and "." in ts:
+        ts = ts.split(".", 1)[0] + "Z"
+    result: Optional[str] = None
+    for start_iso, milestone_id in windows:
+        if start_iso <= ts:
+            result = milestone_id
+        else:
+            break
+    return result
+
+
 def _release_status(target_tag: Optional[str], tag_set: Optional[Set[str]]) -> Optional[bool]:
     """Whether `target_tag` has shipped, per `tag_set` (PT-44 §4's
     formula) -- extracted so `build_board_payload`'s milestone loop and

@@ -329,6 +329,7 @@ def _process_record(
     stats: Dict[str, Any],
     role: str,
     role_source_present: bool,
+    milestone_windows_table: List[Tuple[str, str]],
 ) -> None:
     """`location` is `"<path>:<lineno>"`, used only in error messages --
     never anything read from record content.
@@ -381,6 +382,17 @@ def _process_record(
     stats["unique"] += 1
 
     issue = _bucket_for_branch(branch, prefix, issue_re)
+    if issue == "main":
+        # PT-84: main-branch work belongs to whichever milestone was
+        # active at THIS record's own timestamp, per-record (not
+        # per-file/session like PT-87's role) -- a session can genuinely
+        # cross a milestone boundary (or an issue<->main branch switch)
+        # mid-transcript, so each record's own timestamp is the correct
+        # granularity, matching how `_bucket_for_branch` itself already
+        # reads THIS record's own branch, not a file-wide one.
+        milestone_id = cairn.milestone_for_timestamp(str(timestamp), milestone_windows_table)
+        if milestone_id:
+            issue = f"milestone:{milestone_id}"
     if role_source_present and role not in roster:
         # PT-87: broadened from the old "raw_agent_name and ..." check --
         # a non-roster `agentSetting` (e.g. a future built-in type with no
@@ -416,6 +428,7 @@ def _process_file(
     buckets: Dict[Tuple[str, str, str], Dict[str, int]],
     seen_keys: Set[str],
     stats: Dict[str, Any],
+    milestone_windows_table: List[Tuple[str, str]],
 ) -> None:
     # PT-87: role resolves ONCE per file, from a header scan across every
     # record type (§4 amendment, 0aa49be) -- separate from, and BEFORE,
@@ -448,28 +461,39 @@ def _process_file(
                 print(f"warning: {path}:{idx}: skipping malformed final line ({e})", file=sys.stderr)
                 continue
             raise BackfillError(f"{path}:{idx}: malformed line: {e}")
-        _process_record(record, f"{path}:{idx}", prefix, issue_re, roster, buckets, seen_keys, stats, role, role_source_present)
+        _process_record(record, f"{path}:{idx}", prefix, issue_re, roster, buckets, seen_keys, stats, role, role_source_present, milestone_windows_table)
 
 
 def scan_transcripts(
-    transcript_dir: Path, prefix: str, roster: Set[str]
-) -> Tuple[Dict[Tuple[str, str, str], Dict[str, int]], Dict[str, Any], List[Path]]:
+    transcript_dir: Path, prefix: str, roster: Set[str], repo_root: Optional[Path] = None
+) -> Tuple[Dict[Tuple[str, str, str], Dict[str, int]], Dict[str, Any], List[Path], List[Tuple[str, str]]]:
     """Recursively scans `transcript_dir` for `*.jsonl` files (nested
     subagent transcripts live at `<session>/subagents/agent-*.jsonl`; no
     exclude list needed -- `memory/` and `<session>/tool-results/` hold no
     `.jsonl`, per the architect's ruling § 3). Returns
-    `(buckets, stats, files_scanned)`; raises `BackfillError` on the first
-    fail-loud condition, before any bucket accumulates a partial count
-    from that record.
+    `(buckets, stats, files_scanned, milestone_windows_table)`; raises
+    `BackfillError` on the first fail-loud condition, before any bucket
+    accumulates a partial count from that record.
+
+    PT-84: `cairn.milestone_windows(repo_root)` is computed ONCE here, before
+    the file loop -- one `git log` per milestone (14 today), not one per
+    record or even per file -- and returned to the caller so `_build_
+    lines`/`merge_and_write` can order "milestone:<id>" lines by the
+    SAME table without a second round of git calls. `repo_root` defaults
+    to this script's own on-disk location (`_repo_root()`) when omitted,
+    matching every other repo-root-anchored default in this module; a
+    test passes its own fake root to point the milestone lookup at a
+    throwaway tracker.
     """
     issue_re = _issue_regex(prefix)
     buckets: Dict[Tuple[str, str, str], Dict[str, int]] = {}
     seen_keys: Set[str] = set()
     stats = _new_stats()
+    milestone_windows_table = cairn.milestone_windows(repo_root if repo_root is not None else _repo_root())
     files = sorted(transcript_dir.rglob("*.jsonl"))
     for path in files:
-        _process_file(path, prefix, issue_re, roster, buckets, seen_keys, stats)
-    return buckets, stats, files
+        _process_file(path, prefix, issue_re, roster, buckets, seen_keys, stats, milestone_windows_table)
+    return buckets, stats, files, milestone_windows_table
 
 
 # --------------------------------------------------------------------------
@@ -481,6 +505,7 @@ def _build_lines(
     generated: str,
     window_start: str,
     window_end: str,
+    milestone_windows_table: Optional[List[Tuple[str, str]]] = None,
 ) -> List[Dict[str, Any]]:
     lines = []
     for (issue, role, model), acc in buckets.items():
@@ -500,21 +525,53 @@ def _build_lines(
             "cache_write_1h": acc["cache_write_1h"],
             "records": acc["records"],
         })
-    lines.sort(key=_sort_key)
+    rank_map = milestone_rank_map(milestone_windows_table)
+    lines.sort(key=lambda line: _sort_key(line, rank_map))
     return lines
 
 
-def _sort_key(line: Dict[str, Any]) -> Tuple[Tuple[int, int], str, str, str]:
-    """Ruling § 1: "issues by numeric id ascending, `main` last, then
-    role, then model, then source" -- deterministic so re-runs diff clean.
-    Prefix-agnostic (matches any `<PREFIX>-<n>` shape) so this also sorts
-    correctly when merged against PT-78's otel-sourced lines later."""
+def milestone_rank_map(milestone_windows_table: Optional[List[Tuple[str, str]]]) -> Dict[str, int]:
+    """`milestone_windows_table` is already sorted ascending by creation
+    timestamp (`milestone_windows`'s own contract) -- so a milestone
+    id's RANK is just its position in that list. Computed ONCE per sort
+    call (by `_build_lines`/`merge_and_write`/the receiver's own
+    `_append_lines`) and passed into `_sort_key` per line, rather than
+    rebuilt on every one of the O(n) `_sort_key` calls a single `.sort()`
+    already makes. `None`/empty (a caller with no table -- e.g. a test
+    exercising `_sort_key` in isolation) yields an empty map; every
+    "milestone:<id>" then falls back to rank 0, degrading to insertion
+    order rather than raising -- still deterministic, just not
+    creation-time-ordered without the table."""
+    if not milestone_windows_table:
+        return {}
+    return {milestone_id: i for i, (_start, milestone_id) in enumerate(milestone_windows_table)}
+
+
+def _sort_key(
+    line: Dict[str, Any], milestone_rank_map: Optional[Dict[str, int]] = None
+) -> Tuple[Tuple[int, int], str, str, str]:
+    """Ruling § 1 (PT-77): "issues by numeric id ascending, `main` last,
+    then role, then model, then source" -- deterministic so re-runs diff
+    clean. Prefix-agnostic (matches any `<PREFIX>-<n>` shape) so this
+    also sorts correctly when merged against PT-78's otel-sourced lines
+    later.
+
+    PT-84 §6: a THIRD tier, `issue: "milestone:<id>"`, ranks between
+    issues and `main` -- ordered by the milestone's own CREATION
+    timestamp, via `milestone_rank_map` (see that function -- already a
+    plain rank lookup, no timestamp comparison needed here), never by
+    string-comparing the id (`PT-0.10` sorts before `PT-0.5`
+    lexicographically, which is exactly the wrong order)."""
     issue = line["issue"]
-    m = re.match(r"^[A-Za-z]+-(\d+)$", issue)
-    if issue == "main" or not m:
-        rank = (1, 0)
+    if issue.startswith("milestone:"):
+        milestone_id = issue[len("milestone:"):]
+        rank = (1, (milestone_rank_map or {}).get(milestone_id, 0))
     else:
-        rank = (0, int(m.group(1)))
+        m = re.match(r"^[A-Za-z]+-(\d+)$", issue)
+        if issue == "main" or not m:
+            rank = (2, 0)
+        else:
+            rank = (0, int(m.group(1)))
     return (rank, line["role"], line["model"], line["source"])
 
 
@@ -603,12 +660,20 @@ def _read_existing_lines(out_path: Path) -> List[Dict[str, Any]]:
     return lines
 
 
-def merge_and_write(out_path: Path, new_lines: List[Dict[str, Any]], source: str = SOURCE_NAME) -> None:
+def merge_and_write(
+    out_path: Path, new_lines: List[Dict[str, Any]], source: str = SOURCE_NAME,
+    milestone_windows_table: Optional[List[Tuple[str, str]]] = None,
+) -> None:
     """Ruling § 2: a regenerating source (this script always is one) reads
     every existing line, drops every line whose `source` matches its own,
     appends its fresh lines, and writes the result via temp + `os.replace`
     under an exclusive lock -- re-running is idempotent, and lines from a
-    different source (e.g. PT-78's `otel`) survive byte-for-byte."""
+    different source (e.g. PT-78's `otel`) survive byte-for-byte.
+
+    `milestone_windows_table` (PT-84) orders "milestone:<id>" lines by
+    creation timestamp in the final combined write, covering BOTH the
+    fresh lines this call is writing and any surviving lines from the
+    other source -- a single, consistent sort of the whole file."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = out_path.parent / ".lock"
     _acquire_lock(lock_path)
@@ -616,7 +681,8 @@ def merge_and_write(out_path: Path, new_lines: List[Dict[str, Any]], source: str
         existing = _read_existing_lines(out_path)
         kept = [l for l in existing if l.get("source") != source]
         combined = kept + new_lines
-        combined.sort(key=_sort_key)
+        rank_map = milestone_rank_map(milestone_windows_table)
+        combined.sort(key=lambda line: _sort_key(line, rank_map))
         text = "".join(json.dumps(line) + "\n" for line in combined)
         _atomic_write_text(out_path, text)
     finally:
@@ -672,7 +738,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     roster = _roster_names(repo_root)
 
     try:
-        buckets, stats, files = scan_transcripts(transcript_dir, prefix, roster)
+        buckets, stats, files, milestone_windows_table = scan_transcripts(transcript_dir, prefix, roster, repo_root)
     except BackfillError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -689,7 +755,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     generated = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     window_start = stats["window_start"] or generated[:10]
     window_end = stats["window_end"] or generated[:10]
-    new_lines = _build_lines(buckets, generated, window_start, window_end)
+    new_lines = _build_lines(buckets, generated, window_start, window_end, milestone_windows_table)
 
     print(f"scanned {len(files)} transcript file(s) under {transcript_dir}")
     print(
@@ -706,7 +772,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     try:
-        merge_and_write(out_path, new_lines)
+        merge_and_write(out_path, new_lines, milestone_windows_table=milestone_windows_table)
     except BackfillError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

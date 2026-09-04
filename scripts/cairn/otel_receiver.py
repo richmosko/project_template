@@ -540,12 +540,27 @@ def _current_branch(repo_root: Path) -> Optional[str]:
     return result.stdout.strip() or None
 
 
-def resolve_issue(branch: Optional[str], prefix: str, cairn_issue_hint: Optional[str]) -> str:
+def resolve_issue(
+    branch: Optional[str], prefix: str, cairn_issue_hint: Optional[str],
+    milestone_windows_table: Optional[List[Tuple[str, str]]] = None, at_ts: Optional[str] = None,
+) -> str:
     """Branch first (PT-77's exact regex/bucketing function, imported not
     reimplemented), `cairn.issue` only when the branch yields `main`,
     otherwise `main`. One resolution per flush -- every datapoint accrued
     since the last flush is attributed to whatever the checkout is AT
     FLUSH TIME, since git branch carries no per-datapoint signal at all.
+
+    PT-84: when the branch resolves to `main` and there is no
+    `cairn_issue_hint` either, the LAST fallback is the milestone active
+    at `at_ts` (defaulting to now, i.e. flush time -- the same "AT FLUSH
+    TIME" granularity every other resolution here already uses) rather
+    than the bare `main` bucket. `milestone_windows_table` is the
+    caller's own already-built `cairn.milestone_windows(...)` result
+    (§5: built ONCE per flush, by the caller, and reused here AND for
+    that same flush's line-sort -- not rebuilt a second time inside this
+    function). `None`/empty skips the milestone check entirely, matching
+    "no cairn tracker" degrading to `main` everywhere else in this
+    module.
     """
     issue_re = backfill_tokens._issue_regex(prefix)
     from_branch = backfill_tokens._bucket_for_branch(branch, prefix, issue_re)
@@ -553,6 +568,10 @@ def resolve_issue(branch: Optional[str], prefix: str, cairn_issue_hint: Optional
         return from_branch
     if cairn_issue_hint:
         return cairn_issue_hint
+    if milestone_windows_table:
+        milestone_id = cairn.milestone_for_timestamp(at_ts or _now_iso(), milestone_windows_table)
+        if milestone_id:
+            return f"milestone:{milestone_id}"
     return "main"
 
 
@@ -649,6 +668,7 @@ def flush(
     generated: str,
     roster: Optional[Set[str]] = None,
     transcripts_dir: Optional[Path] = None,
+    milestone_windows_table: Optional[List[Tuple[str, str]]] = None,
 ) -> List[Dict[str, Any]]:
     """Computes each series' delta since its last-flushed baseline,
     buckets by (issue, role, model), and appends the resulting `source:
@@ -670,6 +690,8 @@ def flush(
     if transcripts_dir is None:
         repo_root = backfill_tokens._repo_root()
         transcripts_dir = Path.home() / ".claude" / "projects" / backfill_tokens._transcript_dir_slug(repo_root)
+    if milestone_windows_table is None:
+        milestone_windows_table = cairn.milestone_windows(backfill_tokens._repo_root())
 
     with state.lock:
         if state.pending_min_ns is None:
@@ -726,10 +748,11 @@ def flush(
                 "records": int(acc["records"]),
             }
             new_lines.append({k: line[k] for k in _OUTPUT_KEY_ORDER})
-        new_lines.sort(key=backfill_tokens._sort_key)
+        milestone_rank_map = backfill_tokens.milestone_rank_map(milestone_windows_table)
+        new_lines.sort(key=lambda line: backfill_tokens._sort_key(line, milestone_rank_map))
 
         if new_lines:
-            _append_lines(out_path, new_lines)
+            _append_lines(out_path, new_lines, milestone_rank_map)
 
         state.pending_min_ns = None
         state.pending_max_ns = None
@@ -738,7 +761,7 @@ def flush(
         return new_lines
 
 
-def _append_lines(out_path: Path, new_lines: List[Dict[str, Any]]) -> None:
+def _append_lines(out_path: Path, new_lines: List[Dict[str, Any]], milestone_rank_map: Optional[Dict[str, int]] = None) -> None:
     """Append-only -- reads every existing line (validated the same way
     backfill_tokens does), keeps ALL of them (never drops a
     `transcript-backfill` line, and never drops a PRIOR `otel` line
@@ -757,14 +780,14 @@ def _append_lines(out_path: Path, new_lines: List[Dict[str, Any]]) -> None:
     try:
         existing = backfill_tokens._read_existing_lines(out_path)
         combined = existing + new_lines
-        combined.sort(key=backfill_tokens._sort_key)
+        combined.sort(key=lambda line: backfill_tokens._sort_key(line, milestone_rank_map))
         text = "".join(json.dumps(line) + "\n" for line in combined)
         backfill_tokens._atomic_write_text(out_path, text)
     finally:
         backfill_tokens._release_lock(lock_path)
 
 
-def compact(out_path: Path) -> None:
+def compact(out_path: Path, milestone_rank_map: Optional[Dict[str, int]] = None) -> None:
     """May rewrite the receiver's OWN `source: "otel"` lines to coalesce
     same-(issue, role, model) lines by summing -- permitted because these
     lines are additive, and safe because it never touches a
@@ -792,7 +815,7 @@ def compact(out_path: Path) -> None:
             if line["window_end"] > acc["window_end"]:
                 acc["window_end"] = line["window_end"]
         combined = others + [{k: v[k] for k in _OUTPUT_KEY_ORDER} for v in coalesced.values()]
-        combined.sort(key=backfill_tokens._sort_key)
+        combined.sort(key=lambda line: backfill_tokens._sort_key(line, milestone_rank_map))
         text = "".join(json.dumps(line) + "\n" for line in combined)
         backfill_tokens._atomic_write_text(out_path, text)
     finally:
@@ -1442,9 +1465,10 @@ def run_once(port: int, out_path: Path, branch_repo_root: Path, prefix: str, ros
 
     branch = _current_branch(branch_repo_root)
     hint = _issue_hint_from_datapoints(state.series_meta.values())
-    issue = resolve_issue(branch, prefix, hint)
+    milestone_windows_table = cairn.milestone_windows(branch_repo_root)
+    issue = resolve_issue(branch, prefix, hint, milestone_windows_table=milestone_windows_table)
     try:
-        flush(state, out_path, issue, _now_iso(), roster=roster, transcripts_dir=transcripts_dir)
+        flush(state, out_path, issue, _now_iso(), roster=roster, transcripts_dir=transcripts_dir, milestone_windows_table=milestone_windows_table)
     except (ReceiverError, backfill_tokens.BackfillError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -1487,9 +1511,13 @@ def serve(
     def _do_flush() -> None:
         branch = _current_branch(branch_repo_root)
         hint = _issue_hint_from_datapoints(state.series_meta.values())
-        issue = resolve_issue(branch, prefix, hint)
+        # PT-84 §5: built once for THIS flush (one `git log` per
+        # milestone), never per datapoint -- shared by the issue
+        # resolution and the line-sort below rather than computed twice.
+        milestone_windows_table = cairn.milestone_windows(branch_repo_root)
+        issue = resolve_issue(branch, prefix, hint, milestone_windows_table=milestone_windows_table)
         try:
-            flush(state, out_path, issue, _now_iso(), roster=roster, transcripts_dir=transcripts_dir)
+            flush(state, out_path, issue, _now_iso(), roster=roster, transcripts_dir=transcripts_dir, milestone_windows_table=milestone_windows_table)
         except (ReceiverError, backfill_tokens.BackfillError) as e:
             print(f"otel_receiver: flush refused: {e}", file=sys.stderr)
         # Addendum §3: the liveness probe also runs "at each flush" -- an
@@ -1499,6 +1527,17 @@ def serve(
         reap_dead_sessions(sessions_dir, is_alive=session_is_alive)
 
     def _on_export() -> None:
+        # Runs on EVERY export, not per flush -- §5's "never per
+        # datapoint" budget applies here specifically, so this
+        # deliberately does NOT build a milestone table (that git-log
+        # cost belongs only where it already ran pre-PT-84: inside
+        # `_do_flush`). Detects a BRANCH-level bucket change only, same
+        # as before PT-84; a milestone-only boundary crossed between
+        # exports is caught by the `elapsed >= flush_interval` fallback
+        # below within, at most, one flush interval -- `_do_flush` itself
+        # always resolves the milestone fresh, at actual flush time, so
+        # nothing is ever misattributed, only potentially flushed a bit
+        # later than the earliest possible moment.
         branch = _current_branch(branch_repo_root)
         hint = _issue_hint_from_datapoints(state.series_meta.values())
         issue_now = resolve_issue(branch, prefix, hint)
@@ -1859,9 +1898,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         fold(datapoints, state)
         branch = _current_branch(branch_repo_root)
         hint = _issue_hint_from_datapoints(datapoints)
-        issue = resolve_issue(branch, prefix, hint)
+        milestone_windows_table = cairn.milestone_windows(branch_repo_root)
+        issue = resolve_issue(branch, prefix, hint, milestone_windows_table=milestone_windows_table)
         try:
-            lines = flush(state, out_path, issue, _now_iso(), roster=roster, transcripts_dir=transcripts_dir)
+            lines = flush(state, out_path, issue, _now_iso(), roster=roster, transcripts_dir=transcripts_dir, milestone_windows_table=milestone_windows_table)
         except (ReceiverError, backfill_tokens.BackfillError) as e:
             print(f"error: {e}", file=sys.stderr)
             return 1
