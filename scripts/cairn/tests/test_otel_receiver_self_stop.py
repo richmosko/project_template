@@ -78,6 +78,7 @@ import http.client
 import json
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -914,6 +915,75 @@ class UnconditionalDeregistrationTests(unittest.TestCase):
         self.assertFalse(
             (sessions_dir / "phantom").exists(),
             "deregistration must not be gated on the pidfile naming a LIVE process (Delta 2)",
+        )
+
+
+# --------------------------------------------------------------------------
+# Architect's Delta 6 (PT-86 comment at 40e9658): the nudge must be
+# self-gating on a capability marker, or a pre-PT-86 daemon (no SIGUSR2
+# handler) is killed by its first --session-ended with no final flush.
+# --------------------------------------------------------------------------
+
+class CapabilityMarkerNudgeGateTests(unittest.TestCase):
+    """Delta 6, recommendation 2 (the one adopted): 'The new daemon
+    writes a marker beside its pidfile at startup; _nudge_daemon sends
+    SIGUSR2 only when the marker is present, and otherwise stays silent
+    (the watchdog's own tick still does the work, at up to 0.25s
+    latency).' Measured by the architect: a Python process with no
+    SIGUSR2 handler is terminated by it (exit -31) -- so the untested
+    branch here (marker absent -> stay silent) is the one that actually
+    protects a live pre-PT-86 receiver from being killed with no flush.
+
+    Both branches use an INJECTABLE kill -- no real signal is ever sent
+    to a real process by this test (team-lead's instruction). Location
+    assumption, flagged: the marker lives inside `_sessions_dir(pidfile)`
+    (matching the architect's stated preference, since that directory is
+    already gitignored end-to-end and `live_session_ids`'s existing
+    dotfile filter already skips anything starting with "."). If
+    implementation-lead instead writes it beside the pidfile as its own
+    file, this test's setup needs to move with that choice -- and
+    GitignoreCoversSessionsDirTests' existing `.sessions/` coverage would
+    no longer be enough on its own; a new explicit .gitignore line would
+    be needed too (raised directly, not guessed around)."""
+
+    def _fake_pidfile_naming_a_live_pid(self, testcase) -> Path:
+        root = helpers.make_empty_tmp_dir(testcase)
+        pidfile = root / "process" / "cairn" / "metrics" / ".receiver.pid"
+        pidfile.parent.mkdir(parents=True)
+        pidfile.write_text(str(os.getpid()), encoding="utf-8")  # this test process -- genuinely alive
+        return pidfile
+
+    def test_nudge_sends_sigusr2_when_the_capability_marker_is_present(self):
+        self.assertTrue(hasattr(otel_receiver, "_nudge_daemon"), "otel_receiver._nudge_daemon does not exist")
+        pidfile = self._fake_pidfile_naming_a_live_pid(self)
+        sessions_dir = otel_receiver._sessions_dir(pidfile)
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+        marker_name = getattr(otel_receiver, "NUDGE_CAPABLE_MARKER_NAME", ".nudge-capable")
+        (sessions_dir / marker_name).write_text("", encoding="utf-8")
+
+        calls: list[tuple[int, int]] = []
+        otel_receiver._nudge_daemon(pidfile, kill=lambda pid, sig: calls.append((pid, sig)))
+
+        self.assertEqual(
+            calls, [(os.getpid(), signal.SIGUSR2)],
+            f"marker present -> the nudge must send exactly one SIGUSR2 to the pidfile's own pid -- got {calls}",
+        )
+
+    def test_nudge_sends_nothing_when_the_capability_marker_is_absent(self):
+        # No sessions dir, no marker at all -- simulates a pre-PT-86
+        # daemon: it never wrote a marker because it predates the
+        # concept, and it has no SIGUSR2 handler, so receiving one would
+        # kill it with no final flush (Delta 6's whole point).
+        self.assertTrue(hasattr(otel_receiver, "_nudge_daemon"), "otel_receiver._nudge_daemon does not exist")
+        pidfile = self._fake_pidfile_naming_a_live_pid(self)
+
+        calls: list[tuple[int, int]] = []
+        otel_receiver._nudge_daemon(pidfile, kill=lambda pid, sig: calls.append((pid, sig)))
+
+        self.assertEqual(
+            calls, [],
+            f"no capability marker -> the nudge must stay completely silent -- a pre-PT-86 receiver has no "
+            f"SIGUSR2 handler and is killed by one, with no final flush -- got {calls}",
         )
 
 
