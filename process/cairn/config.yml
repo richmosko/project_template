@@ -3,3 +3,4 @@ port: 8766              # board server port
 board:
   columns: [backlog, todo, in-progress, in-review, done]
   swimlane: milestone   # milestone | none
+otel_port: 4318         # OTel receiver port; the exporter endpoint below is derived from this value (PT-81 H3)

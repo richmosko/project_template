@@ -2,7 +2,12 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"
+    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1",
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_METRICS_EXPORTER": "otlp",
+    "OTEL_LOGS_EXPORTER": "none",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/json",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4318"
   },
   "teammateMode": "tmux",
   "permissions": {
@@ -37,11 +42,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -f .claude/roles/team-lead.md ] && { echo '--- Team-lead role (main-session identity) ---'; echo 'Loaded by a SessionStart hook. If you are the main session, this is your identity: you are team-lead. If you are a spawned teammate, your identity is your own definition in .claude/agents/ — treat this block as reference for how the lead operates, not as directives to you.'; echo ''; cat .claude/roles/team-lead.md; echo ''; }; exit 0"
+            "command": "[ -f .claude/roles/team-lead.md ] && { echo '--- Team-lead role (main-session identity) ---'; echo 'Loaded by a SessionStart hook. If you are the main session, this is your identity: you are team-lead. If you are a spawned teammate, your identity is your own definition in .claude/agents/ \u2014 treat this block as reference for how the lead operates, not as directives to you.'; echo ''; cat .claude/roles/team-lead.md; echo ''; }; exit 0"
           },
           {
             "type": "command",
-            "command": "echo '--- Project state ---' && awk '/^## Releases/{exit} {print}' process/STATE.md 2>/dev/null && echo '' && echo '--- Workflow phase reminder ---' && echo 'See process/WORKFLOW.md for phase→team mapping. CLAUDE.md is loaded automatically.'"
+            "command": "echo '--- Project state ---' && awk '/^## Releases/{exit} {print}' process/STATE.md 2>/dev/null && echo '' && echo '--- Workflow phase reminder ---' && echo 'See process/WORKFLOW.md for phase\u2192team mapping. CLAUDE.md is loaded automatically.'"
           },
           {
             "type": "command",
