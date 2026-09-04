@@ -127,11 +127,52 @@ class TokensModeSeriesTests(unittest.TestCase):
         source = _read_token_cost_chart()
         self.assertIn("cost_usd", source, "cost-mode toggle renders a single cost_usd series per role")
 
+    def test_the_four_counter_series_use_four_distinct_colors_not_adjacent_ordinal_ramp_steps(self):
+        # team-lead's browser-verified delta on 3aa09e8: the four counter
+        # series were visually indistinguishable because the placeholder
+        # colors were four ADJACENT steps of PT-61's --chart-flow-*
+        # ordinal ramp -- a deliberately near-identical, monotone-
+        # lightness single-hue sequence, wrong for a categorical
+        # distinction between token types. Pins two things: the four
+        # values must be pairwise distinct, and none may come from the
+        # ordinal --chart-flow-* ramp specifically (the root cause).
+        source = _read_token_cost_chart()
+        match = re.search(r"TOKEN_TYPE_COLOR[^{]*\{([^}]*)\}", source, re.DOTALL)
+        self.assertIsNotNone(match, "no TOKEN_TYPE_COLOR (or equivalently-named) color map found for input/cache_write/cache_read/output")
+        block = match.group(1)
+        var_refs = re.findall(r"var\((--[\w-]+)\)", block)
+        self.assertEqual(len(var_refs), 4, f"expected exactly 4 color values (one per counter), found {len(var_refs)}: {var_refs}")
+        self.assertEqual(len(set(var_refs)), 4, f"the four counter-series colors must be pairwise distinct, got {var_refs}")
+        flow_ramp_reuse = [v for v in var_refs if v.startswith("--chart-flow-")]
+        self.assertEqual(
+            flow_ramp_reuse, [],
+            f"counter-series colors must not be drawn from the ordinal --chart-flow-* ramp "
+            f"(adjacent steps read as one indistinguishable swatch) -- got {flow_ramp_reuse}",
+        )
+
 
 class ToggleAndLabellingTests(unittest.TestCase):
     def test_estimated_label_is_present_for_the_cost_caveat(self):
         source = _read_token_cost_chart()
         self.assertIn("estimated", source.lower(), "only the dollar view is labelled estimated -- ruling §5/AC3")
+
+    def test_legend_wraps_instead_of_clipping_at_narrow_width(self):
+        # team-lead's browser-verified delta on 3aa09e8: "legend clips at
+        # narrow width" -- layerchart's Legend.svelte renders its swatch
+        # group as a non-wrapping flex row by default
+        # (.lc-legend-swatch-group), so at narrow widths the first/last
+        # entries clip instead of reflowing. Pins a :global override
+        # forcing flex-wrap on that class.
+        source = _read_token_cost_chart()
+        match = re.search(r":global\(\.lc-legend-swatch-group\)\s*\{([^}]*)\}", source, re.DOTALL)
+        self.assertIsNotNone(
+            match,
+            "no :global(.lc-legend-swatch-group) override found -- layerchart's legend "
+            "swatch group needs flex-wrap forced on, or entries clip at narrow width instead "
+            "of reflowing",
+        )
+        if match:
+            self.assertRegex(match.group(1), r"flex-wrap\s*:\s*wrap", "the override must set flex-wrap: wrap")
 
     def test_show_all_control_marker_is_present(self):
         source = _read_token_cost_chart()
@@ -161,6 +202,25 @@ class MainBarNotClickableTests(unittest.TestCase):
         source = _read_token_cost_chart()
         self.assertIn("main", source.lower(), "TokenCostChart.svelte never references 'main' -- ruling §4: 'main gets its own bar... no drawer link'")
 
+    def test_main_bar_is_rendered_visually_muted_distinct_from_real_issue_bars(self):
+        # team-lead's browser-verified delta on 3aa09e8: "main not muted"
+        # -- ruling §4 says main is rendered "last, visually muted", but
+        # nothing in the original component actually varied its
+        # appearance from a real issue bar. Pins a fill-opacity (or
+        # equivalently-purposed) function keyed on `issue === 'main'`
+        # returning something less than full opacity for main.
+        source = _read_token_cost_chart()
+        match = re.search(r"issue\s*===\s*['\"]main['\"]\s*\?\s*([\d.]+)\s*:\s*([\d.]+)", source)
+        self.assertIsNotNone(
+            match,
+            "no conditional found mapping issue === 'main' to a distinct numeric value (e.g. "
+            "fillOpacity) -- ruling §4: main must render 'visually muted', distinct from real "
+            "issue bars, not just excluded from the drawer link",
+        )
+        if match:
+            main_value, other_value = float(match.group(1)), float(match.group(2))
+            self.assertLess(main_value, other_value, f"main's value ({main_value}) must be LESS than a real issue bar's ({other_value}) -- that's what 'muted' means")
+
 
 class DrawerStableIdTests(unittest.TestCase):
     """board.js is DOM render-glue, not unit-testable via the vm-sandboxed
@@ -178,6 +238,54 @@ class DrawerStableIdTests(unittest.TestCase):
             "board.js never sets id='drawer-token-usage' anywhere -- addendum: "
             "'board.js renders it in a section with id=\"drawer-token-usage\" -- a "
             "stable target the browser-visibility leg can aim at'",
+        )
+
+    def test_the_id_bearing_container_is_removed_when_there_is_no_token_data(self):
+        # team-lead's browser-verified delta on 3aa09e8: an EMPTY
+        # #drawer-token-usage container rendered even for an issue with
+        # no token data. Addendum + this file's own module docstring pin
+        # the correct behavior: "An issue with no token data renders
+        # nothing, not a zero row" -- an empty wrapper div left in the
+        # DOM is exactly the zero-row-shaped defect that line forbids.
+        #
+        # implementation-lead's actual fix (verified against the live
+        # tree, not assumed): the container is still created eagerly
+        # (so there's somewhere to render into once the fetch resolves),
+        # but is explicitly REMOVED from the DOM on both the no-data
+        # branch and the fetch-failure branch, rather than moving the id
+        # assignment itself (my first draft's structural assumption --
+        # corrected to match the real, equally valid fix shape). Pins:
+        # a removeChild (or equivalent removal) call appears in BOTH the
+        # no-totals branch and the .catch() failure branch.
+        source = self.BOARD_JS.read_text(encoding="utf-8")
+        # Anchor precisely to the tokens-fetch chain, not just any
+        # "if (!totals) {...}" or ".catch(function () {...})" elsewhere
+        # in this large file (board.js has several unrelated catch
+        # handlers -- an unanchored search matched the wrong one on a
+        # first draft of this test).
+        fetch_start = source.find("fetchTokensOnce().then(function (tokensPayload)")
+        split_marker = source.find("var split = splitAcceptanceCriteria(issue.description);")
+        self.assertNotEqual(fetch_start, -1, "expected the tokens-fetch chain (fetchTokensOnce().then(...)) in board.js's drawer-rendering code")
+        self.assertNotEqual(split_marker, -1, "expected the drawer-rendering code to continue into splitAcceptanceCriteria afterward")
+        snippet = source[fetch_start:split_marker]
+
+        no_totals_branch = re.search(r"if\s*\(\s*!totals\s*\)\s*\{([^}]*)\}", snippet, re.DOTALL)
+        self.assertIsNotNone(no_totals_branch, "expected an 'if (!totals) { ... }' block within the tokens-fetch chain")
+        if no_totals_branch:
+            self.assertRegex(
+                no_totals_branch.group(1), r"removeChild|remove\(\)",
+                "the no-data branch must actually REMOVE the drawer-token-usage container from "
+                "the DOM, not just skip populating it -- an empty-but-present element is the "
+                "exact defect this test pins",
+            )
+
+        catch_start = snippet.find(".catch(function ()")
+        self.assertNotEqual(catch_start, -1, "expected a .catch(function () {...}) immediately after the tokens fetch's .then(...)")
+        catch_snippet = snippet[catch_start:]
+        self.assertRegex(
+            catch_snippet, r"removeChild|remove\(\)",
+            "a fetch FAILURE must also remove the container -- same 'no data, no element' "
+            "posture as the no-totals branch, not just the happy-path-with-no-data case",
         )
 
 
