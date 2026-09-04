@@ -851,5 +851,71 @@ class ClosingSentinelStaleCleanupTests(unittest.TestCase):
         )
 
 
+# --------------------------------------------------------------------------
+# Architect's review of 6467cc5, Delta 2: deregistration must be
+# unconditional, not gated on a live daemon.
+# --------------------------------------------------------------------------
+
+class UnconditionalDeregistrationTests(unittest.TestCase):
+    """Delta 2 (review of 6467cc5, should-fix): '--session-ended skips
+    deregistration when no daemon is running. The `if pid is None or not
+    _pid_is_alive(pid): return 0` guard sits ABOVE deregister_session, so
+    a session ending while the receiver is down -- or mid-shutdown, after
+    its pidfile was compare-and-deleted -- leaves its registry file
+    behind. The next daemon inherits a phantom live session and, because
+    that phantom's transcript is fresh, is pinned by it for up to 30
+    minutes. Deregistration is a local file operation and should be
+    unconditional; only the nudge needs a live daemon.'
+
+    Both named cases: (a) no daemon has ever run at all (empty pidfile
+    path -- the plain 'receiver isn't up' case), and (b) a stale pidfile
+    naming a pid that is provably dead (the 'mid-shutdown, pidfile
+    already gone/stale' case the review calls out by name)."""
+
+    def test_session_ended_deregisters_even_when_no_daemon_has_ever_run(self):
+        port = _free_port()
+        fake_root = make_fake_engine_root(self, otel_port=port)
+        env = _base_env(port)
+
+        sessions_dir = fake_root / "process" / "cairn" / "metrics" / ".sessions"
+        sessions_dir.mkdir(parents=True)
+        (sessions_dir / "phantom").write_text(str(os.getpid()), encoding="utf-8")
+        # No pidfile at all -- nothing has ever ensure_running'd here.
+        self.assertFalse(_pidfile_path(fake_root).exists())
+
+        end = run_fake_receiver(fake_root, ["--session-ended", "--session-id", "phantom"], env=env)
+        self.assertEqual(end.returncode, 0, f"§10: non-fatal even with no daemon up -- {end.stdout!r} {end.stderr!r}")
+
+        self.assertFalse(
+            (sessions_dir / "phantom").exists(),
+            "deregistration is a local file operation and must happen even when no daemon is running "
+            "(Delta 2) -- otherwise the NEXT daemon inherits a phantom session, fresh-transcript-pinned "
+            "for up to 30 minutes",
+        )
+
+    def test_session_ended_deregisters_even_with_a_stale_pidfile_naming_a_dead_pid(self):
+        port = _free_port()
+        fake_root = make_fake_engine_root(self, otel_port=port)
+        env = _base_env(port)
+
+        sessions_dir = fake_root / "process" / "cairn" / "metrics" / ".sessions"
+        sessions_dir.mkdir(parents=True)
+        (sessions_dir / "phantom").write_text(str(os.getpid()), encoding="utf-8")
+        # A pidfile left behind naming a pid that is provably dead --
+        # exactly Delta 2's "mid-shutdown, pidfile already gone/stale"
+        # scenario (simulated here as a stale-but-present file, since a
+        # compare-and-delete race is not deterministically reproducible
+        # from outside the process).
+        _pidfile_path(fake_root).write_text(str(_dead_pid()), encoding="utf-8")
+
+        end = run_fake_receiver(fake_root, ["--session-ended", "--session-id", "phantom"], env=env)
+        self.assertEqual(end.returncode, 0, f"§10: non-fatal with a stale/dead pidfile -- {end.stdout!r} {end.stderr!r}")
+
+        self.assertFalse(
+            (sessions_dir / "phantom").exists(),
+            "deregistration must not be gated on the pidfile naming a LIVE process (Delta 2)",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
