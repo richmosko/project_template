@@ -867,7 +867,14 @@ def load_config(data_dir: Path) -> Dict[str, Any]:
     data_dir = Path(data_dir)
     config_path = data_dir / "config.yml"
     if not config_path.exists():
-        raise CairnError(f"no config.yml at {config_path} -- this is not a cairn tracker data dir")
+        # Architect's review of 109fd25, delta 1: resolve before naming it
+        # in the error -- an unresolved relative `data_dir` (e.g.
+        # `Path(".")`) would otherwise render as the confusing, unpointed
+        # "no config.yml at config.yml". Absolute callers already got a
+        # useful message; this just makes relative ones useful too.
+        raise CairnError(
+            f"no config.yml at {config_path.resolve()} -- this is not a cairn tracker data dir"
+        )
     parsed = parse_yaml_subset(config_path.read_text(encoding="utf-8"))
 
     config = dict(parsed)
@@ -3428,7 +3435,16 @@ def build_multi_board_payload(
     milestones: List[Dict[str, Any]] = []
     issues: List[Dict[str, Any]] = []
 
-    primary_config = load_config(roots[0].path) if roots else load_config(Path("."))
+    # Architect's review of 109fd25, delta 2: `resolve_roots` always seeds
+    # `roots[0]` with the primary root and never removes it (its own
+    # contract, restated in this function's docstring above), so an empty
+    # `roots` is unreachable from any real caller -- the `load_config(Path("."))`
+    # fallback this used to have was dead code whose only visible effect,
+    # post-PT-80, would have been a confusing `no config.yml at config.yml`
+    # on a state that should never occur. Assert the contract instead of
+    # quietly working around a violation of it.
+    assert roots, "build_multi_board_payload: roots must never be empty -- resolve_roots always seeds the primary"
+    primary_config = load_config(roots[0].path)
     resolved_columns, columns_warning = resolve_board_columns(primary_config)
     resolved_swimlane, swimlane_warning = resolve_board_swimlane(primary_config)
     if columns_warning:
