@@ -21,20 +21,29 @@ just anchored somewhere disposable. This also means every test here
 exercises the REAL hook-invocation code path end to end, not a mocked
 substitute.
 
-## Deliberately NOT tested here: the unset-`OTEL_EXPORTER_OTLP_ENDPOINT`
-## branch of H3
+## The unset-`OTEL_EXPORTER_OTLP_ENDPOINT` branch of H3
 
-The ruling as filed says an unset endpoint is "nothing to compare" (H1
-already declined) -- current WIP and TRACKER.md both implement exactly
-that. The architect's follow-up comment (4c1b751) proposes instead
-comparing `otel_port` against the OTLP spec's own default endpoint port
-(4318) when the variable is unset, but says explicitly this needs an
-empirical check (a real `claude -p` run with telemetry on and the
-endpoint unset, against a scratch sink) that has not yet been done.
-Locking in a test for either answer before that check runs would either
-block implementation on an unverified claim or paper over a real gap --
-flagged to team-lead instead of guessed at here. Every other H1/H2/H3
-behaviour below is settled and pinned.
+Settled by empirical check (team-lead relayed the result: `claude -p`
+with telemetry on and the endpoint variable unset genuinely POSTs to
+`127.0.0.1:4318`, a real scratch-sink capture, confirming the OTel spec's
+documented fallback is what Claude Code's exporter actually does, not
+just what the spec says it should do). The architect's amendment
+(4c1b751) stands: an unset endpoint is NOT "nothing to compare" -- it
+resolves to the OTLP protocol default, 4318, same as any other endpoint
+value would.
+
+`UnsetEndpointFallbackTests` covers this. The one true-4318 assertion
+(`test_effective_endpoint_port_defaults_to_the_real_otlp_default_4318`)
+is a pure-function check against `otel_receiver._effective_endpoint_port`
+directly, no socket involved. The two integration-level cases (does
+`ensure_running` actually start/refuse based on that default) do NOT
+bind the real port 4318 -- per team-lead's "use scratch ports in every
+test regardless" instruction, they run against a FAKE engine copy whose
+own `DEFAULT_OTEL_PORT` constant has been text-patched to a scratch
+port before invocation (`make_fake_engine_root_with_default_port`), so
+the fallback MECHANISM is proven without ever touching the one port a
+real, concurrently-running Claude Code session in this same repo might
+legitimately be exporting real telemetry to at the same moment.
 
 ## What's covered
 
@@ -53,6 +62,9 @@ behaviour below is settled and pinned.
 - H3, settled half (`PortEndpointAgreementTests`): `otel_port` vs. the
   receiver's own inherited `OTEL_EXPORTER_OTLP_ENDPOINT`, when BOTH are
   present -- mismatch refuses naming both, match starts.
+- H3, unset-endpoint half (`UnsetEndpointFallbackTests`): an unset
+  `OTEL_EXPORTER_OTLP_ENDPOINT` resolves to the OTLP default port 4318
+  for comparison purposes, not "nothing to compare".
 - AC2 (`StatusCommandTests`): `--status` reports running/port/out-file,
   exit 0 running / 1 not, and its own `repo_root` resolution never
   leaks into the real checkout's actual data file.
@@ -75,6 +87,8 @@ from pathlib import Path
 from typing import Optional
 
 import helpers  # noqa: F401
+
+import otel_receiver
 
 SCRIPT_PATH = helpers.CAIRN_DIR / "otel_receiver.py"
 SETTINGS_PATH = helpers.TESTS_DIR.parent.parent.parent / ".claude" / "settings.json"
@@ -101,6 +115,27 @@ def make_fake_engine_root(testcase, otel_port: Optional[int] = None) -> Path:
     if otel_port is not None:
         lines.append(f"otel_port: {otel_port}")
     (data_dir / "config.yml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return root
+
+
+def make_fake_engine_root_with_default_port(testcase, default_port: int, otel_port: Optional[int] = None) -> Path:
+    """Same as `make_fake_engine_root`, plus one text patch to the COPIED
+    otel_receiver.py: `DEFAULT_OTEL_PORT = 4318` -> `DEFAULT_OTEL_PORT =
+    <default_port>`. Exists solely so `UnsetEndpointFallbackTests` can
+    prove the "unset endpoint falls back to the default port" MECHANISM
+    without ever binding the real, reserved port 4318 -- which, in this
+    very repo, a concurrently-running Claude Code session's own real
+    OTel exporter may legitimately be posting to at any moment. The
+    real literal value 4318 is pinned separately, by a pure-function
+    test with no I/O at all (see `_effective_endpoint_port` above the
+    class in question)."""
+    root = make_fake_engine_root(testcase, otel_port=otel_port)
+    script = root / "scripts" / "cairn" / "otel_receiver.py"
+    original = script.read_text(encoding="utf-8")
+    patched = original.replace("DEFAULT_OTEL_PORT = 4318", f"DEFAULT_OTEL_PORT = {default_port}", 1)
+    if patched == original:
+        testcase.fail("DEFAULT_OTEL_PORT = 4318 not found verbatim in the copied otel_receiver.py -- patch target moved")
+    script.write_text(patched, encoding="utf-8")
     return root
 
 
@@ -188,6 +223,23 @@ def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def _wait_for_status_running(fake_root: Path, env: dict, timeout: float = 5.0) -> subprocess.CompletedProcess:
+    """Poll `--status` until it reports running (exit 0) or `timeout`
+    elapses -- `ensure_running`'s own post-spawn wait window is short
+    (~0.5s) but this gives the child process a little more slack than
+    that under load without turning a real failure into a 5s hang for no
+    reason (returns the LAST observed result either way, so a genuine
+    failure's assertion message still shows real stdout/stderr)."""
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        last = run_fake_receiver(fake_root, ["--status"], env=env)
+        if last.returncode == 0:
+            return last
+        time.sleep(0.1)
+    return last
 
 
 class OtelReceiverStatusFlagPresenceGuard(unittest.TestCase):
@@ -286,8 +338,8 @@ class BindVerificationTests(unittest.TestCase):
 
 class PortEndpointAgreementTests(unittest.TestCase):
     """H3, settled half: when `OTEL_EXPORTER_OTLP_ENDPOINT` IS set, its
-    port must agree with `otel_port`; the unset case is deliberately out
-    of scope here (see module docstring)."""
+    port must agree with `otel_port`. The unset-endpoint half is
+    `UnsetEndpointFallbackTests`, just below."""
 
     def test_a_port_endpoint_mismatch_refuses_naming_both(self):
         otel_port = _free_port()
@@ -318,20 +370,71 @@ class PortEndpointAgreementTests(unittest.TestCase):
         result = run_fake_receiver(fake_root, ["--ensure-running"], env=env)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-        status = self._wait_for_running(fake_root, env)
+        status = _wait_for_status_running(fake_root, env)
         self.assertEqual(status.returncode, 0, f"a matching port/endpoint pair must start the receiver -- stdout={status.stdout!r} stderr={status.stderr!r}")
         self.assertIn("running: True", status.stdout, status.stdout)
         self.assertIn(f"port: {port}", status.stdout, status.stdout)
 
-    def _wait_for_running(self, fake_root: Path, env: dict, timeout: float = 5.0) -> subprocess.CompletedProcess:
-        deadline = time.time() + timeout
-        last = None
-        while time.time() < deadline:
-            last = run_fake_receiver(fake_root, ["--status"], env=env)
-            if last.returncode == 0:
-                return last
-            time.sleep(0.1)
-        return last
+
+class UnsetEndpointFallbackTests(unittest.TestCase):
+    """H3, unset-endpoint half (architect's amendment 4c1b751, empirically
+    confirmed): an unset `OTEL_EXPORTER_OTLP_ENDPOINT` is not "nothing to
+    compare" -- Claude Code's exporter genuinely falls back to posting at
+    the OTLP protocol default, 127.0.0.1:4318, so `otel_port` must be
+    compared against that default too, or a project with `otel_port` set
+    to anything else silently gets exactly H3's contamination shape with
+    telemetry nominally "on" the whole time."""
+
+    def test_effective_endpoint_port_defaults_to_the_real_otlp_default_4318(self):
+        # Pure-function check against the REAL, committed (well, WIP but
+        # loaded from this actual checkout, not a fake copy) otel_receiver
+        # module -- no socket, no subprocess. Pins the literal value the
+        # empirical check confirmed, independent of whatever scratch
+        # value the integration tests below patch it to.
+        self.assertTrue(
+            hasattr(otel_receiver, "_effective_endpoint_port"),
+            "otel_receiver._effective_endpoint_port does not exist yet -- PT-81 H3's "
+            "unset-endpoint fallback (architect amendment 4c1b751) is unimplemented",
+        )
+        self.assertEqual(otel_receiver._effective_endpoint_port(None), 4318, "an unset endpoint must fall back to the real OTLP default, 4318")
+        self.assertEqual(otel_receiver._effective_endpoint_port(""), 4318, "an empty endpoint must fall back the same way as a genuinely unset one")
+
+    def test_unset_endpoint_matching_the_default_port_starts(self):
+        # Scratch default, not the real 4318 -- see module docstring and
+        # make_fake_engine_root_with_default_port's own docstring for why.
+        scratch_default = _free_port()
+        fake_root = make_fake_engine_root_with_default_port(self, default_port=scratch_default, otel_port=scratch_default)
+        env = _minimal_env(CLAUDE_CODE_ENABLE_TELEMETRY="1")  # OTEL_EXPORTER_OTLP_ENDPOINT deliberately absent
+        self.addCleanup(_stop_fake_receiver, fake_root, env)
+
+        result = run_fake_receiver(fake_root, ["--ensure-running"], env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+        status = _wait_for_status_running(fake_root, env)
+        self.assertEqual(
+            status.returncode, 0,
+            f"otel_port matching the (patched) OTLP default must start the receiver even with the endpoint var unset -- stdout={status.stdout!r} stderr={status.stderr!r}",
+        )
+        self.assertIn("running: True", status.stdout, status.stdout)
+
+    def test_unset_endpoint_not_matching_the_default_port_refuses_naming_both_and_the_fallback(self):
+        scratch_default = _free_port()
+        scratch_otel_port = _free_port()
+        fake_root = make_fake_engine_root_with_default_port(self, default_port=scratch_default, otel_port=scratch_otel_port)
+        env = _minimal_env(CLAUDE_CODE_ENABLE_TELEMETRY="1")  # endpoint deliberately absent
+
+        result = run_fake_receiver(fake_root, ["--ensure-running"], env=env)
+        combined = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, combined)
+        self.assertIn(str(scratch_otel_port), combined, f"must name otel_port -- got: {combined!r}")
+        self.assertIn(
+            str(scratch_default), combined,
+            f"must name the (fallback) default port the unset endpoint effectively resolves to -- got: {combined!r}",
+        )
+        self.assertFalse(_logfile_path(fake_root).exists(), "an unset-endpoint mismatch against the default must refuse before ever spawning, exactly like an explicit mismatch")
+
+        status = run_fake_receiver(fake_root, ["--status"], env=env)
+        self.assertEqual(status.returncode, 1, "a refused unset-endpoint mismatch must never be reported as running")
 
 
 class StatusCommandTests(unittest.TestCase):
