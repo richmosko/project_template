@@ -82,7 +82,27 @@ BACKFILL_SCRIPT = helpers.CAIRN_DIR / "backfill_tokens.py"
 OTEL_SCRIPT = helpers.CAIRN_DIR / "otel_receiver.py"
 OTLP_FIXTURES = helpers.FIXTURES_DIR / "otlp"
 
-MILESTONE_TMPL = "---\nid: {id}\nname: {name}\nkind: product\nmajor: PT-V1\nstatus: {status}\ntarget_tag: null\nga: false\n---\n\nBody.\n"
+MILESTONE_TMPL = "---\nid: {id}\nname: {name}\nkind: product\nmajor: PT-V1\nstatus: {status}\ntarget_tag: null\nga: false\n---\n\n{dod}\n"
+
+
+def milestone_text(id: str, name: str, status: str, dod: Optional[str] = None) -> str:
+    """Architect's ruling (7341e2e/cf2c8d5): git's own `--follow` rename
+    detection can false-merge two milestone files that differ only in
+    `id`/`name` with an identical body -- reproduced on a real fixture,
+    confirmed fixture-only (real milestone files always carry a distinct
+    `name` AND a distinct definition-of-done paragraph, which is why they
+    stay well under the similarity threshold). Every milestone fixture
+    in this file goes through this helper rather than raw
+    `MILESTONE_TMPL.format(...)` so no future addition can silently
+    regress to the identical-body shape. `dod` defaults to a sentence
+    that is still distinct per (id, name) pair -- callers that need to
+    deliberately reproduce the FALSE-merge shape (the new invariant test
+    below) pass an explicitly identical `dod` instead."""
+    if dod is None:
+        dod = f"**Definition of done:** the {name} milestone ({id}) ships when its own scoped work is complete and verified end to end."
+    return MILESTONE_TMPL.format(id=id, name=name, status=status, dod=dod)
+
+
 ISSUE_TMPL = (
     "---\nid: {id}\ntitle: {title}\nstatus: {status}\nmilestone: {milestone}\nparent: null\n"
     "blocked_by: []\nassignee: null\nlabels: []\npriority: null\npr: null\ncreated: {created}\nupdated: {created}\n"
@@ -286,7 +306,7 @@ class MilestoneWindowsGitTests(unittest.TestCase):
         # never derive it from the filename.
         repo_root = make_milestone_git_repo(self)
         milestones_dir = repo_root / "process" / "cairn" / "milestones"
-        (milestones_dir / "0.3.md").write_text(MILESTONE_TMPL.format(id="PT-0.3", name="zero issues", status="archived"), encoding="utf-8")
+        (milestones_dir / "0.3.md").write_text(milestone_text(id="PT-0.3", name="zero issues", status="archived"), encoding="utf-8")
         _commit_at(repo_root, "add 0.3.md (unprefixed filename)", "2026-08-20 08:19:49 +0000")
 
         self.assertTrue(hasattr(cairn, "milestone_windows"), "cairn.milestone_windows does not exist yet")
@@ -301,7 +321,7 @@ class MilestoneWindowsGitTests(unittest.TestCase):
         # issue existence/dates.
         repo_root = make_milestone_git_repo(self)
         milestones_dir = repo_root / "process" / "cairn" / "milestones"
-        (milestones_dir / "PT-0.3.md").write_text(MILESTONE_TMPL.format(id="PT-0.3", name="zero issues", status="archived"), encoding="utf-8")
+        (milestones_dir / "PT-0.3.md").write_text(milestone_text(id="PT-0.3", name="zero issues", status="archived"), encoding="utf-8")
         _commit_at(repo_root, "add PT-0.3.md, no issues ever reference it", "2026-08-20 08:19:49 +0000")
 
         windows = cairn.milestone_windows(repo_root)
@@ -319,7 +339,7 @@ class MilestoneWindowsGitTests(unittest.TestCase):
         repo_root = make_milestone_git_repo(self)
         milestones_dir = repo_root / "process" / "cairn" / "milestones"
         archive_dir = repo_root / "process" / "cairn" / "archive" / "milestones"
-        (milestones_dir / "PT-0.4.md").write_text(MILESTONE_TMPL.format(id="PT-0.4", name="early work", status="planned"), encoding="utf-8")
+        (milestones_dir / "PT-0.4.md").write_text(milestone_text(id="PT-0.4", name="early work", status="planned"), encoding="utf-8")
         _commit_at(repo_root, "create PT-0.4.md", "2026-08-20 09:03:41 +0000")
 
         # Archive it later -- a real git mv, so the file's history shows
@@ -360,10 +380,21 @@ class MilestoneWindowsGitTests(unittest.TestCase):
         _git(repo_root, "mv", str(milestones_dir / "0.3.md"), str(milestones_dir / "PT-0.3.md"))
         _commit_at(repo_root, "rename 0.3.md -> PT-0.3.md", "2026-08-25 10:00:00 +0000")
 
-        # 3: much later, a pure content fix on the ALREADY-renamed path
-        # (and separately archived) -- HEAD's frontmatter is correct.
+        # 3: much later, a MINIMAL, TARGETED content fix (id + status
+        # only, matching the real historical correction's shape) on the
+        # ALREADY-renamed path, archived in the same commit -- HEAD's
+        # frontmatter is correct. Deliberately NOT a full rewrite to
+        # milestone_text's own template: swapping in a much longer,
+        # differently-worded body here would drop this commit's
+        # content similarity to its predecessor below git's rename
+        # threshold, losing the very rename this test exists to prove
+        # --follow survives -- the real correction was a targeted field
+        # edit, not a full rewrite, and the fixture must match that.
         _git(repo_root, "mv", str(milestones_dir / "PT-0.3.md"), str(archive_dir / "PT-0.3.md"))
-        (archive_dir / "PT-0.3.md").write_text(MILESTONE_TMPL.format(id="PT-0.3", name="zero issues", status="archived"), encoding="utf-8")
+        (archive_dir / "PT-0.3.md").write_text(
+            '---\nid: PT-0.3\nname: zero issues\nkind: product\nmajor: PT-V1\nstatus: archived\ntarget_tag: null\nga: false\n---\n\nBody.\n',
+            encoding="utf-8",
+        )
         _commit_at(repo_root, "archive + correct frontmatter id to PT-0.3", "2026-08-26 09:47:07 +0000")
 
         windows = cairn.milestone_windows(repo_root)
@@ -391,9 +422,17 @@ class MilestoneWindowsGitTests(unittest.TestCase):
         # breaks silently.
         repo_root = make_milestone_git_repo(self)
         milestones_dir = repo_root / "process" / "cairn" / "milestones"
-        (milestones_dir / "PT-0.5.md").write_text(MILESTONE_TMPL.format(id="PT-0.5", name="fifth", status="archived"), encoding="utf-8")
+        (milestones_dir / "PT-0.5.md").write_text(
+            milestone_text(id="PT-0.5", name="fifth milestone", status="archived",
+                            dod="**Definition of done:** the fifth milestone closes the initial ingest pipeline work and its own dedicated review cycle."),
+            encoding="utf-8",
+        )
         _commit_at(repo_root, "create PT-0.5.md", "2026-08-20 14:39:56 +0000")
-        (milestones_dir / "PT-0.10.md").write_text(MILESTONE_TMPL.format(id="PT-0.10", name="tenth", status="archived"), encoding="utf-8")
+        (milestones_dir / "PT-0.10.md").write_text(
+            milestone_text(id="PT-0.10", name="tenth milestone", status="archived",
+                            dod="**Definition of done:** the tenth milestone ships the dashboard's export surface and its accompanying documentation update."),
+            encoding="utf-8",
+        )
         _commit_at(repo_root, "create PT-0.10.md", "2026-08-30 10:00:00 +0000")
 
         windows = cairn.milestone_windows(repo_root)
@@ -402,6 +441,58 @@ class MilestoneWindowsGitTests(unittest.TestCase):
             ids_in_order.index("PT-0.5"), ids_in_order.index("PT-0.10"),
             f"PT-0.5 was created BEFORE PT-0.10 -- windows must be chronological, not alphabetical -- got {ids_in_order!r}",
         )
+
+    def test_a_false_merge_from_two_near_identical_milestone_files_raises_instead_of_silently_misbucketing(self):
+        # Architect's ruling (7341e2e, reproduced on evidence at
+        # cf2c8d5, "Shape A"): plain `--follow --diff-filter=A` is the
+        # right engine choice (real milestone files never collide -- they
+        # differ in `name` AND definition-of-done prose), but it COULD
+        # mis-pair two files that stay near-identical, exactly the shape
+        # this deliberately reproduces: PT-0.5 created normally; a SECOND
+        # milestone created unprefixed with the SAME generic body as
+        # PT-0.5 (no distinct dod -- this is the one deliberate,
+        # documented exception to milestone_text's own no-identical-body
+        # convention), then renamed AND content-corrected in the SAME
+        # commit (the exact combination architect's Fact 2 measured: a
+        # rename plus a content edit in one commit is what defeats
+        # similarity detection for the id-correction case, and what lets
+        # a near-identical OTHER file's add look like a plausible rename
+        # source here). Rather than carry a rename-walker to avoid this,
+        # the ruling adds a cheap invariant instead: milestone_windows
+        # must raise, loudly, the moment it would otherwise return two
+        # milestones sharing one timestamp (or any non-increasing
+        # sequence) -- turning a silent mis-bucketing into a named error.
+        repo_root = make_milestone_git_repo(self)
+        milestones_dir = repo_root / "process" / "cairn" / "milestones"
+
+        identical_dod = "Body.\n"
+        (milestones_dir / "PT-0.5.md").write_text(
+            milestone_text(id="PT-0.5", name="fifth", status="archived", dod=identical_dod),
+            encoding="utf-8",
+        )
+        _commit_at(repo_root, "create PT-0.5.md", "2026-08-20 14:39:56 +0000")
+
+        (milestones_dir / "0.10.md").write_text(
+            milestone_text(id="0.10", name="tenth", status="planned", dod=identical_dod),
+            encoding="utf-8",
+        )
+        _commit_at(repo_root, "create 0.10.md, unprefixed id, identical body to PT-0.5", "2026-08-30 10:00:00 +0000")
+
+        # Rename AND correct the id in the SAME commit -- architect's
+        # Fact 2 shape exactly.
+        _git(repo_root, "mv", str(milestones_dir / "0.10.md"), str(milestones_dir / "PT-0.10.md"))
+        (milestones_dir / "PT-0.10.md").write_text(
+            milestone_text(id="PT-0.10", name="tenth", status="archived", dod=identical_dod),
+            encoding="utf-8",
+        )
+        _commit_at(repo_root, "rename 0.10.md -> PT-0.10.md, correct id in the same commit", "2026-09-02 23:20:02 +0000")
+
+        with self.assertRaises(
+            Exception,
+            msg="two milestone files with a near-identical body must raise (a named, loud error) rather than "
+            "silently return a duplicate or non-increasing timestamp",
+        ):
+            cairn.milestone_windows(repo_root)
 
 
 # --------------------------------------------------------------------------
@@ -415,11 +506,25 @@ class BackfillMilestoneAttributionTests(unittest.TestCase):
     "main", never the milestone's own issues' bucket."""
 
     def _repo_with_two_milestones(self, testcase) -> Path:
+        # Explicit, substantially different dod text for each -- two
+        # milestone files added independently (never renamed, never
+        # deleted) still need enough content divergence that git's own
+        # similarity-based rename heuristic has nothing plausible to
+        # match between them (the same false-merge risk the sort test's
+        # fixture originally had, per the architect's ruling at 7341e2e).
         repo_root = make_milestone_git_repo(testcase, with_engine_copy=True)
         milestones_dir = repo_root / "process" / "cairn" / "milestones"
-        (milestones_dir / "PT-0.3.md").write_text(MILESTONE_TMPL.format(id="PT-0.3", name="early", status="archived"), encoding="utf-8")
+        (milestones_dir / "PT-0.3.md").write_text(
+            milestone_text(id="PT-0.3", name="early", status="archived",
+                            dod="**Definition of done:** the early milestone lands the initial cairn scaffolding and its own smoke tests."),
+            encoding="utf-8",
+        )
         _commit_at(repo_root, "create PT-0.3.md", "2026-08-20 08:19:49 +0000")
-        (milestones_dir / "PT-0.4.md").write_text(MILESTONE_TMPL.format(id="PT-0.4", name="later", status="archived"), encoding="utf-8")
+        (milestones_dir / "PT-0.4.md").write_text(
+            milestone_text(id="PT-0.4", name="later", status="archived",
+                            dod="**Definition of done:** the later milestone wires the receiver's flush path to the shared bucket table and documents the rollout."),
+            encoding="utf-8",
+        )
         _commit_at(repo_root, "create PT-0.4.md", "2026-08-20 09:03:41 +0000")
         return repo_root
 
@@ -489,7 +594,7 @@ class ReceiverMilestoneAttributionTests(unittest.TestCase):
     def test_a_main_branch_datapoint_inside_a_milestone_window_buckets_to_that_milestone(self):
         repo_root = make_milestone_git_repo(self)
         milestones_dir = repo_root / "process" / "cairn" / "milestones"
-        (milestones_dir / "PT-0.4.md").write_text(MILESTONE_TMPL.format(id="PT-0.4", name="later", status="archived"), encoding="utf-8")
+        (milestones_dir / "PT-0.4.md").write_text(milestone_text(id="PT-0.4", name="later", status="archived"), encoding="utf-8")
         _commit_at(repo_root, "create PT-0.4.md", "2026-08-20 09:03:41 +0000")
 
         payload = {
