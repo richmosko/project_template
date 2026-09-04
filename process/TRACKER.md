@@ -57,7 +57,7 @@ scripts/cairn/            THE ENGINE — self-contained, spin-off-ready
 
 **The layout is fixed at `process/cairn/` in v1 — no `data_dir` key (ruled 2026-08-20).** Such a key would be circular: `config.yml` lives *inside* the directory it would declare, so the engine must find the directory before it can read where the directory is. Relocation, if ever wanted, belongs to an env var or a flag.
 
-**A missing or config-less data dir is an error, never an empty result.** If the engine can't resolve a directory containing `config.yml` it says so and exits non-zero — it does not report zero issues. "No tracker here" and "no issues here" are different facts and must never render identically.
+**A missing or config-less data dir is an error, never an empty result.** If the engine can't resolve a directory containing `config.yml` it says so and exits non-zero — it does not report zero issues. "No tracker here" and "no issues here" are different facts and must never render identically. **`load_config` itself enforces this (PT-80)** — it raises naming the path when `config.yml` is absent, rather than returning built-in defaults, so every caller inherits the rule even if it reaches the loader directly instead of through the CLI's own resolver.
 
 **Engine under `scripts/cairn/`** and nowhere else. It touches no project file outside `process/cairn/`, so `git subtree split --prefix=scripts/cairn` extracts it cleanly — a combined `cairn/` would drag every project's issue history into the extracted repo.
 

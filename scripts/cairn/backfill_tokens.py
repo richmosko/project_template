@@ -110,22 +110,24 @@ def _resolve_tracker_prefix(repo_root: Path) -> str:
     from `repo_root` -- NEVER from `cairn.find_data_dir()`, which walks up
     from `Path.cwd()` (architect's blocking finding on 99725d0): run this
     script with a CWD outside the repo and `find_data_dir()` finds no
-    `config.yml`, and `cairn.load_config` then SILENTLY defaults to
-    `prefix: "ISS"` rather than raising -- every real issue bucket then
-    fails to match and collapses into `main`, at exit 0, looking like a
-    clean run. Anchoring to `repo_root` (already computed, CWD-independent)
-    removes the dependency; the explicit `config.yml` existence check below
-    is the load-bearing half, since it is `load_config`'s silent default
-    -- not its parsing -- that is the actual trap.
+    `config.yml`. Anchoring to `repo_root` (already computed,
+    CWD-independent) removes that dependence.
 
     `CAIRN_DATA_DIR` is honoured first (same override seam `cairn.py`
     itself uses), so a caller that legitimately points at a different data
     dir still works.
+
+    PT-80: this used to also carry its own `config.yml`-missing check and
+    raise directly, because `cairn.load_config` silently defaulted to
+    `prefix: "ISS"` for a missing file instead of raising -- exactly the
+    trap that fired here on the CWD bug above. `load_config` itself now
+    raises `CairnError` naming the path in that case (PT-80's fix, in
+    `cairn.py`), so the guard here would just be duplicating what the
+    loader already does; this is now a thin, CWD-independent path
+    computation plus one call into the loader.
     """
     env = os.environ.get("CAIRN_DATA_DIR")
     data_dir = Path(env).resolve() if env else (repo_root / "process" / "cairn")
-    if not (data_dir / "config.yml").exists():
-        raise cairn.CairnError(f"no config.yml at {data_dir}")
     return cairn.load_config(data_dir)["prefix"]
 
 
