@@ -838,22 +838,44 @@ def validate_board_swimlane(value: Any) -> Tuple[bool, str]:
 
 
 def load_config(data_dir: Path) -> Dict[str, Any]:
-    """Read and parse data_dir/config.yml. Missing keys fall back to defaults.
+    """Read and parse data_dir/config.yml. An ABSENT key within an existing
+    file falls back to a default; an ABSENT `config.yml` file raises.
 
-    Defaulting only -- does NOT validate a present-but-invalid
-    board.columns/board.swimlane value (that value is passed through
-    UNCHANGED; `resolve_board_columns`/`resolve_board_swimlane` below are
-    where a bad value actually gets caught). Called from many CLI paths
-    that have nothing to do with the board (`cairn new`, `cairn ls`, ...),
-    so it is deliberately NOT the validation/fallback/stderr entry point --
-    that would print PT-38's warning on every unrelated invocation of a
-    repo with a stale bad config, not just the ones that render a board.
+    PT-80 (architect's ruling, filed off the PT-77 review at 0e8832c):
+    previously, a missing `data_dir` or `config.yml` silently returned the
+    built-in defaults (`prefix: "ISS"`, ...) instead of raising -- every
+    caller that reached this function directly, bypassing `resolve_data_dir`'s
+    own separate "no cairn tracker found" guard (CLI commands do this;
+    PT-77's `backfill_tokens.py` did not, and paid for it: a run from
+    outside the repo silently mis-attributed every issue to `main`, exit
+    0). `process/TRACKER.md`'s standing rule -- "a missing or config-less
+    data dir is an error, never an empty result" -- applies to this
+    function too, not just to the CLI's own resolver. Callers that
+    legitimately want defaults for a missing file have none today; if one
+    is ever needed, it opts in explicitly rather than getting silence.
+
+    Still defaulting-only for an EXISTING file's absent keys, and still
+    does NOT validate a present-but-invalid board.columns/board.swimlane
+    value (that value is passed through UNCHANGED; `resolve_board_columns`/
+    `resolve_board_swimlane` below are where a bad value actually gets
+    caught). Called from many CLI paths that have nothing to do with the
+    board (`cairn new`, `cairn ls`, ...), so it is deliberately NOT the
+    validation/fallback/stderr entry point -- that would print PT-38's
+    warning on every unrelated invocation of a repo with a stale bad
+    config, not just the ones that render a board.
     """
     data_dir = Path(data_dir)
     config_path = data_dir / "config.yml"
-    parsed: Dict[str, Any] = {}
-    if config_path.exists():
-        parsed = parse_yaml_subset(config_path.read_text(encoding="utf-8"))
+    if not config_path.exists():
+        # Architect's review of 109fd25, delta 1: resolve before naming it
+        # in the error -- an unresolved relative `data_dir` (e.g.
+        # `Path(".")`) would otherwise render as the confusing, unpointed
+        # "no config.yml at config.yml". Absolute callers already got a
+        # useful message; this just makes relative ones useful too.
+        raise CairnError(
+            f"no config.yml at {config_path.resolve()} -- this is not a cairn tracker data dir"
+        )
+    parsed = parse_yaml_subset(config_path.read_text(encoding="utf-8"))
 
     config = dict(parsed)
     config.setdefault("prefix", "ISS")
@@ -3413,7 +3435,16 @@ def build_multi_board_payload(
     milestones: List[Dict[str, Any]] = []
     issues: List[Dict[str, Any]] = []
 
-    primary_config = load_config(roots[0].path) if roots else load_config(Path("."))
+    # Architect's review of 109fd25, delta 2: `resolve_roots` always seeds
+    # `roots[0]` with the primary root and never removes it (its own
+    # contract, restated in this function's docstring above), so an empty
+    # `roots` is unreachable from any real caller -- the `load_config(Path("."))`
+    # fallback this used to have was dead code whose only visible effect,
+    # post-PT-80, would have been a confusing `no config.yml at config.yml`
+    # on a state that should never occur. Assert the contract instead of
+    # quietly working around a violation of it.
+    assert roots, "build_multi_board_payload: roots must never be empty -- resolve_roots always seeds the primary"
+    primary_config = load_config(roots[0].path)
     resolved_columns, columns_warning = resolve_board_columns(primary_config)
     resolved_swimlane, swimlane_warning = resolve_board_swimlane(primary_config)
     if columns_warning:
