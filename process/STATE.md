@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-77-token-backfill` |
 | Started | 2026-09-03 |
 | Goal | Capture per-issue × role × model token counts from the decaying local transcripts into a committed data file whose schema PT-78 will share. |
-| Status | In Progress |
+| Status | In Review — [PR #154](https://github.com/richmosko/project_template/pull/154) |
 
 ## Releases
 
