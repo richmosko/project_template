@@ -525,26 +525,9 @@ def _build_lines(
             "cache_write_1h": acc["cache_write_1h"],
             "records": acc["records"],
         })
-    rank_map = milestone_rank_map(milestone_windows_table)
+    rank_map = cairn.milestone_rank_map(milestone_windows_table)
     lines.sort(key=lambda line: _sort_key(line, rank_map))
     return lines
-
-
-def milestone_rank_map(milestone_windows_table: Optional[List[Tuple[str, str]]]) -> Dict[str, int]:
-    """`milestone_windows_table` is already sorted ascending by creation
-    timestamp (`milestone_windows`'s own contract) -- so a milestone
-    id's RANK is just its position in that list. Computed ONCE per sort
-    call (by `_build_lines`/`merge_and_write`/the receiver's own
-    `_append_lines`) and passed into `_sort_key` per line, rather than
-    rebuilt on every one of the O(n) `_sort_key` calls a single `.sort()`
-    already makes. `None`/empty (a caller with no table -- e.g. a test
-    exercising `_sort_key` in isolation) yields an empty map; every
-    "milestone:<id>" then falls back to rank 0, degrading to insertion
-    order rather than raising -- still deterministic, just not
-    creation-time-ordered without the table."""
-    if not milestone_windows_table:
-        return {}
-    return {milestone_id: i for i, (_start, milestone_id) in enumerate(milestone_windows_table)}
 
 
 def _sort_key(
@@ -681,7 +664,7 @@ def merge_and_write(
         existing = _read_existing_lines(out_path)
         kept = [l for l in existing if l.get("source") != source]
         combined = kept + new_lines
-        rank_map = milestone_rank_map(milestone_windows_table)
+        rank_map = cairn.milestone_rank_map(milestone_windows_table)
         combined.sort(key=lambda line: _sort_key(line, rank_map))
         text = "".join(json.dumps(line) + "\n" for line in combined)
         _atomic_write_text(out_path, text)

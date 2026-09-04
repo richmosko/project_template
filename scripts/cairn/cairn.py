@@ -2451,6 +2451,30 @@ def milestone_for_timestamp(ts: str, windows: List[Tuple[str, str]]) -> Optional
     return result
 
 
+def milestone_rank_map(milestone_windows_table: Optional[List[Tuple[str, str]]]) -> Dict[str, int]:
+    """`milestone_windows_table` is already sorted ascending by creation
+    timestamp (`milestone_windows`'s own contract) -- so a milestone
+    id's RANK is just its position in that list. Computed ONCE per sort
+    call and passed into each per-item sort key, rather than rebuilt on
+    every one of the O(n) comparisons a single `.sort()` already makes.
+    Lives here (not `backfill_tokens.py`) for the same three-consumer
+    reason as `milestone_windows`/`milestone_for_timestamp` above --
+    `backfill_tokens.py`'s own on-disk sort (§6) and `cairn.py`'s own
+    `/api/tokens` payload sort (§7) both need the identical rank, and
+    `cairn.py` is the common ancestor.
+
+    `None`/empty (a caller with no table -- e.g. a test exercising a
+    sort key in isolation, or a `MilestoneWindowError` caught upstream
+    and degraded) yields an empty map; every milestone id then falls
+    back to rank 0, degrading to insertion/stable-sort order rather than
+    raising -- still deterministic, just not creation-time-ordered
+    without the table.
+    """
+    if not milestone_windows_table:
+        return {}
+    return {milestone_id: i for i, (_start, milestone_id) in enumerate(milestone_windows_table)}
+
+
 def _release_status(target_tag: Optional[str], tag_set: Optional[Set[str]]) -> Optional[bool]:
     """Whether `target_tag` has shipped, per `tag_set` (PT-44 §4's
     formula) -- extracted so `build_board_payload`'s milestone loop and
@@ -3214,6 +3238,19 @@ def _read_token_usage_lines(path: Path) -> Tuple[List[Dict[str, Any]], Optional[
     return lines, warning
 
 
+def _token_bucket_kind(issue: str) -> str:
+    """PT-84 §7: the `kind` discriminator server-computes from the raw
+    `issue` string ONCE, here -- the chart must never string-sniff the
+    `milestone:` prefix itself (§7's own stated reason: a prefix
+    convention parsed on the client is exactly the coupling that breaks
+    the next time the storage form changes)."""
+    if issue == "main":
+        return "main"
+    if issue.startswith("milestone:"):
+        return "milestone"
+    return "issue"
+
+
 def build_tokens_payload(data_dir: Path, prices: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """`GET /api/tokens`'s payload (PT-79, architect's ruling § 2).
     Aggregated to issue x role -- model detail is folded into `cost_usd`
@@ -3248,6 +3285,7 @@ def build_tokens_payload(data_dir: Path, prices: Optional[Dict[str, Any]] = None
             "sources": [],
             "prices": {"retrieved": prices.get("retrieved"), "source": prices.get("source"), "unpriced_models": []},
             "warning": "no token data",
+            "milestone_caption": None,
         }
 
     rows, read_warning = _read_token_usage_lines(usage_path)
@@ -3317,17 +3355,44 @@ def build_tokens_payload(data_dir: Path, prices: Optional[Dict[str, Any]] = None
         role_entries.sort(key=lambda r: r["role"])
         total = {c: sum(r[c] for r in role_entries) for c in _TOKEN_COUNTERS}
         total["cost_usd"] = None if issue_any_unpriced[issue] else round(raw_issue_cost.get(issue, 0.0), 2)
-        issues_out.append({"issue": issue, "total": total, "roles": role_entries})
+        issues_out.append({"issue": issue, "kind": _token_bucket_kind(issue), "total": total, "roles": role_entries})
 
-    # Issue order: numeric ascending, `main` last -- PT-77's own
-    # `_sort_key` convention for the underlying data file, applied here
-    # to the aggregated payload for the same determinism reason, and
-    # because the ruling's § 4 renders `main` "last, visually muted".
+    # PT-84 §7: `milestone_windows` (this module) built ONCE per payload
+    # build, never per bucket -- same "once, not per record" discipline
+    # as the receiver's flush-time table. `_repo_root_for` (already used
+    # by `build_roster_payload` above) derives the true git worktree root
+    # from `data_dir`; `milestone_windows` itself needs that ROOT, never
+    # `data_dir`, because its own git pathspecs are computed relative to
+    # it (see that function's docstring). Caught broadly, not just
+    # `MilestoneWindowError`: this payload's own contract is "never
+    # raises" (a missing/corrupt metrics file already degrades rather
+    # than 500s), and a milestone-ordering failure is strictly less
+    # essential than the token totals themselves -- degrades to an empty
+    # rank map, which `milestone_rank_map` itself already defines as
+    # "every milestone bucket falls back to rank 0" (stable-sort/
+    # insertion order among milestones, not creation-time order, but
+    # still deterministic and never a 500).
+    try:
+        milestone_windows_table = milestone_windows(_repo_root_for(data_dir))
+    except Exception:
+        milestone_windows_table = []
+    rank_map = milestone_rank_map(milestone_windows_table)
+
+    # Issue order: numeric ascending, then milestone buckets by their own
+    # CREATION timestamp (never string compare -- `PT-0.10` sorts before
+    # `PT-0.5` lexicographically), then `main` last -- PT-77's own
+    # `_sort_key` convention for the underlying data file (§6), mirrored
+    # here for the aggregated payload for the same determinism reason,
+    # and because the ruling's §4 renders `main` "last, visually muted"
+    # and §6 ranks milestone buckets between issues and `main`.
     def _issue_sort_key(entry: Dict[str, Any]) -> Tuple[int, int]:
         iid = entry["issue"]
+        if entry["kind"] == "milestone":
+            milestone_id = iid[len("milestone:"):]
+            return (1, rank_map.get(milestone_id, 0))
         m = re.match(r"^[A-Za-z]+-(\d+)$", iid)
         if iid == "main" or not m:
-            return (1, 0)
+            return (2, 0)
         return (0, int(m.group(1)))
 
     issues_out.sort(key=_issue_sort_key)
@@ -3346,6 +3411,20 @@ def build_tokens_payload(data_dir: Path, prices: Optional[Dict[str, Any]] = None
     warnings = [w for w in (read_warning, None if models else "no price table found") if w]
     combined_warning = "; ".join(warnings) if warnings else None
 
+    # §7: "caption explains what they are in one clause" -- present only
+    # when the payload actually carries a milestone bucket (nothing to
+    # explain otherwise), same "field appears only when relevant"
+    # convention as `warning`/`unpriced_models`. One clause, no period-
+    # separated second sentence, so a client can drop it inline without
+    # sounding like two unrelated statements.
+    milestone_caption = (
+        "Milestone bars are main-branch work — filing, releases, between-loop "
+        "planning — attributed to whichever milestone was active at the time, "
+        "not to any single issue"
+        if any(entry["kind"] == "milestone" for entry in issues_out)
+        else None
+    )
+
     return {
         "issues": issues_out,
         "window_start": window_start,
@@ -3358,6 +3437,7 @@ def build_tokens_payload(data_dir: Path, prices: Optional[Dict[str, Any]] = None
             "unpriced_models": sorted(unpriced_models),
         },
         "warning": combined_warning,
+        "milestone_caption": milestone_caption,
     }
 
 

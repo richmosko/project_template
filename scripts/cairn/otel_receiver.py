@@ -748,7 +748,7 @@ def flush(
                 "records": int(acc["records"]),
             }
             new_lines.append({k: line[k] for k in _OUTPUT_KEY_ORDER})
-        milestone_rank_map = backfill_tokens.milestone_rank_map(milestone_windows_table)
+        milestone_rank_map = cairn.milestone_rank_map(milestone_windows_table)
         new_lines.sort(key=lambda line: backfill_tokens._sort_key(line, milestone_rank_map))
 
         if new_lines:
