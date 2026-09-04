@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | OTel receiver stops itself when the last session on the repo ends, after the exporter's final flush |
-| Issue | PT-86 (cairn) |
-| Milestone | PT-0.12 (telemetry attribution) |
-| Branch | `feature/pt-86-receiver-self-stop` |
-| Started | 2026-09-04 |
-| Goal | The receiver counts live sessions by id, and on the last SessionEnd waits a grace period, flushes, and exits — no daemon outlives the last session on the repo. |
-| Status | In Review — [PR #166](https://github.com/richmosko/project_template/pull/166) |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Releases
 
