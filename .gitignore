@@ -52,6 +52,12 @@ coverage/
 *.log
 logs/
 
+# PT-78: the otel receiver's own runtime state -- never the committed
+# process/cairn/metrics/token-usage.jsonl data file itself, which stays
+# tracked.
+*.pid
+process/cairn/metrics/.lock
+
 # Vendored third-party assets (e.g. Mermaid bundle from scripts/vendor-mermaid.sh).
 # Downstream projects that want this committed can un-ignore in their own .gitignore.
 docs/_assets/vendor/

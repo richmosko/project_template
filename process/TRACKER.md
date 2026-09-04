@@ -63,6 +63,26 @@ scripts/cairn/            THE ENGINE — self-contained, spin-off-ready
 
 **`metrics/token-usage.jsonl` is data, not a tracker record.** It holds token-usage counts only (input/cache-write/cache-read/output per issue × role × model), never issue content, and lives outside `issues/` `milestones/` `majors/` `archive/` so no cairn loader or `cairn check` ever scans it. `scripts/cairn/backfill_tokens.py` (PT-77) wrote it **once**, scraping the local Claude Code transcripts before their retention window pruned the history; PT-78 owns appending to it going forward from live OTel data, in the same schema, so the two sources merge without translation. A branch touching more than one issue (`feature/pt-7-8-9-13-*`) attributes its whole contribution to the first id only — the transcript carries no finer signal. The backfilled data starts at 2026-08-18 because Claude Code's own retention window had already pruned everything earlier by the time PT-77 ran; PT-79's chart must not present it as complete history.
 
+**Ongoing collection (PT-78): a local OTel receiver, off by default.** `/setup-tracker` opts a project in by adding this `env` block to `.claude/settings.json` (absent from the template until then):
+
+```json
+"env": {
+  "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+  "OTEL_METRICS_EXPORTER": "otlp",
+  "OTEL_LOGS_EXPORTER": "none",
+  "OTEL_EXPORTER_OTLP_PROTOCOL": "http/json",
+  "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4318"
+}
+```
+
+`OTEL_LOGS_EXPORTER` stays `none` and `OTEL_LOG_RAW_API_BODIES` stays unset — the logs stream is where prompt-adjacent content would ride; this project only ever collects metrics (counts), never content. `scripts/cairn/otel_receiver.py` is a separate long-lived local HTTP server (**not** inside `cairn serve`, which dies on `/exit`) started idempotently by the `SessionStart` hook — pidfile + a port probe, a second start is a no-op. It decodes `claude_code.token.usage` OTLP/JSON, counts it correctly under either delta or cumulative aggregation temporality (max within a (series, `startTimeUnixNano`) group, summed across groups, in memory only — a receiver restart drops whatever accrued while it was down, never reconstructed), and appends `source: "otel"` lines to the **same** `token-usage.jsonl`, under the same file lock, in the same 12-key schema PT-77 writes (minus the two optional `cache_write_5m`/`cache_write_1h` fields OTel doesn't split).
+
+**Issue attribution is branch-first, not `cairn.issue`-first** — the repo's current branch, through the exact same regex `backfill_tokens.py` uses, wins whenever it resolves to something other than `main`; the `cairn.issue` resource attribute (set via `OTEL_RESOURCE_ATTRIBUTES`) is only consulted as a fallback when the branch itself is `main`. This is a deliberate departure from the original design (`/start-feature` setting `cairn.issue` for a session): `OTEL_RESOURCE_ATTRIBUTES` is read once at process start and a long-running session would otherwise carry a stale value that could silently override a correct, live branch signal.
+
+**The receiver strips identity on an allow-list, not a deny-list.** The real export carries `user.email`, `user.id`, `user.account_id`, `user.account_uuid`, `organization.id`, `terminal.type`, `effort`, and `session.id` on every datapoint — none of it is ever written to disk; `session.id` is held in memory only, as the in-process series key, and discarded at flush. Only `agent.name`, `model`, `query_source`, `cairn.issue`, and `type` are read past the allow-list boundary. Role attribution has a loud `subagent-unattributed` bucket (never a silent fold into `team-lead`) when `agent.name` is absent and `query_source` isn't `main`/`auxiliary`/`sdk` — a real signal that role attribution isn't working, not noise to hide.
+
+**Tokens are exact; dollars are estimated.** The receiver does not persist `claude_code.cost.usage` (Claude Code's own client-side estimate) — dollars are recomputed from token counts for *both* sources (backfilled and live) using PT-79's one dated price table, so the chart never mixes two costing methods with a discontinuity at the boundary that looks like a real cost change and isn't. Token counts themselves are the API's own usage numbers and are exact for both sources.
+
 ### `config.yml`
 
 ```yaml
