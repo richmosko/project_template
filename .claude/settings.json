@@ -54,7 +54,18 @@
           },
           {
             "type": "command",
-            "command": "[ -f scripts/cairn/otel_receiver.py ] || exit 0; python3 scripts/cairn/otel_receiver.py --ensure-running >/dev/null; exit 0"
+            "command": "[ -f scripts/cairn/otel_receiver.py ] || exit 0; python3 scripts/cairn/otel_receiver.py --ensure-running --session-pid \"$PPID\" >/dev/null; exit 0"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f scripts/cairn/otel_receiver.py ] || exit 0; python3 scripts/cairn/otel_receiver.py --session-ended; exit 0"
           }
         ]
       }
