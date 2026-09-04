@@ -138,11 +138,18 @@ SONNET_PRICE = make_prices({"claude-sonnet-5": {"input": 2, "cache_write_5m": 2.
 
 class TokensPayloadShapeTests(unittest.TestCase):
     def test_payload_has_exactly_the_ruled_top_level_keys(self):
+        # PT-84 §7 added `milestone_caption` to this set (implementation-
+        # lead's own choice of key name, confirmed against the committed
+        # payload -- see TokensPayloadMilestoneKindTests below, which
+        # pins its content/shape) -- the one-clause caption explaining
+        # milestone bars, present unconditionally per the committed
+        # implementation (not gated on whether any milestone bucket is
+        # actually present in this particular payload).
         data_dir = make_tokens_data_dir(self, [
             token_line("PT-1", "team-lead", "claude-sonnet-5", input=100, cache_write=10, cache_read=20, output=5),
         ])
         payload = _call_build_tokens_payload(data_dir, prices=SONNET_PRICE)
-        expected_keys = {"issues", "window_start", "window_end", "generated", "sources", "prices", "warning"}
+        expected_keys = {"issues", "window_start", "window_end", "generated", "sources", "prices", "warning", "milestone_caption"}
         self.assertEqual(set(payload.keys()), expected_keys, payload.keys())
 
     def test_each_issue_carries_total_and_roles_with_the_four_counters_plus_cost(self):
