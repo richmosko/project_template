@@ -44,9 +44,16 @@ Contract under test (`scripts/cairn/backfill_tokens.py`, run directly, not a
   wherever `--out` points, for tests), one object per (source, issue, role,
   model) bucket-total line: `source`, `generated` (RFC3339 UTC, `Z`
   suffix), `window_start`/`window_end` (`YYYY-MM-DD`, inclusive --
-  `window_start` is the earliest record's date; `window_end` is the date
-  portion of `generated`, i.e. "today", NOT the latest record's date --
-  see the ruling's non-overlap-invariant note), `issue`, `role`, `model`,
+  both DATA-derived: `window_start` is the earliest contributing record's
+  date, `window_end` is the LATEST contributing record's date -- NOT the
+  date portion of `generated` (struck by the architect's amendment,
+  9e94514, which resolved a self-contradiction between the ruling's own
+  §1 and §2: "generated already records the scrape moment; the only
+  reading under which window_end earns its place in the schema is the
+  data-derived one"). Both computed ONCE per run, contribution-wide, and
+  repeated identically on every line of that run -- not per-bucket. The
+  PT-78 non-overlap invariant keys on `generated`, not `window_end`, for
+  this exact reason.), `issue`, `role`, `model`,
   `input`, `cache_write`, `cache_read`, `output` (the four AUTHORITATIVE
   counters), optionally `cache_write_5m`/`cache_write_1h`/`records`. No
   other keys -- in particular no `sessionId`/`requestId`/`uuid`/message
@@ -377,19 +384,54 @@ class BackfillGoldenPathTests(unittest.TestCase):
         window_starts = {line["window_start"] for line in lines}
         self.assertEqual(window_starts, {"2026-08-18"}, "window_start must be the earliest contributing record's date, uniform across every line of one run")
 
-    def test_window_end_is_generated_date_not_the_latest_record_date(self):
-        # Ruling: "The backfill sets window_end to its generated date" --
-        # deliberately NOT the latest record's own timestamp (2026-08-24
-        # in this fixture), so PT-78 knows not to emit data predating
-        # PT-77's own run date (the non-overlap invariant). This is the
-        # single most likely detail to get wrong -- a naive
-        # max(record timestamps) implementation would produce 2026-08-24
-        # here, not today.
+    def test_window_end_is_the_latest_record_date_not_generated(self):
+        # Architect's amendment (9e94514) struck the ruling's original §2
+        # sentence ("the backfill sets window_end to its generated date")
+        # as self-contradictory with §1 -- window_end is DATA-derived: the
+        # latest contributing record's date. Golden fixture's latest
+        # surviving record is 2026-08-24 (session-c's subagent record),
+        # well before whatever "today" (generated's date) happens to be --
+        # the exact shape the amendment calls out as the real
+        # discriminator (a struck "use generated" implementation would
+        # produce today's date here, not 2026-08-24).
         result = self._run_golden()
         lines = read_jsonl(self.out_path)
         today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
         window_ends = {line["window_end"] for line in lines}
-        self.assertEqual(window_ends, {today}, "window_end must be the date portion of `generated` (today), not the latest record's own timestamp")
+        self.assertEqual(window_ends, {"2026-08-24"}, "window_end must be the latest contributing record's date, not generated's date")
+        self.assertNotEqual(window_ends, {today}, "window_end must not silently equal today -- that would be the struck reading")
+
+    def test_window_end_tracks_the_record_not_the_clock_on_a_dedicated_fixture(self):
+        # The architect explicitly asked for this: "a run whose newest
+        # record is well before generated, asserting window_end tracks
+        # the record and not the clock. That is exactly the case the
+        # struck sentence would have got wrong." Isolated 2-record fixture
+        # so the discriminator is impossible to miss (both dates are
+        # 2026-07, guaranteed months before any real test run's "today").
+        tmp = helpers.make_empty_tmp_dir(self)
+        out_path = tmp / "token-usage.jsonl"
+        result = run_backfill([
+            "--transcripts-dir", str(TRANSCRIPTS_FIXTURES / "window_end"),
+            "--out-file", str(out_path),
+        ])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = read_jsonl(out_path)
+        self.assertTrue(lines)
+        window_starts = {line["window_start"] for line in lines}
+        window_ends = {line["window_end"] for line in lines}
+        self.assertEqual(window_starts, {"2026-07-01"})
+        self.assertEqual(window_ends, {"2026-07-15"})
+
+    def test_every_line_in_one_run_carries_the_identical_window_pair(self):
+        # Contribution-wide, not per-bucket (architect's amendment): one
+        # (window_start, window_end) pair computed once across the whole
+        # run and repeated on every line, regardless of which bucket that
+        # line belongs to.
+        result = self._run_golden()
+        lines = read_jsonl(self.out_path)
+        self.assertTrue(lines)
+        pairs = {(line["window_start"], line["window_end"]) for line in lines}
+        self.assertEqual(len(pairs), 1, f"every line of one run must share the exact same (window_start, window_end) pair, got {pairs}")
 
     def test_generated_timestamp_is_rfc3339_utc_with_z_suffix(self):
         result = self._run_golden()
