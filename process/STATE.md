@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-79-token-dashboard` |
 | Started | 2026-09-04 |
 | Goal | The dashboard shows per-issue tokens (input/output/cache series) and estimated cost stacked by role from token-usage.jsonl, with a dated price table; drawer shows per-issue totals. |
-| Status | In Progress |
+| Status | In Review — [PR #158](https://github.com/richmosko/project_template/pull/158) |
 
 ## Releases
 
