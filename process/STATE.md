@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-87-agentsetting-role` |
 | Started | 2026-09-04 |
 | Goal | A teammate's token usage lands under its roster role, never its spawn name, for live and backfilled lines alike. |
-| Status | In Progress |
+| Status | In Review — [PR #167](https://github.com/richmosko/project_template/pull/167) |
 
 ## Releases
 
