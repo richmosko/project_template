@@ -264,6 +264,42 @@ Single set, identical in `:root` and `.dark` (contrast already validated against
 }
 ```
 
+### Counter-type palette (PT-79 — tokens-view counters)
+
+**What this resolves:** implementation-lead found the *tokens* view of the PT-79 block (four counter series — `input`/`cache_write`/`cache_read`/`output`, per AC2) illegible on adjacent steps of the golden `--chart-1..5` ramp, and worked around it by reusing four of the role hues above (`--chart-role-1` for `input`, `-6` for `cache_write`, `-4` for `cache_read`, `-7` for `output`). Flagged back to me: that reuse means `--chart-role-1` reads as `team-lead` in the cost view and `input` in the tokens view of the *same block* — the two views never render simultaneously, but a viewer toggling between them carries the association across.
+
+**Ruling (ux-designer, 2026-09-03): reject the reuse, reject a wider-stepped `--chart-1..5`, ship a dedicated 4-step counter family.**
+
+- **Reusing role hues (option a) is rejected.** This is exactly the class of collision this system has already ruled against once — PT-69 moved the Paused/In Review badge off `--chart-2` for the identical reason (a token's meaning must not silently change out from under it depending on which control the user is looking at). A chart segment shouldn't borrow a color whose meaning is already claimed by a different dimension in the very same component.
+- **Re-widening the golden ramp (option c) is rejected.** The illegibility implementation-lead hit isn't a step-width problem, it's a single-hue-family problem: `--chart-1..5` varies only lightness/chroma in one hue, which is the right shape for *ordered magnitude* (that's what it's validated for, see **Chart-local ramp** above) and the wrong shape for four *kinds* of thing sitting adjacent in a stack — wider steps in the same hue would still be "four shades of gold," just less badly. Reprising a hue already carrying a different, established meaning (sequential/quantitative) for a fourth purpose also adds a third meaning to a token that already has two.
+- **Shipped: a new small family, its own hue, distinct in character from both.** Four tokens (`--chart-counter-input`, `--chart-counter-cache-write`, `--chart-counter-cache-read`, `--chart-counter-output`), one hue (H 205°, a muted cyan/teal — not used anywhere else in this system), stepped in lightness the same way `--chart-flow-*` is (readable "family" progression), at roughly 70% of each step's gamut-edge chroma so the family reads visibly *quieter* than the saturated 8-hue role rainbow even before checking exact hue distance — the gestalt cue ("this whole four-color group looks different from that whole eight-color group") is the primary anti-collision device, hue separation is the second line of defense.
+
+| Token | Counter | OKLCH | Hex | vs. white `--card` | vs. dark `--card` |
+|---|---|---|---|---|---|
+| `--chart-counter-input` | `input` | `oklch(0.500 0.0598 205.0)` | `#356d73` | 5.84:1 | 3.00:1 |
+| `--chart-counter-cache-write` | `cache_write` | `oklch(0.575 0.0688 205.0)` | `#42858c` | 4.24:1 | 4.12:1 |
+| `--chart-counter-cache-read` | `cache_read` | `oklch(0.650 0.0777 205.0)` | `#4f9da6` | 3.13:1 | 5.58:1 |
+| `--chart-counter-output` | `output` | `oklch(0.720 0.0861 205.0)` | `#5cb4be` | 2.40:1 | 7.29:1 |
+
+**Evidence.** All four clear 2:1 on both real `--card` surfaces (worst: `output` 2.40:1 white, `input` 3.00:1 dark). Adjacent-step OKLab separation is 0.070–0.076 raw and 0.146–0.161 under both simulated deuteranopia and protanopia (Machado/Oliveira/Fairchild 2009, same method as the role palette above) — each step stays individually distinguishable from its neighbor under either deficiency, direction preserved. Nearest role-hue distance per step ranges 0.073 (`cache_write`↔`seceng`) to 0.115 (`output`↔`seceng`) — closer than the role palette's own internal spacing, but never below the ~0.02 OKLab JND, and none of the four sits inside the role rainbow's saturated-chroma band (0.11–0.24) to begin with. Same standing caveat as the role palette: computed manually, dataviz skill script unreachable this session — re-run through `validate_palette.py` before lock.
+
+**`app.css` — ready to paste**, single set for `:root`/`.dark`:
+
+```css
+:root {
+  --chart-counter-input: oklch(0.500 0.0598 205.0);
+  --chart-counter-cache-write: oklch(0.575 0.0688 205.0);
+  --chart-counter-cache-read: oklch(0.650 0.0777 205.0);
+  --chart-counter-output: oklch(0.720 0.0861 205.0);
+}
+.dark {
+  --chart-counter-input: oklch(0.500 0.0598 205.0);
+  --chart-counter-cache-write: oklch(0.575 0.0688 205.0);
+  --chart-counter-cache-read: oklch(0.650 0.0777 205.0);
+  --chart-counter-output: oklch(0.720 0.0861 205.0);
+}
+```
+
 ### Sidebar tokens
 
 Dashboards are assumed to ship a persistent nav sidebar as a first-class surface, not an afterthought — the preset gives it its own token group (`--sidebar`, `--sidebar-foreground`, `--sidebar-primary(-foreground)`, `--sidebar-accent(-foreground)`, `--sidebar-border`, `--sidebar-ring`) distinct from `--card`/`--popover`, so a sidebar can be tinted independently (here: barely — `--sidebar` in light mode is `oklch(0.985 …)` vs. page `--background` `oklch(1 …)`, a near-imperceptible 1.5% lightness step, just enough to read as a distinct plane without a visible seam).
