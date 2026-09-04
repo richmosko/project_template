@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | One-time backfill — scrape existing transcripts for per-issue token usage, nothing else |
+| Issue | PT-77 |
+| Milestone | PT-0.11 (token accounting) |
+| Branch | `feature/pt-77-token-backfill` |
+| Started | 2026-09-03 |
+| Goal | Capture per-issue × role × model token counts from the decaying local transcripts into a committed data file whose schema PT-78 will share. |
+| Status | In Progress |
 
 ## Releases
 
