@@ -1,0 +1,1 @@
+{"type": "assistant", "sessionId": "fake-session-a", "timestamp": "2026-08-19T08:00:00Z", "gitBranch": "phase/some-doc-update", "requestId": "req-main-1", "uuid": "uuid-main-1", "message": {"model": "claude-sonnet-5", "usage": {"input_tokens": 7, "cache_creation_input_tokens": 8, "cache_read_input_tokens": 9, "output_tokens": 2}}}

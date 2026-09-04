@@ -1,0 +1,1 @@
+{"type": "assistant", "sessionId": "fake-session-a", "timestamp": "2026-08-21T09:00:00Z", "gitBranch": "feature/pt-28-add-widget", "agentName": "backend-lead", "requestId": "req-role2-1", "uuid": "uuid-role2-1", "message": {"model": "claude-fable-5-1", "usage": {"input_tokens": 10, "cache_creation_input_tokens": 20, "cache_read_input_tokens": 30, "output_tokens": 5}}}

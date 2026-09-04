@@ -159,10 +159,27 @@ class BackfillGoldenPathTests(unittest.TestCase):
     """Runs against fixtures/transcripts/golden/ -- the kitchen-sink
     synthetic tree covering every case named in both the original AC5 list
     and the architect's own QA fixture-case list (duplicate requestId
-    across two files, a lead record with no agentName, a
-    <session>/subagents/agent-*.jsonl record, a main record,
-    agentName: qa-engineer-76, model: "<synthetic>", an uppercase
-    feature/PT-47 branch, a chore/pt-0.11-* milestone branch)."""
+    across two files, a lead record with no agentName, a nested
+    subagents/agent-*.jsonl record, a main record, agentName:
+    qa-engineer-76, model: "<synthetic>", an uppercase feature/PT-47
+    branch, a chore/pt-0.11-* milestone branch).
+
+    RESTRUCTURED (PT-87, architect's per-test ruling at 4bd40f9, on top
+    of the addendum at 0aa49be): role resolution moved from per-record
+    to per-FILE (both agentName and the new agentSetting are measured
+    session-constant on every real transcript -- 0/53 and 0/69 vary
+    within a file). The four original files here each mixed several
+    DIFFERENT agentName values across their records -- a shape real
+    transcripts never produce -- so each now lives as several
+    single-role files instead. Every field VALUE (branch, requestId,
+    uuid, model, usage counters, timestamp) is preserved byte-for-byte
+    from the original session-a/b/c/e.jsonl; only which FILE each
+    record lives in changed. The 9 hand-counted bucket totals below are
+    therefore unchanged from before the split -- re-derived by hand from
+    these fixture files' own record contents, NOT recomputed from the
+    implementation's own output (the architect's explicit warning: a
+    total computed from the code under test proves only
+    self-consistency)."""
 
     def setUp(self):
         self.tmp = helpers.make_empty_tmp_dir(self)
@@ -210,12 +227,18 @@ class BackfillGoldenPathTests(unittest.TestCase):
             self.assertEqual(line["output"], out, key)
 
     def test_dedupe_by_request_id_across_files_counts_the_pair_once(self):
-        # req-lead-1 appears in BOTH session-a.jsonl and session-b.jsonl
-        # (different uuid each time, same requestId, same values -- the
-        # architect measured zero disagreeing duplicates in the real
-        # corpus). Global cross-file dedupe must fold this to ONE record,
-        # not two -- caught by both the totals (100, not 200) and
-        # `records` if the script fills that optional field.
+        # req-lead-1 appears in BOTH team_lead_pt28.jsonl and
+        # team_lead_pt28_dup.jsonl (different uuid each time, same
+        # requestId, same values -- the architect measured zero
+        # disagreeing duplicates in the real corpus). Both files resolve
+        # to the SAME role (team-lead, no name field in either) --
+        # deliberate, per the architect's per-test ruling (4bd40f9): a
+        # cross-file dedupe pair spanning two DIFFERENT roles would be
+        # order-dependent under per-file resolution (whichever file the
+        # scan reaches first keeps the contribution). Global cross-file
+        # dedupe must fold this pair to ONE record, not two -- caught by
+        # both the totals (100, not 200) and `records` if the script
+        # fills that optional field.
         result = self._run_golden()
         lines = read_jsonl(self.out_path)
         buckets = bucket_map(lines)
@@ -225,10 +248,13 @@ class BackfillGoldenPathTests(unittest.TestCase):
             self.assertEqual(line["records"], 1, "exactly one unique requestId contributed to this bucket")
 
     def test_dedupe_fallback_to_uuid_when_request_id_is_absent(self):
-        # session-b.jsonl's PT-90 record and its duplicate in
-        # golden/session-c/subagents/agent-1.jsonl both omit `requestId`
-        # entirely and share the same `uuid` -- dedupe must fall back to
-        # uuid and still fold this pair to one contribution.
+        # team_lead_pt90.jsonl and team_lead_pt90_dup.jsonl both omit
+        # `requestId` entirely and share the same `uuid` -- dedupe must
+        # fall back to uuid and still fold this pair to one contribution.
+        # Both files are nameless (team-lead) -- same same-role
+        # constraint as the requestId dedupe pair above, and deliberately
+        # NOT bundled into golden/subagents/agent-1.jsonl (which carries
+        # a real qa-engineer record) for the same reason.
         result = self._run_golden()
         lines = read_jsonl(self.out_path)
         buckets = bucket_map(lines)
@@ -247,19 +273,34 @@ class BackfillGoldenPathTests(unittest.TestCase):
     def test_roster_suffixed_role_name_is_normalised(self):
         # agentName "qa-engineer-76" -- stem "qa-engineer" IS a roster
         # file (.claude/agents/qa-engineer.md) -- must normalise to
-        # "qa-engineer", not stay "qa-engineer-76".
+        # "qa-engineer", not stay "qa-engineer-76". Architect's own
+        # warning (per-test ruling, 4bd40f9): a bare "'qa-engineer' is
+        # SOMEWHERE in the output" check would pass even if the
+        # stripping rule were never exercised, since golden/subagents/
+        # agent-1.jsonl ALSO produces role "qa-engineer" via a plain,
+        # unrelated, no-stripping-needed pass-through. Scoped to the
+        # PT-47 bucket specifically -- the ONE bucket only
+        # qa_engineer_suffix_stripped_pt47.jsonl's stripped record can
+        # produce -- so this test can only pass for the right reason.
         result = self._run_golden()
         lines = read_jsonl(self.out_path)
+        buckets = bucket_map(lines)
+        self.assertIn(
+            ("PT-47", "qa-engineer", "claude-sonnet-5"), buckets,
+            "qa-engineer-76's stem (qa-engineer) IS a roster name -- must normalise, and PT-47 is the only "
+            "bucket this specific record can produce",
+        )
         roles = {line["role"] for line in lines}
-        self.assertIn("qa-engineer", roles)
         self.assertNotIn("qa-engineer-76", roles)
 
     def test_adhoc_role_name_stays_verbatim_even_with_a_trailing_digit(self):
         # agentName "impl2" -- stripping a trailing -<digits> gives stem
         # "impl", which is NOT a roster file -- must stay "impl2"
         # verbatim, not get folded to "impl" or stripped at all. Separately,
-        # "impl" (session-b.jsonl, no trailing digit) is unambiguously
-        # ad-hoc and must also stay verbatim.
+        # "impl" (impl_adhoc_milestone_branch_main.jsonl, no trailing
+        # digit) is unambiguously ad-hoc and must also stay verbatim.
+        # Both roles are unique to their own fixture file -- no other
+        # record produces "impl2" or "impl", so no scoping ambiguity.
         result = self._run_golden()
         lines = read_jsonl(self.out_path)
         roles = {line["role"] for line in lines}
@@ -280,9 +321,10 @@ class BackfillGoldenPathTests(unittest.TestCase):
         lines = read_jsonl(self.out_path)
         issues = {line["issue"] for line in lines}
         self.assertIn("main", issues)
-        # A phase/* branch (session-a L3) and a chore/pt-0.11-* MILESTONE
-        # branch (session-b L3) both land in main, not PT-0 or PT-0.11 --
-        # only a genuine numeric issue id or "main" may appear.
+        # A phase/* branch (team_lead_main.jsonl) and a chore/pt-0.11-*
+        # MILESTONE branch (impl_adhoc_milestone_branch_main.jsonl) both
+        # land in main, not PT-0 or PT-0.11 -- only a genuine numeric
+        # issue id or "main" may appear.
         for issue in issues:
             self.assertTrue(
                 issue == "main" or (issue.startswith("PT-") and issue[3:].isdigit()),
@@ -290,8 +332,9 @@ class BackfillGoldenPathTests(unittest.TestCase):
             )
 
     def test_case_insensitive_uppercase_branch_still_buckets(self):
-        # session-b.jsonl's qa-engineer-76 record is on "feature/PT-47"
-        # (uppercase, no trailing slug) -- must still bucket to PT-47.
+        # qa_engineer_suffix_stripped_pt47.jsonl's record is on
+        # "feature/PT-47" (uppercase, no trailing slug) -- must still
+        # bucket to PT-47.
         result = self._run_golden()
         lines = read_jsonl(self.out_path)
         issues = {line["issue"] for line in lines}
@@ -309,8 +352,12 @@ class BackfillGoldenPathTests(unittest.TestCase):
         self.assertNotIn("PT-13", issues)
 
     def test_subagent_record_in_nested_subdirectory_is_picked_up(self):
-        # golden/session-c/subagents/agent-1.jsonl -- must be found by the
-        # recursive scan, not just top-level *.jsonl files.
+        # golden/subagents/agent-1.jsonl -- must be found by the
+        # recursive scan, not just top-level *.jsonl files. Deliberately
+        # the ONLY record in that file (see its own comment in the
+        # fixture-generation script/commit message) -- a nameless
+        # (team-lead) record used to share this file and was moved out
+        # specifically so this file resolves to exactly one role.
         result = self._run_golden()
         lines = read_jsonl(self.out_path)
         buckets = bucket_map(lines)
@@ -326,10 +373,10 @@ class BackfillGoldenPathTests(unittest.TestCase):
         self.assertGreaterEqual(len(role_model_pairs), 2, "PT-28 must carry at least two distinct role/model pairs, not one merged bucket")
 
     def test_non_assistant_record_with_no_usage_is_skipped_without_error(self):
-        # session-a.jsonl's type:"user" record carries no message.usage at
-        # all -- must be silently skipped, must NOT trigger the
-        # fail-loudly path (that's reserved for a malformed ASSISTANT
-        # record).
+        # non_assistant_no_usage.jsonl's type:"user" record carries no
+        # message.usage at all -- must be silently skipped, must NOT
+        # trigger the fail-loudly path (that's reserved for a malformed
+        # ASSISTANT record).
         result = self._run_golden()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -352,10 +399,10 @@ class BackfillGoldenPathTests(unittest.TestCase):
             self.assertEqual(backfill_lines, [], "a usage-key-less assistant record must not produce any output bucket")
 
     def test_synthetic_model_record_is_skipped_and_not_counted(self):
-        # session-b.jsonl's model:"<synthetic>" record has no requestId,
-        # all-zero usage -- must be filtered before dedupe/bucketing, not
-        # counted anywhere (including not silently folded into PT-28 via
-        # uuid fallback).
+        # synthetic_model_filtered.jsonl's model:"<synthetic>" record has
+        # no requestId, all-zero usage -- must be filtered before
+        # dedupe/bucketing, not counted anywhere (including not silently
+        # folded into PT-28 via uuid fallback).
         result = self._run_golden()
         lines = read_jsonl(self.out_path)
         total_records = sum(line.get("records", 1) for line in lines)
@@ -384,8 +431,8 @@ class BackfillGoldenPathTests(unittest.TestCase):
 
     def test_window_start_is_the_earliest_record_date_not_today(self):
         # Earliest surviving record in the golden fixture is
-        # session-b.jsonl's chore/pt-0.11-* line, timestamped
-        # 2026-08-18T07:00:00Z.
+        # impl_adhoc_milestone_branch_main.jsonl's chore/pt-0.11-* line,
+        # timestamped 2026-08-18T07:00:00Z.
         result = self._run_golden()
         lines = read_jsonl(self.out_path)
         window_starts = {line["window_start"] for line in lines}
@@ -396,8 +443,9 @@ class BackfillGoldenPathTests(unittest.TestCase):
         # sentence ("the backfill sets window_end to its generated date")
         # as self-contradictory with §1 -- window_end is DATA-derived: the
         # latest contributing record's date. Golden fixture's latest
-        # surviving record is 2026-08-24 (session-c's subagent record),
-        # well before whatever "today" (generated's date) happens to be --
+        # surviving record is 2026-08-24 (golden/subagents/agent-1.jsonl,
+        # the nested subagent record), well before whatever "today"
+        # (generated's date) happens to be --
         # the exact shape the amendment calls out as the real
         # discriminator (a struck "use generated" implementation would
         # produce today's date here, not 2026-08-24).
@@ -489,7 +537,17 @@ class BackfillOrderingTests(unittest.TestCase):
     """Isolated fixture (4 records, 3 buckets) purely for the line-order
     tiebreak -- kept separate from the kitchen-sink golden fixture so this
     assertion doesn't ride on the golden fixture's larger, harder-to-eyeball
-    bucket set."""
+    bucket set.
+
+    RESTRUCTURED (PT-87, architect's per-test ruling, row 8: "Two files,
+    same issue"): per-file role resolution means the original single
+    4-record file (agentName zzz-role/aaa-role/aaa-role/aaa-role across
+    its records) can no longer produce two roles from one file. Split
+    into 4 single-role files -- the PT-5 pair (zzz_role_pt5.jsonl,
+    aaa_role_pt5.jsonl) is the one that must stay two SEPARATE files to
+    prove "role lexicographic within one issue" at all; PT-2 and main
+    each only ever needed one role and one record. Every value/timestamp
+    preserved from the original ordering/session.jsonl."""
 
     def setUp(self):
         self.tmp = helpers.make_empty_tmp_dir(self)
