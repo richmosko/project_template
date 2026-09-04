@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | OTel receiver hardening: telemetry gate, bind verification, port/endpoint agreement |
-| Issue | PT-81 |
-| Milestone | PT-0.11 (token accounting) |
-| Branch | `feature/pt-81-receiver-hardening` |
-| Started | 2026-09-04 |
-| Goal | The receiver never starts with telemetry off, never claims success after a failed bind, and refuses a port that disagrees with the exporter endpoint. |
-| Status | In Review — [PR #160](https://github.com/richmosko/project_template/pull/160) |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Releases
 

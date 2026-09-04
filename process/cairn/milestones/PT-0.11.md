@@ -3,7 +3,7 @@ id: PT-0.11
 name: token accounting
 kind: product
 major: PT-V1
-status: planned
+status: done
 target_tag: v0.11.0
 ga: false
 ---
