@@ -110,7 +110,7 @@ class MilestoneForTimestampPureTests(unittest.TestCase):
 
     def _resolve(self, ts: str, windows: list[tuple[str, str]]) -> Optional[str]:
         self.assertTrue(
-            hasattr(backfill_tokens, "milestone_for_timestamp"),
+            hasattr(cairn, "milestone_for_timestamp"),
             "cairn.milestone_for_timestamp does not exist yet -- PT-84's window-resolution seam is unimplemented",
         )
         return cairn.milestone_for_timestamp(ts, windows)
