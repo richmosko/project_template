@@ -199,6 +199,26 @@ class MilestoneForTimestampPureTests(unittest.TestCase):
             "because of an uncanonicalised string compare",
         )
 
+    def test_a_whole_second_and_a_millisecond_timestamp_at_the_same_instant_resolve_identically(self):
+        # Architect's own follow-up (e0c116f): pins the CANONICALISATION
+        # itself, not just the one boundary case above -- whichever
+        # collector's precision a given record happens to carry, the
+        # SAME instant must resolve to the SAME milestone. This is the
+        # assertion that survives even if normalisation later moves
+        # somewhere else in the pipeline (e.g. into each collector at
+        # its own call site) rather than staying inside this function.
+        windows = [
+            ("2026-08-22T06:38:00Z", "PT-0.11"),
+            ("2026-08-22T06:38:52Z", "PT-0.12"),
+        ]
+        whole_second = self._resolve("2026-08-22T06:38:52Z", windows)
+        millisecond = self._resolve("2026-08-22T06:38:52.326Z", windows)
+        self.assertEqual(
+            whole_second, millisecond,
+            f"the same instant must resolve identically regardless of which collector's precision it arrived "
+            f"with -- whole-second gave {whole_second!r}, millisecond gave {millisecond!r}",
+        )
+
 
 # --------------------------------------------------------------------------
 # §3's two real traps -- only testable against a real git history.
