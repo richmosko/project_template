@@ -233,18 +233,22 @@ class PrivacyAllowListTests(unittest.TestCase):
 
 class CountingTests(unittest.TestCase):
     """Ruling §3, addendum's implementable pseudocode. Both fixtures put
-    the repeated series on PT-33 (a `cairn.issue` resource attr, cwd left
-    at the real repo so branch resolves to `main` and the fallback
-    engages) so the assertions can target one predictable bucket."""
+    the repeated series on PT-33 (a `cairn.issue` attribute), so
+    `--repo-root` must be pinned to a throwaway repo on `main` -- a real
+    shared checkout is never on `main` mid-feature, and without the pin
+    branch-first attribution reads THIS repo's actual current branch and
+    silently overrides the fixture's cairn.issue (implementation-lead's
+    finding against d6fc93a)."""
 
     def test_an_exact_duplicate_entry_within_one_payload_counts_once(self):
         # duplicate_within_payload.json: the identical (attrs,
         # startTimeUnixNano, value=100) datapoint appears twice in one
         # payload's dataPoints array -- the concrete shape an export
         # retry/duplicate delivery produces. Must fold to 100, not 200.
+        repo = make_repo_on_branch(self, "main")
         out_dir = helpers.make_empty_tmp_dir(self)
         out_path = out_dir / "token-usage.jsonl"
-        result = ingest("duplicate_within_payload.json", out_path)
+        result = ingest("duplicate_within_payload.json", out_path, repo_root=repo)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         lines = read_jsonl(out_path)
         pt33 = [l for l in lines if l["issue"] == "PT-33"]
@@ -256,9 +260,10 @@ class CountingTests(unittest.TestCase):
         # values 100 then 150 -- must count 150 (the max), never 250 (the
         # sum). This is the ruling's explicit warning: "do not simplify
         # to a plain sum without first proving delta behaviourally."
+        repo = make_repo_on_branch(self, "main")
         out_dir = helpers.make_empty_tmp_dir(self)
         out_path = out_dir / "token-usage.jsonl"
-        result = ingest("rising_within_group.json", out_path)
+        result = ingest("rising_within_group.json", out_path, repo_root=repo)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         lines = read_jsonl(out_path)
         pt33 = [l for l in lines if l["issue"] == "PT-33"]
@@ -343,7 +348,15 @@ class MergeWithBackfillTests(unittest.TestCase):
     def test_transcript_backfill_line_survives_a_receiver_flush_byte_for_byte(self):
         out_dir = helpers.make_empty_tmp_dir(self)
         out_path = out_dir / "token-usage.jsonl"
-        backfill_line = self._seed_backfill_line(out_path, generated="2026-08-01T00:00:00Z")
+        # basic.json's datapoint is timestamped 2025-09-01 -- the seeded
+        # backfill line's `generated` must be BEFORE that, or the §8
+        # non-overlap invariant correctly (and unhelpfully, for THIS
+        # test's purpose) refuses the flush instead of merging
+        # (implementation-lead's finding against d6fc93a, where this used
+        # 2026-08-01 -- after the payload, tripping the very guard
+        # test_a_flush_predating_the_latest_backfill_generated_is_refused
+        # exists to test on purpose).
+        backfill_line = self._seed_backfill_line(out_path, generated="2025-08-01T00:00:00Z")
 
         result = ingest("basic.json", out_path)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -442,7 +455,7 @@ class LockContentionTests(unittest.TestCase):
         os.utime(lock_path, (stale_time, stale_time))
 
         result = ingest("basic.json", out_path)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr, "a stale lock must be reclaimed, allowing the flush to succeed")
+        self.assertEqual(result.returncode, 0, f"a stale lock must be reclaimed, allowing the flush to succeed -- stdout={result.stdout!r} stderr={result.stderr!r}")
         self.assertTrue(out_path.is_file())
 
 
@@ -498,11 +511,16 @@ class OnceIntegrationTests(unittest.TestCase):
     127.0.0.1:{port}")`) if this test proves flaky in practice."""
 
     def test_once_accepts_one_request_flushes_and_exits(self):
+        # --repo-root pinned to a throwaway repo on main, same reason as
+        # CountingTests: without it, branch-first attribution reads this
+        # real shared checkout's actual current branch instead of
+        # basic.json's cairn.issue: PT-95.
+        repo = make_repo_on_branch(self, "main")
         out_dir = helpers.make_empty_tmp_dir(self)
         out_path = out_dir / "token-usage.jsonl"
         port = 48765 + (os.getpid() % 1000)
         proc = subprocess.Popen(
-            [sys.executable, str(SCRIPT_PATH), "--once", "--port", str(port), "--out-file", str(out_path)],
+            [sys.executable, str(SCRIPT_PATH), "--once", "--port", str(port), "--out-file", str(out_path), "--repo-root", str(repo)],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
         try:
