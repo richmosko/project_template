@@ -74,7 +74,9 @@ CLI:
     python3 scripts/cairn/otel_receiver.py [--port N] [--out-file PATH]
         [--flush-interval SECONDS] [--pidfile PATH]
         [--ingest PATH|-] [--once]
-        [--ensure-running] [--status] [--flush-now] [--stop]
+        [--ensure-running [--session-id ID --session-pid PID]]
+        [--session-ended ID] [--grace-period-seconds N]
+        [--status] [--flush-now] [--stop]
 
     No flag (bare invocation)  -- runs the long-lived HTTP server in the
         foreground: binds --port, writes --pidfile, flushes on SIGUSR1
@@ -99,11 +101,53 @@ CLI:
         The hook still exits 0 regardless -- a SessionStart hook must
         never fail a session over telemetry -- but now lets stderr
         through instead of swallowing it, so these messages are visible.
+        PT-86: paired with `--session-id ID --session-pid PID` (both, or
+        neither -- a bare call, what every pre-PT-86 caller still does,
+        registers nothing), registers ID as a live session (see "Session
+        lifecycle" below) once the receiver is confirmed up, new spawn or
+        already-running alike.
+    --session-ended ID  -- PT-86, the SessionEnd hook's target: deregister
+        ID, reap any OTHER recorded session whose pid has since died (the
+        crash backstop), and ping the daemon to re-evaluate whether it
+        should start its grace-shutdown countdown. No daemon running ->
+        no-op, exit 0 -- same discipline as --ensure-running, since a
+        SessionEnd hook must not fail session teardown either, and (per
+        Claude Code's own hook contract) cannot block it regardless: this
+        call never waits on the grace period itself, only the daemon does.
+    --grace-period-seconds N  -- (bare/serve invocation; default 10)
+        threaded through `--ensure-running`'s spawn args when it starts a
+        FRESH daemon. See "Session lifecycle" below.
     --status  -- print whether a receiver is running, its port, and its
         --out-file, then exit 0 if running / 1 if not (a caller-facing
-        health check, not what the hook itself calls).
+        health check, not what the hook itself calls). PT-86: also prints
+        `sessions: N` and one `session <id>: alive|dead` line per
+        RECORDED id (sorted, freshly probed, never mutating -- only
+        --session-ended and a flush actually reap a dead entry).
     --flush-now / --stop  -- signal a running instance (SIGUSR1 / SIGTERM)
         via its pidfile.
+
+Session lifecycle (PT-86, process/cairn/issues/PT-86.md, architect's
+    addendum): the receiver stops itself when the LAST session on the
+    repo ends, only after the exporter's final flush has had a grace
+    window to land -- see `_sessions_dir`'s own docstring for the
+    on-disk shape (one small file per session, no cross-process lock
+    needed) and `serve`'s watchdog block for the state machine. In
+    short: `--ensure-running`/`--session-ended` mutate the session-file
+    directory directly (fast, synchronous, since a SessionEnd hook
+    cannot block session teardown -- neither call ever waits on the
+    grace period itself); `--session-ended` additionally sends SIGUSR2
+    as a latency-only nudge (never load-bearing for correctness) so the
+    daemon's watchdog thread re-evaluates and reaps dead siblings
+    (addendum §3, "on every end event") sooner than its own
+    WATCHDOG_TICK_SECONDS poll would. The watchdog arms a
+    `--grace-period-seconds` deadline the first time it observes an
+    empty registry that was previously non-empty, clears it on any tick
+    that finds the registry non-empty again, and once the deadline has
+    passed with the registry still empty (one more fresh probe first),
+    runs the addendum §B two-flag `.closing` point-of-no-return protocol
+    -- a session racing to register in that exact window still cancels
+    the shutdown -- then closes the socket, does the final flush,
+    compare-and-deletes the pidfile, and exits.
 
     --out-file and the config-derived prefix/port are resolved from the
     REPO ROOT (this script's own on-disk location), never from
@@ -127,6 +171,7 @@ import gzip
 import http.server
 import json
 import os
+import select
 import signal
 import socket
 import socketserver
@@ -147,6 +192,52 @@ DEFAULT_FLUSH_INTERVAL_SECONDS = 30 * 60  # ruling §7: "at most every 30 minute
 PIDFILE_REL = Path("process") / "cairn" / "metrics" / ".receiver.pid"
 LOGFILE_REL = Path("process") / "cairn" / "metrics" / "otel_receiver.log"
 
+# PT-86: the last-session-ends-the-daemon-stops-itself lifecycle. Design
+# per process/cairn/issues/PT-86.md's architect addendum ("@architect --
+# 2026-09-04", the second comment, which withdraws and replaces the
+# first ruling's HTTP `/control/session` endpoint in favor of a file-per-
+# session registry) -- see `_sessions_dir` and `serve`'s watchdog block.
+SESSIONS_DIRNAME = ".sessions"
+CLOSING_MARKER_NAME = ".closing"
+# Architect review (ef000d5), Delta 6: written by `serve` at startup,
+# inside `_sessions_dir` (zero new .gitignore surface -- the directory
+# is already covered end-to-end, and the existing dotfile filter in
+# `live_session_ids` already skips it the same way it skips
+# CLOSING_MARKER_NAME). Its PRESENCE is the only thing that matters --
+# `_nudge_daemon` only sends SIGUSR2 when it's there, so a receiver
+# started before this change (no SIGUSR2 handler at all -- an unhandled
+# SIGUSR2 terminates a Python process outright) is never signalled.
+NUDGE_CAPABLE_MARKER_NAME = ".nudge-capable"
+# `--status` (StatusFourStateTests) must label a `dead`/`dead-pending`
+# entry using the SAME transcripts_dir the actual running daemon
+# resolved at spawn time -- which can differ from whatever this SEPARATE
+# CLI invocation would resolve on its own (its own `--transcripts-dir`
+# default, or a test's deliberate override that was only ever passed on
+# the ORIGINAL --ensure-running call, not on this one). Same pattern as
+# NUDGE_CAPABLE_MARKER_NAME: written once at daemon startup, inside
+# `_sessions_dir`, read back by whoever needs the daemon's own answer.
+TRANSCRIPTS_DIR_MARKER_NAME = ".transcripts-dir"
+DEFAULT_GRACE_PERIOD_SECONDS = 10.0  # addendum §D: default 10s
+WATCHDOG_TICK_SECONDS = 0.2  # addendum §4: "ticks <= 0.25 s"
+TRANSCRIPT_STALE_SECONDS = 30 * 60  # addendum C: the probe's second signal
+# Team-lead's ruling (PT-86, 138c03c: "the slow periodic reap sweep in
+# 12afe1d stays"), architect-reviewed at 0d9f0b5 (verified by
+# construction: exits at one sweep interval, not indefinitely, once
+# every registered session has crashed). The nudge-gated reap and the
+# flush-triggered reap both go silent when EVERY registered session has
+# crashed (no `end` event ever arrives to nudge, no export ever arrives
+# to trigger a flush) -- this THIRD, time-based trigger, independent of
+# both, is what makes that case genuinely bounded instead of pinned
+# until an unrelated future session's own SessionEnd happens to reap it.
+# Deliberately much slower than WATCHDOG_TICK_SECONDS (reaping every
+# tick regardless of a nudge was tried and rejected -- see
+# `_watchdog_loop`'s docstring -- it broke the "not yet reaped" window
+# LivenessReapTests relies on) and much slower than
+# TRANSCRIPT_STALE_SECONDS itself (no entry can become reap-eligible
+# faster than that anyway). Configurable via `--periodic-reap-seconds`,
+# same shape as `--grace-period-seconds`, so tests can shrink it to
+# sub-second without a real multi-minute wait.
+DEFAULT_PERIODIC_REAP_SECONDS = 5 * 60
 # Addendum: the allow-list, verbatim -- every OTLP attribute NOT one of
 # these five is dropped before it reaches memory beyond the series key.
 _ATTR_ALLOW_LIST = ("agent.name", "model", "query_source", "cairn.issue", "type")
@@ -767,6 +858,246 @@ def _pid_is_alive(pid: int) -> bool:
     return True
 
 
+def _compare_and_delete_pidfile(pidfile: Path, expected_pid: int) -> None:
+    """Addendum §5: "unlink the pidfile compare-and-delete: read it back,
+    delete only if it still holds our own pid" -- applies to EVERY
+    shutdown path (`--stop`'s SIGTERM/SIGINT handler, `serve`'s own
+    `finally`, and the PT-86 watchdog), not just the new one. As written
+    before this ticket, an exiting receiver unconditionally unlinked the
+    pidfile, which could delete a SUCCESSOR's pidfile if a new instance
+    had already started and written its own pid to the same path in the
+    narrow window between this process deciding to exit and actually
+    removing the file."""
+    if _read_pidfile(pidfile) != expected_pid:
+        return
+    try:
+        pidfile.unlink()
+    except OSError:
+        pass
+
+
+def _nudge_daemon(pidfile: Path, kill=os.kill) -> None:
+    """PT-86: signals a running receiver (SIGUSR2) to re-evaluate its
+    session registry right now instead of waiting for the watchdog's own
+    next WATCHDOG_TICK_SECONDS poll -- sent after every
+    `register_session`/`deregister_session` so an immediate `--status`
+    (or the grace-window cancel/arm decision) reflects the change without
+    a polling-latency window. Load-bearing for the on-decrement reap of a
+    crashed SIBLING session (see `serve`'s watchdog docstring, and
+    architect review Delta 1) -- a missed nudge never delays the stop for
+    a clean exit (the registry file is already gone either way), but does
+    skip that reap until the next `end` event, flush, or the slow
+    periodic sweep (`--periodic-reap-seconds`) picks it up regardless.
+
+    Architect review, Delta 6: gated on a capability marker
+    (`NUDGE_CAPABLE_MARKER_NAME`, written by `serve` at startup, inside
+    `_sessions_dir`) -- a receiver started before this change has no
+    SIGUSR2 handler at all, and a Python process with no handler for a
+    signal is TERMINATED by it (measured: exit -31), losing everything
+    accrued since its last flush with no final flush at all. No marker
+    present is the safe default (assume "maybe an old daemon", stay
+    silent) -- the watchdog's own tick still does the work, just up to
+    WATCHDOG_TICK_SECONDS later, for any daemon that IS new enough to
+    have one.
+
+    `kill` is injectable (default `os.kill`) so a test can assert exactly
+    which signal was (or was not) sent without ever signalling a real
+    process."""
+    pid = _read_pidfile(pidfile)
+    if pid is None or not _pid_is_alive(pid):
+        return
+    marker = _sessions_dir(pidfile) / NUDGE_CAPABLE_MARKER_NAME
+    if not marker.exists():
+        return
+    try:
+        kill(pid, signal.SIGUSR2)
+    except OSError:
+        pass
+
+
+# --------------------------------------------------------------------------
+# PT-86: session bookkeeping -- one small file per live session, named for
+# the session id, holding its liveness-probe pid. A SIBLING of the pidfile
+# (`_sessions_dir`), not a single JSON registry: two different sessions
+# never touch the same path, so register/deregister/reap need no
+# cross-process lock at all -- a plain create/read/unlink is already
+# atomic enough for this, the same reasoning the pidfile itself already
+# relies on.
+# --------------------------------------------------------------------------
+
+def _sessions_dir(pidfile: Path) -> Path:
+    return pidfile.parent / SESSIONS_DIRNAME
+
+
+def register_session(sessions_dir: Path, session_id: str, pid: Optional[int]) -> None:
+    """Idempotent upsert -- a SessionStart hook firing twice for the same
+    session id (shouldn't happen, but never fatal if it does) just
+    rewrites the same file with the same content. `pid=None` (addendum
+    C: "no usable pid -- record pid: null") is stored as an empty file,
+    not the string "None" -- `live_session_ids` must be able to tell
+    "no pid captured" apart from "a malformed entry" cheaply."""
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    (sessions_dir / session_id).write_text(str(pid) if pid is not None else "", encoding="utf-8")
+
+
+def deregister_session(sessions_dir: Path, session_id: str) -> None:
+    """No-op if the session was never registered (or already reaped) --
+    a SessionEnd hook must never fail teardown over a missing file."""
+    try:
+        (sessions_dir / session_id).unlink()
+    except FileNotFoundError:
+        pass
+
+
+def live_session_ids(sessions_dir: Path) -> Dict[str, Optional[int]]:
+    """Non-mutating snapshot of every RECORDED session id and its pid
+    (None when no pid was ever captured) -- deliberately does not probe
+    liveness itself (a dead-but-not-yet-reaped id still appears here;
+    `--status` depends on that to report an honest "dead" rather than
+    silently vanishing it). Skips dotfiles -- `.closing` (the
+    point-of-no-return marker, see `serve`) lives in this SAME directory
+    and must never be mistaken for a session id."""
+    if not sessions_dir.is_dir():
+        return {}
+    ids: Dict[str, Optional[int]] = {}
+    for entry in sessions_dir.iterdir():
+        if not entry.is_file() or entry.name.startswith("."):
+            continue
+        raw = entry.read_text(encoding="utf-8").strip()
+        if not raw:
+            ids[entry.name] = None
+            continue
+        try:
+            ids[entry.name] = int(raw)
+        except ValueError:
+            continue  # genuinely malformed -- skip rather than crash a probe cycle
+    return ids
+
+
+def _transcript_is_stale(session_id: str, transcripts_dir: Path, now: Optional[float] = None) -> bool:
+    """Addendum C's second independent signal: a session's own transcript
+    (the same file role resolution already reads) hasn't been touched in
+    >= 30 minutes. No transcript at all counts as stale (nothing to
+    protect) -- it either never existed or already aged out."""
+    transcript_path = transcripts_dir / f"{session_id}.jsonl"
+    try:
+        mtime = transcript_path.stat().st_mtime
+    except OSError:
+        return True
+    return (now if now is not None else time.time()) - mtime >= TRANSCRIPT_STALE_SECONDS
+
+
+def _is_session_dead(pid: int, session_id: str, transcripts_dir: Path) -> bool:
+    """Addendum C: "two independent signals of death" -- reap only when
+    BOTH the pid probe fails AND the transcript has gone quiet, so a
+    single mis-detected pid (e.g. a future wrapper process between claude
+    and the hook shell) can never silently cut off a live session's
+    telemetry. The transcript stat only runs once the pid already looks
+    dead -- no extra cost on the common (session still running) path."""
+    if _pid_is_alive(pid):
+        return False
+    return _transcript_is_stale(session_id, transcripts_dir)
+
+
+def _session_liveness_probe(transcripts_dir: Path):
+    """Binds `_is_session_dead`'s two-signal check to a specific
+    `transcripts_dir` and returns it as the `is_alive(pid, session_id)`
+    callable `reap_dead_sessions` expects -- the real call sites
+    (`serve`, `--session-ended`) always pass this bound to whatever
+    `transcripts_dir` they already resolved (honouring a
+    `--transcripts-dir` test override), instead of relying on
+    `reap_dead_sessions`'s own default resolution."""
+    return lambda pid, session_id: not _is_session_dead(pid, session_id, transcripts_dir)
+
+
+def reap_dead_sessions(sessions_dir: Path, is_alive=None) -> List[str]:
+    """The liveness probe (ruling item 1 / addendum §3): removes every
+    recorded session confirmed dead, so a crashed session that never
+    called `--session-ended` cannot pin the receiver forever. A `pid:
+    null` entry (no pid ever captured) is NEVER reaped by this probe --
+    addendum C: "never reaped, shown as unknown"; it only ever leaves the
+    registry via its own `--session-ended`. Returns the reaped ids.
+
+    `is_alive(pid, session_id) -> bool` is injectable (default: the real
+    two-signal check against this script's own on-disk transcripts_dir)
+    so a test can substitute a pure liveness function without needing a
+    real dead pid or a real transcript file.
+    """
+    if is_alive is None:
+        transcripts_dir = Path.home() / ".claude" / "projects" / backfill_tokens._transcript_dir_slug(backfill_tokens._repo_root())
+        is_alive = _session_liveness_probe(transcripts_dir)
+    removed: List[str] = []
+    for session_id, pid in live_session_ids(sessions_dir).items():
+        if pid is None:
+            continue
+        if not is_alive(pid, session_id):
+            deregister_session(sessions_dir, session_id)
+            removed.append(session_id)
+    return removed
+
+
+_STDIN_READ_BUDGET_SECONDS = 0.5  # total wall-clock cap, see docstring below
+
+
+def _session_id_from_stdin() -> Optional[str]:
+    """Addendum §2/§D: "absent -> read session_id from the hook's stdin
+    JSON, and only when stdin is not a TTY. Never block on stdin." A
+    command hook's stdin carries the hook's own JSON payload (session_id,
+    transcript_path, cwd, hook_event_name, ...) and Claude Code closes it
+    promptly, so this returns fast in the real hook path.
+
+    The TTY check alone is NOT sufficient (measured: a non-interactive
+    but still-OPEN pipe -- neither a TTY nor EOF-terminated -- makes a
+    bare blocking `sys.stdin.read()` hang forever, exactly the "never
+    block" violation this addendum forbids). `select.select` with a
+    bounded per-chunk timeout, plus an overall `_STDIN_READ_BUDGET_SECONDS`
+    wall-clock cap, is what actually guarantees this returns: if nothing
+    is EVER readable, or the writer never closes, this gives up and
+    returns None rather than hanging -- a missed session id degrades to
+    "untracked" (§6: never pins the receiver), which is always the safe
+    direction per §0.
+    """
+    if sys.stdin is None or sys.stdin.isatty():
+        return None
+    try:
+        deadline = time.monotonic() + _STDIN_READ_BUDGET_SECONDS
+        chunks: List[bytes] = []
+        fd = sys.stdin.fileno()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            ready, _, _ = select.select([fd], [], [], remaining)
+            if not ready:
+                break  # nothing arrived within the budget -- give up, never hang
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break  # EOF -- the writer closed stdin, exactly the real-hook case
+            chunks.append(chunk)
+        raw = b"".join(chunks).decode("utf-8", errors="replace")
+    except (OSError, ValueError):
+        return None
+    if not raw.strip():
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    session_id = payload.get("session_id") if isinstance(payload, dict) else None
+    return session_id if isinstance(session_id, str) and session_id else None
+
+
+def _resolve_session_id(explicit_value: Optional[str], session_id_flag: Optional[str]) -> Optional[str]:
+    """The fallback chain shared by `--ensure-running` and
+    `--session-ended`: an id given directly to the flag wins, then
+    `--session-id`, then the hook's stdin JSON (§2)."""
+    if explicit_value:
+        return explicit_value
+    if session_id_flag:
+        return session_id_flag
+    return _session_id_from_stdin()
+
+
 # PT-81 H1: the settings.json env block this ticket documents (TRACKER.md)
 # already uses the bare string "1" for every boolean-shaped flag
 # (CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, CLAUDE_CODE_ENABLE_TODO_TOOLS,
@@ -814,7 +1145,13 @@ def _effective_endpoint_port(endpoint: Optional[str]) -> int:
     return parsed if parsed is not None else DEFAULT_OTEL_PORT
 
 
-def ensure_running(repo_root: Path, pidfile: Path, port: int) -> bool:
+def ensure_running(
+    repo_root: Path, pidfile: Path, port: int,
+    grace_period_seconds: float = DEFAULT_GRACE_PERIOD_SECONDS,
+    session_id: Optional[str] = None, session_pid: Optional[int] = None,
+    transcripts_dir: Optional[Path] = None,
+    periodic_reap_seconds: float = DEFAULT_PERIODIC_REAP_SECONDS,
+) -> bool:
     """Single instance enforced by pidfile + a listen probe; a second
     start is a no-op, never an error. Returns True if a (new or
     already-live) receiver is running, False if it declined to start --
@@ -825,6 +1162,27 @@ def ensure_running(repo_root: Path, pidfile: Path, port: int) -> bool:
     path prints exactly why to stderr; the SessionStart hook still exits
     0 regardless -- telemetry must never fail a session -- but no longer
     swallows stderr, so these messages actually reach someone.
+
+    `grace_period_seconds` (PT-86) only matters on a FRESH spawn -- it's
+    threaded into the detached child's own argv so the long-lived daemon
+    knows how long to wait after its last session ends before flushing
+    and exiting. An already-running daemon keeps whatever value it was
+    originally spawned with; a later `--ensure-running` cannot retune it.
+
+    `session_id`/`session_pid` (PT-86, addendum §B) register a live
+    session -- when `session_id` is given, this happens BEFORE deciding
+    whether a receiver is already up ("both sides write first, then
+    check": the registration file persists across a respawn, so it is
+    never wasted even if this call ends up spawning a fresh daemon
+    below), and the daemon's own `.closing` point-of-no-return marker is
+    checked and waited out if present, so a session starting in the
+    instant the daemon is mid-shutdown is never silently dropped.
+
+    `transcripts_dir`, like `grace_period_seconds`, only matters on a
+    FRESH spawn -- threaded into the child's own argv so its two-signal
+    liveness probe (addendum C) consults the same transcripts directory
+    this call resolved (a `--transcripts-dir` override in tests, or the
+    real project's own).
     """
     data_dir = repo_root / "process" / "cairn"
     if not (data_dir / "config.yml").exists():
@@ -836,9 +1194,37 @@ def ensure_running(repo_root: Path, pidfile: Path, port: int) -> bool:
     if not _env_flag_truthy(os.environ.get("CLAUDE_CODE_ENABLE_TELEMETRY")):
         return False
 
+    sessions_dir = _sessions_dir(pidfile)
+    if session_id:
+        register_session(sessions_dir, session_id, session_pid)
+
     pid = _read_pidfile(pidfile)
-    if pid is not None and _pid_is_alive(pid) and _port_is_listening(port):
-        return True  # already running -- no-op
+    already_running = pid is not None and _pid_is_alive(pid) and _port_is_listening(port)
+
+    closing_marker = sessions_dir / CLOSING_MARKER_NAME
+    if closing_marker.exists():
+        # Addendum §B: the daemon is (or very recently was) at its point
+        # of no return. Wait for its socket to actually close, bounded --
+        # never indefinitely, this runs synchronously inside a
+        # SessionStart hook.
+        deadline = time.monotonic() + 1.0
+        port_freed = False
+        while time.monotonic() < deadline:
+            if not _port_is_listening(port):
+                port_freed = True
+                break
+            time.sleep(0.1)
+        if not port_freed:
+            # Either the daemon aborted on seeing our fresh registration
+            # above (and already removed `.closing`) or it simply hasn't
+            # gotten there yet -- either way this is NOT a stranger
+            # holding the port, so H2's "already held" alarm below would
+            # be a false one. We're already registered; report success.
+            return True
+        already_running = False  # the old daemon is genuinely gone -- fall through to a fresh spawn
+
+    if already_running:
+        return True  # no-op -- already up, and (if given) now registered too
 
     # H3: otel_port (config.yml, the single source of truth -- `port`
     # here) vs. the port this process's OWN inherited
@@ -885,11 +1271,18 @@ def ensure_running(repo_root: Path, pidfile: Path, port: int) -> bool:
 
     logfile = repo_root / LOGFILE_REL
     logfile.parent.mkdir(parents=True, exist_ok=True)
+    spawn_argv = [
+        sys.executable, str(Path(__file__).resolve()),
+        "--out-file", str(repo_root / backfill_tokens.DEFAULT_OUT_REL),
+        "--pidfile", str(pidfile), "--port", str(port),
+        "--grace-period-seconds", str(grace_period_seconds),
+        "--periodic-reap-seconds", str(periodic_reap_seconds),
+    ]
+    if transcripts_dir is not None:
+        spawn_argv += ["--transcripts-dir", str(transcripts_dir)]
     with open(logfile, "ab") as log:
         subprocess.Popen(
-            [sys.executable, str(Path(__file__).resolve()),
-             "--out-file", str(repo_root / backfill_tokens.DEFAULT_OUT_REL),
-             "--pidfile", str(pidfile), "--port", str(port)],
+            spawn_argv,
             stdout=log, stderr=log, stdin=subprocess.DEVNULL,
             start_new_session=True,
             cwd=str(repo_root),
@@ -919,17 +1312,60 @@ def ensure_running(repo_root: Path, pidfile: Path, port: int) -> bool:
     return False
 
 
-def _status(pidfile: Path, port: int, out_path: Path) -> int:
-    """--status: running?, port, out-file -- a caller-facing health
-    check (what an operator or a test runs to ask "is it up"), distinct
-    from --ensure-running (what the hook runs to make it so). Exit 0
-    when running, 1 when not -- the common status-command convention,
-    scriptable without parsing stdout."""
+def _status(pidfile: Path, port: int, out_path: Path, sessions_dir: Path, transcripts_dir: Path) -> int:
+    """--status: running?, port, out-file, plus PT-86's session count and
+    per-id liveness -- a caller-facing health check (what an operator or
+    a test runs to ask "is it up"), distinct from --ensure-running (what
+    the hook runs to make it so). Exit 0 when running, 1 when not -- the
+    common status-command convention, scriptable without parsing stdout.
+
+    The session lines are a FRESH, non-mutating probe every call -- a
+    dead-but-not-yet-reaped id is reported honestly as "dead" rather than
+    silently omitted; only `--session-ended` and a flush actually reap.
+
+    Four states, not three (architect review Delta 3, then Follow-up 4
+    at the re-review, 0d9f0b5 -- team-lead's final call): `alive` (pid
+    probe says alive), `dead` (BOTH signals agree -- reap-eligible right
+    now), `dead-pending` (pid probe says dead, but the transcript is
+    still fresh -- protected from reaping for up to 30 minutes; this is
+    the "why won't the receiver stop" diagnostic case an operator would
+    otherwise have to infer from `alive`, which would hide it), and
+    `unknown` (no pid ever captured -- never reaped, addendum C).
+
+    The `dead`/`dead-pending` distinction reads `TRANSCRIPTS_DIR_MARKER_NAME`,
+    written by the ACTUAL running daemon at its own startup, in
+    preference to the `transcripts_dir` this (separate) invocation
+    resolved on its own -- the two can legitimately differ (a test's
+    `--transcripts-dir` override only ever accompanies the ORIGINAL
+    `--ensure-running` spawn, not a later `--status` call) and only the
+    daemon's own answer is correct. Falls back to the passed-in
+    `transcripts_dir` when the marker is absent (no daemon has ever
+    written one -- an old daemon, or one that hasn't started yet).
+    """
     pid = _read_pidfile(pidfile)
     running = pid is not None and _pid_is_alive(pid) and _port_is_listening(port)
     print(f"running: {running}")
     print(f"port: {port}")
     print(f"out-file: {out_path}")
+    try:
+        marker_text = (sessions_dir / TRANSCRIPTS_DIR_MARKER_NAME).read_text(encoding="utf-8").strip()
+        if marker_text:
+            transcripts_dir = Path(marker_text)
+    except OSError:
+        pass
+    ids = live_session_ids(sessions_dir)
+    print(f"sessions: {len(ids)}")
+    for session_id in sorted(ids):
+        entry_pid = ids[session_id]
+        if entry_pid is None:
+            state = "unknown"  # addendum C/§7: no pid ever captured
+        elif _pid_is_alive(entry_pid):
+            state = "alive"
+        elif _transcript_is_stale(session_id, transcripts_dir):
+            state = "dead"  # both signals agree -- reap-eligible now
+        else:
+            state = "dead-pending"  # pid gone, transcript still fresh -- not yet reap-eligible
+        print(f"session {session_id}: {state}")
     return 0 if running else 1
 
 
@@ -1028,8 +1464,35 @@ def run_once(port: int, out_path: Path, branch_repo_root: Path, prefix: str, ros
 def serve(
     port: int, out_path: Path, pidfile: Path, flush_interval: int,
     branch_repo_root: Path, prefix: str, roster: Set[str], transcripts_dir: Path,
+    sessions_dir: Optional[Path] = None, grace_period_seconds: float = DEFAULT_GRACE_PERIOD_SECONDS,
+    periodic_reap_seconds: float = DEFAULT_PERIODIC_REAP_SECONDS,
 ) -> None:
     state = ReceiverState()
+    sessions_dir = sessions_dir if sessions_dir is not None else _sessions_dir(pidfile)
+    my_pid = os.getpid()
+    session_is_alive = _session_liveness_probe(transcripts_dir)
+
+    # A crash can leave a stale `.closing` marker from a predecessor that
+    # never got to remove it (addendum §B) -- a fresh daemon must not
+    # inherit a false "mid-shutdown" state.
+    closing_marker = sessions_dir / CLOSING_MARKER_NAME
+    try:
+        closing_marker.unlink()
+    except OSError:
+        pass
+
+    # Delta 6: declare "I understand SIGUSR2" before anything could ever
+    # nudge this process -- a receiver started before this change has no
+    # handler for it at all, so `_nudge_daemon` must never send one
+    # without first confirming, via this marker, that whatever is
+    # actually listening on the other end is new enough to survive it.
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    (sessions_dir / NUDGE_CAPABLE_MARKER_NAME).write_text("", encoding="utf-8")
+    # So a LATER, separate `--status` invocation can label a `dead`/
+    # `dead-pending` entry using the transcripts_dir THIS daemon actually
+    # resolved, not whatever that separate CLI call would resolve on its
+    # own -- see TRANSCRIPTS_DIR_MARKER_NAME's own comment.
+    (sessions_dir / TRANSCRIPTS_DIR_MARKER_NAME).write_text(str(transcripts_dir), encoding="utf-8")
 
     def _do_flush() -> None:
         branch = _current_branch(branch_repo_root)
@@ -1039,6 +1502,11 @@ def serve(
             flush(state, out_path, issue, _now_iso(), roster=roster, transcripts_dir=transcripts_dir)
         except (ReceiverError, backfill_tokens.BackfillError) as e:
             print(f"otel_receiver: flush refused: {e}", file=sys.stderr)
+        # Addendum §3: the liveness probe also runs "at each flush" -- an
+        # independent backstop to the on-`end` reap, for the scenario
+        # where EVERY session that ever registered crashed without ever
+        # calling `--session-ended`.
+        reap_dead_sessions(sessions_dir, is_alive=session_is_alive)
 
     def _on_export() -> None:
         branch = _current_branch(branch_repo_root)
@@ -1060,29 +1528,197 @@ def serve(
     httpd = Server(("127.0.0.1", port), handler_cls)
 
     pidfile.parent.mkdir(parents=True, exist_ok=True)
-    pidfile.write_text(str(os.getpid()), encoding="utf-8")
+    pidfile.write_text(str(my_pid), encoding="utf-8")
 
     def _on_sigusr1(signum, frame):
         _do_flush()
 
     def _on_shutdown(signum, frame):
+        """`--stop` / SIGINT / a process manager -- addendum §5's
+        ordering applies here too, not just the watchdog path: close the
+        listening socket BEFORE flushing (so the flush is complete by
+        construction, not by luck), and compare-and-delete the pidfile
+        rather than an unconditional unlink (a successor could already
+        have written its own pid to this same path). `server_close()`,
+        not `httpd.shutdown()`, is correct HERE: this handler runs ON
+        THE SAME (main) THREAD as `serve_forever()` -- calling
+        `.shutdown()` from that thread would deadlock waiting for a loop
+        iteration that can never run while this handler is executing.
+        """
+        httpd.server_close()
         _do_flush()
-        try:
-            pidfile.unlink()
-        except OSError:
-            pass
+        _compare_and_delete_pidfile(pidfile, my_pid)
         sys.exit(0)
 
+    # PT-86 (addendum §4/§B): the watchdog. `--ensure-running`/
+    # `--session-ended` are separate, short-lived CLI processes that
+    # mutate `sessions_dir` directly (one file per session id, no lock
+    # needed -- see that section's docstring) and then send SIGUSR2 as
+    # the nudge below; this background thread is what actually notices
+    # and acts, waking either on that nudge or at least every
+    # WATCHDOG_TICK_SECONDS regardless. `ever_nonempty` starts true if
+    # this daemon INHERITED a non-empty registry (a respawn after a
+    # crash, addendum A.1/§6) -- an inherited registry is authoritative
+    # and may legitimately drain to empty and stop; a registry that has
+    # never been non-empty (nobody ever registered a session with this
+    # daemon) never arms the timer at all.
+    #
+    # Declared BEFORE the SIGUSR2 handler is registered (architect
+    # review, Delta 4): the handler closes over `wake_event`, and a
+    # signal arriving between `signal.signal(...)` and this assignment
+    # would otherwise raise NameError on the main thread.
+    wake_event = threading.Event()
+    stopping = False
+
+    # A lightweight "please re-evaluate the session registry right now"
+    # nudge (PT-86) -- carries no data (the registry files, mutated
+    # directly by `--ensure-running`/`--session-ended`, remain the only
+    # source of truth), so it does not reopen anything the addendum's
+    # withdrawal of the HTTP control endpoint closed: it is derived from
+    # the SAME local `pidfile` a cross-repo caller could never discover
+    # in the first place (addendum A.2). A missed/coalesced signal never
+    # delays a clean stop (the registry file is already gone either way)
+    # but DOES skip the crashed-sibling reap until the next `end` event,
+    # flush, or the slow periodic reap below -- see architect review
+    # Delta 1's correction to this comment's earlier, overstated claim.
+    def _on_session_nudge(signum, frame):
+        wake_event.set()
+
     signal.signal(signal.SIGUSR1, _on_sigusr1)
+    signal.signal(signal.SIGUSR2, _on_session_nudge)
     signal.signal(signal.SIGTERM, _on_shutdown)
     signal.signal(signal.SIGINT, _on_shutdown)
+
+    def _watchdog_loop() -> None:
+        shutdown_deadline: Optional[float] = None
+        ever_nonempty = bool(live_session_ids(sessions_dir))
+        last_periodic_reap = time.monotonic()
+        while True:
+            nudged = wake_event.wait(WATCHDOG_TICK_SECONDS)
+            wake_event.clear()
+            if stopping:
+                return
+            # §3: the probe runs "on every end event", not on a bare
+            # periodic tick that nothing prompted -- `--session-ended`
+            # (only) sends the SIGUSR2 nudge, so `nudged` distinguishes
+            # "an end event just happened, reap now" from "just the
+            # regular WATCHDOG_TICK_SECONDS poll, don't reap yet" --
+            # otherwise a session that's merely REGISTERED with an
+            # already-dead pid (a synthetic id in a test, or a genuinely
+            # crashed one that never got a chance to end cleanly) would
+            # be silently reaped by the very next tick regardless of
+            # whether anything actually decremented, which is both
+            # surprising for `--status` (a "dead" entry vanishing with
+            # nobody having ended anything) and NOT what "on every
+            # decrement" says. The other two probe triggers -- at each
+            # flush, and once more immediately before the point of no
+            # return -- are unconditional, below and in `_do_flush`.
+            #
+            # Team-lead's ruling (PT-86, 138c03c, architect re-reviewed
+            # at 0d9f0b5): when EVERY registered session has crashed,
+            # neither the nudge nor a flush ever fires, so without a
+            # THIRD, time-based trigger a fully-crashed registry pins
+            # the receiver until some UNRELATED future session's own
+            # SessionEnd happens to reap it. `due_for_periodic_reap`
+            # below is that trigger -- deliberately far slower than
+            # WATCHDOG_TICK_SECONDS (reaping every tick regardless of a
+            # nudge was tried and rejected: it broke the "not yet
+            # reaped" window LivenessReapTests relies on) so it can
+            # never race that window in this suite's fast tests. It
+            # goes through the SAME two-signal `session_is_alive` check
+            # every other reap site uses -- a session that is merely
+            # idle (alive pid, or a fresh transcript) can never be
+            # removed by this or any other trigger, only one that is
+            # confirmed dead by both signals.
+            due_for_periodic_reap = (time.monotonic() - last_periodic_reap) >= periodic_reap_seconds
+            if nudged or due_for_periodic_reap:
+                reap_dead_sessions(sessions_dir, is_alive=session_is_alive)
+                if due_for_periodic_reap:
+                    last_periodic_reap = time.monotonic()
+            if live_session_ids(sessions_dir):
+                ever_nonempty = True
+                shutdown_deadline = None
+                continue
+            if not ever_nonempty:
+                continue
+            if shutdown_deadline is None:
+                shutdown_deadline = time.monotonic() + grace_period_seconds
+                continue
+            if time.monotonic() < shutdown_deadline:
+                continue
+            # Deadline passed and the registry was empty as of the top
+            # of this tick -- addendum §3: "once more immediately before
+            # the point of no return", a fresh probe right now, since a
+            # session that looked dead a tick ago may since have proven
+            # itself alive via a flush-triggered reap elsewhere, or a
+            # brand new session may have registered between ticks.
+            reap_dead_sessions(sessions_dir, is_alive=session_is_alive)
+            if live_session_ids(sessions_dir):
+                shutdown_deadline = None
+                continue
+            # The point of no return (addendum §B): exclusive-create
+            # `.closing`, THEN re-read -- a session that registered in
+            # the instant between the two must still cancel this.
+            try:
+                fd = os.open(str(closing_marker), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.close(fd)
+            except FileExistsError:
+                continue  # a single watchdog thread should never double-fire; be safe anyway
+            if live_session_ids(sessions_dir):
+                try:
+                    closing_marker.unlink()
+                except OSError:
+                    pass
+                shutdown_deadline = None
+                continue
+            # Nothing after this aborts. §5 ordering: socket closed
+            # first, then flush, then compare-and-delete the pidfile,
+            # then remove `.closing`. `.shutdown()` (cross-thread safe --
+            # `serve_forever()` is running on the main thread right now)
+            # only stops the accept LOOP; it blocks until that loop has
+            # genuinely exited, but the fd stays bound until
+            # `server_close()` actually runs -- and a racing
+            # `--ensure-running`'s port-freed probe depends on the fd
+            # being gone, not just unaccepted. Close it here, from this
+            # thread, right after `.shutdown()` unblocks, rather than
+            # leaving it to `serve()`'s own `finally` (whose timing
+            # relative to this thread is not guaranteed) -- a second
+            # `server_close()` there afterward is a harmless no-op.
+            httpd.shutdown()
+            httpd.server_close()
+            _do_flush()
+            _compare_and_delete_pidfile(pidfile, my_pid)
+            try:
+                closing_marker.unlink()
+            except OSError:
+                pass
+            return
+
+    watchdog = threading.Thread(target=_watchdog_loop, daemon=True)
+    watchdog.start()
     try:
         httpd.serve_forever()
     finally:
+        # Setting `stopping` + waking wakes an IDLING watchdog
+        # immediately. But when THIS thread is here because the WATCHDOG
+        # itself called `httpd.shutdown()` (the point-of-no-return path),
+        # the watchdog is not idling -- it is mid-flight through its own
+        # final flush / compare-and-delete-pidfile / `.closing` removal.
+        # `daemon=True` means the interpreter will NOT wait for it once
+        # this (main) thread finishes -- without an explicit join here, a
+        # fast enough main-thread exit truncates that work mid-flush,
+        # silently dropping the very grace-window datapoint AC 2 exists
+        # to protect. Join (bounded, as a safety net -- this thread's own
+        # work is already done at this point either way) before this
+        # function is allowed to return.
+        stopping = True
+        wake_event.set()
+        watchdog.join(timeout=10.0)
         try:
-            pidfile.unlink()
+            httpd.server_close()
         except OSError:
             pass
+        _compare_and_delete_pidfile(pidfile, my_pid)
 
 
 # --------------------------------------------------------------------------
@@ -1104,6 +1740,22 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--flush-now", action="store_true")
     parser.add_argument("--stop", action="store_true")
+    # PT-86: the last-session-ends-the-daemon-stops-itself lifecycle
+    # (process/cairn/issues/PT-86.md, architect addendum §D -- the seam,
+    # pinned). Both `--ensure-running`'s and `--session-ended`'s session
+    # id are optional and fall back to the hook's stdin JSON when absent
+    # (`_resolve_session_id`); `--session-ended` additionally accepts its
+    # id as its OWN inline value (`nargs="?"`) since §D writes it as
+    # `--session-ended [ID]` -- an explicit `--session-id` is still
+    # accepted too and wins if the inline value is absent.
+    parser.add_argument("--session-id", default=None, help="the SessionStart/SessionEnd hook's session_id")
+    parser.add_argument("--session-pid", type=int, default=None, help="the liveness-probe pid ($PPID); absent/0 -> pid: null, never reaped")
+    parser.add_argument(
+        "--session-ended", nargs="?", const="", default=None, metavar="SESSION_ID",
+        help="deregister SESSION_ID (or --session-id, or the hook's stdin JSON) -- the SessionEnd hook's target",
+    )
+    parser.add_argument("--grace-period-seconds", "--grace", dest="grace_period_seconds", type=float, default=DEFAULT_GRACE_PERIOD_SECONDS)
+    parser.add_argument("--periodic-reap-seconds", type=float, default=DEFAULT_PERIODIC_REAP_SECONDS)
     args = parser.parse_args(argv)
 
     # `repo_root` anchors everything EXCEPT the branch read: prefix,
@@ -1130,11 +1782,67 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
 
     if args.ensure_running:
-        ensure_running(repo_root, pidfile, port)
+        # §2/§D: absent --session-id falls back to the hook's stdin JSON
+        # (never blocks -- only reads when stdin is not a TTY). A bare
+        # `--ensure-running` with no id anywhere (every pre-PT-86 call
+        # site, and this project's own PT-81 hardening tests) registers
+        # nothing -- back-compat, and §6: a registry that has never been
+        # non-empty can never trigger a self-stop.
+        session_id = _resolve_session_id(None, args.session_id)
+        session_pid = args.session_pid if args.session_pid else None  # 0 or absent -> null
+        ensure_running(
+            repo_root, pidfile, port, grace_period_seconds=args.grace_period_seconds,
+            session_id=session_id, session_pid=session_pid, transcripts_dir=transcripts_dir,
+            periodic_reap_seconds=args.periodic_reap_seconds,
+        )
+        # Deliberately NOT nudged: the watchdog's regular
+        # WATCHDOG_TICK_SECONDS tick already re-checks emptiness every
+        # cycle regardless of any nudge (only the REAP call is nudge-
+        # gated -- see `_watchdog_loop`), so a `start` still cancels a
+        # pending grace-shutdown within one tick without this. Nudging
+        # here too would make a freshly-registered (possibly
+        # already-dead-pid, e.g. a crashed session respawned before its
+        # own SessionEnd could ever fire) entry get swept on the very
+        # next tick regardless of whether anything actually ended --
+        # exactly the "on every decrement" boundary `--session-ended`'s
+        # nudge exists to draw.
         return 0  # never an error -- a non-cairn checkout just declines
 
+    if args.session_ended is not None:
+        session_id = _resolve_session_id(args.session_ended or None, args.session_id)
+        # §10: every control-path failure is non-fatal -- one stderr
+        # line, exit 0. No session id resolved at all is not even a
+        # failure: a SessionEnd hook must never fail teardown over
+        # telemetry, and cannot block it either way.
+        if not session_id:
+            return 0
+        # Architect review (ef000d5), Delta 2: deregistration is a LOCAL
+        # FILE OPERATION and must be unconditional -- a session ending
+        # while no daemon is running (or mid-shutdown, just after its
+        # pidfile was compare-and-deleted) must still remove its own
+        # `.sessions/<id>` file. Skipping this when the pidfile check
+        # fails left a phantom entry for the NEXT daemon to inherit,
+        # pinned by its own fresh transcript for up to 30 minutes. Only
+        # the nudge below (which has nothing to nudge) is gated on a
+        # live pid.
+        sessions_dir = _sessions_dir(pidfile)
+        deregister_session(sessions_dir, session_id)
+        # §3's "on every decrement" reap is done by the DAEMON, not here:
+        # only the daemon (spawned with its own, possibly test-overridden
+        # `--transcripts-dir`) knows the transcripts_dir its two-signal
+        # probe (addendum C) must consult -- this CLI process's own
+        # resolution is not guaranteed to agree (and in the real,
+        # single-project-per-machine case it always does, so nothing is
+        # lost there). The nudge makes that reap near-immediate rather
+        # than waiting up to WATCHDOG_TICK_SECONDS -- but only if a
+        # daemon is actually alive to receive it.
+        pid = _read_pidfile(pidfile)
+        if pid is not None and _pid_is_alive(pid):
+            _nudge_daemon(pidfile)
+        return 0
+
     if args.status:
-        return _status(pidfile, port, out_path)
+        return _status(pidfile, port, out_path, _sessions_dir(pidfile), transcripts_dir)
 
     if args.flush_now:
         return _signal_running(pidfile, signal.SIGUSR1, "--flush-now")
@@ -1173,7 +1881,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.once:
         return run_once(port, out_path, branch_repo_root, prefix, roster, transcripts_dir)
 
-    serve(port, out_path, pidfile, args.flush_interval, branch_repo_root, prefix, roster, transcripts_dir)
+    serve(
+        port, out_path, pidfile, args.flush_interval, branch_repo_root, prefix, roster, transcripts_dir,
+        sessions_dir=_sessions_dir(pidfile), grace_period_seconds=args.grace_period_seconds,
+        periodic_reap_seconds=args.periodic_reap_seconds,
+    )
     return 0
 
 
