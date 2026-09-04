@@ -119,6 +119,14 @@
 		IssueFlowChart = mod.default;
 	});
 
+	// PT-79 (architect ruling § 3): same lazy dynamic-import pattern as
+	// IssueFlowChart immediately above -- a second eager chart import
+	// would undo the point of the first.
+	let TokenCostChart = $state<typeof import('$lib/components/TokenCostChart.svelte')['default'] | null>(null);
+	import('$lib/components/TokenCostChart.svelte').then((mod) => {
+		TokenCostChart = mod.default;
+	});
+
 	// PT-56: separate state, separate poll -- the roster rides no SSE
 	// (the watcher never sees .claude/agents/ changes), matching the
 	// architect's ruling that this is a genuinely independent data source
@@ -512,6 +520,14 @@
 	     everything above it. -->
 	{#if IssueFlowChart}
 		<IssueFlowChart />
+	{/if}
+
+	<!-- PT-79: token/cost block, directly below the flow chart -- own
+	     standalone section (IssueFlowChart's own pattern above, not the
+	     4-column grid section elsewhere on this page), lazy-imported for
+	     the same reason. -->
+	{#if TokenCostChart}
+		<TokenCostChart />
 	{/if}
 
 	<!-- PT-56: agent-roster panel. Honest empty state -- no fabricated

@@ -155,6 +155,8 @@ The preset sets one base, `--radius: 0.625rem` (10px); shadcn-svelte's standard 
 
 `--chart-1`…`--chart-5` is a **single-hue sequential ramp** (hue stays in the 61–98° golden band; only lightness/chroma step down). This is correct and good for **sequential/quantitative data** (a heat scale, a single-metric magnitude series) — it reads badly for **categorical data** (5 distinct series that need to be told apart by hue, e.g. "issues by assignee" or "issues by repo"). With the record-status/badge vocabulary now also token-only and hue-flat by design (see **Project extensions**), there is genuinely **no multi-hue categorical palette anywhere in this system** — flag this at chart-spec time, not before: if a real need for 3+ unrelated categorical series (or a positive/negative financial-style delta pair) surfaces, that is the point to bring a token proposal to the team, decided against a concrete use case rather than pre-emptively invented here.
 
+**Resolved 2026-09-03 (PT-79) — see Categorical role palette below.** The concrete use case arrived: PT-79's per-issue token/cost dashboard block stacks bars by contributing agent role, an unordered categorical dimension. 8 new chart-local tokens (`--chart-role-1`…`--chart-role-8`) plus 3 neutral fold/guard tokens are proposed in **Categorical role palette (PT-79)**, immediately after the Chart-local ramp section below — this doc's first actual categorical palette, decided against this specific chart rather than invented speculatively.
+
 ### Chart-local ramp (PT-61 — issue flow over time)
 
 **Re-stepped 2026-08-28 (Mosko's ruling, "re-step the chart ramp").** The base `--chart-1`…`--chart-5` ramp above fails the dataviz skill's *ordinal* light-end contrast floor (a discrete ordered-category ramp — see `choosing-a-form.md` — needs its lightest step to clear 2:1 against the chart surface): measured against this app's own `--card` (`oklch(1 0 0)`, pure white in light mode), `--chart-1` is **1.33:1** and `--chart-2` is **1.91:1**, both below the 2:1 hard gate (`--chart-3`…`--chart-5`, and all five steps in dark mode, pass). `--chart-1`…`--chart-5` are **left untouched** — every other consumer already using them is unaffected.
@@ -173,6 +175,130 @@ Resolution: **6 new chart-local tokens**, one per `STATUS_ORDER` status (`backlo
 **Validator evidence** (`dataviz` skill's `scripts/validate_palette.py`, `validate_ordinal`, run against this exact 6-hex palette): light mode — lightness monotone ✓, adjacent ΔL all ≥0.06 ✓, light-end contrast `#d6b100` (backlog) **2.07:1** vs `#ffffff` ✓, hue spread **32°** ✓, all checks pass. Dark mode — same palette (not re-derived; verified to independently clear the dark check rather than assumed), light-end-equivalent (darkest step, the one nearest the dark surface) `#764100` (cancelled) **2.10:1** vs the `.dark` `--card` surface (`oklch(0.216 0.006 56.043)` ≈ `#1c1917`) ✓, hue spread **32°** ✓, all checks pass. One identical set of 6 values serves both modes (unlike the sequential-ramp guidance's general "dark mode gets its own steps" default — this particular palette happened to already clear both surfaces at once, confirmed by running the validator twice, not assumed).
 
 Guarded mechanically by `scripts/cairn/tests/test_dashboard_chart_ramp.py`, which re-runs this same validator against whatever 6 values actually sit in `app.css` on every test run (not a snapshot of today's numbers) — a future edit to these specific tokens that drops back below the floor goes red the same way the original `--chart-1`/`--chart-2` finding did.
+
+### Categorical role palette (PT-79)
+
+**What this resolves:** the gap flagged in **Chart ramp** above ("no multi-hue categorical palette anywhere in this system") and in **Pushback** #3 — the PT-79 per-issue token/cost dashboard block stacks each bar by contributing agent role, an unordered categorical dimension the sequential (`--chart-1..5`) and ordinal (`--chart-flow-*`) ramps above cannot correctly serve. Mechanism ruled by architect (PT-79 issue, amendment, 2026-09-03): 8 chart-local categorical tokens, an explicit append-only `ROLE_TOKEN_ORDER` in `token-chart-logic.ts`, the dataviz skill's *categorical* validator (not `validate_ordinal` — role has no order), validated in both modes against each mode's real `--card`, guarded mechanically the same way `test_dashboard_chart_ramp.py` guards the flow ramp. Hue values and role membership were explicitly left to a team token proposal — this section is that proposal (ux-designer, 2026-09-03).
+
+**Validator note.** The dataviz skill's bundled `scripts/validate_palette.py` was not reachable in this session to run the categorical check directly — the bundled-skill path that should hold it exists on disk but is unpopulated without a `Skill`/`ToolSearch` tool grant to materialize it (see `implementation-lead`'s `technique_dataviz_skill_ordinal_validation` memory for the normal path, which this session didn't have). The checks below were computed directly instead, using the same OKLCH↔sRGB math the skill documents (Björn Ottosson's published matrices), WCAG relative-luminance contrast, and two published CVD simulation matrices (Machado, Oliveira & Fairchild 2009, severity 1.0 — deuteranopia and protanopia). Same standing caveat this doc already carries for Accessibility figures: **flagging the method, not asserting precision — re-run through the actual skill script before lock.**
+
+**Membership — 8 hues, not 10.** Architect's ruling capped the hue budget at 8 on distinguishability grounds; the roster this chart can name today is 10 (team-lead's kickoff message: architect, qa-engineer, implementation-lead, product-manager, ux-designer, seceng, devops-engineer, frontend-lead, backend-lead, team-lead), so 2 must fold. Checked against the real committed `process/cairn/metrics/token-usage.jsonl` (69 buckets) as of 2026-09-03: `frontend-lead` (3.06M tokens) and `backend-lead` (0 — never appears yet) are both real roles but currently the two lowest-volume, and both are specialist variants of Implement-phase work that `implementation-lead` already covers as this project's generalist case to date. That's the pair folded into `other`. `mcp-broker` was already excluded from the ROLE dimension by team-lead's own 10-role enumeration and stays out. **This is a one-time reasoned choice, not a rank-derived mechanism** — architect's ruling is explicit that ongoing membership must never re-derive from payload rank; if `frontend-lead`/`backend-lead` usage grows on a future split of Implement work, promoting either out of `other` is a pure append to `ROLE_TOKEN_ORDER`, never a reshuffle of the existing 8.
+
+**Hue design approach.** Base construction is the published Okabe & Ito (2008) CVD-safe categorical palette (its seven non-black hues), chosen over an evenly-spaced hue wheel because it is already peer-reviewed for simultaneous normal-vision and colorblind legibility — re-deriving that from first principles would be re-solving a solved problem. Two departures from the literal published hex values, both required by this system's constraints, not optional polish:
+
+1. **Lightness compressed into this system's dual-surface-safe band.** The published hues span OKLCH L 0.53–0.90, tuned for a generic white background; several (especially the published yellow at L 0.90) don't clear 2:1 against this app's *dark* `--card` (`#1c1917`) at all. Re-scanned the safe band the same way the PT-61 ordinal ramp was scanned above, but for a **flat** (non-monotone) categorical set: every hue at L∈[0.53,0.71], chroma pulled to ~93% of the sRGB gamut edge per hue, clears **both** `--card` surfaces with real margin — table below. Each hue's original relative-lightness ordering is preserved (linearly remapped into the narrower band) rather than flattened to one shared L — an early pass at a single shared L (0.60) for all 8 was tried and rejected: it collapsed `product-manager`/`implementation-lead` (orange/vermillion) and `team-lead`/`seceng` (the two blues) to ΔE_OK ≈ 0.03–0.06 raw, and one pair fell to 0.015 under simulated deuteranopia — restoring Okabe-Ito's own lightness spread fixed it.
+2. **An 8th hue added.** Okabe-Ito ships 7 usable colors; this budget is 8. Added a violet at H 300°, the one clearly open gap in the source palette's hue coverage (between its blue at ~244° and reddish-purple at ~346°), then re-checked against the full set under both contrast and CVD tests below.
+
+**One value nudged off an existing brand token.** The direct OKLCH read of Okabe-Ito's "blue" lands at H≈244°, L≈0.53 — ΔE_OK 0.033 from this system's own `--primary` (`oklch(0.5 0.134 242.749)`), close enough to read as the *same* blue, which would make a `team-lead` chart segment look like an active/primary UI affordance rather than a role color. Re-hued to H 252°, L 0.57 (`--chart-role-1`) — ΔE_OK 0.078 from `--primary` (past the ~0.02 OKLab JND several times over: reads as a related-but-distinct "family" blue, not a duplicate — this is the deliberate "sit with the brand, not against it" call), re-verified this didn't create a new collision with the added violet under CVD simulation (table below). Separately checked `implementation-lead`'s vermillion against `--destructive` (`oklch(0.577 0.245 27.325)`, this system's one danger signal) — ΔE_OK 0.119, comfortably distinct, no risk of a large role segment reading as an error state.
+
+#### Role → token assignment (`ROLE_TOKEN_ORDER`)
+
+One shared value per role, identical in `:root` and `.dark` (validated against both real `--card` surfaces below — unlike some derived-ink cases elsewhere in this doc, this palette does **not** need a per-mode split).
+
+| Order | Token | Role | OKLCH | Hex | vs. white `--card` | vs. dark `--card` (`#1c1917`) |
+|---|---|---|---|---|---|---|
+| 1 | `--chart-role-1` | `team-lead` | `oklch(0.570 0.1587 252.00)` | `#1a79d1` | 4.48:1 | 3.90:1 |
+| 2 | `--chart-role-2` | `product-manager` | `oklch(0.6375 0.1242 76.77)` | `#b5801e` | 3.46:1 | 5.06:1 |
+| 3 | `--chart-role-3` | `architect` | `oklch(0.600 0.2403 300.00)` | `#9a4cf6` | 4.43:1 | 3.95:1 |
+| 4 | `--chart-role-4` | `ux-designer` | `oklch(0.6018 0.2368 346.32)` | `#da229d` | 4.46:1 | 3.92:1 |
+| 5 | `--chart-role-5` | `seceng` | `oklch(0.6286 0.1262 236.18)` | `#2193ca` | 3.45:1 | 5.08:1 |
+| 6 | `--chart-role-6` | `devops-engineer` | `oklch(0.710 0.1402 105.04)` | `#afa625` | 2.54:1 | 6.89:1 |
+| 7 | `--chart-role-7` | `implementation-lead` | `oklch(0.5735 0.1465 47.51)` | `#bb5718` | 4.66:1 | 3.75:1 |
+| 8 | `--chart-role-8` | `qa-engineer` | `oklch(0.5728 0.1114 165.46)` | `#1d8d68` | 4.17:1 | 4.19:1 |
+
+All 8 clear the 2:1 floor with margin on both surfaces — thinnest is `devops-engineer` at 2.54:1 white, still 27% above the gate. `frontend-lead`, `backend-lead`, and any role not in this list fold into `--chart-role-other` per architect's fold rule; the caption states it (`{k} other role(s) grouped: {names}`, reusing the same disclosure pattern PT-79 uses for unpriced models in the cost view).
+
+#### Guard series and the "other" fold
+
+Team-lead's kickoff proposed a single `--chart-role-guard` token — **proposing three neutral values instead of the two originally named** (`--chart-role-guard-aux`, `--chart-role-guard-unattributed`, plus `--chart-role-other`), a deviation from the literal naming proposal worth flagging explicitly. **Why the split:** `auxiliary` (cheap-model overhead) and `subagent-unattributed` (the role-resolution failure guard — architect: "guards should be visible") carry meaningfully different severity. Rendering both in one identical neutral would make it impossible to tell, at a glance, how much of a bar's grey mass is routine overhead versus an attribution failure worth investigating — the same "a grouped bucket must announce itself" principle architect already applied to `cost_usd: null` for unpriced models. All three sit in the same warm-stone neutral family as `--muted-foreground` (hue 56, this system's established "warm stone" character — see **Foundations → Color**, Character read), so they read unambiguously as *not* one of the 8 role hues, distinguished from each other by lightness only:
+
+| Token | Use | OKLCH | Hex | vs. white `--card` | vs. dark `--card` |
+|---|---|---|---|---|---|
+| `--chart-role-guard-aux` | `auxiliary` series | `oklch(0.700 0.015 56.0)` | `#a69c96` | 2.68:1 | 6.52:1 |
+| `--chart-role-guard-unattributed` | `subagent-unattributed` series | `oklch(0.440 0.020 56.0)` | `#5c5048` | 7.81:1 | 2.24:1 |
+| `--chart-role-other` | grouped roles outside `ROLE_TOKEN_ORDER` | `oklch(0.600 0.010 56.0)` | `#857f7b` | 3.96:1 | 4.42:1 |
+
+`--chart-role-guard-unattributed` is deliberately the darkest/heaviest of the three — visual weight standing in for "this is the one to check," since it's the failure signal architect flagged as needing salience. Recommend also giving it a diagonal-hatch fill pattern (an SVG rendering detail, not a token) so it doesn't rely on lightness discrimination alone for a colorblind viewer — the CVD checks below cover hue/luminance separation, not pattern, and a hatch is the standard belt-and-suspenders move for a single safety-critical series. `--chart-role-other` sits almost on top of `--muted-foreground` itself (ΔE_OK 0.055 — nearly the same neutral), which is intentional: the fold bucket should read as "ordinary background text," not draw the eye, consistent with how muted-foreground is used everywhere else in this system.
+
+#### Validator evidence
+
+Computed manually (dataviz skill script unreachable this session, see note above) — three checks matching the categorical validator's stated concerns (contrast floor, pairwise separation, CVD confusability), run against all 11 values (8 role hues + 3 neutrals) together:
+
+- **Contrast floor, ≥2:1 against both real `--card` surfaces** (light `oklch(1 0 0)`/white; dark `oklch(0.216 0.006 56.043)`/`#1c1917`, same value this doc's Foundations table already carries) — **all 11 pass both surfaces**, worst case `devops-engineer` at 2.54:1 white / `--chart-role-guard-unattributed` at 2.24:1 dark. Full figures in the tables above.
+- **Pairwise perceptual separation** (Euclidean distance in OKLab, ΔE_OK — the same coordinate space the skill's own `lin2oklab` produces, a standard proxy for CIE ΔE at this precision) — closest pair among the 8 role hues is `team-lead`/`seceng` (blue/sky-blue, both in the same brand-blue family by design) at **0.078**; second-closest `product-manager`/`implementation-lead` (orange/vermillion, both warm-band, inherent to Okabe-Ito's own design) at **0.096**. Every other role-hue pair clears 0.11+. All three neutrals sit 0.10–0.21 from their nearest role hue and 0.10–0.26 from each other. Nothing falls below ~0.02 (the OKLab JND) — no pair is imperceptibly close.
+- **CVD confusability** (Machado/Oliveira/Fairchild 2009 simulation matrices, severity 1.0, applied in linear sRGB, deuteranopia and protanopia — the two most common forms, ≈8% of males combined) — the closest simulated pair under either simulation is still `team-lead`/`seceng`, at **0.131** (deuteranopia) / **0.147** (protanopia) — well clear of collapse (a genuinely confused pair reads near 0 under this metric). No two role hues that were distinguishable in normal vision become confusable under either simulated deficiency.
+
+**Re-verify before lock**, per this doc's standing "flagging the method, not asserting precision" caveat: run the actual `dataviz` skill's `validate_palette.py` categorical check once it's reachable in a session with `Skill`/`ToolSearch` access, and diff against the figures above.
+
+#### `app.css` — ready to paste
+
+Single set, identical in `:root` and `.dark` (contrast already validated against both real surfaces above):
+
+```css
+:root {
+  --chart-role-1: oklch(0.570 0.1587 252.00);   /* team-lead */
+  --chart-role-2: oklch(0.6375 0.1242 76.77);   /* product-manager */
+  --chart-role-3: oklch(0.600 0.2403 300.00);   /* architect */
+  --chart-role-4: oklch(0.6018 0.2368 346.32);  /* ux-designer */
+  --chart-role-5: oklch(0.6286 0.1262 236.18);  /* seceng */
+  --chart-role-6: oklch(0.710 0.1402 105.04);   /* devops-engineer */
+  --chart-role-7: oklch(0.5735 0.1465 47.51);   /* implementation-lead */
+  --chart-role-8: oklch(0.5728 0.1114 165.46);  /* qa-engineer */
+  --chart-role-guard-aux: oklch(0.700 0.015 56.0);          /* auxiliary series */
+  --chart-role-guard-unattributed: oklch(0.440 0.020 56.0); /* subagent-unattributed series */
+  --chart-role-other: oklch(0.600 0.010 56.0);              /* grouped roles outside ROLE_TOKEN_ORDER */
+}
+
+.dark {
+  --chart-role-1: oklch(0.570 0.1587 252.00);
+  --chart-role-2: oklch(0.6375 0.1242 76.77);
+  --chart-role-3: oklch(0.600 0.2403 300.00);
+  --chart-role-4: oklch(0.6018 0.2368 346.32);
+  --chart-role-5: oklch(0.6286 0.1262 236.18);
+  --chart-role-6: oklch(0.710 0.1402 105.04);
+  --chart-role-7: oklch(0.5735 0.1465 47.51);
+  --chart-role-8: oklch(0.5728 0.1114 165.46);
+  --chart-role-guard-aux: oklch(0.700 0.015 56.0);
+  --chart-role-guard-unattributed: oklch(0.440 0.020 56.0);
+  --chart-role-other: oklch(0.600 0.010 56.0);
+}
+```
+
+### Counter-type palette (PT-79 — tokens-view counters)
+
+**What this resolves:** implementation-lead found the *tokens* view of the PT-79 block (four counter series — `input`/`cache_write`/`cache_read`/`output`, per AC2) illegible on adjacent steps of the golden `--chart-1..5` ramp, and worked around it by reusing four of the role hues above (`--chart-role-1` for `input`, `-6` for `cache_write`, `-4` for `cache_read`, `-7` for `output`). Flagged back to me: that reuse means `--chart-role-1` reads as `team-lead` in the cost view and `input` in the tokens view of the *same block* — the two views never render simultaneously, but a viewer toggling between them carries the association across.
+
+**Ruling (ux-designer, 2026-09-03): reject the reuse, reject a wider-stepped `--chart-1..5`, ship a dedicated 4-step counter family.**
+
+- **Reusing role hues (option a) is rejected.** This is exactly the class of collision this system has already ruled against once — PT-69 moved the Paused/In Review badge off `--chart-2` for the identical reason (a token's meaning must not silently change out from under it depending on which control the user is looking at). A chart segment shouldn't borrow a color whose meaning is already claimed by a different dimension in the very same component.
+- **Re-widening the golden ramp (option c) is rejected.** The illegibility implementation-lead hit isn't a step-width problem, it's a single-hue-family problem: `--chart-1..5` varies only lightness/chroma in one hue, which is the right shape for *ordered magnitude* (that's what it's validated for, see **Chart-local ramp** above) and the wrong shape for four *kinds* of thing sitting adjacent in a stack — wider steps in the same hue would still be "four shades of gold," just less badly. Reprising a hue already carrying a different, established meaning (sequential/quantitative) for a fourth purpose also adds a third meaning to a token that already has two.
+- **Shipped: a new small family, its own hue, distinct in character from both.** Four tokens (`--chart-counter-input`, `--chart-counter-cache-write`, `--chart-counter-cache-read`, `--chart-counter-output`), one hue (H 205°, a muted cyan/teal — not used anywhere else in this system), stepped in lightness the same way `--chart-flow-*` is (readable "family" progression), at roughly 70% of each step's gamut-edge chroma so the family reads visibly *quieter* than the saturated 8-hue role rainbow even before checking exact hue distance — the gestalt cue ("this whole four-color group looks different from that whole eight-color group") is the primary anti-collision device, hue separation is the second line of defense.
+
+| Token | Counter | OKLCH | Hex | vs. white `--card` | vs. dark `--card` |
+|---|---|---|---|---|---|
+| `--chart-counter-input` | `input` | `oklch(0.500 0.0598 205.0)` | `#356d73` | 5.84:1 | 3.00:1 |
+| `--chart-counter-cache-write` | `cache_write` | `oklch(0.575 0.0688 205.0)` | `#42858c` | 4.24:1 | 4.12:1 |
+| `--chart-counter-cache-read` | `cache_read` | `oklch(0.650 0.0777 205.0)` | `#4f9da6` | 3.13:1 | 5.58:1 |
+| `--chart-counter-output` | `output` | `oklch(0.720 0.0861 205.0)` | `#5cb4be` | 2.40:1 | 7.29:1 |
+
+**Evidence.** All four clear 2:1 on both real `--card` surfaces (worst: `output` 2.40:1 white, `input` 3.00:1 dark). Adjacent-step OKLab separation is 0.070–0.076 raw and 0.146–0.161 under both simulated deuteranopia and protanopia (Machado/Oliveira/Fairchild 2009, same method as the role palette above) — each step stays individually distinguishable from its neighbor under either deficiency, direction preserved. Nearest role-hue distance per step ranges 0.073 (`cache_write`↔`seceng`) to 0.115 (`output`↔`seceng`) — closer than the role palette's own internal spacing, but never below the ~0.02 OKLab JND, and none of the four sits inside the role rainbow's saturated-chroma band (0.11–0.24) to begin with. Same standing caveat as the role palette: computed manually, dataviz skill script unreachable this session — re-run through `validate_palette.py` before lock.
+
+**`app.css` — ready to paste**, single set for `:root`/`.dark`:
+
+```css
+:root {
+  --chart-counter-input: oklch(0.500 0.0598 205.0);
+  --chart-counter-cache-write: oklch(0.575 0.0688 205.0);
+  --chart-counter-cache-read: oklch(0.650 0.0777 205.0);
+  --chart-counter-output: oklch(0.720 0.0861 205.0);
+}
+.dark {
+  --chart-counter-input: oklch(0.500 0.0598 205.0);
+  --chart-counter-cache-write: oklch(0.575 0.0688 205.0);
+  --chart-counter-cache-read: oklch(0.650 0.0777 205.0);
+  --chart-counter-output: oklch(0.720 0.0861 205.0);
+}
+```
 
 ### Sidebar tokens
 
@@ -409,4 +535,6 @@ Flagging for the team's awareness — not blocking adoption of the preset, but w
 1. **Merriweather-as-body-face is still an unusual, opinionated choice for a data-dense dashboard, even with Space Grotesk covering headings.** The pairing is more defensible than "serif everywhere" — headings get a clean sans — but Merriweather is still what actually renders on tables, forms, buttons, and badges, which is the majority of a tracker/dashboard's actual surface area, not the minority of it covered by headings. Worth a quick internal design review before this ships broadly, not just accepting the preset default because it's the preset default.
 2. **Three Google Fonts now load (Merriweather Variable + Space Grotesk Variable + Geist Mono Variable), not two** — reverses the old system's zero-network-font-request stance more than initially scoped. That was a deliberate old-system choice for perf/offline-resilience reasons — if those constraints still matter for this project, self-host all three variable fonts rather than trusting Google Fonts' CDN at runtime, and preload them to avoid FOUC on a data-heavy first paint.
 3. **This system now has no multi-hue categorical palette anywhere, by explicit decision (2026-08-26: preset tokens only, no invented hues).** The previous revision of this doc proposed inventing a green and a violet to cover this; that proposal is retired. The status/badge vocabulary is now fully expressible with existing tokens (see **Project extensions**), so the gap doesn't block anything today — but it means **positive/negative financial-style deltas and any true multi-series categorical chart (3+ unrelated series that need to be told apart by hue) currently have no palette to draw from.** This is the one place a future token addition may be genuinely needed — decide it against a concrete chart/metric spec when one actually comes up, not speculatively now.
+
+   **Resolved 2026-09-03 (PT-79):** the concrete chart/metric spec arrived — see **Categorical role palette (PT-79)** above, immediately after **Chart-local ramp**. 8 role hues + 3 neutral fold/guard tokens, decided against that specific use case rather than invented ahead of need, exactly as this note anticipated.
 4. **The chart ramp is sequential-only by construction** (see also #3 — this is the same underlying gap, chart-specific). Fine if this project's charts stay single-metric; if roadmap plans include any categorical chart (status breakdown, assignee distribution) or a positive/negative delta indicator, that need should be scoped and resolved as a deliberate token decision when it comes up, not bolted on ad hoc.

@@ -238,3 +238,80 @@ export function subscribeFlow(
 		window.clearInterval(pollId);
 	};
 }
+
+// PT-79: the token/cost dashboard block's data source. Architect's ruling
+// puts this behind its own endpoint too (GET /api/tokens, never a key on
+// /api/dashboard) -- different cost profile (a metrics-file parse plus a
+// price lookup on a cache miss), different cache key (the metrics file's
+// own mtime/size), different freshness cadence (a backfill re-run or an
+// otel flush, neither of which the /api/events watcher -- process/cairn/
+// working-tree changes only -- would ever see). Aggregated server-side to
+// issue x role; per-model detail never crosses the wire (the price table
+// stays server-side too).
+export type TokenCounters = {
+	input: number;
+	cache_write: number;
+	cache_read: number;
+	output: number;
+	cost_usd: number | null;
+};
+
+export type TokenRoleTotal = TokenCounters & { role: string };
+
+export type TokenIssueTotal = {
+	issue: string;
+	total: TokenCounters;
+	roles: TokenRoleTotal[];
+};
+
+export type TokensPayload = {
+	issues: TokenIssueTotal[];
+	window_start: string | null;
+	window_end: string | null;
+	generated: string | null;
+	sources: string[];
+	prices: {
+		retrieved: string | null;
+		source: string | null;
+		unpriced_models: string[];
+	};
+	warning: string | null;
+};
+
+export async function fetchTokens(): Promise<TokensPayload> {
+	const res = await fetch('/api/tokens');
+	if (!res.ok) {
+		throw new Error(`GET /api/tokens -> ${res.status}`);
+	}
+	return (await res.json()) as TokensPayload;
+}
+
+/**
+ * Poll-only, same reasoning as subscribeFlow/subscribeRoster above -- the
+ * metrics file is written by two out-of-band processes (a one-time
+ * backfill, an OTel receiver flushing at most every 30 minutes), neither
+ * of which the SSE watcher can see.
+ */
+export function subscribeTokens(
+	onUpdate: (payload: TokensPayload) => void,
+	onError: (err: unknown) => void = () => {},
+): () => void {
+	let stopped = false;
+
+	const refresh = async () => {
+		try {
+			const payload = await fetchTokens();
+			if (!stopped) onUpdate(payload);
+		} catch (err) {
+			if (!stopped) onError(err);
+		}
+	};
+
+	void refresh();
+	const pollId = window.setInterval(() => void refresh(), POLL_INTERVAL_MS);
+
+	return () => {
+		stopped = true;
+		window.clearInterval(pollId);
+	};
+}

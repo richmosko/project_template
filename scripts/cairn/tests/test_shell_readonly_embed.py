@@ -365,17 +365,30 @@ class OpenIdDeepLinkTests(unittest.TestCase):
         self.assertTrue(BOARD_JS.is_file(), f"{BOARD_JS} does not exist")
         self.source = _strip_js_comments(BOARD_JS.read_text(encoding="utf-8"))
 
+    # PT-79 qa-engineer fix (2026-09-04): the inline
+    # `new URLSearchParams(window.location.search).get("open")` read this
+    # test originally pinned was extracted into a pure
+    # `CairnLogic.parseOpenIssueId(search)` function (board-logic.js,
+    # tested directly in tests/js/open-drawer-query-param.test.js) so
+    # board-load ordering could be fixed and unit-tested -- board.js now
+    # calls `parseOpenIssueId(window.location.search)` instead of the raw
+    # `.get("open")` pattern, which broke this test's literal string
+    # match as a false regression (the CAPABILITY didn't regress, the
+    # implementation moved). Both patterns accepted now so a future
+    # revert to the inline form would still pass too.
+    OPEN_PARAM_READ_RE = re.compile(r'get\(\s*["\']open["\']\s*\)|parseOpenIssueId\(')
+
     def test_open_query_param_is_read(self):
-        match = re.search(r'get\(\s*["\']open["\']\s*\)', self.source)
+        match = self.OPEN_PARAM_READ_RE.search(self.source)
         self.assertIsNotNone(
             match,
-            "no `.get(\"open\")` (URLSearchParams-style read of an `open` query param) found "
+            "no `.get(\"open\")` read (or its parseOpenIssueId(...) extraction) found "
             "in board.js -- architect's ruling: /?embed=1&open=PT-42 must open that issue's "
             "drawer on load.",
         )
 
     def test_open_drawer_is_called_with_the_query_param_value(self):
-        open_param_match = re.search(r'get\(\s*["\']open["\']\s*\)', self.source)
+        open_param_match = self.OPEN_PARAM_READ_RE.search(self.source)
         if open_param_match is None:
             self.skipTest("no `open` query param read found -- see test_open_query_param_is_read")
         neighborhood = self.source[open_param_match.start():open_param_match.start() + 400]
