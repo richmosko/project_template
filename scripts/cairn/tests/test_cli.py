@@ -743,6 +743,78 @@ class DiscoveryErrorTests(unittest.TestCase):
             f"(stdout={result.stdout!r} stderr={result.stderr!r})",
         )
 
+    # PT-80 (AC2/AC4): `check` and `serve` extend the same coverage `ls`
+    # already had -- both already route through resolve_data_dir before
+    # touching load_config, so these are regression tests confirming that
+    # stays true, not reproductions of PT-80's actual bug (which lives in
+    # load_config itself, pinned in test_load_config_raises.py -- any
+    # DIRECT caller of load_config, bypassing resolve_data_dir, is where
+    # the silent default actually happens). Also the first tests in this
+    # class to assert the resolved PATH actually appears in stderr, per
+    # PT-80 AC4's literal wording ("asserts exit 1 and the path in
+    # stderr") -- the existing `ls` tests above only assert a nonzero
+    # exit.
+
+    def test_check_with_no_process_cairn_anywhere_up_the_tree_errors_loudly(self):
+        tmp_root = helpers.make_empty_tmp_dir(self)
+        result = subprocess.run(
+            [str(helpers.CAIRN_BIN), "check"],
+            cwd=str(tmp_root), capture_output=True, text=True, env=self._env_without_override(),
+        )
+        self.assertEqual(result.returncode, 1, f"stdout={result.stdout!r} stderr={result.stderr!r}")
+        expected_data_dir = tmp_root / "process" / "cairn"
+        self.assertIn(str(expected_data_dir), result.stderr, f"error must name the resolved path -- got: {result.stderr!r}")
+
+    def test_check_with_data_dir_present_but_config_yml_missing_errors_loudly(self):
+        tmp_root = helpers.make_empty_tmp_dir(self)
+        cairn_dir = tmp_root / "process" / "cairn"
+        (cairn_dir / "issues").mkdir(parents=True)
+        (cairn_dir / "archive").mkdir(parents=True)
+        (cairn_dir / "milestones").mkdir(parents=True)
+        (cairn_dir / "majors").mkdir(parents=True)
+        result = subprocess.run(
+            [str(helpers.CAIRN_BIN), "check"],
+            cwd=str(tmp_root), capture_output=True, text=True, env=self._env_without_override(),
+        )
+        self.assertEqual(result.returncode, 1, f"stdout={result.stdout!r} stderr={result.stderr!r}")
+        self.assertIn(str(cairn_dir), result.stderr, f"error must name the resolved path -- got: {result.stderr!r}")
+
+    def test_serve_with_no_process_cairn_anywhere_up_the_tree_errors_loudly_and_exits_promptly(self):
+        # Must fail BEFORE server.serve_forever() is ever reached -- a
+        # generous timeout is a safety net against a regression that
+        # moves the check too late and hangs the process instead of
+        # exiting, not an expected-duration budget.
+        tmp_root = helpers.make_empty_tmp_dir(self)
+        try:
+            result = subprocess.run(
+                [str(helpers.CAIRN_BIN), "serve"],
+                cwd=str(tmp_root), capture_output=True, text=True, env=self._env_without_override(),
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            self.fail("cairn serve must exit immediately on an undiscoverable data dir, not hang in serve_forever()")
+        self.assertEqual(result.returncode, 1, f"stdout={result.stdout!r} stderr={result.stderr!r}")
+        expected_data_dir = tmp_root / "process" / "cairn"
+        self.assertIn(str(expected_data_dir), result.stderr, f"error must name the resolved path -- got: {result.stderr!r}")
+
+    def test_serve_with_data_dir_present_but_config_yml_missing_errors_loudly_and_exits_promptly(self):
+        tmp_root = helpers.make_empty_tmp_dir(self)
+        cairn_dir = tmp_root / "process" / "cairn"
+        (cairn_dir / "issues").mkdir(parents=True)
+        (cairn_dir / "archive").mkdir(parents=True)
+        (cairn_dir / "milestones").mkdir(parents=True)
+        (cairn_dir / "majors").mkdir(parents=True)
+        try:
+            result = subprocess.run(
+                [str(helpers.CAIRN_BIN), "serve"],
+                cwd=str(tmp_root), capture_output=True, text=True, env=self._env_without_override(),
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            self.fail("cairn serve must exit immediately on a config-less data dir, not hang in serve_forever()")
+        self.assertEqual(result.returncode, 1, f"stdout={result.stdout!r} stderr={result.stderr!r}")
+        self.assertIn(str(cairn_dir), result.stderr, f"error must name the resolved path -- got: {result.stderr!r}")
+
 
 class ErrorHandlingTests(unittest.TestCase):
     def test_unknown_subcommand_fails_loudly(self):
