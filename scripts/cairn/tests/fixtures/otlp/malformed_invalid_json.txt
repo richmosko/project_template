@@ -1,0 +1,1 @@
+{not valid json at all, deliberately truncated for the reject-without-writing test

@@ -1,0 +1,1 @@
+{"type":"assistant","sessionId":"otel-role-test-session-no-agent","timestamp":"2026-09-04T10:00:00Z","gitBranch":"feature/pt-78-otel-receiver","requestId":"req-role-fixture-2","uuid":"uuid-role-fixture-2","message":{"model":"claude-sonnet-5","usage":{"input_tokens":1,"cache_creation_input_tokens":1,"cache_read_input_tokens":1,"output_tokens":1}}}
