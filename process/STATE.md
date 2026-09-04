@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-86-receiver-self-stop` |
 | Started | 2026-09-04 |
 | Goal | The receiver counts live sessions by id, and on the last SessionEnd waits a grace period, flushes, and exits — no daemon outlives the last session on the repo. |
-| Status | In Progress |
+| Status | In Review — [PR #166](https://github.com/richmosko/project_template/pull/166) |
 
 ## Releases
 
