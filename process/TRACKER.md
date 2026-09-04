@@ -44,7 +44,8 @@ process/cairn/
 │   ├── PT-A.md · PT-B.md    definition milestones
 │   └── PT-1.0.md            development milestone, named by target version
 ├── issues/PT-1.md           feature (and sub-issues — same file type)
-└── archive/issues/PT-1.md   same schema; moved here as hygiene   (PT-50)
+├── archive/issues/PT-1.md   same schema; moved here as hygiene   (PT-50)
+└── metrics/token-usage.jsonl   token counts only, not tracker data  (PT-77)
 
 scripts/cairn/            THE ENGINE — self-contained, spin-off-ready
 ├── cairn                 bash shim → cairn.py
@@ -59,6 +60,8 @@ scripts/cairn/            THE ENGINE — self-contained, spin-off-ready
 **A missing or config-less data dir is an error, never an empty result.** If the engine can't resolve a directory containing `config.yml` it says so and exits non-zero — it does not report zero issues. "No tracker here" and "no issues here" are different facts and must never render identically.
 
 **Engine under `scripts/cairn/`** and nowhere else. It touches no project file outside `process/cairn/`, so `git subtree split --prefix=scripts/cairn` extracts it cleanly — a combined `cairn/` would drag every project's issue history into the extracted repo.
+
+**`metrics/token-usage.jsonl` is data, not a tracker record.** It holds token-usage counts only (input/cache-write/cache-read/output per issue × role × model), never issue content, and lives outside `issues/` `milestones/` `majors/` `archive/` so no cairn loader or `cairn check` ever scans it. `scripts/cairn/backfill_tokens.py` (PT-77) wrote it **once**, scraping the local Claude Code transcripts before their retention window pruned the history; PT-78 owns appending to it going forward from live OTel data, in the same schema, so the two sources merge without translation. A branch touching more than one issue (`feature/pt-7-8-9-13-*`) attributes its whole contribution to the first id only — the transcript carries no finer signal. The backfilled data starts at 2026-08-18 because Claude Code's own retention window had already pruned everything earlier by the time PT-77 ran; PT-79's chart must not present it as complete history.
 
 ### `config.yml`
 

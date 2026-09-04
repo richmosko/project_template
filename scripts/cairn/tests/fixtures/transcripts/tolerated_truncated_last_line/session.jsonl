@@ -1,0 +1,2 @@
+{"type":"assistant","sessionId":"fake-tl1","timestamp":"2026-08-20T10:00:00Z","gitBranch":"feature/pt-15-x","requestId":"req-tl1-ok","uuid":"uuid-tl1-ok","message":{"model":"claude-sonnet-5","usage":{"input_tokens":9,"cache_creation_input_tokens":8,"cache_read_input_tokens":7,"output_tokens":6}}}
+{"type":"assistant","sessionId":"fake-tl1","timestamp":"2026-08-20T10:05:00Z","gitBranch":"feature/pt-15-x","message":{"model":"claude-sonnet-5","usage":{"input_toke
