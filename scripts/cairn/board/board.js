@@ -2075,21 +2075,33 @@
     // paint into a stale/wrong drawer.
     var tokensContainer = document.createElement("div");
     // Addendum (a375ff7): "id=drawer-token-usage -- a stable target the
-    // browser-visibility leg can aim at." Present even before the async
-    // fetch resolves (an empty container is still a valid, findable
-    // target) -- the id must not depend on data having arrived yet.
+    // browser-visibility leg can aim at." Created eagerly so there is
+    // somewhere to render INTO once the async fetch resolves, but
+    // browser-verified delta 7 (team-lead's drawer pass): an issue with
+    // no recorded usage must render NO element at all, not an empty,
+    // zero-height div with this id sitting in the DOM -- the
+    // visibility checklist's "no element" case, not "an invisible one".
+    // Removed below on either a null result or a fetch failure.
     tokensContainer.id = "drawer-token-usage";
     drawer.appendChild(tokensContainer);
     fetchTokensOnce().then(function (tokensPayload) {
       if (!state.openRecord || state.openRecord.kind !== "issue" || state.openRecord.id !== issue.id) return;
       var totals = tokenTotalsForIssue(tokensPayload, issue.id);
-      if (!totals) return; // no recorded usage for this issue -- no section, not a fabricated zero row
+      if (!totals) {
+        // No recorded usage for this issue -- no section, not a
+        // fabricated zero row, and (delta 7) not an empty placeholder
+        // element either.
+        if (tokensContainer.parentNode) tokensContainer.parentNode.removeChild(tokensContainer);
+        return;
+      }
       renderTokenUsageSection(tokensContainer, totals);
     }).catch(function () {
       // Token data is supplementary to the drawer, never load-bearing --
       // a fetch failure here must not surface as a toast/error the way
       // apiGetIssue's own failure does; the rest of the drawer already
-      // rendered successfully.
+      // rendered successfully. Same "no data, no element" posture as the
+      // null-result branch above.
+      if (tokensContainer.parentNode) tokensContainer.parentNode.removeChild(tokensContainer);
     });
 
     var split = splitAcceptanceCriteria(issue.description);

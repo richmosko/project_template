@@ -296,3 +296,18 @@
 		</Card.Content>
 	</Card.Root>
 </section>
+
+<style>
+	/* Browser-verified defect (team-lead's 570px-viewport pass): layerchart's
+	   own Legend renders its swatch row as `display: flex` with no
+	   `flex-wrap` (see node_modules/layerchart/dist/components/Legend.svelte
+	   -- `.lc-legend-swatch-group`), so at narrow widths the first/last
+	   entries (e.g. architect, Other) clip out of view entirely rather than
+	   reflowing -- both the counter legend (tokens view) and the role
+	   legend (cost view) use this same element. layerchart's own rule is
+	   wrapped in `:where(...)` (zero specificity), so a plain :global
+	   class selector here overrides it cleanly with no specificity fight. */
+	:global(.lc-legend-swatch-group) {
+		flex-wrap: wrap;
+	}
+</style>
