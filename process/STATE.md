@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-81-receiver-hardening` |
 | Started | 2026-09-04 |
 | Goal | The receiver never starts with telemetry off, never claims success after a failed bind, and refuses a port that disagrees with the exporter endpoint. |
-| Status | In Progress |
+| Status | In Review — [PR #160](https://github.com/richmosko/project_template/pull/160) |
 
 ## Releases
 
