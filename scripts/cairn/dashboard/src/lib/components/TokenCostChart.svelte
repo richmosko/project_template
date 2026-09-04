@@ -50,25 +50,26 @@
 		output: 'Output',
 	};
 	// Browser-verified defect (team-lead's pass on 3aa09e8): the original
-	// placeholder reused four ADJACENT steps of PT-61's --chart-flow-*
-	// ordinal ramp -- deliberately near-identical golds by design (a
-	// monotone-lightness, single-hue ramp), which is exactly why it read
-	// as one indistinguishable swatch here and made three of the four
-	// series invisible against cache read. Token type has no ordinal
-	// relationship the flow ramp's design could correctly express in the
-	// first place. Fixed by drawing 4 WIDELY-SPACED hues from the now-
-	// landed, already-validated categorical role palette instead (its
-	// minimum pairwise separation across all 8 is >=0.078 dE_OK; any
-	// 4-subset inherits that same floor) -- reuse, not a new, unvalidated
-	// token. `input`/`output` (the two ruled-must-be-separate primary
-	// counters, AC2) get the two hues furthest apart on the wheel
-	// (blue/vermillion); cache read/write get two more, well clear of
-	// both and of each other.
+	// placeholder reused four ADJACENT steps of PT-61's ordinal flow ramp
+	// -- deliberately near-identical golds by design, which is exactly why
+	// it read as one indistinguishable swatch and made three of the four
+	// series invisible against cache read. A follow-up stopgap borrowed
+	// four widely-spaced hues from the categorical role palette instead,
+	// but ux-designer's ruling (f9c6417) rejected that reuse too: those
+	// hues already carry a fixed per-role meaning in the cost view (AC1's
+	// role stack), and reusing them here for an unrelated axis (token
+	// type, in the tokens-mode toggle) is a semantic-meaning collision --
+	// the same class of issue as PT-69's Paused-badge fix. Uses the
+	// dedicated counter-type palette shipped for exactly this purpose
+	// instead (see app.css's PT-79 counter-token block): a muted
+	// cyan/teal family, distinct in character from both the golden
+	// ordinal ramp and the 8-hue role rainbow, so a reader can't mistake
+	// a token-type swatch for a role swatch.
 	const TOKEN_TYPE_COLOR: Record<(typeof TOKEN_TYPE_KEYS)[number], string> = {
-		input: 'var(--chart-role-1)', // blue
-		cache_write: 'var(--chart-role-6)', // yellow-green
-		cache_read: 'var(--chart-role-4)', // magenta
-		output: 'var(--chart-role-7)', // vermillion
+		input: 'var(--chart-counter-input)',
+		cache_write: 'var(--chart-counter-cache-write)',
+		cache_read: 'var(--chart-counter-cache-read)',
+		output: 'var(--chart-counter-output)',
 	};
 	// The real, designed categorical role palette (ux-designer's proposal,
 	// commit fd6df5c, docs/DESIGN/design-system-spec.md § Categorical role

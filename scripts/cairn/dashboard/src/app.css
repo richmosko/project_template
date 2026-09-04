@@ -113,6 +113,20 @@
 	--chart-role-guard-aux: oklch(0.700 0.015 56.0);          /* auxiliary series */
 	--chart-role-guard-unattributed: oklch(0.440 0.020 56.0); /* subagent-unattributed series */
 	--chart-role-other: oklch(0.600 0.010 56.0);              /* grouped roles outside ROLE_TOKEN_ORDER */
+	/* PT-79 (ux-designer's ruling, f9c6417): dedicated counter-type
+	   palette for the tokens-view stacked series (input/cache_write/
+	   cache_read/output) -- rejects reusing --chart-role-* (a real
+	   semantic-meaning collision, same class of issue as PT-69's Paused
+	   badge fix) and --chart-flow-* (the ordinal backlog->done ramp,
+	   deliberately near-identical adjacent steps, the opposite of what
+	   a 4-way categorical split needs). Muted cyan/teal family (H
+	   205.0), distinct in character from both the golden ordinal ramp
+	   and the 8-hue role rainbow. Identical in :root/.dark (validated
+	   against both real --card surfaces). */
+	--chart-counter-input: oklch(0.500 0.0598 205.0);
+	--chart-counter-cache-write: oklch(0.575 0.0688 205.0);
+	--chart-counter-cache-read: oklch(0.650 0.0777 205.0);
+	--chart-counter-output: oklch(0.720 0.0861 205.0);
 	--radius: 0.625rem;
 	--sidebar: oklch(0.985 0.001 106.423);
 	--sidebar-foreground: oklch(0.147 0.004 49.25);
@@ -189,6 +203,10 @@
 	--chart-role-guard-aux: oklch(0.700 0.015 56.0);
 	--chart-role-guard-unattributed: oklch(0.440 0.020 56.0);
 	--chart-role-other: oklch(0.600 0.010 56.0);
+	--chart-counter-input: oklch(0.500 0.0598 205.0);
+	--chart-counter-cache-write: oklch(0.575 0.0688 205.0);
+	--chart-counter-cache-read: oklch(0.650 0.0777 205.0);
+	--chart-counter-output: oklch(0.720 0.0861 205.0);
 	--sidebar: oklch(0.216 0.006 56.043);
 	--sidebar-foreground: oklch(0.985 0.001 106.423);
 	--sidebar-primary: oklch(0.685 0.169 237.323);

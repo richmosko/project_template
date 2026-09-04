@@ -3100,13 +3100,17 @@ def build_tokens_payload(data_dir: Path, prices: Optional[Dict[str, Any]] = None
     issues_out.sort(key=_issue_sort_key)
 
     # Architect's review of 3aa09e8 (4f7fafc): a missing/malformed
-    # prices.json (load_prices' own "source": None sentinel for that
-    # fallback) must surface as a top-level warning too, not just via
+    # prices.json must surface as a top-level warning too, not just via
     # `unpriced_models` -- team-lead's call to honour the addendum
-    # literally rather than amend it. Combined with a malformed-line
-    # warning, not overwritten by it -- both are real, independent facts
-    # about this response.
-    warnings = [w for w in (read_warning, None if prices.get("source") else "no price table found") if w]
+    # literally rather than amend it. Keyed on an EMPTY `models` dict,
+    # not on `source` being falsy: `load_prices`'s own missing-file
+    # fallback has both empty, but a price table that is technically
+    # present yet defines rates for zero models (a caller-injected
+    # prices= in a test, or a real file trimmed to nothing) is exactly
+    # as unusable and must warn the same way. Combined with a
+    # malformed-line warning, not overwritten by it -- both are real,
+    # independent facts about this response.
+    warnings = [w for w in (read_warning, None if models else "no price table found") if w]
     combined_warning = "; ".join(warnings) if warnings else None
 
     return {
