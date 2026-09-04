@@ -199,23 +199,18 @@ LOGFILE_REL = Path("process") / "cairn" / "metrics" / "otel_receiver.log"
 # session registry) -- see `_sessions_dir` and `serve`'s watchdog block.
 SESSIONS_DIRNAME = ".sessions"
 CLOSING_MARKER_NAME = ".closing"
+# Architect review (ef000d5), Delta 6: written by `serve` at startup,
+# inside `_sessions_dir` (zero new .gitignore surface -- the directory
+# is already covered end-to-end, and the existing dotfile filter in
+# `live_session_ids` already skips it the same way it skips
+# CLOSING_MARKER_NAME). Its PRESENCE is the only thing that matters --
+# `_nudge_daemon` only sends SIGUSR2 when it's there, so a receiver
+# started before this change (no SIGUSR2 handler at all -- an unhandled
+# SIGUSR2 terminates a Python process outright) is never signalled.
+NUDGE_CAPABLE_MARKER_NAME = ".nudge-capable"
 DEFAULT_GRACE_PERIOD_SECONDS = 10.0  # addendum §D: default 10s
 WATCHDOG_TICK_SECONDS = 0.2  # addendum §4: "ticks <= 0.25 s"
 TRANSCRIPT_STALE_SECONDS = 30 * 60  # addendum C: the probe's second signal
-# Architect review (ef000d5), Delta 1: the nudge-gated reap and the
-# flush-triggered reap both go silent when EVERY registered session has
-# crashed (no `end` event ever arrives to nudge, and no export ever
-# arrives to trigger a flush) -- without a THIRD, time-based trigger
-# independent of both, a fully-crashed registry pins the receiver until
-# some unrelated future session's own SessionEnd happens to reap it.
-# Deliberately much slower than WATCHDOG_TICK_SECONDS (reaping every
-# tick regardless of a nudge was tried and rejected -- see the
-# `_watchdog_loop` docstring -- it broke the "not yet reaped" window
-# LivenessReapTests relies on) and much slower than
-# TRANSCRIPT_STALE_SECONDS itself (no entry can become reap-eligible
-# faster than that anyway).
-SLOW_PERIODIC_REAP_SECONDS = 5 * 60
-
 # Addendum: the allow-list, verbatim -- every OTLP attribute NOT one of
 # these five is dropped before it reaches memory beyond the series key.
 _ATTR_ALLOW_LIST = ("agent.name", "model", "query_source", "cairn.issue", "type")
@@ -854,21 +849,42 @@ def _compare_and_delete_pidfile(pidfile: Path, expected_pid: int) -> None:
         pass
 
 
-def _nudge_daemon(pidfile: Path) -> None:
+def _nudge_daemon(pidfile: Path, kill=os.kill) -> None:
     """PT-86: signals a running receiver (SIGUSR2) to re-evaluate its
     session registry right now instead of waiting for the watchdog's own
     next WATCHDOG_TICK_SECONDS poll -- sent after every
     `register_session`/`deregister_session` so an immediate `--status`
     (or the grace-window cancel/arm decision) reflects the change without
-    a polling-latency window. Purely a latency nudge, never load-bearing
-    for correctness (see `serve`'s watchdog docstring) -- a harmless
-    no-op when nothing is running."""
+    a polling-latency window. Load-bearing for the on-decrement reap of a
+    crashed SIBLING session (see `serve`'s watchdog docstring, and
+    architect review Delta 1) -- a missed nudge never delays the stop for
+    a clean exit (the registry file is already gone either way), but does
+    skip that reap until the next `end` event or flush.
+
+    Architect review, Delta 6: gated on a capability marker
+    (`NUDGE_CAPABLE_MARKER_NAME`, written by `serve` at startup, inside
+    `_sessions_dir`) -- a receiver started before this change has no
+    SIGUSR2 handler at all, and a Python process with no handler for a
+    signal is TERMINATED by it (measured: exit -31), losing everything
+    accrued since its last flush with no final flush at all. No marker
+    present is the safe default (assume "maybe an old daemon", stay
+    silent) -- the watchdog's own tick still does the work, just up to
+    WATCHDOG_TICK_SECONDS later, for any daemon that IS new enough to
+    have one.
+
+    `kill` is injectable (default `os.kill`) so a test can assert exactly
+    which signal was (or was not) sent without ever signalling a real
+    process."""
     pid = _read_pidfile(pidfile)
-    if pid is not None and _pid_is_alive(pid):
-        try:
-            os.kill(pid, signal.SIGUSR2)
-        except OSError:
-            pass
+    if pid is None or not _pid_is_alive(pid):
+        return
+    marker = _sessions_dir(pidfile) / NUDGE_CAPABLE_MARKER_NAME
+    if not marker.exists():
+        return
+    try:
+        kill(pid, signal.SIGUSR2)
+    except OSError:
+        pass
 
 
 # --------------------------------------------------------------------------
@@ -1415,6 +1431,14 @@ def serve(
     except OSError:
         pass
 
+    # Delta 6: declare "I understand SIGUSR2" before anything could ever
+    # nudge this process -- a receiver started before this change has no
+    # handler for it at all, so `_nudge_daemon` must never send one
+    # without first confirming, via this marker, that whatever is
+    # actually listening on the other end is new enough to survive it.
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    (sessions_dir / NUDGE_CAPABLE_MARKER_NAME).write_text("", encoding="utf-8")
+
     def _do_flush() -> None:
         branch = _current_branch(branch_repo_root)
         hint = _issue_hint_from_datapoints(state.series_meta.values())
@@ -1513,7 +1537,6 @@ def serve(
     def _watchdog_loop() -> None:
         shutdown_deadline: Optional[float] = None
         ever_nonempty = bool(live_session_ids(sessions_dir))
-        last_periodic_reap = time.monotonic()
         while True:
             nudged = wake_event.wait(WATCHDOG_TICK_SECONDS)
             wake_event.clear()
@@ -1535,20 +1558,16 @@ def serve(
             # flush, and once more immediately before the point of no
             # return -- are unconditional, below and in `_do_flush`.
             #
-            # Architect review, Delta 1: neither of those two triggers
-            # fires when EVERY registered session has crashed (no `end`
-            # event ever nudges, no export ever triggers a flush) -- a
-            # slow, unconditional, time-based reap is the third trigger
-            # that keeps that case from pinning the receiver until some
-            # unrelated future session's own SessionEnd happens to clear
-            # it. Deliberately rare (SLOW_PERIODIC_REAP_SECONDS) so it
-            # can never race the "not yet reaped" window the fast tests
-            # in this suite depend on.
-            due_for_periodic_reap = (time.monotonic() - last_periodic_reap) >= SLOW_PERIODIC_REAP_SECONDS
-            if nudged or due_for_periodic_reap:
+            # Architect review, Delta 1 (team-lead's call, PT-86): when
+            # EVERY registered session has crashed, neither trigger ever
+            # fires, so a fully-crashed registry pins the receiver until
+            # some UNRELATED future session's own SessionEnd happens to
+            # reap it -- one session-lifecycle, not forever. §0: a pin
+            # costs only an idle localhost process, so this is accepted
+            # as documented behaviour (TRACKER → Ongoing collection)
+            # rather than fixed with a fourth reap trigger.
+            if nudged:
                 reap_dead_sessions(sessions_dir, is_alive=session_is_alive)
-                if due_for_periodic_reap:
-                    last_periodic_reap = time.monotonic()
             if live_session_ids(sessions_dir):
                 ever_nonempty = True
                 shutdown_deadline = None
