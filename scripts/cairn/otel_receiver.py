@@ -556,9 +556,6 @@ def resolve_issue(branch: Optional[str], prefix: str, cairn_issue_hint: Optional
     return "main"
 
 
-_ROLE_SCAN_LIMIT = 50  # amendment B: measured 10x margin over the observed max (line 4-5)
-
-
 def _resolve_role_from_session(
     session_id: Optional[str], transcripts_dir: Path, roster: Set[str], cache: Dict[str, str]
 ) -> str:
@@ -566,17 +563,24 @@ def _resolve_role_from_session(
     teammate-shaped processes, so role resolves per `session.id`, once,
     at first sight -- NOT from any OTel attribute. Reads
     `<transcripts_dir>/<session_id>.jsonl` (same file `backfill_tokens.py`
-    would scan), the first `agentName` within the first `_ROLE_SCAN_LIMIT`
-    records, normalised through PT-77's own roster-anchored function
-    (shared, not copied). File exists with none found -> `team-lead`.
-    File absent entirely -> `subagent-unattributed`, a loud guard: it
-    means no transcript for this session (retention pruned it, or it
-    belongs to another project's dir), not "role unknown, assume lead".
+    would scan) via the shared `backfill_tokens._scan_header_fields` +
+    `resolve_role_from_header` (PT-87, imported not copied -- same
+    reasoning as `_normalize_role` before it). File exists with neither
+    field found -> `team-lead`. File absent entirely -> `subagent-
+    unattributed`, a loud guard: it means no transcript for this session
+    (retention pruned it, or it belongs to another project's dir), not
+    "role unknown, assume lead".
 
-    Reads exactly one field (`agentName`) from at most
-    `_ROLE_SCAN_LIMIT` records -- no message content, no prompts, no tool
-    output ever reach this function's return value; the path is derived
-    per lookup, never stored.
+    PT-87: `agentSetting` (the roster-anchored `subagent_type`, wins
+    verbatim when present) is read alongside `agentName` from the SAME
+    scan window -- the two fields never share a record (architect's
+    ruling §4 amendment: `agentSetting` lives only on `type: "agent-
+    setting"` records, `agentName` never does), so the scan cannot
+    early-return on `agentName` alone or it would miss a later
+    `agentSetting`. Reads exactly those two fields from at most
+    `backfill_tokens._ROLE_SCAN_LIMIT` records -- no message content, no
+    prompts, no tool output ever reach this function's return value; the
+    path is derived per lookup, never stored.
     """
     if not session_id:
         return "subagent-unattributed"
@@ -587,26 +591,12 @@ def _resolve_role_from_session(
     if not transcript_path.is_file():
         return "subagent-unattributed"  # NOT cached -- retry on the next datapoint
 
-    role = "team-lead"
     try:
-        with open(transcript_path, "r", encoding="utf-8") as f:
-            for i, raw in enumerate(f):
-                if i >= _ROLE_SCAN_LIMIT:
-                    break
-                raw = raw.strip()
-                if not raw:
-                    continue
-                try:
-                    record = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                agent_name = record.get("agentName")
-                if agent_name:
-                    role = backfill_tokens._normalize_role(agent_name, roster)
-                    break
+        agent_setting, agent_name = backfill_tokens._scan_header_fields(transcript_path)
     except OSError:
         return "subagent-unattributed"  # vanished mid-read -- NOT cached either
 
+    role = backfill_tokens.resolve_role_from_header(agent_setting, agent_name, roster)
     cache[session_id] = role  # a definitive resolution -- cached for the receiver's lifetime
     return role
 

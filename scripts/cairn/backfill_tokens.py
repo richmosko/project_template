@@ -19,12 +19,23 @@ model) to `process/cairn/metrics/token-usage.jsonl`. No transcript text,
 no prompts, no tool output, no session ids are recorded, and the
 transcripts themselves are never copied into the repo.
 
+PT-87 adds one more field, `agentSetting`, read once per file from a
+separate header scan (`_scan_header_fields`) that -- unlike the
+usage-accumulating walk above -- is NOT filtered to `type: "assistant"`:
+`agentSetting` lives exclusively on `type: "agent-setting"` records
+(measured against 69 real transcripts, architect's PT-87 ruling §4
+amendment), so a scan confined to `assistant` records would never see
+it. Still nothing beyond field names and small string values -- no
+message content, no tool output.
+
 Schema, merge semantics, and every constant below are pinned by the
 architect's gating ruling on PT-77 (process/cairn/issues/PT-77.md,
 "@architect — 2026-09-03") — that comment is the tie-breaker for any
 "why does it do X" question this docstring doesn't answer. PT-78 (ongoing
 OTel collection) writes the same schema into the same file; PT-79 (the
-cost chart) reads it.
+cost chart) reads it. PT-87 (process/cairn/issues/PT-87.md) governs role
+resolution specifically -- `agentSetting` now wins over `agentName` when
+present, verbatim, roster member or not.
 
 CLI (flag names pinned by the architect's addendum, § "Flags" — qa's
 fixtures bind to these exactly):
@@ -189,6 +200,98 @@ def _normalize_role(raw_agent_name: Optional[str], roster: Set[str]) -> str:
 
 
 # --------------------------------------------------------------------------
+# PT-87: agentSetting-first role resolution -- shared by this module's own
+# per-file walk and otel_receiver.py's per-session cache (imported, not
+# copied, same pattern _normalize_role already established).
+# --------------------------------------------------------------------------
+
+# Architect's gating ruling on PT-87 (process/cairn/issues/PT-87.md,
+# "@architect -- 2026-09-04", §1/§Q1, measured against 69 real transcripts):
+# first `agentSetting` sighting is at line 1 (52 files) or line 2 (2 files)
+# -- a 25x margin over this limit. The SAME window is also the `agentName`
+# fallback's budget (§4 amendment, 0aa49be): "a second smaller constant buys
+# nothing and adds something to reason about." One constant, shared by both
+# consumers via this module, so the two can never drift apart.
+_ROLE_SCAN_LIMIT = 50
+
+
+def _scan_header_fields(transcript_path: Path, limit: int = _ROLE_SCAN_LIMIT) -> Tuple[Optional[str], Optional[str]]:
+    """PT-87 §4, amended at 0aa49be (measured, not assumed): `agentSetting`
+    lives ONLY on `type: "agent-setting"` records (541 occurrences across
+    69 real transcripts, zero on `assistant`); `agentName` appears on
+    `user`/`attachment`/`assistant`/`system` records but NEVER on an
+    `agent-setting` record -- the two fields never share a record. A scan
+    filtered to one record type would silently miss the other field
+    entirely, which is exactly the bug this function exists to avoid: it
+    reads EVERY record type within the first `limit` non-blank,
+    JSON-parseable lines, tracking the FIRST sighting of each field
+    independently, and does NOT stop as soon as one is found -- only once
+    both are known (or the window ends) is there nothing left to learn.
+
+    Both fields are measured session-constant (§Q3: `agentSetting` varies
+    within a file in 0 of 69 real transcripts, `agentName` in 0 of 53) --
+    resolving once per file/session from this single scan is therefore
+    safe, not merely convenient; do not re-resolve per record.
+
+    Returns `(agent_setting, agent_name)`, either or both possibly `None`.
+    Reads exactly two fields -- no message content, no prompts, no tool
+    output ever reach the return value. Raises nothing on a malformed
+    line (skipped); an unreadable path is the caller's problem (`OSError`
+    propagates, matching this module's fail-loud-on-real-errors stance --
+    the receiver's own caller separately treats a MISSING file as
+    `subagent-unattributed`, unrelated to a read failure on an existing
+    one).
+    """
+    agent_setting: Optional[str] = None
+    agent_name: Optional[str] = None
+    with open(transcript_path, "r", encoding="utf-8") as f:
+        for i, raw in enumerate(f):
+            if i >= limit:
+                break
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                record = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if agent_setting is None:
+                candidate = record.get("agentSetting")
+                if candidate:
+                    agent_setting = candidate
+            if agent_name is None:
+                candidate = record.get("agentName")
+                if candidate:
+                    agent_name = candidate
+            if agent_setting is not None and agent_name is not None:
+                break  # both known -- nothing left to learn from more lines
+    return agent_setting, agent_name
+
+
+def resolve_role_from_header(agent_setting: Optional[str], agent_name: Optional[str], roster: Set[str]) -> str:
+    """PT-87 §2 (architect's gating ruling, the one deviation from the
+    issue's original wording): `agentSetting` wins whenever present and
+    non-empty, taken VERBATIM -- no roster gate, no `-<digits>` strip (it
+    is a type name by construction, `subagent_type`, never a spawn nickname
+    that would carry a disambiguating suffix). A roster-gated rule would
+    discard a correct, harness-supplied type (e.g. `claude-code-guide`, a
+    built-in with no roster file) in favour of a wrong spawn-name guess --
+    PT-77 §4's no-alias-guessing rule forbids INVENTING a mapping, not
+    reading the harness's own type field. A non-roster `agentSetting`
+    still wins here; the caller is responsible for the unmapped paper
+    trail (this function doesn't have the stats dict).
+
+    Falls back to the existing, unchanged `_normalize_role(agent_name,
+    roster)` when `agentSetting` is absent or empty -- which itself
+    resolves an absent `agentName` to `team-lead`, so this function's own
+    "neither field present" case needs no separate branch.
+    """
+    if agent_setting:
+        return agent_setting
+    return _normalize_role(agent_name, roster)
+
+
+# --------------------------------------------------------------------------
 # Transcript scanning
 # --------------------------------------------------------------------------
 
@@ -224,9 +327,19 @@ def _process_record(
     buckets: Dict[Tuple[str, str, str], Dict[str, int]],
     seen_keys: Set[str],
     stats: Dict[str, Any],
+    role: str,
+    role_source_present: bool,
 ) -> None:
     """`location` is `"<path>:<lineno>"`, used only in error messages --
-    never anything read from record content."""
+    never anything read from record content.
+
+    `role`/`role_source_present` (PT-87) are resolved ONCE per file by the
+    caller (`_process_file`, via `_scan_header_fields` + `resolve_role_
+    from_header`) -- not read from THIS record. Measured session-constant
+    (architect's ruling §Q3): re-resolving per record would be both
+    redundant (every record in a file already shares one answer) and
+    wrong for `agentSetting`, which never appears on an `assistant`
+    record at all (§4 amendment)."""
     if record.get("type") != "assistant":
         return
     message = record.get("message")
@@ -268,9 +381,14 @@ def _process_record(
     stats["unique"] += 1
 
     issue = _bucket_for_branch(branch, prefix, issue_re)
-    raw_agent_name = record.get("agentName")
-    role = _normalize_role(raw_agent_name, roster)
-    if raw_agent_name and role not in roster:
+    if role_source_present and role not in roster:
+        # PT-87: broadened from the old "raw_agent_name and ..." check --
+        # a non-roster `agentSetting` (e.g. a future built-in type with no
+        # roster file yet) belongs on the same unmapped paper trail a
+        # non-roster `agentName` always has, per the architect's ruling
+        # §2 ("keep the unmapped paper trail when it isn't a roster
+        # name"). Still per-record (not per-file) so the count reflects
+        # data VOLUME, matching every other stat in this dict.
         stats["unmapped_roles"][role] = stats["unmapped_roles"].get(role, 0) + 1
 
     acc = buckets.setdefault((issue, role, model), _new_bucket())
@@ -299,6 +417,16 @@ def _process_file(
     seen_keys: Set[str],
     stats: Dict[str, Any],
 ) -> None:
+    # PT-87: role resolves ONCE per file, from a header scan across every
+    # record type (§4 amendment, 0aa49be) -- separate from, and BEFORE,
+    # the per-record walk below, which stays filtered to `type ==
+    # "assistant"` for usage accumulation (two different questions, two
+    # different filters; widening the usage filter would change what
+    # gets COUNTED, which is not this ticket).
+    agent_setting, agent_name = _scan_header_fields(path)
+    role = resolve_role_from_header(agent_setting, agent_name, roster)
+    role_source_present = bool(agent_setting or agent_name)
+
     raw = path.read_bytes()
     raw_lines = raw.split(b"\n")
     if raw_lines and raw_lines[-1] == b"":
@@ -320,7 +448,7 @@ def _process_file(
                 print(f"warning: {path}:{idx}: skipping malformed final line ({e})", file=sys.stderr)
                 continue
             raise BackfillError(f"{path}:{idx}: malformed line: {e}")
-        _process_record(record, f"{path}:{idx}", prefix, issue_re, roster, buckets, seen_keys, stats)
+        _process_record(record, f"{path}:{idx}", prefix, issue_re, roster, buckets, seen_keys, stats, role, role_source_present)
 
 
 def scan_transcripts(
@@ -550,7 +678,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
 
     if stats["unmapped_roles"]:
-        print("note: agentName values with no roster match, kept verbatim (no alias guessing):", file=sys.stderr)
+        # PT-87: the value here can now come from either header field --
+        # a non-roster agentSetting (kept verbatim, e.g. a built-in type
+        # with no roster file yet) or the pre-existing agentName fallback
+        # -- so the note no longer names just one of them.
+        print("note: agentSetting/agentName values with no roster match, kept verbatim (no alias guessing):", file=sys.stderr)
         for name, count in sorted(stats["unmapped_roles"].items()):
             print(f"  {name}: {count}", file=sys.stderr)
 
