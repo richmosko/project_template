@@ -987,5 +987,103 @@ class CapabilityMarkerNudgeGateTests(unittest.TestCase):
         )
 
 
+# --------------------------------------------------------------------------
+# 12afe1d's new slow periodic reap sweep (beyond what Delta 1 asked for):
+# a third, unconditional, time-based reap trigger for the all-sessions-
+# crashed case, since neither an `end` event nor a flush ever fires when
+# every registered session has crashed.
+# --------------------------------------------------------------------------
+
+class PeriodicReapSweepTests(unittest.TestCase):
+    """Team-lead: '12afe1d added a slow periodic reap ... untested as far
+    as I can see: (a) a dead-pid + stale-transcript session is reaped by
+    the sweep with no nudge and no export; (b) the sweep does NOT reap a
+    dead-pid session whose transcript is fresh -- the same two-signal
+    guard on the new path.'
+
+    NEEDS a way to make `SLOW_PERIODIC_REAP_SECONDS` (5 min in
+    production) short enough to observe without a real 5-minute wait --
+    proposing `--periodic-reap-seconds N`, threaded through
+    `ensure_running`'s spawn args exactly like `--grace-period-seconds`
+    already is (same seam shape, new name). Raised with implementation-
+    lead; if it lands under a different flag name only the two `_start`
+    helper's arg list below needs to change.
+
+    Both tests keep a SECOND session ("alive", a genuinely live pid)
+    registered throughout, so the registry never goes empty and the
+    grace/shutdown machinery never engages -- the periodic sweep is the
+    ONLY thing that could possibly change 'gone's/-> 'fresh's fate here.
+    Neither test ever calls --session-ended or posts an export, so a
+    reap can only be attributed to the sweep itself, not to the other
+    two trigger sites (§3's 'on every end event' / 'at each flush')."""
+
+    PERIODIC_REAP = 0.5
+
+    def _start(self, fake_root: Path, env: dict, transcripts_dir: Path) -> None:
+        alive = run_fake_receiver(
+            fake_root,
+            ["--ensure-running", "--session-id", "alive", "--session-pid", str(os.getpid()),
+             "--transcripts-dir", str(transcripts_dir), "--periodic-reap-seconds", str(self.PERIODIC_REAP)],
+            env=env,
+        )
+        self.assertEqual(alive.returncode, 0, alive.stdout + alive.stderr)
+        _wait_for_status_running(fake_root, env)
+
+    def test_a_dead_pid_with_a_stale_transcript_is_reaped_by_the_periodic_sweep_alone(self):
+        port = _free_port()
+        fake_root = make_fake_engine_root(self, otel_port=port)
+        env = _base_env(port)
+        transcripts_dir = _make_transcripts_dir(self)
+        self.addCleanup(_stop_fake_receiver, fake_root, env)
+
+        self._start(fake_root, env, transcripts_dir)
+        _write_transcript(transcripts_dir, "gone", stale=True)
+        gone = run_fake_receiver(fake_root, ["--ensure-running", "--session-id", "gone", "--session-pid", str(_dead_pid())], env=env)
+        self.assertEqual(gone.returncode, 0, gone.stdout + gone.stderr)
+
+        status = run_fake_receiver(fake_root, ["--status"], env=env)
+        self.assertIn("sessions: 2", status.stdout, status.stdout)
+
+        # Wait past the (shortened) periodic interval -- no nudge, no
+        # export, nothing else touches the registry in between.
+        deadline = time.time() + self.PERIODIC_REAP + 4.0
+        reaped = False
+        while time.time() < deadline:
+            status = run_fake_receiver(fake_root, ["--status"], env=env)
+            if "sessions: 1" in status.stdout:
+                reaped = True
+                break
+            time.sleep(0.2)
+        self.assertTrue(
+            reaped,
+            f"a dead pid with a STALE transcript must eventually be reaped by the periodic sweep alone -- "
+            f"last status: {status.stdout!r}",
+        )
+        self.assertNotIn("gone", status.stdout, f"the reaped session id must no longer be listed -- {status.stdout!r}")
+
+    def test_a_dead_pid_with_a_fresh_transcript_survives_the_periodic_sweep(self):
+        port = _free_port()
+        fake_root = make_fake_engine_root(self, otel_port=port)
+        env = _base_env(port)
+        transcripts_dir = _make_transcripts_dir(self)
+        self.addCleanup(_stop_fake_receiver, fake_root, env)
+
+        self._start(fake_root, env, transcripts_dir)
+        _write_transcript(transcripts_dir, "mis-detected", stale=False)
+        gone = run_fake_receiver(fake_root, ["--ensure-running", "--session-id", "mis-detected", "--session-pid", str(_dead_pid())], env=env)
+        self.assertEqual(gone.returncode, 0, gone.stdout + gone.stderr)
+
+        # Well past several periodic-sweep intervals -- still must
+        # survive, same two-signal guard as every other reap trigger.
+        time.sleep(self.PERIODIC_REAP * 6)
+        status = run_fake_receiver(fake_root, ["--status"], env=env)
+        self.assertEqual(status.returncode, 0, f"'alive' is still registered -- {status.stdout!r} {status.stderr!r}")
+        self.assertIn(
+            "mis-detected", status.stdout,
+            f"a dead pid with a FRESH transcript must survive the periodic sweep too, not just the "
+            f"nudge/flush triggers -- got {status.stdout!r}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
