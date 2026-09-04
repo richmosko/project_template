@@ -118,6 +118,23 @@ class PaletteCheckModuleSelfTests(unittest.TestCase):
     contrast figures reproduced exactly') -- if this ever goes red, the
     bug is in palette_check.py's color math, not in app.css."""
 
+    def test_card_surfaces_is_not_fooled_by_an_earlier_dot_dark_substring(self):
+        # Regression for a real bug found and fixed in palette_check.py
+        # (2026-09-04, flagged to architect): the original
+        # css_text.find(".dark") matched THIS repo's actual
+        # "@custom-variant dark (&:is(.dark *));" line, which sits before
+        # :root's own --card -- misattributing light-mode's --card as
+        # "after the dark boundary" and leaving the light bucket empty.
+        # Regex-anchored to a real ".dark {" rule opening now.
+        css = (
+            "@custom-variant dark (&:is(.dark *));\n"
+            ":root { --card: oklch(1 0 0); }\n"
+            ".dark { --card: oklch(0.2 0 0); }\n"
+        )
+        surfaces = palette_check.card_surfaces(css)
+        self.assertEqual(surfaces["light"], (1.0, 0.0, 0.0), "light --card must come from :root, not be swallowed by the earlier '.dark' substring in @custom-variant")
+        self.assertEqual(surfaces["dark"], (0.2, 0.0, 0.0))
+
     def test_module_reports_a_missing_token_by_name_not_silently(self):
         css = ":root { --card: oklch(1 0 0); }\n.dark { --card: oklch(0.2 0 0); }\n"
         failures = palette_check.check_role_palette(css)

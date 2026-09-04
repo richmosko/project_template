@@ -103,15 +103,29 @@ def parse_oklch_tokens(css_text: str) -> List[Tuple[str, Tuple[float, float, flo
 
 def card_surfaces(css_text: str) -> Dict[str, Tuple[float, float, float]]:
     """The real `--card` for each mode: the first `--card` is `:root`
-    (light), the one inside/after the `.dark` block is dark mode. Raises if
-    either is missing -- a guard that silently drops a surface is the failure
-    this module exists to prevent."""
+    (light), the one inside/after the `.dark` RULE BLOCK is dark mode.
+    Raises if either is missing -- a guard that silently drops a surface
+    is the failure this module exists to prevent.
+
+    qa-engineer fix (2026-09-04, flagged to architect for review): the
+    original `css_text.find(".dark")` matched the FIRST occurrence of the
+    substring ".dark" anywhere in the file -- including
+    `@custom-variant dark (&:is(.dark *));` and prose comments mentioning
+    ".dark", both of which sit well before the real `.dark { ... }` rule
+    in this repo's actual app.css. That misattributed the light-mode
+    --card (declared after the @custom-variant line but before the real
+    .dark block) as occurring AFTER the dark boundary, leaving the light
+    bucket empty and raising "could not attribute" on every real run.
+    Regex-anchored to an actual rule-opening `.dark {` instead, which is
+    unambiguous regardless of how many times ".dark" appears in
+    unrelated syntax or prose earlier in the file."""
     cards = [(name, v, off) for name, v, off in parse_oklch_tokens(css_text) if name == "card"]
     if len(cards) < 2:
         raise ValueError(f"expected two --card definitions (light + .dark), found {len(cards)}")
-    dark_at = css_text.find(".dark")
-    if dark_at < 0:
-        raise ValueError("no .dark block found in the CSS under test")
+    dark_match = re.search(r"\.dark\s*\{", css_text)
+    if dark_match is None:
+        raise ValueError("no .dark { rule block found in the CSS under test")
+    dark_at = dark_match.start()
     light = [c for c in cards if c[2] < dark_at]
     dark = [c for c in cards if c[2] > dark_at]
     if not light or not dark:

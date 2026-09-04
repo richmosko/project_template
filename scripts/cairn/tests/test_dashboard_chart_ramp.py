@@ -113,7 +113,20 @@ def _chart_vars_in_block(block_text: str) -> dict:
 
 
 def _derived_chart_vars(block_text: str) -> dict:
-    return {name: v for name, v in _chart_vars_in_block(block_text).items() if name not in BASE_CHART_NAMES}
+    """PT-61's own derived ORDINAL ramp tokens ONLY -- scoped to the
+    `--chart-flow-*` prefix specifically, not "any --chart-*-prefixed
+    token beyond the base 5". PT-79 (ad940d3/962f3e9) introduced a
+    SEPARATE, unrelated categorical role palette
+    (`--chart-role-1..8`/`--chart-role-guard-aux`/
+    `--chart-role-guard-unattributed`/`--chart-role-other`, guarded by
+    its own scripts/cairn/tests/palette_check.py + test_dashboard_role_palette.py)
+    that also lives under the `--chart-` prefix -- without this scoping,
+    this file's token-count and ordinal-validation tests would silently
+    swallow those unrelated tokens the moment they land in app.css, both
+    inflating the "exactly 6" count here and running the ORDINAL
+    validator against tokens that are explicitly categorical (unordered),
+    which the PT-79 amendment calls out as meaningless."""
+    return {name: v for name, v in _chart_vars_in_block(block_text).items() if name.startswith("--chart-flow-")}
 
 
 # -- OKLCH -> hex bridge, published Björn Ottosson OKLab<->linear-sRGB
@@ -167,8 +180,8 @@ class ChartLocalTokenContractTests(unittest.TestCase):
         derived = _derived_chart_vars(_block(source, ":root"))
         self.assertEqual(
             len(derived), 6,
-            f"expected 6 new --chart-*-prefixed tokens in :root beyond the base "
-            f"--chart-1..5 ramp (one per STATUS_ORDER status), found {len(derived)}: {sorted(derived)}",
+            f"expected 6 --chart-flow-*-prefixed tokens in :root (one per STATUS_ORDER "
+            f"status), found {len(derived)}: {sorted(derived)}",
         )
 
     def test_exactly_six_derived_chart_tokens_exist_in_dark_mode(self):
@@ -176,7 +189,7 @@ class ChartLocalTokenContractTests(unittest.TestCase):
         derived = _derived_chart_vars(_block(source, ".dark"))
         self.assertEqual(
             len(derived), 6,
-            f"expected 6 new --chart-*-prefixed tokens in .dark beyond the base "
+            f"expected 6 --chart-flow-*-prefixed tokens in .dark "
             f"--chart-1..5 ramp, found {len(derived)}: {sorted(derived)}",
         )
 
