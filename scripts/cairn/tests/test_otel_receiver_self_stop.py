@@ -713,6 +713,56 @@ class StatusFourStateTests(unittest.TestCase):
         )
 
 
+class TranscriptsDirMarkerPrecedenceTests(unittest.TestCase):
+    """52adcb9 adds `TRANSCRIPTS_DIR_MARKER_NAME`: the running daemon
+    writes its OWN transcripts_dir to a marker at startup, and `--status`
+    (a separate, later CLI invocation) must read THAT value in
+    preference to whatever it would resolve on its own -- team-lead's
+    explicit gap-check, since nothing else in this file pins it directly
+    (StatusFourStateTests happens to pass either way the marker mechanism
+    goes, since its own --status call never supplies a competing
+    --transcripts-dir).
+
+    Proven unambiguously by giving --status an EXPLICIT, DIFFERENT
+    --transcripts-dir than the one the daemon was spawned with, holding a
+    transcript for the SAME session id in the OPPOSITE staleness state:
+    if --status used its own override instead of reading the daemon's
+    marker, the same session would render the wrong token."""
+
+    def test_status_reads_the_daemons_own_transcripts_dir_via_the_marker_not_its_own_override(self):
+        port = _free_port()
+        fake_root = make_fake_engine_root(self, otel_port=port)
+        env = _base_env(port)
+        daemon_transcripts_dir = _make_transcripts_dir(self)
+        status_own_transcripts_dir = _make_transcripts_dir(self)
+        self.addCleanup(_stop_fake_receiver, fake_root, env)
+
+        # The daemon's OWN dir (what its marker should point --status at):
+        # a FRESH transcript -> dead-pending, if read correctly.
+        _write_transcript(daemon_transcripts_dir, "dead-fresh", stale=False)
+        # --status's OWN, separately-supplied override dir: a STALE
+        # transcript for the SAME session id -- if --status wrongly used
+        # THIS instead of the daemon's marker, the session would render
+        # `dead`, not `dead-pending`.
+        _write_transcript(status_own_transcripts_dir, "dead-fresh", stale=True)
+
+        start = run_fake_receiver(
+            fake_root,
+            ["--ensure-running", "--session-id", "dead-fresh", "--session-pid", str(_dead_pid()),
+             "--transcripts-dir", str(daemon_transcripts_dir)],
+            env=env,
+        )
+        self.assertEqual(start.returncode, 0, start.stdout + start.stderr)
+        _wait_for_status_running(fake_root, env)
+
+        status = run_fake_receiver(fake_root, ["--status", "--transcripts-dir", str(status_own_transcripts_dir)], env=env)
+        self.assertIn(
+            "session dead-fresh: dead-pending", status.stdout,
+            f"--status must read the DAEMON's own transcripts_dir via its startup marker, not its own "
+            f"separately-supplied --transcripts-dir -- got {status.stdout!r}",
+        )
+
+
 # --------------------------------------------------------------------------
 # AC2: the final flush provably contains a datapoint received during grace.
 # --------------------------------------------------------------------------
