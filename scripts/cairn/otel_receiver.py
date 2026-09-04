@@ -171,6 +171,7 @@ import gzip
 import http.server
 import json
 import os
+import select
 import signal
 import socket
 import socketserver
@@ -201,6 +202,19 @@ CLOSING_MARKER_NAME = ".closing"
 DEFAULT_GRACE_PERIOD_SECONDS = 10.0  # addendum §D: default 10s
 WATCHDOG_TICK_SECONDS = 0.2  # addendum §4: "ticks <= 0.25 s"
 TRANSCRIPT_STALE_SECONDS = 30 * 60  # addendum C: the probe's second signal
+# Architect review (ef000d5), Delta 1: the nudge-gated reap and the
+# flush-triggered reap both go silent when EVERY registered session has
+# crashed (no `end` event ever arrives to nudge, and no export ever
+# arrives to trigger a flush) -- without a THIRD, time-based trigger
+# independent of both, a fully-crashed registry pins the receiver until
+# some unrelated future session's own SessionEnd happens to reap it.
+# Deliberately much slower than WATCHDOG_TICK_SECONDS (reaping every
+# tick regardless of a nudge was tried and rejected -- see the
+# `_watchdog_loop` docstring -- it broke the "not yet reaped" window
+# LivenessReapTests relies on) and much slower than
+# TRANSCRIPT_STALE_SECONDS itself (no entry can become reap-eligible
+# faster than that anyway).
+SLOW_PERIODIC_REAP_SECONDS = 5 * 60
 
 # Addendum: the allow-list, verbatim -- every OTLP attribute NOT one of
 # these five is dropped before it reaches memory beyond the series key.
@@ -978,18 +992,45 @@ def reap_dead_sessions(sessions_dir: Path, is_alive=None) -> List[str]:
     return removed
 
 
+_STDIN_READ_BUDGET_SECONDS = 0.5  # total wall-clock cap, see docstring below
+
+
 def _session_id_from_stdin() -> Optional[str]:
     """Addendum §2/§D: "absent -> read session_id from the hook's stdin
     JSON, and only when stdin is not a TTY. Never block on stdin." A
     command hook's stdin carries the hook's own JSON payload (session_id,
     transcript_path, cwd, hook_event_name, ...) and Claude Code closes it
-    promptly, so `.read()` returns fast in the real hook path; the TTY
-    guard is what keeps an interactive/manual invocation (or a test that
-    doesn't redirect stdin) from ever blocking on this."""
+    promptly, so this returns fast in the real hook path.
+
+    The TTY check alone is NOT sufficient (measured: a non-interactive
+    but still-OPEN pipe -- neither a TTY nor EOF-terminated -- makes a
+    bare blocking `sys.stdin.read()` hang forever, exactly the "never
+    block" violation this addendum forbids). `select.select` with a
+    bounded per-chunk timeout, plus an overall `_STDIN_READ_BUDGET_SECONDS`
+    wall-clock cap, is what actually guarantees this returns: if nothing
+    is EVER readable, or the writer never closes, this gives up and
+    returns None rather than hanging -- a missed session id degrades to
+    "untracked" (§6: never pins the receiver), which is always the safe
+    direction per §0.
+    """
     if sys.stdin is None or sys.stdin.isatty():
         return None
     try:
-        raw = sys.stdin.read()
+        deadline = time.monotonic() + _STDIN_READ_BUDGET_SECONDS
+        chunks: List[bytes] = []
+        fd = sys.stdin.fileno()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            ready, _, _ = select.select([fd], [], [], remaining)
+            if not ready:
+                break  # nothing arrived within the budget -- give up, never hang
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break  # EOF -- the writer closed stdin, exactly the real-hook case
+            chunks.append(chunk)
+        raw = b"".join(chunks).decode("utf-8", errors="replace")
     except (OSError, ValueError):
         return None
     if not raw.strip():
@@ -1225,7 +1266,7 @@ def ensure_running(
     return False
 
 
-def _status(pidfile: Path, port: int, out_path: Path, sessions_dir: Path) -> int:
+def _status(pidfile: Path, port: int, out_path: Path, sessions_dir: Path, transcripts_dir: Path) -> int:
     """--status: running?, port, out-file, plus PT-86's session count and
     per-id liveness -- a caller-facing health check (what an operator or
     a test runs to ask "is it up"), distinct from --ensure-running (what
@@ -1235,6 +1276,14 @@ def _status(pidfile: Path, port: int, out_path: Path, sessions_dir: Path) -> int
     The session lines are a FRESH, non-mutating probe every call -- a
     dead-but-not-yet-reaped id is reported honestly as "dead" rather than
     silently omitted; only `--session-ended` and a flush actually reap.
+
+    The `dead` label uses the SAME two-signal check (addendum C) the
+    actual reap decision uses, not the raw pid probe alone (architect
+    review, Delta 3 nit): a dead pid protected by a fresh transcript is
+    reap-INeligible for up to 30 minutes, and an operator reading `dead`
+    reasonably expects the entry to disappear soon -- reporting `alive`
+    for that case is less literally true of the pid, but matches what
+    will actually happen next, which is what `--status` is for.
     """
     pid = _read_pidfile(pidfile)
     running = pid is not None and _pid_is_alive(pid) and _port_is_listening(port)
@@ -1244,16 +1293,13 @@ def _status(pidfile: Path, port: int, out_path: Path, sessions_dir: Path) -> int
     ids = live_session_ids(sessions_dir)
     print(f"sessions: {len(ids)}")
     for session_id in sorted(ids):
-        pid = ids[session_id]
-        if pid is None:
+        entry_pid = ids[session_id]
+        if entry_pid is None:
             state = "unknown"  # addendum C/§7: no pid ever captured
-        elif _pid_is_alive(pid):
-            state = "alive"
+        elif _is_session_dead(entry_pid, session_id, transcripts_dir):
+            state = "dead"
         else:
-            state = "dead"  # the raw pid probe only -- the reap decision
-            # itself additionally requires a stale transcript (addendum
-            # C's two-signal rule); this label is a diagnostic, not a
-            # promise this entry is about to be reaped.
+            state = "alive"
         print(f"session {session_id}: {state}")
     return 0 if running else 1
 
@@ -1425,16 +1471,37 @@ def serve(
         _compare_and_delete_pidfile(pidfile, my_pid)
         sys.exit(0)
 
+    # PT-86 (addendum §4/§B): the watchdog. `--ensure-running`/
+    # `--session-ended` are separate, short-lived CLI processes that
+    # mutate `sessions_dir` directly (one file per session id, no lock
+    # needed -- see that section's docstring) and then send SIGUSR2 as
+    # the nudge below; this background thread is what actually notices
+    # and acts, waking either on that nudge or at least every
+    # WATCHDOG_TICK_SECONDS regardless. `ever_nonempty` starts true if
+    # this daemon INHERITED a non-empty registry (a respawn after a
+    # crash, addendum A.1/§6) -- an inherited registry is authoritative
+    # and may legitimately drain to empty and stop; a registry that has
+    # never been non-empty (nobody ever registered a session with this
+    # daemon) never arms the timer at all.
+    #
+    # Declared BEFORE the SIGUSR2 handler is registered (architect
+    # review, Delta 4): the handler closes over `wake_event`, and a
+    # signal arriving between `signal.signal(...)` and this assignment
+    # would otherwise raise NameError on the main thread.
+    wake_event = threading.Event()
+    stopping = False
+
     # A lightweight "please re-evaluate the session registry right now"
     # nudge (PT-86) -- carries no data (the registry files, mutated
     # directly by `--ensure-running`/`--session-ended`, remain the only
     # source of truth), so it does not reopen anything the addendum's
     # withdrawal of the HTTP control endpoint closed: it is derived from
     # the SAME local `pidfile` a cross-repo caller could never discover
-    # in the first place (addendum A.2). Purely a latency optimization
-    # over the watchdog's own WATCHDOG_TICK_SECONDS poll -- correctness
-    # never depends on it arriving; a missed/coalesced signal just means
-    # the next regular tick (<=0.25s later) does the same work.
+    # in the first place (addendum A.2). A missed/coalesced signal never
+    # delays a clean stop (the registry file is already gone either way)
+    # but DOES skip the crashed-sibling reap until the next `end` event,
+    # flush, or the slow periodic reap below -- see architect review
+    # Delta 1's correction to this comment's earlier, overstated claim.
     def _on_session_nudge(signum, frame):
         wake_event.set()
 
@@ -1443,24 +1510,10 @@ def serve(
     signal.signal(signal.SIGTERM, _on_shutdown)
     signal.signal(signal.SIGINT, _on_shutdown)
 
-    # PT-86 (addendum §4/§B): the watchdog. `--ensure-running`/
-    # `--session-ended` are separate, short-lived CLI processes that
-    # mutate `sessions_dir` directly (one file per session id, no lock
-    # needed -- see that section's docstring) and then send SIGUSR2 as
-    # the nudge above; this background thread is what actually notices
-    # and acts, waking either on that nudge or at least every
-    # WATCHDOG_TICK_SECONDS regardless. `ever_nonempty` starts true if
-    # this daemon INHERITED a non-empty registry (a respawn after a
-    # crash, addendum A.1/§6) -- an inherited registry is authoritative
-    # and may legitimately drain to empty and stop; a registry that has
-    # never been non-empty (nobody ever registered a session with this
-    # daemon) never arms the timer at all.
-    wake_event = threading.Event()
-    stopping = False
-
     def _watchdog_loop() -> None:
         shutdown_deadline: Optional[float] = None
         ever_nonempty = bool(live_session_ids(sessions_dir))
+        last_periodic_reap = time.monotonic()
         while True:
             nudged = wake_event.wait(WATCHDOG_TICK_SECONDS)
             wake_event.clear()
@@ -1481,8 +1534,21 @@ def serve(
             # decrement" says. The other two probe triggers -- at each
             # flush, and once more immediately before the point of no
             # return -- are unconditional, below and in `_do_flush`.
-            if nudged:
+            #
+            # Architect review, Delta 1: neither of those two triggers
+            # fires when EVERY registered session has crashed (no `end`
+            # event ever nudges, no export ever triggers a flush) -- a
+            # slow, unconditional, time-based reap is the third trigger
+            # that keeps that case from pinning the receiver until some
+            # unrelated future session's own SessionEnd happens to clear
+            # it. Deliberately rare (SLOW_PERIODIC_REAP_SECONDS) so it
+            # can never race the "not yet reaped" window the fast tests
+            # in this suite depend on.
+            due_for_periodic_reap = (time.monotonic() - last_periodic_reap) >= SLOW_PERIODIC_REAP_SECONDS
+            if nudged or due_for_periodic_reap:
                 reap_dead_sessions(sessions_dir, is_alive=session_is_alive)
+                if due_for_periodic_reap:
+                    last_periodic_reap = time.monotonic()
             if live_session_ids(sessions_dir):
                 ever_nonempty = True
                 shutdown_deadline = None
@@ -1657,14 +1723,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.session_ended is not None:
         session_id = _resolve_session_id(args.session_ended or None, args.session_id)
         # §10: every control-path failure is non-fatal -- one stderr
-        # line, exit 0. No daemon running, or no session id resolved at
-        # all, is not even a failure: a SessionEnd hook must never fail
-        # teardown over telemetry, and cannot block it either way.
+        # line, exit 0. No session id resolved at all is not even a
+        # failure: a SessionEnd hook must never fail teardown over
+        # telemetry, and cannot block it either way.
         if not session_id:
             return 0
-        pid = _read_pidfile(pidfile)
-        if pid is None or not _pid_is_alive(pid):
-            return 0
+        # Architect review (ef000d5), Delta 2: deregistration is a LOCAL
+        # FILE OPERATION and must be unconditional -- a session ending
+        # while no daemon is running (or mid-shutdown, just after its
+        # pidfile was compare-and-deleted) must still remove its own
+        # `.sessions/<id>` file. Skipping this when the pidfile check
+        # fails left a phantom entry for the NEXT daemon to inherit,
+        # pinned by its own fresh transcript for up to 30 minutes. Only
+        # the nudge below (which has nothing to nudge) is gated on a
+        # live pid.
         sessions_dir = _sessions_dir(pidfile)
         deregister_session(sessions_dir, session_id)
         # §3's "on every decrement" reap is done by the DAEMON, not here:
@@ -1673,13 +1745,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         # probe (addendum C) must consult -- this CLI process's own
         # resolution is not guaranteed to agree (and in the real,
         # single-project-per-machine case it always does, so nothing is
-        # lost there). The nudge below makes that reap near-immediate
-        # rather than waiting up to WATCHDOG_TICK_SECONDS.
-        _nudge_daemon(pidfile)
+        # lost there). The nudge makes that reap near-immediate rather
+        # than waiting up to WATCHDOG_TICK_SECONDS -- but only if a
+        # daemon is actually alive to receive it.
+        pid = _read_pidfile(pidfile)
+        if pid is not None and _pid_is_alive(pid):
+            _nudge_daemon(pidfile)
         return 0
 
     if args.status:
-        return _status(pidfile, port, out_path, _sessions_dir(pidfile))
+        return _status(pidfile, port, out_path, _sessions_dir(pidfile), transcripts_dir)
 
     if args.flush_now:
         return _signal_running(pidfile, signal.SIGUSR1, "--flush-now")
