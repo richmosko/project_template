@@ -92,7 +92,41 @@ Ask via `AskUserQuestion` — list `stop-at-merge` first, labeled "(Recommended)
 
 Write the answer into `process/WORKFLOW.md` → *Project configuration* → **Delivery autonomy**, and append a `process/DECISIONS.md` entry (date, decision, why, approver).
 
-### 6. Lint, commit, confirm
+### 6. Opt in to local token/cost telemetry (optional, off by default)
+
+Ask via `AskUserQuestion`:
+
+> **Enable local token/cost telemetry collection?** Feeds the dashboard's per-issue token/cost chart (PT-79) from Claude Code's own OTel export, through a local-only receiver (`scripts/cairn/otel_receiver.py` — no network egress, no account, off until this is confirmed). See `process/TRACKER.md` → "Ongoing collection".
+> - **No (Recommended for now)** — skip; re-run this step later to opt in.
+> - **Yes** — collect it.
+
+If **No**: skip the rest of this step. `config.yml` carries no `otel_port` key and `.claude/settings.json`'s `env` block gets none of the telemetry keys — the receiver's `--ensure-running` (PT-81, H1) already declines quietly without `CLAUDE_CODE_ENABLE_TELEMETRY` set, so there is nothing else to guard.
+
+If **Yes**, ask ONE follow-up via `AskUserQuestion` for the receiver's port:
+
+> **Receiver port?**
+> - `4318` (Recommended) — the OTLP/HTTP convention port.
+> - Pick my own — any free local port.
+
+Validate a custom answer is a bare integer in a sane ephemeral/user range (1024–65535). Then, from that **single** port answer — never asked or typed twice, which is exactly how PT-81's H3 hazard happened (the receiver's bound port and the exporter's destination configured independently, with nothing checking they agreed):
+
+1. Add `otel_port: <port>` to `process/cairn/config.yml` (the file step 2 already wrote — append this key to it, don't regenerate the whole file).
+2. Merge these five keys into `.claude/settings.json`'s top-level `env` object (additive — it already carries `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`/`CLAUDE_CODE_ENABLE_TODO_TOOLS`; don't replace the object, merge into it):
+
+   ```json
+   "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+   "OTEL_METRICS_EXPORTER": "otlp",
+   "OTEL_LOGS_EXPORTER": "none",
+   "OTEL_EXPORTER_OTLP_PROTOCOL": "http/json",
+   "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:<port>"
+   ```
+
+   `<port>` here is the exact same value just written as `otel_port` — construct the endpoint string from that one variable, don't re-type the number.
+3. Confirm valid JSON after the merge (`python3 -c "import json; json.load(open('.claude/settings.json'))"`) before moving on.
+
+The next fresh session's `SessionStart` hook starts the receiver automatically (H1's gate now passes); `python3 scripts/cairn/otel_receiver.py --status` reports whether it's running.
+
+### 7. Lint, commit, confirm
 
 ```bash
 scripts/cairn/cairn check        # must exit 0 on the freshly seeded tree
@@ -105,6 +139,7 @@ Commit the scaffold (via the current branch flow — `/start-doc-update` if noth
 - Seeded: `majors/<PREFIX>-V1.md`, `milestones/<PREFIX>-A.md`, `milestones/<PREFIX>-B.md`
 - Issues seeded: N from PRD
 - Delivery autonomy: `<choice>`
+- Telemetry: `<on, port N | off>`
 - Board: `/cairn` starts it at `http://localhost:8766/`
 
 Suggest the next step: PRD empty → `/generate-prd`; ARCH pending → spawn the Plan team; implementation-ready → `/start-feature`.

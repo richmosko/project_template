@@ -74,7 +74,7 @@ CLI:
     python3 scripts/cairn/otel_receiver.py [--port N] [--out-file PATH]
         [--flush-interval SECONDS] [--pidfile PATH]
         [--ingest PATH|-] [--once]
-        [--ensure-running] [--flush-now] [--stop]
+        [--ensure-running] [--status] [--flush-now] [--stop]
 
     No flag (bare invocation)  -- runs the long-lived HTTP server in the
         foreground: binds --port, writes --pidfile, flushes on SIGUSR1
@@ -88,7 +88,20 @@ CLI:
         exit. The one integration test that touches a socket.
     --ensure-running  -- start a detached long-lived instance if the
         pidfile is stale/absent and nothing is listening; exit 0 either
-        way, never an error (what the SessionStart hook calls).
+        way, never an error (what the SessionStart hook calls). PT-81
+        (H1-H3): declines quietly (returns False, spawns nothing) when
+        `CLAUDE_CODE_ENABLE_TELEMETRY` isn't truthy in its own
+        environment, or when `otel_port` disagrees with the port in its
+        own inherited `OTEL_EXPORTER_OTLP_ENDPOINT` (naming both);
+        distinguishes "another process already holds the port" from "we
+        spawned a child but it never came up" (naming the port and
+        `otel_port` either way) rather than reporting success either way.
+        The hook still exits 0 regardless -- a SessionStart hook must
+        never fail a session over telemetry -- but now lets stderr
+        through instead of swallowing it, so these messages are visible.
+    --status  -- print whether a receiver is running, its port, and its
+        --out-file, then exit 0 if running / 1 if not (a caller-facing
+        health check, not what the hook itself calls).
     --flush-now / --stop  -- signal a running instance (SIGUSR1 / SIGTERM)
         via its pidfile.
 
@@ -123,6 +136,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
+from urllib.parse import urlparse
 
 import cairn
 import backfill_tokens
@@ -753,19 +767,121 @@ def _pid_is_alive(pid: int) -> bool:
     return True
 
 
+# PT-81 H1: the settings.json env block this ticket documents (TRACKER.md)
+# already uses the bare string "1" for every boolean-shaped flag
+# (CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, CLAUDE_CODE_ENABLE_TODO_TOOLS,
+# CLAUDE_CODE_ENABLE_TELEMETRY itself) -- this accepts that plus the
+# handful of other spellings a human might type by hand into
+# settings.local.json or a shell profile. Unset/empty/anything else is
+# falsy; there is no ambiguous "maybe" here on purpose.
+_TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+
+
+def _env_flag_truthy(value: Optional[str]) -> bool:
+    return value is not None and value.strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _endpoint_port(endpoint: Optional[str]) -> Optional[int]:
+    """The port named by OTEL_EXPORTER_OTLP_ENDPOINT (e.g.
+    "http://127.0.0.1:4318" -> 4318), or None when the variable carries
+    no explicit port (a malformed value -- not this function's job to
+    diagnose further). Deliberately does NOT special-case an unset/empty
+    `endpoint` -- see `_effective_endpoint_port`, the caller H3 actually
+    uses, for why an unset variable is not "nothing to compare"."""
+    if not endpoint:
+        return None
+    try:
+        return urlparse(endpoint).port
+    except ValueError:
+        return None
+
+
+def _effective_endpoint_port(endpoint: Optional[str]) -> int:
+    """H3, architect's amendment (4c1b751, empirically confirmed live --
+    `claude -p` with telemetry on and no endpoint var set genuinely POSTs
+    claude_code.token.usage to 127.0.0.1:4318, a real scratch-sink
+    capture, not just the OTel spec's documented default): an UNSET
+    OTEL_EXPORTER_OTLP_ENDPOINT is not "nothing to compare" -- a
+    conforming exporter falls back to the OTLP protocol default,
+    `http://localhost:4318`, and keeps exporting there. A project with
+    `otel_port: 4319` and telemetry on but no endpoint override gets a
+    receiver bound to 4319 while the real exporter posts to 4318 --
+    H3's exact silent mismatch, missed entirely by treating "unset" as
+    "skip the check". Always returns a concrete port to compare against:
+    the parsed value when the variable is set (and carries one), else
+    DEFAULT_OTEL_PORT."""
+    parsed = _endpoint_port(endpoint)
+    return parsed if parsed is not None else DEFAULT_OTEL_PORT
+
+
 def ensure_running(repo_root: Path, pidfile: Path, port: int) -> bool:
     """Single instance enforced by pidfile + a listen probe; a second
     start is a no-op, never an error. Returns True if a (new or
-    already-live) receiver is running, False if it declined to start
-    (no cairn tracker at repo_root -- a spin-off/non-cairn checkout must
-    never get a background process it has no use for)."""
+    already-live) receiver is running, False if it declined to start --
+    no cairn tracker at repo_root (a spin-off/non-cairn checkout must
+    never get a background process it has no use for), telemetry off
+    (H1), a port/endpoint disagreement (H3), or a genuine startup
+    failure distinguished from an already-held port (H2). Every False
+    path prints exactly why to stderr; the SessionStart hook still exits
+    0 regardless -- telemetry must never fail a session -- but no longer
+    swallows stderr, so these messages actually reach someone.
+    """
     data_dir = repo_root / "process" / "cairn"
     if not (data_dir / "config.yml").exists():
+        return False
+
+    # H1: gate on the SAME env block that controls the exporter -- one
+    # block, two consumers, checked here so a project with telemetry off
+    # gets no bound port and no idle daemon it never opted into.
+    if not _env_flag_truthy(os.environ.get("CLAUDE_CODE_ENABLE_TELEMETRY")):
         return False
 
     pid = _read_pidfile(pidfile)
     if pid is not None and _pid_is_alive(pid) and _port_is_listening(port):
         return True  # already running -- no-op
+
+    # H3: otel_port (config.yml, the single source of truth -- `port`
+    # here) vs. the port this process's OWN inherited
+    # OTEL_EXPORTER_OTLP_ENDPOINT effectively names (architect's
+    # amendment, 4c1b751: an UNSET endpoint still resolves to the OTLP
+    # default 4318, not "nothing to compare" -- see
+    # _effective_endpoint_port). A real disagreement doesn't lose
+    # telemetry, it silently DELIVERS it to whatever else is listening on
+    # the wrong port (PT-79's real contamination incident) -- refuse
+    # rather than start a receiver nothing will actually reach, or start
+    # one that reaches a stranger's.
+    endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    effective_port = _effective_endpoint_port(endpoint)
+    if effective_port != port:
+        endpoint_desc = (
+            f"unset (falls back to the OTLP default, {DEFAULT_OTEL_PORT})"
+            if not endpoint else f"{effective_port!r}, from OTEL_EXPORTER_OTLP_ENDPOINT={endpoint!r}"
+        )
+        print(
+            f"otel_receiver: refusing to start -- otel_port ({port}, from "
+            f"process/cairn/config.yml) disagrees with the exporter's destination "
+            f"port ({endpoint_desc}); these must name the same receiver or "
+            "telemetry silently goes to the wrong place",
+            file=sys.stderr,
+        )
+        return False
+
+    # H2, first half: the pidfile check above already ruled out "this is
+    # OUR OWN already-running instance" -- so if something is STILL
+    # listening on this port, it's a DIFFERENT process (very plausibly
+    # another project's receiver sharing the same default otel_port).
+    # Spawning our own child anyway would just hand it a doomed
+    # "Address already in use" exit, silently, into a gitignored log --
+    # refuse up front and say so instead.
+    if _port_is_listening(port):
+        print(
+            f"otel_receiver: port {port} (otel_port) is already held by another "
+            "process -- not this project's own receiver, per its pidfile -- "
+            "refusing to start a second one; set a different otel_port in "
+            "process/cairn/config.yml if this is expected",
+            file=sys.stderr,
+        )
+        return False
 
     logfile = repo_root / LOGFILE_REL
     logfile.parent.mkdir(parents=True, exist_ok=True)
@@ -788,7 +904,33 @@ def ensure_running(repo_root: Path, pidfile: Path, port: int) -> bool:
         if _port_is_listening(port):
             return True
         time.sleep(0.1)
-    return True  # spawned; whether it bound in time is not this call's problem
+    # H2, second half: distinguish "spawned but never came up" from
+    # success instead of reporting True either way -- a caller (or a
+    # human reading the hook's now-visible stderr) needs to know the
+    # difference; the exit code alone can't carry it since --ensure-
+    # running's own CLI path always returns 0 regardless (a SessionStart
+    # hook must not fail a session over telemetry).
+    print(
+        f"otel_receiver: spawned but port {port} (otel_port) never started "
+        f"listening within the wait window -- the child may have exited "
+        f"immediately; see {logfile}",
+        file=sys.stderr,
+    )
+    return False
+
+
+def _status(pidfile: Path, port: int, out_path: Path) -> int:
+    """--status: running?, port, out-file -- a caller-facing health
+    check (what an operator or a test runs to ask "is it up"), distinct
+    from --ensure-running (what the hook runs to make it so). Exit 0
+    when running, 1 when not -- the common status-command convention,
+    scriptable without parsing stdout."""
+    pid = _read_pidfile(pidfile)
+    running = pid is not None and _pid_is_alive(pid) and _port_is_listening(port)
+    print(f"running: {running}")
+    print(f"port: {port}")
+    print(f"out-file: {out_path}")
+    return 0 if running else 1
 
 
 def _signal_running(pidfile: Path, sig: int, label: str) -> int:
@@ -959,6 +1101,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--ingest", default=None, help="path to an OTLP-JSON payload, or '-' for stdin")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--ensure-running", action="store_true")
+    parser.add_argument("--status", action="store_true")
     parser.add_argument("--flush-now", action="store_true")
     parser.add_argument("--stop", action="store_true")
     args = parser.parse_args(argv)
@@ -989,6 +1132,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.ensure_running:
         ensure_running(repo_root, pidfile, port)
         return 0  # never an error -- a non-cairn checkout just declines
+
+    if args.status:
+        return _status(pidfile, port, out_path)
 
     if args.flush_now:
         return _signal_running(pidfile, signal.SIGUSR1, "--flush-now")

@@ -49,7 +49,7 @@
           },
           {
             "type": "command",
-            "command": "[ -f scripts/cairn/otel_receiver.py ] || exit 0; python3 scripts/cairn/otel_receiver.py --ensure-running >/dev/null 2>&1; exit 0"
+            "command": "[ -f scripts/cairn/otel_receiver.py ] || exit 0; python3 scripts/cairn/otel_receiver.py --ensure-running >/dev/null; exit 0"
           }
         ]
       }
