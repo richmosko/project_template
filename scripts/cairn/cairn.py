@@ -270,6 +270,16 @@ class FrontmatterError(CairnError):
     """Raised by parse_frontmatter when the '---'/'---' fences are missing or malformed."""
 
 
+class MilestoneWindowError(CairnError):
+    """Raised by milestone_windows when its own strictly-increasing/one-
+    entry-per-file invariant is violated (architect's ruling, 7341e2e) --
+    a duplicate milestone id, or two milestone files resolving to the
+    same (or an inverted) creation timestamp. Converts what would
+    otherwise be a silent mis-bucketing (two milestones sharing a
+    window, or a `--follow` rename false-merge) into an immediate,
+    named error instead."""
+
+
 class ConflictError(CairnError):
     """Raised on the server-side patch path when a write's `seen` token is stale.
 
@@ -2298,9 +2308,13 @@ def milestone_windows(repo_root: Path) -> List[Tuple[str, str]]:
     default content-similarity rename detection to jump one's history
     onto the other's -- reproducible in a throwaway repo, never observed
     against a real milestone file (whose `name`/definition-of-done prose
-    differs substantially). Per the architect's ruling: fix the fixture
-    to look like the real artifact, not the engine to tolerate an
-    unrepresentative one.
+    differs substantially, confirmed by the architect building both
+    shapes: distinct prose eliminates it). Per the architect's ruling
+    (7341e2e): fix the fixture to look like the real artifact, not the
+    engine to tolerate an unrepresentative one. In its place, an
+    invariant (below) converts the residual risk into a named error
+    instead of carrying permanent rename-disambiguation machinery for
+    an input this codebase's own milestone files don't produce.
 
     Returns `[(start_iso, milestone_id), ...]` sorted ASCENDING by start
     -- creation-timestamp order, never id string-compare (§6: `PT-0.10`
@@ -2312,6 +2326,14 @@ def milestone_windows(repo_root: Path) -> List[Tuple[str, str]]:
     every caller in this codebase treats an empty/failed lookup as
     "everything stays `main`", the same fail-safe direction this
     project's gating rulings consistently take.
+
+    Raises `MilestoneWindowError` (7341e2e) if the derived windows are
+    not exactly one entry per milestone id, strictly increasing in
+    start time -- a duplicate id, or two milestones resolving to the
+    same (or an inverted) timestamp, is exactly the failure shape a
+    `--follow` rename false-merge (or a genuinely duplicated milestone
+    file) produces; this turns that into an immediate, loud error
+    instead of a silent mis-bucketed window.
     """
     import subprocess
 
@@ -2350,6 +2372,27 @@ def milestone_windows(repo_root: Path) -> List[Tuple[str, str]]:
             windows.append((start_iso, str(milestone_id)))
 
     windows.sort(key=lambda w: w[0])
+
+    ids = [milestone_id for _start, milestone_id in windows]
+    if len(ids) != len(set(ids)):
+        dupes = sorted({milestone_id for milestone_id in ids if ids.count(milestone_id) > 1})
+        raise MilestoneWindowError(
+            f"milestone_windows found more than one window for the same milestone id(s) "
+            f"{dupes!r} -- a milestone file present under both milestones/ and "
+            f"archive/milestones/ at once, or a duplicated id in frontmatter -- "
+            f"windows: {windows!r}"
+        )
+    for (prev_start, prev_id), (start, milestone_id) in zip(windows, windows[1:]):
+        if start <= prev_start:
+            raise MilestoneWindowError(
+                f"milestone_windows produced a non-increasing timestamp: "
+                f"{prev_id!r}@{prev_start!r} then {milestone_id!r}@{start!r} -- two "
+                f"milestone files resolved to the same or an inverted creation time, "
+                f"most likely a `--follow` rename false-merge against unrepresentative "
+                f"content (see this function's docstring) rather than a genuine "
+                f"same-instant creation"
+            )
+
     return windows
 
 
