@@ -1,0 +1,327 @@
+{
+  "resourceMetrics": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "claude-code"
+            }
+          },
+          {
+            "key": "service.version",
+            "value": {
+              "stringValue": "1.0.0"
+            }
+          },
+          {
+            "key": "host.arch",
+            "value": {
+              "stringValue": "arm64"
+            }
+          },
+          {
+            "key": "os.type",
+            "value": {
+              "stringValue": "darwin"
+            }
+          },
+          {
+            "key": "os.version",
+            "value": {
+              "stringValue": "24.0.0"
+            }
+          }
+        ]
+      },
+      "scopeMetrics": [
+        {
+          "scope": {
+            "name": "com.anthropic.claude_code",
+            "version": "1.0.0"
+          },
+          "metrics": [
+            {
+              "name": "claude_code.token.usage",
+              "sum": {
+                "dataPoints": [
+                  {
+                    "attributes": [
+                      {
+                        "key": "user.email",
+                        "value": {
+                          "stringValue": "not-a-real-user@example.com"
+                        }
+                      },
+                      {
+                        "key": "user.id",
+                        "value": {
+                          "stringValue": "fake-user-id-001"
+                        }
+                      },
+                      {
+                        "key": "user.account_id",
+                        "value": {
+                          "stringValue": "fake-account-id-002"
+                        }
+                      },
+                      {
+                        "key": "user.account_uuid",
+                        "value": {
+                          "stringValue": "fake-account-uuid-003"
+                        }
+                      },
+                      {
+                        "key": "organization.id",
+                        "value": {
+                          "stringValue": "fake-org-id-004"
+                        }
+                      },
+                      {
+                        "key": "terminal.type",
+                        "value": {
+                          "stringValue": "iTerm.app"
+                        }
+                      },
+                      {
+                        "key": "session.id",
+                        "value": {
+                          "stringValue": "fake-session-abc123"
+                        }
+                      },
+                      {
+                        "key": "type",
+                        "value": {
+                          "stringValue": "input"
+                        }
+                      },
+                      {
+                        "key": "model",
+                        "value": {
+                          "stringValue": "claude-sonnet-5"
+                        }
+                      },
+                      {
+                        "key": "query_source",
+                        "value": {
+                          "stringValue": "main"
+                        }
+                      }
+                    ],
+                    "startTimeUnixNano": "1756742400000000000",
+                    "timeUnixNano": "1756742460000000000",
+                    "asInt": "100"
+                  },
+                  {
+                    "attributes": [
+                      {
+                        "key": "user.email",
+                        "value": {
+                          "stringValue": "not-a-real-user@example.com"
+                        }
+                      },
+                      {
+                        "key": "user.id",
+                        "value": {
+                          "stringValue": "fake-user-id-001"
+                        }
+                      },
+                      {
+                        "key": "user.account_id",
+                        "value": {
+                          "stringValue": "fake-account-id-002"
+                        }
+                      },
+                      {
+                        "key": "user.account_uuid",
+                        "value": {
+                          "stringValue": "fake-account-uuid-003"
+                        }
+                      },
+                      {
+                        "key": "organization.id",
+                        "value": {
+                          "stringValue": "fake-org-id-004"
+                        }
+                      },
+                      {
+                        "key": "terminal.type",
+                        "value": {
+                          "stringValue": "iTerm.app"
+                        }
+                      },
+                      {
+                        "key": "session.id",
+                        "value": {
+                          "stringValue": "fake-session-abc123"
+                        }
+                      },
+                      {
+                        "key": "type",
+                        "value": {
+                          "stringValue": "cacheCreation"
+                        }
+                      },
+                      {
+                        "key": "model",
+                        "value": {
+                          "stringValue": "claude-sonnet-5"
+                        }
+                      },
+                      {
+                        "key": "query_source",
+                        "value": {
+                          "stringValue": "main"
+                        }
+                      }
+                    ],
+                    "startTimeUnixNano": "1756742400000000000",
+                    "timeUnixNano": "1756742460000000000",
+                    "asInt": "200"
+                  },
+                  {
+                    "attributes": [
+                      {
+                        "key": "user.email",
+                        "value": {
+                          "stringValue": "not-a-real-user@example.com"
+                        }
+                      },
+                      {
+                        "key": "user.id",
+                        "value": {
+                          "stringValue": "fake-user-id-001"
+                        }
+                      },
+                      {
+                        "key": "user.account_id",
+                        "value": {
+                          "stringValue": "fake-account-id-002"
+                        }
+                      },
+                      {
+                        "key": "user.account_uuid",
+                        "value": {
+                          "stringValue": "fake-account-uuid-003"
+                        }
+                      },
+                      {
+                        "key": "organization.id",
+                        "value": {
+                          "stringValue": "fake-org-id-004"
+                        }
+                      },
+                      {
+                        "key": "terminal.type",
+                        "value": {
+                          "stringValue": "iTerm.app"
+                        }
+                      },
+                      {
+                        "key": "session.id",
+                        "value": {
+                          "stringValue": "fake-session-abc123"
+                        }
+                      },
+                      {
+                        "key": "type",
+                        "value": {
+                          "stringValue": "cacheRead"
+                        }
+                      },
+                      {
+                        "key": "model",
+                        "value": {
+                          "stringValue": "claude-sonnet-5"
+                        }
+                      },
+                      {
+                        "key": "query_source",
+                        "value": {
+                          "stringValue": "main"
+                        }
+                      }
+                    ],
+                    "startTimeUnixNano": "1756742400000000000",
+                    "timeUnixNano": "1756742460000000000",
+                    "asInt": "300"
+                  },
+                  {
+                    "attributes": [
+                      {
+                        "key": "user.email",
+                        "value": {
+                          "stringValue": "not-a-real-user@example.com"
+                        }
+                      },
+                      {
+                        "key": "user.id",
+                        "value": {
+                          "stringValue": "fake-user-id-001"
+                        }
+                      },
+                      {
+                        "key": "user.account_id",
+                        "value": {
+                          "stringValue": "fake-account-id-002"
+                        }
+                      },
+                      {
+                        "key": "user.account_uuid",
+                        "value": {
+                          "stringValue": "fake-account-uuid-003"
+                        }
+                      },
+                      {
+                        "key": "organization.id",
+                        "value": {
+                          "stringValue": "fake-org-id-004"
+                        }
+                      },
+                      {
+                        "key": "terminal.type",
+                        "value": {
+                          "stringValue": "iTerm.app"
+                        }
+                      },
+                      {
+                        "key": "session.id",
+                        "value": {
+                          "stringValue": "fake-session-abc123"
+                        }
+                      },
+                      {
+                        "key": "type",
+                        "value": {
+                          "stringValue": "output"
+                        }
+                      },
+                      {
+                        "key": "model",
+                        "value": {
+                          "stringValue": "claude-sonnet-5"
+                        }
+                      },
+                      {
+                        "key": "query_source",
+                        "value": {
+                          "stringValue": "main"
+                        }
+                      }
+                    ],
+                    "startTimeUnixNano": "1756742400000000000",
+                    "timeUnixNano": "1756742460000000000",
+                    "asInt": "50"
+                  }
+                ],
+                "aggregationTemporality": 1,
+                "isMonotonic": true
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

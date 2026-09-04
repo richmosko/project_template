@@ -2,118 +2,98 @@
 ongoing OTLP metrics receiver that appends `source: "otel"` lines to the
 same `process/cairn/metrics/token-usage.jsonl` PT-77 backfills once.
 
-Pinned to the architect's gating ruling, committed at 4a23dc8 as a comment
-on process/cairn/issues/PT-78.md (that comment, §§0-11, is authoritative
-for every constant/shape below).
+Pinned to the architect's ruling (4a23dc8, §§0-11), the addendum
+(f92a06a, concrete implementation surface), and the amendment (25d7a42,
+attribute-placement correction + the session.id role resolver now that
+`agent.name` is confirmed absent on teammate-shaped processes). Each
+later comment supersedes only what it explicitly names, not the rest of
+the ruling.
 
-**Nothing under test exists yet** -- there is no `otel_receiver.py` file
-at all, and no INTERFACE.md sibling for it the way PT-77 had one before
-any test was written. The function names/signatures below are a QA
-PROPOSAL, not a confirmed contract -- same posture test_dist_freshness.py
-took for check_dist_freshness.py before implementation-lead's first
-draft: "if you find a function here awkward to implement as named, change
-it and update this file in the same commit as the test fix; keep
-spec-compliance the north star, not this file's word choice." Every test
-imports the module fresh in `setUp` so a genuinely-missing module fails
-each test individually and clearly, not as one opaque collection error.
+**Nothing under test exists yet** -- no `otel_receiver.py` file at all.
+Every test imports/invokes it fresh so a genuinely-missing script fails
+clearly (subprocess tests: `python3: can't open file ...`, exit 2, not a
+silent skip).
 
-## Proposed shape (mirrors cairn.py's own pure-core/thin-HTTP-shell split)
+## Test-seam discipline (addendum's own instruction)
 
-Pure, directly-unit-testable core (no HTTP, no threading):
-  - `parse_otlp_payload(body: dict) -> List[dict]` -- flattens
-    `resourceMetrics[].scopeMetrics[].metrics[].sum.dataPoints[]` into a
-    flat list of records, each `{"resource_attrs": dict, "point_attrs":
-    dict, "start_time_ns": int, "time_ns": int, "value": int}`. Only
-    `claude_code.token.usage` metrics are yielded. Raises
-    `OtelPayloadError` on a structurally invalid body (missing
-    `resourceMetrics`, non-JSON, etc.) -- the HTTP layer turns that into a
-    400 and writes nothing.
-  - `current_git_branch(repo_root: Path) -> Optional[str]` -- `git -C
-    repo_root rev-parse --abbrev-ref HEAD`; `None` on any failure, never
-    raises (same posture as cairn.py's own git readers). THE test seam
-    for branch-attribution tests: point `repo_root` at a throwaway git
-    repo with a specific branch checked out (same technique
-    test_dist_freshness.py already uses for its own git fixtures).
-  - `attribute_issue(resource_attrs: dict, repo_root: Path) -> str` --
-    §4: branch first (via `backfill_tokens._issue_regex` /
-    `_bucket_for_branch` + `current_git_branch` -- reused, not
-    reimplemented, per the ruling), `cairn.issue` resource attribute only
-    when branch resolves to `main`, else `main`.
-  - `attribute_role(agent_name: Optional[str], query_source: Optional[str],
-    roster: Set[str]) -> str` -- §5's explicit table. Reuses
-    `backfill_tokens._normalize_role` for the present-agent-name case
-    only (that function's own absent-default of `team-lead` does NOT
-    apply here -- §5's table is richer and this function owns the
-    absent-branching itself).
-  - `accumulate_datapoint(acc: dict, record: dict) -> None` -- §3's
-    max-within-group scheme. Mutates `acc` in place, keyed by
-    `(series_key, start_time_ns)` where `series_key` is a sorted tuple of
-    every resource+point attribute item INCLUDING `session.id` (held only
-    in this in-memory dict, per §3/§6); value is `max(existing, new)`.
-  - `rollup(acc: dict, repo_root: Path, roster: Set[str]) -> dict` --
-    sums every accumulator entry into `(issue, role, model) -> {"input":
-    int, "cache_write": int, "cache_read": int, "output": int, "records":
-    int, "window_start": str, "window_end": str}` (§6's `type` mapping:
-    input->input, cacheCreation->cache_write, cacheRead->cache_read,
-    output->output).
-  - `flush_to_file(grouped: dict, out_path: Path, lock_path: Path,
-    generated: str) -> None` -- §7/§8: append-only `source: "otel"`
-    lines, own-lines-only compaction on rewrite (never touches
-    `transcript-backfill` lines), refuses (raises, names both
-    timestamps) if any datapoint predates the latest `transcript-backfill`
-    line's `generated` (§8's non-overlap invariant).
+"`parse_export`/`fold` are where every counting and privacy assertion
+belongs. Only the `--once` test touches a port." This file honors that:
+every counting/privacy/attribution/merge/malformed/lock test goes through
+`--ingest PATH --out-file PATH` (a subprocess call that folds one payload,
+flushes, and exits -- no socket, no threading, no daemon lifecycle).
+Exactly ONE test (`OnceIntegrationTests`) binds a real port via `--once`,
+to prove the HTTP wiring reaches the same code path.
 
-Thin HTTP shell (one integration-level test class only; every OTHER test
-in this file exercises the pure core directly -- "lowest level that gives
-confidence"):
-  - `make_receiver_server(out_path: Path, repo_root: Path, port: int = 0,
-    lock_path: Optional[Path] = None) -> http.server.HTTPServer` --
-    binds `127.0.0.1:port` (`0` = ephemeral, mirrors `cairn.make_server`).
-    `POST /v1/metrics` -> `parse_otlp_payload` -> `accumulate_datapoint`
-    (in memory, across requests) -> `rollup` + `flush_to_file` on trigger
-    (§7: attributed-issue change, clean shutdown, or a 30-minute timer).
-    `server_close()` performs one final flush before closing -- the
-    "clean shutdown" trigger -- so every test's teardown IS the flush
-    trigger, no test-only admin endpoint needed.
+## Attribute placement (amendment A, settled)
 
-## Fixture policy
+Every fixture built here follows the amendment's measured wire shape,
+NOT my earlier resource-level guess: identity keys (`user.email`,
+`user.id`, `user.account_id`, `user.account_uuid`, `organization.id`,
+`terminal.type`, `session.id`) plus `type`/`model`/`query_source` live
+**only** at datapoint level; `cairn.issue` appears at **both** levels
+with an identical value (Claude Code copies it down); the resource level
+carries only `service.*`/`host.*`/`os.*`. The receiver's own rule is
+"flatten resource attrs, overlay datapoint attrs, datapoint wins" and the
+12-key allow-list applies to the flattened per-datapoint dict.
 
-Every OTLP-JSON payload below is HAND-BUILT via small Python dict
-builders in this file -- never a captured real export (per the ruling's
-own test #1: "do NOT check a real one in; it contains the user's
-email"). Built as Python dicts rather than static fixture files (PT-77's
-own convention) because the combinatorial shape here (resource attrs x
-datapoint attrs x series-repetition) is more tractable to construct and
-vary per-test in code than as N near-duplicate JSON files.
+## Role resolution (amendment B, settled)
+
+`agent.name` is confirmed absent on teammate-shaped processes, so §5's
+original table is replaced: role resolves from `session.id` through a
+**transcript-header lookup** (first `agentName` within the first 50
+records of `~/.claude/projects/<slug>/<session.id>.jsonl`, PT-77's
+roster-anchored normalisation, `team-lead` when the transcript exists
+with none, `subagent-unattributed` when no transcript exists at all).
+The amendment states this resolver is an "injectable seam -- `--ingest`
+and every unit test pass a stub, so no test needs a real transcript."
+**Proposed flag** (not literally named in the amendment, inferred from
+its own "injectable seam" framing plus `backfill_tokens.py`'s existing
+`--transcripts-dir` precedent): `--ingest ... --transcripts-dir PATH`
+points the resolver at a synthetic transcripts directory instead of the
+real `~/.claude/projects/...`. Fixture skeleton:
+`fixtures/otlp/transcripts/session-with-agentname.jsonl` (sessionId
+`otel-role-test-session-with-agent`, one record with `agentName:
+"qa-engineer"`) and `session-without-agentname.jsonl` (sessionId
+`otel-role-test-session-no-agent`, no `agentName` key -- the `team-lead`
+case). A THIRD session id used in fixtures deliberately has no matching
+transcript file at all, for the `subagent-unattributed` "no transcript"
+case (amendment B's own explicit "test to add").
+
+## Branch stubbing (inferred from the in-progress draft, flagged)
+
+The addendum's own CLI table names no `--repo-root`/`--branch` override
+flag, but the WIP `otel_receiver.py` already sitting in the shared tree
+(uncommitted, pre-addendum shape) exposes `--repo-root REPO_ROOT` at the
+top level -- strong signal this is the real mechanism, even though it
+predates `--ingest`/`--once` and the rest of the addendum's CLI. Tests
+below pass `--repo-root <throwaway-git-repo>` rather than relying on
+`cwd`; if this guess is wrong, only the branch-attribution tests'
+invocation helper needs to change, not their assertions.
 """
 from __future__ import annotations
 
-import datetime
 import http.client
-import importlib
 import json
+import os
 import subprocess
 import sys
 import threading
+import time
 import unittest
 from pathlib import Path
 from typing import Optional
 
 import helpers  # noqa: F401
 
-import cairn
+SCRIPT_PATH = helpers.CAIRN_DIR / "otel_receiver.py"
+FIXTURES = helpers.FIXTURES_DIR / "otlp"
 
-MODULE_NAME = "otel_receiver"
-
-# The 12-key allow-list, §6 -- exactly these, nothing else, ever.
-ALLOWED_OTEL_LINE_KEYS = {
+# The 12-key allow-list, addendum's own verbatim order.
+ALLOWED_LINE_KEYS_ORDERED = (
     "source", "generated", "window_start", "window_end",
     "issue", "role", "model", "input", "cache_write", "cache_read", "output", "records",
-}
+)
 
-# Every identifying value the ruling's §6 forbids from ever reaching disk.
-# Values, not just key names -- a leak could smuggle the VALUE under a
-# differently-named or malformed key, which a keys-only check would miss.
 FORBIDDEN_VALUES = [
     "not-a-real-user@example.com",
     "fake-session-abc123",
@@ -123,139 +103,33 @@ FORBIDDEN_VALUES = [
     "fake-org-id-004",
     "iTerm.app",
 ]
-FORBIDDEN_KEYS_SUBSTRINGS = [
+FORBIDDEN_KEY_SUBSTRINGS = [
     "user.email", "user.id", "user.account_id", "user.account_uuid",
     "organization.id", "terminal.type", "session.id", "effort",
 ]
 
 
-# --------------------------------------------------------------------------
-# Hand-built OTLP HTTP/JSON payload constructors
-# --------------------------------------------------------------------------
-
-def _attr(key: str, value: str) -> dict:
-    return {"key": key, "value": {"stringValue": value}}
-
-
-def _datapoint(point_attrs: dict, start_ns: int, time_ns: int, value: int) -> dict:
-    return {
-        "attributes": [_attr(k, v) for k, v in point_attrs.items()],
-        "startTimeUnixNano": str(start_ns),
-        "timeUnixNano": str(time_ns),
-        "asInt": str(value),
-    }
+def run_receiver(args: list[str], cwd: Optional[Path] = None, env: Optional[dict] = None) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), *args],
+        capture_output=True, text=True, cwd=str(cwd) if cwd else None, env=env,
+    )
 
 
-def _payload(resource_attrs: dict, datapoints: list) -> dict:
-    return {
-        "resourceMetrics": [
-            {
-                "resource": {"attributes": [_attr(k, v) for k, v in resource_attrs.items()]},
-                "scopeMetrics": [
-                    {
-                        "scope": {"name": "com.anthropic.claude_code", "version": "1.0.0"},
-                        "metrics": [
-                            {
-                                "name": "claude_code.token.usage",
-                                "sum": {
-                                    "dataPoints": datapoints,
-                                    "aggregationTemporality": 1,
-                                    "isMonotonic": True,
-                                },
-                            }
-                        ],
-                    }
-                ],
-            }
-        ]
-    }
-
-
-IDENTITY_RESOURCE_ATTRS = {
-    "service.name": "claude-code",
-    "session.id": "fake-session-abc123",
-    "user.email": "not-a-real-user@example.com",
-    "user.id": "fake-user-id-001",
-    "user.account_id": "fake-account-id-002",
-    "user.account_uuid": "fake-account-uuid-003",
-    "organization.id": "fake-org-id-004",
-    "terminal.type": "iTerm.app",
-}
-
-
-def make_basic_payload(cairn_issue: Optional[str] = "PT-95", agent_name: Optional[str] = "implementation-lead",
-                        query_source: str = "main", model: str = "claude-sonnet-5",
-                        start_ns: int = 1756742400000000000, time_ns: int = 1756742460000000000,
-                        values: dict | None = None) -> dict:
-    """A full, realistic payload: every identity attribute present (for
-    the allow-list tests), one series group across the four `type`
-    values at one `startTimeUnixNano`."""
-    values = values or {"input": 100, "cacheCreation": 200, "cacheRead": 300, "output": 50}
-    resource = dict(IDENTITY_RESOURCE_ATTRS)
-    if cairn_issue is not None:
-        resource["cairn.issue"] = cairn_issue
-    point_attrs = {"type": None, "model": model, "query_source": query_source, "effort": "high"}
-    if agent_name is not None:
-        point_attrs["agent.name"] = agent_name
-    datapoints = []
-    for otel_type, value in values.items():
-        attrs = dict(point_attrs)
-        attrs["type"] = otel_type
-        datapoints.append(_datapoint(attrs, start_ns, time_ns, value))
-    return _payload(resource, datapoints)
-
-
-# --------------------------------------------------------------------------
-# Throwaway git repo helper (branch-attribution test seam)
-# --------------------------------------------------------------------------
-
-def _run_git(cwd: Path, *args: str) -> str:
-    result = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)
-    assert result.returncode == 0, f"git {' '.join(args)} failed: {result.stderr}"
-    return result.stdout.strip()
-
-
-def make_repo_on_branch(testcase, branch: str) -> Path:
-    """A throwaway git repo checked out on `branch` -- the stub mechanism
-    for `current_git_branch`/`attribute_issue`. Mirrors
-    test_dist_freshness.py's own `make_dashboard_repo` git-fixture
-    pattern.
-
-    `-b main` on the initial commit's branch name is explicit rather than
-    relying on `git init`'s default -- that default is machine-config
-    dependent (`init.defaultBranch`, historically `master` on older
-    installs), so an implicit default would make the "main" branch tests
-    silently environment-dependent."""
-    tmp = helpers.make_empty_tmp_dir(testcase)
-    _run_git(tmp, "init", "-q", "-b", "main")
-    _run_git(tmp, "config", "user.email", "test@example.com")
-    _run_git(tmp, "config", "user.name", "Test")
-    (tmp / "README.md").write_text("x\n", encoding="utf-8")
-    _run_git(tmp, "add", "-A")
-    _run_git(tmp, "commit", "-q", "-m", "initial")
-    if branch != "main":
-        _run_git(tmp, "checkout", "-q", "-b", branch)
-    return tmp
-
-
-class OtelReceiverModuleTestCase(unittest.TestCase):
-    """Imports the module fresh in setUp -- a genuinely-missing module
-    fails each test individually, matching test_dist_freshness.py's own
-    precedent for a from-scratch script."""
-
-    def setUp(self):
-        if str(helpers.CAIRN_DIR) not in sys.path:
-            sys.path.insert(0, str(helpers.CAIRN_DIR))
-        try:
-            self.module = importlib.import_module(MODULE_NAME)
-            importlib.reload(self.module)
-        except ModuleNotFoundError as e:
-            self.fail(
-                f"scripts/cairn/otel_receiver.py does not exist yet ({e!r}) -- "
-                f"implementation-lead's PT-78 slice creates it; see this file's module "
-                f"docstring for the proposed (negotiable) contract these tests pin."
-            )
-        self.roster = self.module._roster_names(helpers.CAIRN_DIR.parent.parent) if hasattr(self.module, "_roster_names") else set()
+def ingest(
+    payload_fixture: str, out_path: Path,
+    cwd: Optional[Path] = None, repo_root: Optional[Path] = None,
+    transcripts_dir: Optional[Path] = None,
+    extra_args: list[str] | None = None,
+) -> subprocess.CompletedProcess:
+    payload_path = FIXTURES / payload_fixture
+    args = ["--ingest", str(payload_path), "--out-file", str(out_path)]
+    if repo_root is not None:
+        args += ["--repo-root", str(repo_root)]
+    if transcripts_dir is not None:
+        args += ["--transcripts-dir", str(transcripts_dir)]
+    args += extra_args or []
+    return run_receiver(args, cwd=cwd)
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -268,160 +142,193 @@ def read_jsonl(path: Path) -> list[dict]:
     return lines
 
 
-class PrivacyAllowListTests(OtelReceiverModuleTestCase):
-    """§6 -- allow-list, not deny-list: exactly 12 keys, and every
-    identity value (not just key) proven absent from the raw file bytes,
-    per the ruling's own test #5 wording."""
+def read_jsonl_raw_order(path: Path) -> list[list[str]]:
+    """Same as read_jsonl but preserves each line's raw KEY ORDER (for the
+    addendum's "in this order" requirement) -- json.loads with the
+    default object_pairs_hook preserves source-text insertion order in
+    CPython, but being explicit here documents that's what's asserted."""
+    out = []
+    with open(path, "r", encoding="utf-8") as f:
+        for raw in f:
+            raw = raw.strip()
+            if raw:
+                out.append(list(json.loads(raw).keys()))
+    return out
 
-    def test_identity_attributes_never_reach_the_output_file(self):
-        acc = {}
-        for record in self.module.parse_otlp_payload(make_basic_payload()):
-            self.module.accumulate_datapoint(acc, record)
-        repo_root = helpers.CAIRN_DIR.parent.parent
-        roster = self.module._roster_names(repo_root)
-        grouped = self.module.rollup(acc, repo_root, roster)
 
+# --------------------------------------------------------------------------
+# Throwaway git repo helper (branch-attribution test seam -- see the
+# module docstring's flagged judgment call)
+# --------------------------------------------------------------------------
+
+def _run_git(cwd: Path, *args: str) -> str:
+    result = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)
+    assert result.returncode == 0, f"git {' '.join(args)} failed: {result.stderr}"
+    return result.stdout.strip()
+
+
+def make_repo_on_branch(testcase, branch: str) -> Path:
+    """A throwaway git repo checked out on `branch`. Explicit `-b main` on
+    init (not relying on the host's `init.defaultBranch`) so the "main"
+    cases aren't silently environment-dependent."""
+    tmp = helpers.make_empty_tmp_dir(testcase)
+    _run_git(tmp, "init", "-q", "-b", "main")
+    _run_git(tmp, "config", "user.email", "test@example.com")
+    _run_git(tmp, "config", "user.name", "Test")
+    (tmp / "README.md").write_text("x\n", encoding="utf-8")
+    _run_git(tmp, "add", "-A")
+    _run_git(tmp, "commit", "-q", "-m", "initial")
+    if branch != "main":
+        _run_git(tmp, "checkout", "-q", "-b", branch)
+    return tmp
+
+
+class OtelReceiverPresenceGuard(unittest.TestCase):
+    """One cheap, always-first-to-fail check: the script must exist at
+    all. Every other test would fail anyway (python3: can't open file),
+    but this gives one unambiguous, clearly-worded red result rather than
+    N confusing subprocess-error assertions."""
+
+    def test_script_exists(self):
+        self.assertTrue(
+            SCRIPT_PATH.is_file(),
+            f"{SCRIPT_PATH} does not exist yet -- implementation-lead's PT-78 slice creates it; "
+            f"see this file's module docstring for the proposed (addendum-named) contract.",
+        )
+
+
+class PrivacyAllowListTests(unittest.TestCase):
+    """Ruling §6 + addendum's verbatim 12-key list, in order."""
+
+    def test_identity_values_never_reach_the_output_file_bytes(self):
         out_dir = helpers.make_empty_tmp_dir(self)
         out_path = out_dir / "token-usage.jsonl"
-        lock_path = out_dir / ".lock"
-        self.module.flush_to_file(grouped, out_path, lock_path, generated="2026-09-04T12:00:00Z")
-
+        result = ingest("basic.json", out_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         raw = out_path.read_text(encoding="utf-8")
         for forbidden in FORBIDDEN_VALUES:
             self.assertNotIn(forbidden, raw, f"{forbidden!r} leaked into the committed output")
-        for forbidden_key in FORBIDDEN_KEYS_SUBSTRINGS:
+        for forbidden_key in FORBIDDEN_KEY_SUBSTRINGS:
             self.assertNotIn(forbidden_key, raw, f"{forbidden_key!r} leaked into the committed output")
 
-    def test_output_lines_carry_only_the_twelve_allowed_keys(self):
-        acc = {}
-        for record in self.module.parse_otlp_payload(make_basic_payload()):
-            self.module.accumulate_datapoint(acc, record)
-        repo_root = helpers.CAIRN_DIR.parent.parent
-        roster = self.module._roster_names(repo_root)
-        grouped = self.module.rollup(acc, repo_root, roster)
-
+    def test_output_lines_carry_exactly_the_twelve_keys_in_the_ruled_order(self):
         out_dir = helpers.make_empty_tmp_dir(self)
         out_path = out_dir / "token-usage.jsonl"
-        self.module.flush_to_file(grouped, out_path, out_dir / ".lock", generated="2026-09-04T12:00:00Z")
+        result = ingest("basic.json", out_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        key_orders = read_jsonl_raw_order(out_path)
+        self.assertTrue(key_orders)
+        for keys in key_orders:
+            self.assertEqual(tuple(keys), ALLOWED_LINE_KEYS_ORDERED, f"got key order {keys}")
 
+    def test_source_is_always_the_literal_string_otel(self):
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        result = ingest("basic.json", out_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         lines = read_jsonl(out_path)
-        self.assertTrue(lines)
         for line in lines:
-            self.assertEqual(set(line.keys()), ALLOWED_OTEL_LINE_KEYS, f"got keys {set(line.keys())}")
             self.assertEqual(line["source"], "otel")
 
 
-class RoleAttributionTests(OtelReceiverModuleTestCase):
-    """§5's explicit table -- no silent folding into team-lead."""
+class CountingTests(unittest.TestCase):
+    """Ruling §3, addendum's implementable pseudocode. Both fixtures put
+    the repeated series on PT-33 (a `cairn.issue` resource attr, cwd left
+    at the real repo so branch resolves to `main` and the fallback
+    engages) so the assertions can target one predictable bucket."""
 
-    def test_agent_name_present_is_normalised_through_the_shared_roster_function(self):
-        role = self.module.attribute_role("qa-engineer-76", "main", {"qa-engineer"})
-        self.assertEqual(role, "qa-engineer")
+    def test_an_exact_duplicate_entry_within_one_payload_counts_once(self):
+        # duplicate_within_payload.json: the identical (attrs,
+        # startTimeUnixNano, value=100) datapoint appears twice in one
+        # payload's dataPoints array -- the concrete shape an export
+        # retry/duplicate delivery produces. Must fold to 100, not 200.
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        result = ingest("duplicate_within_payload.json", out_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = read_jsonl(out_path)
+        pt33 = [l for l in lines if l["issue"] == "PT-33"]
+        self.assertEqual(len(pt33), 1, lines)
+        self.assertEqual(pt33[0]["input"], 100, "an exact duplicate entry must not double-count")
 
-    def test_agent_name_absent_query_source_main_is_team_lead(self):
-        role = self.module.attribute_role(None, "main", set())
-        self.assertEqual(role, "team-lead")
-
-    def test_agent_name_absent_query_source_auxiliary_is_auxiliary(self):
-        role = self.module.attribute_role(None, "auxiliary", set())
-        self.assertEqual(role, "auxiliary")
-
-    def test_agent_name_absent_query_source_sdk_is_auxiliary(self):
-        role = self.module.attribute_role(None, "sdk", set())
-        self.assertEqual(role, "auxiliary")
-
-    def test_agent_name_absent_query_source_subagent_is_the_loud_guard_bucket(self):
-        # Per §5: "subagent-unattributed is a loud guard, not a bucket we
-        # expect to see" -- but it MUST be produced, not silently folded
-        # into team-lead, when the table's other branches don't match.
-        role = self.module.attribute_role(None, "subagent", set())
-        self.assertEqual(role, "subagent-unattributed")
-
-    def test_agent_name_absent_unknown_query_source_also_falls_to_the_guard_bucket(self):
-        role = self.module.attribute_role(None, "some-future-value-not-in-the-table", set())
-        self.assertEqual(role, "subagent-unattributed")
-
-
-class CountingIdempotencyTests(OtelReceiverModuleTestCase):
-    """§3 -- ruling tests #2 and #3."""
-
-    def test_replaying_the_same_payload_twice_adds_no_additional_tokens(self):
-        acc = {}
-        payload = make_basic_payload(values={"input": 100, "cacheCreation": 0, "cacheRead": 0, "output": 0})
-        records = self.module.parse_otlp_payload(payload)
-        for record in records:
-            self.module.accumulate_datapoint(acc, record)
-        # Replay the IDENTICAL payload (same series, same startTimeUnixNano,
-        # same value) a second time.
-        for record in self.module.parse_otlp_payload(payload):
-            self.module.accumulate_datapoint(acc, record)
-
-        repo_root = helpers.CAIRN_DIR.parent.parent
-        roster = self.module._roster_names(repo_root)
-        grouped = self.module.rollup(acc, repo_root, roster)
-        totals = next(iter(grouped.values()))
-        self.assertEqual(totals["input"], 100, "a byte-identical replay must not double-count")
-
-    def test_a_repeated_start_time_with_a_rising_value_counts_the_maximum_not_the_sum(self):
-        # One series (identical attribute set), same startTimeUnixNano,
-        # but two data points with different asInt values (100 then 150)
-        # -- §3's max-within-group scheme must yield 150, not 250.
-        attrs = {"type": "input", "model": "claude-sonnet-5", "query_source": "main", "agent.name": "backend-lead"}
-        start_ns = 1756742400000000000
-        payload = _payload(
-            dict(IDENTITY_RESOURCE_ATTRS, **{"cairn.issue": "PT-33"}),
-            [
-                _datapoint(attrs, start_ns, start_ns + 1_000_000_000, 100),
-                _datapoint(attrs, start_ns, start_ns + 2_000_000_000, 150),
-            ],
-        )
-        acc = {}
-        for record in self.module.parse_otlp_payload(payload):
-            self.module.accumulate_datapoint(acc, record)
-        repo_root = helpers.CAIRN_DIR.parent.parent
-        roster = self.module._roster_names(repo_root)
-        grouped = self.module.rollup(acc, repo_root, roster)
-        totals = next(iter(grouped.values()))
-        self.assertEqual(totals["input"], 150, "must take the MAXIMUM within one (series, startTimeUnixNano) group, never sum")
+    def test_a_rising_value_at_one_repeated_start_time_counts_the_maximum_not_the_sum(self):
+        # rising_within_group.json: same series, same startTimeUnixNano,
+        # values 100 then 150 -- must count 150 (the max), never 250 (the
+        # sum). This is the ruling's explicit warning: "do not simplify
+        # to a plain sum without first proving delta behaviourally."
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        result = ingest("rising_within_group.json", out_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = read_jsonl(out_path)
+        pt33 = [l for l in lines if l["issue"] == "PT-33"]
+        self.assertEqual(len(pt33), 1, lines)
+        self.assertEqual(pt33[0]["input"], 150, "must take the MAXIMUM within one (series, startTimeUnixNano) group")
 
 
-class BranchAttributionTests(OtelReceiverModuleTestCase):
-    """§4 -- branch-first, cairn.issue fallback only when branch is main."""
+class BranchAttributionTests(unittest.TestCase):
+    """Ruling §4 -- branch-first, `cairn.issue` fallback only when branch
+    resolves to `main`. See the module docstring's flagged judgment call
+    on the cwd-as-stub mechanism."""
 
-    def test_feature_branch_wins_even_when_no_cairn_issue_attribute_is_present(self):
-        repo_root = make_repo_on_branch(self, "feature/pt-95-otel-thing")
-        issue = self.module.attribute_issue({}, repo_root)
-        self.assertEqual(issue, "PT-95")
+    def test_feature_branch_wins_even_without_a_cairn_issue_attribute(self):
+        repo = make_repo_on_branch(self, "feature/pt-95-otel-thing")
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        result = ingest("no_cairn_issue.json", out_path, repo_root=repo)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        issues = {l["issue"] for l in read_jsonl(out_path)}
+        self.assertEqual(issues, {"PT-95"}, issues)
 
-    def test_cairn_issue_attribute_wins_only_when_the_branch_resolves_to_main(self):
-        repo_root = make_repo_on_branch(self, "main")
-        issue = self.module.attribute_issue({"cairn.issue": "PT-12"}, repo_root)
-        self.assertEqual(issue, "PT-12")
+    def test_cairn_issue_wins_only_when_branch_resolves_to_main(self):
+        repo = make_repo_on_branch(self, "main")
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        # basic.json carries cairn.issue: PT-95
+        result = ingest("basic.json", out_path, repo_root=repo)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        issues = {l["issue"] for l in read_jsonl(out_path)}
+        self.assertEqual(issues, {"PT-95"}, issues)
 
     def test_feature_branch_overrides_a_stale_cairn_issue_attribute(self):
-        # §4's load-bearing ordering: branch first, NOT cairn.issue first
-        # -- a stale cairn.issue from a long-running session must never
-        # override a correct, fresh branch signal.
-        repo_root = make_repo_on_branch(self, "feature/pt-95-otel-thing")
-        issue = self.module.attribute_issue({"cairn.issue": "PT-1"}, repo_root)
-        self.assertEqual(issue, "PT-95", "a real branch signal must win over a stale cairn.issue attribute")
+        # §4's load-bearing ordering: a real branch signal must win over
+        # a stale cairn.issue, never the reverse.
+        repo = make_repo_on_branch(self, "feature/pt-95-otel-thing")
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        # basic.json's cairn.issue is PT-95 too by coincidence -- use a
+        # fixture with a DIFFERENT cairn.issue to make this test a real
+        # discriminator: old_timestamp.json carries cairn.issue: PT-1.
+        result = ingest("old_timestamp.json", out_path, repo_root=repo)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        issues = {l["issue"] for l in read_jsonl(out_path)}
+        self.assertEqual(issues, {"PT-95"}, f"branch (PT-95) must win over the stale cairn.issue (PT-1) attribute -- got {issues}")
 
-    def test_neither_branch_nor_cairn_issue_present_lands_in_main(self):
-        repo_root = make_repo_on_branch(self, "main")
-        issue = self.module.attribute_issue({}, repo_root)
-        self.assertEqual(issue, "main")
+    def test_neither_branch_nor_cairn_issue_lands_in_main(self):
+        repo = make_repo_on_branch(self, "main")
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        result = ingest("no_cairn_issue.json", out_path, repo_root=repo)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        issues = {l["issue"] for l in read_jsonl(out_path)}
+        self.assertEqual(issues, {"main"}, issues)
 
-    def test_a_milestone_branch_still_falls_to_main_not_a_fabricated_id(self):
-        # Reuses PT-77's exact branch regex (the ruling: "call the same
-        # function, do not reimplement it") -- chore/pt-0.11-* must still
-        # land in main here too.
-        repo_root = make_repo_on_branch(self, "chore/pt-0.11-token-accounting")
-        issue = self.module.attribute_issue({"cairn.issue": "PT-70"}, repo_root)
-        self.assertEqual(issue, "PT-70", "a milestone branch resolves to main, so the cairn.issue fallback engages")
+    def test_a_milestone_branch_still_falls_to_main_engaging_the_cairn_issue_fallback(self):
+        # Reuses PT-77's exact branch regex (ruling: "call the same
+        # function, do not reimplement it") -- a chore/pt-0.11-*
+        # milestone branch must land in main, not a fabricated PT-0.
+        repo = make_repo_on_branch(self, "chore/pt-0.11-token-accounting")
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        result = ingest("old_timestamp.json", out_path, repo_root=repo)  # cairn.issue: PT-1
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        issues = {l["issue"] for l in read_jsonl(out_path)}
+        self.assertEqual(issues, {"PT-1"}, "a milestone branch resolves to main, so the cairn.issue fallback must engage")
 
 
-class MergeWithBackfillTests(OtelReceiverModuleTestCase):
-    """§7/§8 -- append-only, own-source-only, non-overlap invariant."""
+class MergeWithBackfillTests(unittest.TestCase):
+    """Ruling §7/§8 -- append-only, own-source-only, non-overlap
+    invariant."""
 
     def _seed_backfill_line(self, out_path: Path, generated: str, issue: str = "PT-1") -> dict:
         line = {
@@ -433,18 +340,13 @@ class MergeWithBackfillTests(OtelReceiverModuleTestCase):
         out_path.write_text(json.dumps(line, separators=(",", ":")) + "\n", encoding="utf-8")
         return line
 
-    def test_transcript_backfill_line_survives_a_receiver_append_byte_for_byte(self):
+    def test_transcript_backfill_line_survives_a_receiver_flush_byte_for_byte(self):
         out_dir = helpers.make_empty_tmp_dir(self)
         out_path = out_dir / "token-usage.jsonl"
         backfill_line = self._seed_backfill_line(out_path, generated="2026-08-01T00:00:00Z")
 
-        acc = {}
-        for record in self.module.parse_otlp_payload(make_basic_payload()):
-            self.module.accumulate_datapoint(acc, record)
-        repo_root = helpers.CAIRN_DIR.parent.parent
-        roster = self.module._roster_names(repo_root)
-        grouped = self.module.rollup(acc, repo_root, roster)
-        self.module.flush_to_file(grouped, out_path, out_dir / ".lock", generated="2026-09-04T12:00:00Z")
+        result = ingest("basic.json", out_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
         lines = read_jsonl(out_path)
         backfill_lines = [l for l in lines if l["source"] == "transcript-backfill"]
@@ -453,95 +355,62 @@ class MergeWithBackfillTests(OtelReceiverModuleTestCase):
         self.assertTrue(otel_lines, "the new otel contribution must also be present")
 
     def test_a_flush_predating_the_latest_backfill_generated_is_refused(self):
-        # §8: non-overlap invariant. Seed a backfill line whose `generated`
-        # is LATER than the otel payload's own timestamps -- the receiver
-        # must refuse to write, naming both timestamps.
+        # §8: non-overlap invariant. old_timestamp.json's datapoint is
+        # 2024-01-01; seed a backfill line generated far AFTER that.
         out_dir = helpers.make_empty_tmp_dir(self)
         out_path = out_dir / "token-usage.jsonl"
-        self._seed_backfill_line(out_path, generated="2026-12-31T00:00:00Z")  # far in the future relative to the payload below
+        self._seed_backfill_line(out_path, generated="2026-12-31T00:00:00Z")
 
-        acc = {}
-        old_payload = make_basic_payload(start_ns=1704067200000000000, time_ns=1704067200000000000)  # 2024-01-01
-        for record in self.module.parse_otlp_payload(old_payload):
-            self.module.accumulate_datapoint(acc, record)
-        repo_root = helpers.CAIRN_DIR.parent.parent
-        roster = self.module._roster_names(repo_root)
-        grouped = self.module.rollup(acc, repo_root, roster)
-
-        with self.assertRaises(Exception) as ctx:
-            self.module.flush_to_file(grouped, out_path, out_dir / ".lock", generated="2024-01-01T00:00:00Z")
-        message = str(ctx.exception)
-        self.assertIn("2026-12-31", message, f"error must name the backfill's generated timestamp -- got: {message!r}")
-        self.assertIn("2024-01-01", message, f"error must name the refused flush's own timestamp -- got: {message!r}")
+        result = ingest("old_timestamp.json", out_path)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        combined = result.stdout + result.stderr
+        self.assertIn("2026-12-31", combined, f"error must name the backfill's generated timestamp -- got: {combined!r}")
 
 
-class MalformedPayloadTests(OtelReceiverModuleTestCase):
-    def test_a_payload_missing_resource_metrics_is_rejected(self):
-        with self.assertRaises(Exception):
-            self.module.parse_otlp_payload({"not_resource_metrics_at_all": []})
+class MalformedPayloadTests(unittest.TestCase):
+    """Both assertions here go beyond a bare nonzero-exit check
+    deliberately: a receiver that doesn't even recognise `--ingest` yet
+    (the WIP draft currently in the tree, pre-addendum) ALSO exits
+    non-zero and touches no file, for a completely unrelated reason
+    (argparse rejecting the whole invocation) -- confirmed by hand before
+    writing this comment. A loose nonzero-exit-only assertion would pass
+    against that accidentally, the same false-positive trap PT-77's own
+    malformed-input tests were built to avoid."""
 
-    def test_invalid_json_body_is_rejected_at_the_http_layer_without_writing(self):
+    def test_structurally_invalid_payload_is_rejected_without_writing(self):
         out_dir = helpers.make_empty_tmp_dir(self)
         out_path = out_dir / "token-usage.jsonl"
-        repo_root = helpers.CAIRN_DIR.parent.parent
-        server = self.module.make_receiver_server(out_path, repo_root, port=0)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join(timeout=5)))
-        port = server.server_address[1]
+        sentinel = '{"source":"otel","sentinel":true}\n'
+        out_path.write_text(sentinel, encoding="utf-8")
+        result = ingest("malformed_no_resource_metrics.json", out_path)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        combined = result.stdout + result.stderr
+        self.assertIn("resourceMetrics", combined, f"error must name the missing/malformed field -- got: {combined!r}")
+        self.assertEqual(out_path.read_text(encoding="utf-8"), sentinel, "a rejected payload must leave a pre-existing --out-file untouched")
 
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("POST", "/v1/metrics", body=b"{not valid json", headers={"Content-Type": "application/json"})
-        response = conn.getresponse()
-        response.read()
-        self.assertGreaterEqual(response.status, 400, "a malformed body must be rejected with an HTTP error status")
-        self.assertFalse(out_path.exists(), "a rejected payload must never produce a written file")
-
-
-class LockContentionTests(OtelReceiverModuleTestCase):
-    def test_a_fresh_lock_held_by_another_writer_defers_without_corrupting_existing_content(self):
+    def test_invalid_json_body_is_rejected_without_writing(self):
         out_dir = helpers.make_empty_tmp_dir(self)
         out_path = out_dir / "token-usage.jsonl"
-        existing = self._seed_line(out_path)
-        lock_path = out_dir / ".lock"
-        # Simulate PT-77's own O_CREAT|O_EXCL lock, held fresh by another
-        # writer (mtime just now -- well under the 60s staleness window).
-        lock_path.write_text("held\n", encoding="utf-8")
+        payload_path = FIXTURES / "malformed_invalid_json.txt"
+        result = run_receiver(["--ingest", str(payload_path), "--out-file", str(out_path)])
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        combined = result.stdout + result.stderr
+        # "invalid choice" is argparse's OWN generic rejection message (the
+        # WIP draft currently in the tree doesn't recognise --ingest at
+        # all yet, and that message happens to echo the file path back
+        # too) -- explicitly excluding it is what keeps this test from
+        # passing against a --ingest that doesn't exist, only against one
+        # that exists and does its own JSON-parsing rejection.
+        self.assertNotIn("invalid choice", combined, f"this must be --ingest's OWN json-parse rejection, not argparse failing to recognise --ingest at all -- got: {combined!r}")
+        self.assertIn(str(payload_path), combined, f"error must name the offending payload file -- got: {combined!r}")
+        self.assertFalse(out_path.exists(), "invalid JSON must never produce a written file")
 
-        acc = {}
-        for record in self.module.parse_otlp_payload(make_basic_payload()):
-            self.module.accumulate_datapoint(acc, record)
-        repo_root = helpers.CAIRN_DIR.parent.parent
-        roster = self.module._roster_names(repo_root)
-        grouped = self.module.rollup(acc, repo_root, roster)
 
-        with self.assertRaises(Exception):
-            self.module.flush_to_file(grouped, out_path, lock_path, generated="2026-09-04T12:00:00Z")
-        self.assertEqual(out_path.read_text(encoding="utf-8"), existing, "a fresh lock held by another writer must leave existing content untouched")
+class LockContentionTests(unittest.TestCase):
+    """PT-77's own `.lock` semantics (O_CREAT|O_EXCL, stale after 60s),
+    reused by both writers per the ruling's §7."""
 
-    def test_a_stale_lock_older_than_sixty_seconds_is_reclaimed(self):
-        import os
-        import time as time_module
-
-        out_dir = helpers.make_empty_tmp_dir(self)
-        out_path = out_dir / "token-usage.jsonl"
-        lock_path = out_dir / ".lock"
-        lock_path.write_text("stale\n", encoding="utf-8")
-        stale_time = time_module.time() - 120  # 2 minutes old, past PT-77's 60s staleness window
-        os.utime(lock_path, (stale_time, stale_time))
-
-        acc = {}
-        for record in self.module.parse_otlp_payload(make_basic_payload()):
-            self.module.accumulate_datapoint(acc, record)
-        repo_root = helpers.CAIRN_DIR.parent.parent
-        roster = self.module._roster_names(repo_root)
-        grouped = self.module.rollup(acc, repo_root, roster)
-        # Must NOT raise -- a stale lock is reclaimed, not treated as
-        # held.
-        self.module.flush_to_file(grouped, out_path, lock_path, generated="2026-09-04T12:00:00Z")
-        self.assertTrue(out_path.is_file(), "a stale lock must be reclaimed, allowing the flush to succeed")
-
-    def _seed_line(self, out_path: Path) -> str:
+    def _seed_otel_line(self, out_path: Path) -> str:
         line = json.dumps({
             "source": "otel", "generated": "2026-08-01T00:00:00Z",
             "window_start": "2026-08-01", "window_end": "2026-08-01",
@@ -551,40 +420,176 @@ class LockContentionTests(OtelReceiverModuleTestCase):
         out_path.write_text(line, encoding="utf-8")
         return line
 
-
-class HttpWiringIntegrationTests(OtelReceiverModuleTestCase):
-    """The ONE end-to-end test in this file -- confirms POST /v1/metrics
-    actually reaches the same pure core every other test exercises
-    directly. Every edge case is covered above at the pure-function
-    level; this only proves the wiring."""
-
-    def test_a_posted_payload_produces_a_file_delta_after_clean_shutdown(self):
+    def test_a_fresh_lock_held_by_another_writer_defers_without_corrupting_existing_content(self):
         out_dir = helpers.make_empty_tmp_dir(self)
         out_path = out_dir / "token-usage.jsonl"
-        repo_root = make_repo_on_branch(self, "feature/pt-95-otel-thing")
-        server = self.module.make_receiver_server(out_path, repo_root, port=0)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        port = server.server_address[1]
+        existing = self._seed_otel_line(out_path)
+        lock_path = out_dir / ".lock"
+        lock_path.write_text("held\n", encoding="utf-8")  # fresh -- just created
 
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        body = json.dumps(make_basic_payload(cairn_issue=None)).encode("utf-8")
-        conn.request("POST", "/v1/metrics", body=body, headers={"Content-Type": "application/json"})
-        response = conn.getresponse()
-        response.read()
-        self.assertLess(response.status, 300, "a well-formed payload must be accepted")
+        result = ingest("basic.json", out_path)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        combined = result.stdout + result.stderr
+        self.assertIn("lock", combined.lower(), f"error must mention the lock contention specifically -- got: {combined!r}")
+        self.assertEqual(out_path.read_text(encoding="utf-8"), existing, "a fresh lock held by another writer must leave existing content untouched")
 
-        # server_close() is the "clean shutdown" flush trigger (proposed
-        # contract, see module docstring) -- call it directly rather than
-        # via addCleanup so the flush has definitely happened before the
-        # assertions below.
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
+    def test_a_stale_lock_older_than_sixty_seconds_is_reclaimed(self):
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        lock_path = out_dir / ".lock"
+        lock_path.write_text("stale\n", encoding="utf-8")
+        stale_time = time.time() - 120  # 2 minutes -- past the 60s staleness window
+        os.utime(lock_path, (stale_time, stale_time))
 
-        self.assertTrue(out_path.is_file(), "a clean shutdown must flush accumulated data to disk")
+        result = ingest("basic.json", out_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr, "a stale lock must be reclaimed, allowing the flush to succeed")
+        self.assertTrue(out_path.is_file())
+
+
+class OutFileResolvesFromRepoRootTests(unittest.TestCase):
+    """PT-77's blocking defect (0e8832c) and PT-80 exist because of
+    exactly this failure mode -- the addendum explicitly calls it out for
+    --out-file. Deliberately does NOT test the truly-default (unspecified
+    --out-file) path: that would resolve to this real checkout's actual
+    process/cairn/metrics/token-usage.jsonl, which already holds real
+    committed PT-77 data and must never be touched by a test. Instead:
+    an EXPLICIT --out-file (safe, isolated) plus a cwd outside the repo,
+    asserting the OTHER repo-root-anchored resolution (branch regex
+    prefix, via the real config.yml) still works correctly -- if cwd leaked
+    into that resolution the way it did for PT-77/PT-80, this would
+    misattribute or error instead of landing on PT-95."""
+
+    def test_prefix_and_branch_resolution_do_not_depend_on_cwd(self):
+        outside_cwd = helpers.make_empty_tmp_dir(self)
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        result = run_receiver(
+            ["--ingest", str(FIXTURES / "no_cairn_issue.json"), "--out-file", str(out_path)],
+            cwd=outside_cwd,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(out_path.is_file(), "a run from outside the repo must still write real output")
+        issues = {l["issue"] for l in read_jsonl(out_path)}
+        # This repo's real branch is whatever the shared checkout is
+        # currently on (feature/pt-78-otel-receiver at time of writing) --
+        # assert only that SOME real PT-NN issue was resolved, not "main",
+        # since main would be the silent-collapse failure mode.
+        self.assertTrue(issues, issues)
+        self.assertNotEqual(issues, {"main"}, f"cwd outside the repo must not collapse attribution to main -- got {issues}")
+
+
+class OnceIntegrationTests(unittest.TestCase):
+    """The ONE test in this file that binds a real port -- every other
+    assertion goes through --ingest per the addendum's own instruction.
+
+    Judgment call, flagged: `--once`'s CLI signature (`[--port N]`) gives
+    no way for an external test process to discover which port got bound
+    if `--port 0` (ephemeral) were used, since `--once` is a one-shot
+    subprocess, not an in-process object a test can introspect via
+    `server.server_address[1]` the way `test_server.py` does for
+    `cairn.make_server`. Rather than invent an unspecified "print the
+    bound port" stdout protocol, this picks a FIXED high port
+    (`48765 + PID % 1000`, spreading collisions across parallel runs) --
+    matches how every other subprocess-CLI test in this suite that can't
+    introspect a child's bound port has to work. A real, if small,
+    flake risk (another process on the same port) that a `--port 0` +
+    stdout-announcement contract would remove -- worth proposing to
+    implementation-lead as a cheap addition (one `print(f"listening on
+    127.0.0.1:{port}")`) if this test proves flaky in practice."""
+
+    def test_once_accepts_one_request_flushes_and_exits(self):
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        port = 48765 + (os.getpid() % 1000)
+        proc = subprocess.Popen(
+            [sys.executable, str(SCRIPT_PATH), "--once", "--port", str(port), "--out-file", str(out_path)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        try:
+            self._wait_until_listening(port)
+            body = (FIXTURES / "basic.json").read_bytes()
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            conn.request("POST", "/v1/metrics", body=body, headers={"Content-Type": "application/json"})
+            response = conn.getresponse()
+            response.read()
+            self.assertLess(response.status, 300, "a well-formed payload must be accepted")
+
+            stdout, stderr = proc.communicate(timeout=10)
+            self.assertEqual(proc.returncode, 0, f"stdout={stdout!r} stderr={stderr!r}")
+        finally:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+
+        self.assertTrue(out_path.is_file(), "--once must flush to --out-file after handling its one request")
+        issues = {l["issue"] for l in read_jsonl(out_path)}
+        self.assertIn("PT-95", issues, f"expected basic.json's PT-95 line, got {issues}")
+
+    def _wait_until_listening(self, port: int, timeout: float = 5.0):
+        import socket
+
+        deadline = time.time() + timeout
+        last_exc = None
+        while time.time() < deadline:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                    return
+            except OSError as e:
+                last_exc = e
+                time.sleep(0.05)
+        self.fail(f"--once never started listening on 127.0.0.1:{port} within {timeout}s ({last_exc!r})")
+
+
+class RoleResolutionTests(unittest.TestCase):
+    """Amendment B (25d7a42): role resolves from `session.id` through a
+    transcript-header lookup, not `agent.name`/`query_source`. Uses the
+    proposed `--transcripts-dir` seam (see module docstring) pointed at
+    `fixtures/otlp/transcripts/` -- never a real transcript, per the
+    amendment's own "no test needs a real transcript" instruction."""
+
+    TRANSCRIPTS_DIR = FIXTURES / "transcripts"
+
+    def test_a_session_whose_transcript_has_an_agent_name_resolves_and_normalises_it(self):
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        result = ingest("role_resolver_two_sessions.json", out_path, transcripts_dir=self.TRANSCRIPTS_DIR)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         lines = read_jsonl(out_path)
-        self.assertTrue(any(l["issue"] == "PT-95" for l in lines), f"expected a PT-95 line, got {lines!r}")
+        roles = {l["role"] for l in lines}
+        self.assertIn("qa-engineer", roles, f"session-with-agentname.jsonl's agentName must resolve and normalise -- got roles {roles}")
+
+    def test_amendment_b_explicit_test_one_stub_hit_one_guard_from_a_single_payload(self):
+        # Amendment B's own "test to add": a resolver returning a role for
+        # one session.id and nothing for another must produce ONE
+        # resolved-role line and ONE subagent-unattributed line from a
+        # SINGLE payload -- proving the guard survives and the fallback
+        # does not quietly become team-lead. role_resolver_two_sessions.json
+        # carries otel-role-test-session-with-agent (resolvable) and
+        # otel-role-test-session-no-transcript-at-all (no matching file in
+        # TRANSCRIPTS_DIR at all).
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        result = ingest("role_resolver_two_sessions.json", out_path, transcripts_dir=self.TRANSCRIPTS_DIR)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = read_jsonl(out_path)
+        roles = {l["role"] for l in lines}
+        self.assertEqual(roles, {"qa-engineer", "subagent-unattributed"}, f"got {roles}")
+        self.assertNotIn("team-lead", roles, "a session with no matching transcript file at all must never quietly fall to team-lead")
+
+    def test_a_transcript_that_exists_with_no_agent_name_resolves_to_team_lead(self):
+        # session-without-agentname.jsonl exists but carries no agentName
+        # key at all -- amendment B step 4: file exists, no agentName in
+        # the first 50 records -> team-lead (distinct from "no transcript
+        # file at all" -> subagent-unattributed).
+        out_dir = helpers.make_empty_tmp_dir(self)
+        out_path = out_dir / "token-usage.jsonl"
+        result = ingest("role_resolver_lead_session.json", out_path, transcripts_dir=self.TRANSCRIPTS_DIR)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        roles = {l["role"] for l in read_jsonl(out_path)}
+        self.assertEqual(roles, {"team-lead"}, roles)
 
 
 if __name__ == "__main__":
