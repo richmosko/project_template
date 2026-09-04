@@ -2277,53 +2277,30 @@ def milestone_windows(repo_root: Path) -> List[Tuple[str, str]]:
     ISO8601 grammar, or an offset would sort as if later than it truly
     is).
 
-    `-M100%` on the `--follow` call (found empirically, not in the
-    original ruling text): plain `--follow --diff-filter=A` uses git's
-    default ~50% similarity threshold for its own internal rename
-    detection, which is content-based, not identity-based -- two
-    DIFFERENT milestone files that both come from the same template
-    (differing only in `id`/`name`, e.g. `PT-0.5.md` and `PT-0.10.md`)
-    are similar enough that `--follow` jumps PT-0.10's history back
-    onto PT-0.5's origin commit even though PT-0.5.md is never deleted
-    and the two coexist the whole time (confirmed: `git log --follow
-    --stat` renders the add commit as `{PT-0.5.md => PT-0.10.md} | 4
-    ++--`, a false rename, not the true 11-line pure addition
-    `--no-renames` shows). `-M100%` restricts `--follow`'s own rename
-    detection to byte-IDENTICAL content, which is exactly what a real
-    `git mv` into `archive/milestones/` is (content unchanged, path
-    only) -- confirmed both cases empirically: the false-similarity
-    PT-0.5/PT-0.10 pair now resolves to PT-0.10's own true creation
-    commit, and a byte-identical archive-move still resolves back to
-    the original creation commit through the rename, unaffected.
-
     Cost, measured (addendum c0affa5): 0.23 s for all 14 real milestones
     (~16 ms each), linear in milestone count. Built ONCE per flush (the
     receiver) or once per run (the backfill), never per datapoint or per
     record, and never on the hook path (`--ensure-running` never calls
     this). If milestone count ever makes this matter, the fix is caching
-    keyed on the two directories' mtimes.
+    keyed on the two directories' mtimes -- not a hand-rolled rename-chain
+    parser; the per-file `--follow` is the correct derivation and should
+    stay the one that runs (confirmed against the real repo: plain
+    `--follow --diff-filter=A` reproduces all 14 milestones' true,
+    distinct creation timestamps with no collapsing -- an earlier
+    `-M100%` variant of this function broke that, misread at the time as
+    a defect in the ruling's own invocation rather than in that edit;
+    withdrawn once the architect's own independent run of the literal
+    ruling text failed to reproduce it).
 
-    UNRESOLVED as of this writing, flagged to the architect rather than
-    guessed past (see the SendMessage sent alongside this commit):
-    plain `--follow --diff-filter=A` uses git's default content-
-    similarity rename detection (~50%), which cannot tell apart two
-    DIFFERENT template-derived milestone files (e.g. `PT-0.5.md` /
-    `PT-0.10.md`, differing only in `id`/`name` -- a small diff) from a
-    genuine same-file rename-plus-content-fix commit (e.g. correcting
-    `id: "0.3"` to `id: PT-0.3` in the same commit as the `archive/`
-    move -- also a small diff). Both are measured to produce a similar-
-    sized line delta, so no single `-M<n>%` threshold satisfies both
-    `test_windows_are_sorted_by_creation_time_not_by_id_string`
-    (needs a HIGH threshold, or unrelated files falsely merge) and
-    `test_id_comes_from_current_content_not_the_creation_commits_content`
-    (needs a LOW threshold, or the true rename-plus-edit chain breaks).
-    `_find_creation_timestamp` below replaces content-similarity
-    rename detection with an explicit, per-commit name-status walk
-    (bridge to the deleted path ONLY when a commit's diff, scoped to
-    both milestone directories, deletes EXACTLY one other file) --
-    passes all 17 of qa's tests including both traps above, but is a
-    real deviation from the ruling's literal `--follow` invocation and
-    needs the architect's confirmation before being treated as final.
+    A synthetic-fixture-only edge remains open, not an engine defect:
+    two DIFFERENT milestone files sharing the exact same template body
+    (differing only in `id`/`name`) are similar enough for `--follow`'s
+    default content-similarity rename detection to jump one's history
+    onto the other's -- reproducible in a throwaway repo, never observed
+    against a real milestone file (whose `name`/definition-of-done prose
+    differs substantially). Per the architect's ruling: fix the fixture
+    to look like the real artifact, not the engine to tolerate an
+    unrepresentative one.
 
     Returns `[(start_iso, milestone_id), ...]` sorted ASCENDING by start
     -- creation-timestamp order, never id string-compare (§6: `PT-0.10`
@@ -2336,6 +2313,8 @@ def milestone_windows(repo_root: Path) -> List[Tuple[str, str]]:
     "everything stays `main`", the same fail-safe direction this
     project's gating rulings consistently take.
     """
+    import subprocess
+
     windows: List[Tuple[str, str]] = []
     for rel in _MILESTONE_REL_PATHS:
         milestone_dir = repo_root / rel
@@ -2351,137 +2330,27 @@ def milestone_windows(repo_root: Path) -> List[Tuple[str, str]]:
             if not milestone_id:
                 continue
             rel_path = path.relative_to(repo_root).as_posix()
-            start_iso = _find_creation_timestamp(repo_root, rel_path)
+            try:
+                log = subprocess.run(
+                    ["git", "-C", str(repo_root), "log", "--follow", "--diff-filter=A",
+                     "--format=%aI", "--", rel_path],
+                    capture_output=True, text=True, timeout=10,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if log.returncode != 0:
+                continue
+            lines = [l for l in log.stdout.splitlines() if l.strip()]
+            if not lines:
+                continue
+            git_iso = lines[-1]  # git log is newest-first; the origin commit is the last line
+            start_iso = _git_iso_to_utc_z(git_iso)
             if start_iso is None:
                 continue
             windows.append((start_iso, str(milestone_id)))
 
     windows.sort(key=lambda w: w[0])
     return windows
-
-
-def _find_creation_timestamp(repo_root: Path, rel_path: str) -> Optional[str]:
-    """Walks `rel_path` back to its TRUE origin `--diff-filter=A` commit,
-    bridging renames via an explicit per-commit name-status diff instead
-    of git's own content-similarity `--follow` heuristic (see
-    `milestone_windows`'s docstring for why: similarity alone can't tell
-    a genuine rename-plus-edit from two unrelated template-derived
-    files). At each hop: find the OLDEST commit that added the current
-    path (bare `--diff-filter=A`, no `--follow`); if that same commit's
-    diff -- scoped to both milestone directories -- ALSO deletes exactly
-    one other path, treat that deletion as the same logical file's prior
-    name and keep walking from there; any other shape (zero or multiple
-    deletions, a root commit, a git failure) stops the walk and returns
-    that commit's own timestamp as the origin.
-    """
-    import subprocess
-
-    current_path = rel_path
-    seen: Set[str] = set()
-    while current_path not in seen:
-        seen.add(current_path)
-        try:
-            log = subprocess.run(
-                ["git", "-C", str(repo_root), "log", "--diff-filter=A",
-                 "--format=%H%x00%aI", "--", current_path],
-                capture_output=True, text=True, timeout=10,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-        if log.returncode != 0:
-            return None
-        lines = [l for l in log.stdout.splitlines() if l.strip()]
-        if not lines:
-            return None
-        commit_sha, add_ts = lines[-1].split("\0")  # newest-first; oldest add is last
-
-        try:
-            parents = subprocess.run(
-                ["git", "-C", str(repo_root), "rev-list", "--parents", "-n", "1", commit_sha],
-                capture_output=True, text=True, timeout=10,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return _git_iso_to_utc_z(add_ts)
-        parts = parents.stdout.split()
-        if len(parts) < 2:
-            return _git_iso_to_utc_z(add_ts)  # root commit, nothing to bridge to
-        parent_sha = parts[1]
-
-        try:
-            diff = subprocess.run(
-                ["git", "-C", str(repo_root), "diff", "--no-renames", "--diff-filter=D",
-                 "--name-only", parent_sha, commit_sha, "--", *_MILESTONE_REL_PATHS],
-                capture_output=True, text=True, timeout=10,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return _git_iso_to_utc_z(add_ts)
-        deleted = [l for l in diff.stdout.splitlines() if l.strip() and l.strip() != current_path]
-        if not deleted:
-            return _git_iso_to_utc_z(add_ts)
-        if len(deleted) == 1:
-            current_path = deleted[0]
-            continue
-        # Multiple simultaneous deletions (the real shape: a bulk
-        # "archive N done milestones" commit renames several files at
-        # once) -- a bare count can't disambiguate which prior path is
-        # THIS file's own predecessor, so pair by content similarity
-        # within this one commit only (never across separate commits,
-        # which is exactly the false-positive two unrelated templated
-        # files trap this function exists to avoid).
-        bridge = _best_rename_match(repo_root, commit_sha, parent_sha, current_path, deleted)
-        if bridge is None:
-            return _git_iso_to_utc_z(add_ts)
-        current_path = bridge
-
-    return None  # defensive: a path cycle, should be unreachable
-
-
-_RENAME_SIMILARITY_THRESHOLD = 0.5
-
-
-def _best_rename_match(
-    repo_root: Path, commit_sha: str, parent_sha: str, current_path: str, candidates: List[str]
-) -> Optional[str]:
-    """Among several files simultaneously deleted alongside `current_path`'s
-    own add in `commit_sha`, picks whichever candidate's PRE-deletion
-    content (blob at `parent_sha`) is most similar to `current_path`'s
-    OWN content at `commit_sha` -- git's own rename heuristic, replicated
-    by hand but scoped to one commit's candidates only, never compared
-    across separate commits. Below `_RENAME_SIMILARITY_THRESHOLD`
-    (matching git's own ~50% default), returns `None` -- no candidate is
-    treated as a match rather than guessing the closest of a bad set.
-    """
-    import difflib
-    import subprocess
-
-    def _blob(rev: str, path: str) -> Optional[str]:
-        try:
-            result = subprocess.run(
-                ["git", "-C", str(repo_root), "show", f"{rev}:{path}"],
-                capture_output=True, text=True, timeout=10,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-        return result.stdout if result.returncode == 0 else None
-
-    current_blob = _blob(commit_sha, current_path)
-    if current_blob is None:
-        return None
-
-    best_path: Optional[str] = None
-    best_score = 0.0
-    for candidate in candidates:
-        old_blob = _blob(parent_sha, candidate)
-        if old_blob is None:
-            continue
-        score = difflib.SequenceMatcher(None, current_blob, old_blob).ratio()
-        if score > best_score:
-            best_score = score
-            best_path = candidate
-
-    if best_path is not None and best_score >= _RENAME_SIMILARITY_THRESHOLD:
-        return best_path
-    return None
 
 
 def _git_iso_to_utc_z(git_iso: str) -> Optional[str]:
