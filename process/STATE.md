@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | cairn.load_config silently returns defaults for a missing data dir or config.yml |
+| Issue | PT-80 |
+| Milestone | PT-0.11 (token accounting) |
+| Branch | `feature/pt-80-load-config-raises` |
+| Started | 2026-09-04 |
+| Goal | The config loader raises a named error for a missing data dir or config.yml; every CLI entry point exits 1 instead of silently using defaults. |
+| Status | In Progress |
 
 ## Releases
 
