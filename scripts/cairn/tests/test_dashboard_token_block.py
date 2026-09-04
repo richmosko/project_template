@@ -127,15 +127,16 @@ class TokensModeSeriesTests(unittest.TestCase):
         source = _read_token_cost_chart()
         self.assertIn("cost_usd", source, "cost-mode toggle renders a single cost_usd series per role")
 
-    def test_the_four_counter_series_use_four_distinct_colors_not_adjacent_ordinal_ramp_steps(self):
-        # team-lead's browser-verified delta on 3aa09e8: the four counter
-        # series were visually indistinguishable because the placeholder
-        # colors were four ADJACENT steps of PT-61's --chart-flow-*
-        # ordinal ramp -- a deliberately near-identical, monotone-
-        # lightness single-hue sequence, wrong for a categorical
-        # distinction between token types. Pins two things: the four
-        # values must be pairwise distinct, and none may come from the
-        # ordinal --chart-flow-* ramp specifically (the root cause).
+    def test_the_four_counter_series_use_the_dedicated_chart_counter_palette(self):
+        # ux-designer's ruling at f9c6417, superseding the interim fix:
+        # role-hue reuse for the tokens-view counter series is ALSO
+        # rejected (the same PT-69 --chart-2/badge-collision shape --
+        # --chart-role-1 must not mean "team-lead" in cost view and
+        # "input" in tokens view of the SAME block). A dedicated 4-token
+        # family (--chart-counter-input/cache-write/cache-read/output)
+        # ships instead. Pins: exactly these 4 tokens, in the ruled
+        # counter->token mapping, and NEITHER the ordinal --chart-flow-*
+        # ramp NOR the categorical --chart-role-* palette reused.
         source = _read_token_cost_chart()
         match = re.search(r"TOKEN_TYPE_COLOR[^{]*\{([^}]*)\}", source, re.DOTALL)
         self.assertIsNotNone(match, "no TOKEN_TYPE_COLOR (or equivalently-named) color map found for input/cache_write/cache_read/output")
@@ -143,11 +144,11 @@ class TokensModeSeriesTests(unittest.TestCase):
         var_refs = re.findall(r"var\((--[\w-]+)\)", block)
         self.assertEqual(len(var_refs), 4, f"expected exactly 4 color values (one per counter), found {len(var_refs)}: {var_refs}")
         self.assertEqual(len(set(var_refs)), 4, f"the four counter-series colors must be pairwise distinct, got {var_refs}")
-        flow_ramp_reuse = [v for v in var_refs if v.startswith("--chart-flow-")]
+        expected = {"--chart-counter-input", "--chart-counter-cache-write", "--chart-counter-cache-read", "--chart-counter-output"}
         self.assertEqual(
-            flow_ramp_reuse, [],
-            f"counter-series colors must not be drawn from the ordinal --chart-flow-* ramp "
-            f"(adjacent steps read as one indistinguishable swatch) -- got {flow_ramp_reuse}",
+            set(var_refs), expected,
+            f"counter series must use the dedicated --chart-counter-* family (f9c6417), not "
+            f"the ordinal --chart-flow-* ramp or the categorical --chart-role-* palette -- got {var_refs}",
         )
 
 

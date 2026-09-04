@@ -542,22 +542,30 @@ class OutFileResolvesFromRepoRootTests(unittest.TestCase):
     misattribute or error instead of landing on PT-95."""
 
     def test_prefix_and_branch_resolution_do_not_depend_on_cwd(self):
+        # Architect's observation (review of 3aa09e8, 4f7fafc): the
+        # original version of this test asserted the resolved issue set
+        # was not {"main"} while relying on THIS SHARED CHECKOUT's own
+        # live branch to produce something else -- correct only because
+        # the checkout happens to be on a real feature branch. In any
+        # detached checkout (a worktree, a CI sha checkout, `git
+        # bisect`), HEAD has no branch at all and this failed for the
+        # WRONG reason (a real "detached HEAD -> main" behavior, not a
+        # cwd-dependence bug). Fixed by pinning --repo-root to a
+        # throwaway repo on a KNOWN branch, same technique
+        # BranchAttributionTests already uses -- independent of wherever
+        # this suite happens to run.
+        repo = make_repo_on_branch(self, "feature/pt-95-otel-thing")
         outside_cwd = helpers.make_empty_tmp_dir(self)
         out_dir = helpers.make_empty_tmp_dir(self)
         out_path = out_dir / "token-usage.jsonl"
         result = run_receiver(
-            ["--ingest", str(FIXTURES / "no_cairn_issue.json"), "--out-file", str(out_path)],
+            ["--ingest", str(FIXTURES / "no_cairn_issue.json"), "--out-file", str(out_path), "--repo-root", str(repo)],
             cwd=outside_cwd,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(out_path.is_file(), "a run from outside the repo must still write real output")
         issues = {l["issue"] for l in read_jsonl(out_path)}
-        # This repo's real branch is whatever the shared checkout is
-        # currently on (feature/pt-78-otel-receiver at time of writing) --
-        # assert only that SOME real PT-NN issue was resolved, not "main",
-        # since main would be the silent-collapse failure mode.
-        self.assertTrue(issues, issues)
-        self.assertNotEqual(issues, {"main"}, f"cwd outside the repo must not collapse attribution to main -- got {issues}")
+        self.assertEqual(issues, {"PT-95"}, f"cwd outside the repo (with an explicit --repo-root on a known feature branch) must resolve PT-95, not collapse to main -- got {issues}")
 
 
 class OnceIntegrationTests(unittest.TestCase):

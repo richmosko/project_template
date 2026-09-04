@@ -246,6 +246,21 @@ class TokensCostTests(unittest.TestCase):
         self.assertEqual(entry["total"]["input"], 100, "tokens must still render with no price table at all")
         self.assertIsNone(entry["total"]["cost_usd"])
 
+    def test_no_price_table_at_all_produces_a_top_level_warning(self):
+        # Architect's review of 3aa09e8 (4f7fafc) found a missing
+        # prices.json yields cost_usd: null everywhere plus every model
+        # in unpriced_models, but warning: null -- and recommended
+        # amending the RULING rather than the code, since
+        # unpriced_models + the caption already name every affected
+        # model. Team-lead's call: honour the original ruling literally
+        # (a missing price table yields a top-level warning) rather than
+        # adopt the architect's amendment recommendation. Pinned here.
+        data_dir = make_tokens_data_dir(self, [
+            token_line("PT-1", "team-lead", "claude-sonnet-5", input=100),
+        ])
+        payload = _call_build_tokens_payload(data_dir, prices=EMPTY_PRICES)
+        self.assertTrue(payload["warning"], f"a missing/empty price table must produce a non-empty top-level warning, got {payload['warning']!r}")
+
 
 class TokensWindowAndSourcesTests(unittest.TestCase):
     def test_window_and_sources_come_from_the_data_not_hardcoded(self):

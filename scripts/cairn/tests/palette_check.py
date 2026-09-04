@@ -38,6 +38,20 @@ CONTRAST_FLOOR = 2.0
 MIN_PAIRWISE_DELTA_E = 0.06
 ROLE_TOKEN_COUNT = 8
 
+# qa-engineer addition (2026-09-04, team-lead's instruction): the
+# dedicated counter-type palette (ux-designer, f9c6417) -- an ORDERED
+# 4-step family (--chart-counter-input/cache-write/cache-read/output),
+# not an unordered categorical set like the 8 role hues. Its own
+# criterion is adjacent-step lightness separation, not pairwise OKLab
+# distance -- a "family" progression (matching --chart-flow-*'s own
+# shape) is legible as a group specifically because each step reads as
+# "next in the sequence", which a minimum-pairwise-distance check alone
+# doesn't guarantee (it would pass three clustered steps and one outlier
+# just as happily as four evenly-spaced ones).
+MIN_ADJACENT_DELTA_L = 0.06
+COUNTER_TOKEN_COUNT = 4
+COUNTER_TOKEN_ORDER = ["chart-counter-input", "chart-counter-cache-write", "chart-counter-cache-read", "chart-counter-output"]
+
 _OKLCH_RE = re.compile(
     r"--(?P<name>[a-z0-9-]+)\s*:\s*oklch\(\s*"
     r"(?P<l>[0-9.]+)\s+(?P<c>[0-9.]+)\s+(?P<h>[0-9.]+)\s*\)",
@@ -173,6 +187,47 @@ def check_role_palette(css_text: str) -> List[str]:
                     f"--{a} and --{b} are only dE_OK {d:.3f} apart "
                     f"-- below the {MIN_PAIRWISE_DELTA_E} categorical floor"
                 )
+    return failures
+
+
+def check_counter_palette(css_text: str) -> List[str]:
+    """The ordered 4-step --chart-counter-* family (qa-engineer addition,
+    team-lead's instruction, per ux-designer's f9c6417 ruling). Returns a
+    list of failure strings; empty means pass. Never raises for a colour
+    problem -- only for missing tokens/surfaces, matching
+    check_role_palette's own posture."""
+    failures: List[str] = []
+    tokens = {name: v for name, v, _ in parse_oklch_tokens(css_text)}
+    surfaces = card_surfaces(css_text)
+
+    missing = [n for n in COUNTER_TOKEN_ORDER if n not in tokens]
+    if missing:
+        failures.append(f"missing token(s): {missing}")
+        return failures
+
+    # 1. contrast against each mode's own real --card
+    for name in COUNTER_TOKEN_ORDER:
+        lin = oklch_to_linear_srgb(*tokens[name])
+        for mode, surface in surfaces.items():
+            ratio = contrast_ratio(lin, oklch_to_linear_srgb(*surface))
+            if ratio < CONTRAST_FLOOR:
+                failures.append(
+                    f"--{name} ({linear_to_hex(lin)}) is {ratio:.2f}:1 against the {mode} --card "
+                    f"-- below the {CONTRAST_FLOOR}:1 floor"
+                )
+
+    # 2. adjacent-step lightness separation, in COUNTER_TOKEN_ORDER --
+    # an ORDERED family, not an unordered categorical set: consecutive
+    # steps must be individually distinguishable, not just "some pair
+    # somewhere is far enough apart."
+    for i in range(len(COUNTER_TOKEN_ORDER) - 1):
+        a, b = COUNTER_TOKEN_ORDER[i], COUNTER_TOKEN_ORDER[i + 1]
+        delta_l = abs(tokens[b][0] - tokens[a][0])
+        if delta_l < MIN_ADJACENT_DELTA_L:
+            failures.append(
+                f"--{a} and --{b} (adjacent in the ordered family) are only dL "
+                f"{delta_l:.3f} apart -- below the {MIN_ADJACENT_DELTA_L} floor"
+            )
     return failures
 
 

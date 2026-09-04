@@ -35,6 +35,16 @@ it now has. This file's `RolePaletteTokenContractTests` class is
 therefore expected to stay red until implementation-lead applies
 ux-designer's proposed `:root`/`.dark` block -- correct, expected state,
 not a bug in this test.
+
+**Counter-type palette (f9c6417, team-lead's instruction):** a SEPARATE,
+ORDERED 4-step family (`--chart-counter-input/cache-write/cache-read/
+output`) for the tokens-view counter series -- role-hue reuse was
+rejected as a token-meaning collision (the same shape PT-69's
+`--chart-2`/badge fix already ruled against). Its own criterion is
+adjacent-step lightness separation (an ordered family, not an unordered
+categorical set), not pairwise OKLab distance -- implemented as
+`palette_check.check_counter_palette`, a qa-engineer addition to the
+architect's drop-in. Also red against `b9a9447` until pasted.
 """
 from __future__ import annotations
 
@@ -51,6 +61,13 @@ TOKEN_CHART_LOGIC_TS = REPO_ROOT / "scripts" / "cairn" / "dashboard" / "src" / "
 ROLE_TOKEN_NAMES = [f"chart-role-{i}" for i in range(1, 9)] + [
     "chart-role-guard-aux", "chart-role-guard-unattributed", "chart-role-other",
 ]
+
+# ux-designer's f9c6417 ruling: a dedicated, ORDERED 4-step counter-type
+# family, rejecting both the ordinal --chart-flow-* ramp reuse (illegible)
+# and the categorical --chart-role-* reuse (a token-meaning collision --
+# --chart-role-1 must not mean "team-lead" in cost view and "input" in
+# tokens view of the same block).
+COUNTER_TOKEN_NAMES = ["chart-counter-input", "chart-counter-cache-write", "chart-counter-cache-read", "chart-counter-output"]
 
 
 def _read_app_css() -> str:
@@ -82,6 +99,43 @@ class RolePaletteTokenContractTests(unittest.TestCase):
             f"chart-flow-{s}" for s in ("backlog", "todo", "in-progress", "in-review", "done", "cancelled")
         }
         self.assertEqual(role_tokens & forbidden, set(), "role tokens must not reuse ordinal/base ramp names")
+
+
+class CounterPaletteTokenContractTests(unittest.TestCase):
+    """Token NAMES and presence for the dedicated 4-step counter family
+    (ux-designer's f9c6417 ruling, qa-engineer's palette_check.py
+    extension per team-lead's instruction). Red against b9a9447 (and
+    still red until implementation-lead's second fix commit pastes
+    f9c6417's :root/.dark block into app.css)."""
+
+    def test_all_four_counter_tokens_are_parseable_from_app_css(self):
+        source = _read_app_css()
+        tokens = {name: v for name, v, _ in palette_check.parse_oklch_tokens(source)}
+        missing = [n for n in COUNTER_TOKEN_NAMES if n not in tokens]
+        self.assertEqual(
+            missing, [],
+            f"missing counter-palette tokens: {missing} -- ux-designer's proposal (f9c6417, "
+            f"design-system-spec.md 'Counter-type palette') is not yet pasted into app.css",
+        )
+
+    def test_counter_tokens_are_not_reused_from_the_role_or_flow_palettes(self):
+        source = _read_app_css()
+        tokens = {name for name, v, _ in palette_check.parse_oklch_tokens(source)}
+        counter_tokens = tokens & set(COUNTER_TOKEN_NAMES)
+        forbidden = set(ROLE_TOKEN_NAMES) | {f"chart-{i}" for i in range(1, 6)} | {
+            f"chart-flow-{s}" for s in ("backlog", "todo", "in-progress", "in-review", "done", "cancelled")
+        }
+        self.assertEqual(counter_tokens & forbidden, set(), "counter tokens must not reuse role/ordinal/base ramp names")
+
+
+class CounterPaletteValidationTests(unittest.TestCase):
+    """Re-runs palette_check.check_counter_palette against whatever
+    counter tokens actually sit in app.css. Never skips."""
+
+    def test_counter_palette_passes_contrast_and_adjacent_step_separation(self):
+        source = _read_app_css()
+        failures = palette_check.check_counter_palette(source)
+        self.assertEqual(failures, [], "counter palette check failed:\n" + "\n".join(failures))
 
 
 class RoleTokenOrderExportTests(unittest.TestCase):
@@ -157,6 +211,25 @@ class PaletteCheckModuleSelfTests(unittest.TestCase):
         css = f":root {{ --card: oklch(1 0 0); {tokens} {guards} }}\n.dark {{ --card: oklch(0.2 0 0); {tokens} {guards} }}\n"
         failures = palette_check.check_role_palette(css)
         self.assertTrue(any("dE_OK" in f or "categorical" in f for f in failures), f"expected a categorical-separation failure, got: {failures}")
+
+    def test_module_fails_two_adjacent_counter_steps_with_too_little_lightness_separation(self):
+        # Mirrors the role-collapse self-test above, for the ordered
+        # counter family's own criterion (adjacent dL, not pairwise dE).
+        tokens = (
+            "--chart-counter-input: oklch(0.500 0.06 205);"
+            "--chart-counter-cache-write: oklch(0.505 0.06 205);"  # only 0.005 dL from input -- below the 0.06 floor
+            "--chart-counter-cache-read: oklch(0.650 0.06 205);"
+            "--chart-counter-output: oklch(0.720 0.06 205);"
+        )
+        css = f":root {{ --card: oklch(1 0 0); {tokens} }}\n.dark {{ --card: oklch(0.2 0 0); {tokens} }}\n"
+        failures = palette_check.check_counter_palette(css)
+        self.assertTrue(any("dL" in f for f in failures), f"expected an adjacent-lightness-separation failure, got: {failures}")
+
+    def test_module_reports_a_missing_counter_token_by_name_not_silently(self):
+        css = ":root { --card: oklch(1 0 0); }\n.dark { --card: oklch(0.2 0 0); }\n"
+        failures = palette_check.check_counter_palette(css)
+        self.assertTrue(failures, "an empty CSS (no counter tokens at all) must fail loudly, not pass silently")
+        self.assertIn("missing token", failures[0])
 
 
 if __name__ == "__main__":
