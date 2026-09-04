@@ -208,9 +208,36 @@ CLOSING_MARKER_NAME = ".closing"
 # started before this change (no SIGUSR2 handler at all -- an unhandled
 # SIGUSR2 terminates a Python process outright) is never signalled.
 NUDGE_CAPABLE_MARKER_NAME = ".nudge-capable"
+# `--status` (StatusFourStateTests) must label a `dead`/`dead-pending`
+# entry using the SAME transcripts_dir the actual running daemon
+# resolved at spawn time -- which can differ from whatever this SEPARATE
+# CLI invocation would resolve on its own (its own `--transcripts-dir`
+# default, or a test's deliberate override that was only ever passed on
+# the ORIGINAL --ensure-running call, not on this one). Same pattern as
+# NUDGE_CAPABLE_MARKER_NAME: written once at daemon startup, inside
+# `_sessions_dir`, read back by whoever needs the daemon's own answer.
+TRANSCRIPTS_DIR_MARKER_NAME = ".transcripts-dir"
 DEFAULT_GRACE_PERIOD_SECONDS = 10.0  # addendum §D: default 10s
 WATCHDOG_TICK_SECONDS = 0.2  # addendum §4: "ticks <= 0.25 s"
 TRANSCRIPT_STALE_SECONDS = 30 * 60  # addendum C: the probe's second signal
+# Team-lead's ruling (PT-86, 138c03c: "the slow periodic reap sweep in
+# 12afe1d stays"), architect-reviewed at 0d9f0b5 (verified by
+# construction: exits at one sweep interval, not indefinitely, once
+# every registered session has crashed). The nudge-gated reap and the
+# flush-triggered reap both go silent when EVERY registered session has
+# crashed (no `end` event ever arrives to nudge, no export ever arrives
+# to trigger a flush) -- this THIRD, time-based trigger, independent of
+# both, is what makes that case genuinely bounded instead of pinned
+# until an unrelated future session's own SessionEnd happens to reap it.
+# Deliberately much slower than WATCHDOG_TICK_SECONDS (reaping every
+# tick regardless of a nudge was tried and rejected -- see
+# `_watchdog_loop`'s docstring -- it broke the "not yet reaped" window
+# LivenessReapTests relies on) and much slower than
+# TRANSCRIPT_STALE_SECONDS itself (no entry can become reap-eligible
+# faster than that anyway). Configurable via `--periodic-reap-seconds`,
+# same shape as `--grace-period-seconds`, so tests can shrink it to
+# sub-second without a real multi-minute wait.
+DEFAULT_PERIODIC_REAP_SECONDS = 5 * 60
 # Addendum: the allow-list, verbatim -- every OTLP attribute NOT one of
 # these five is dropped before it reaches memory beyond the series key.
 _ATTR_ALLOW_LIST = ("agent.name", "model", "query_source", "cairn.issue", "type")
@@ -859,7 +886,8 @@ def _nudge_daemon(pidfile: Path, kill=os.kill) -> None:
     crashed SIBLING session (see `serve`'s watchdog docstring, and
     architect review Delta 1) -- a missed nudge never delays the stop for
     a clean exit (the registry file is already gone either way), but does
-    skip that reap until the next `end` event or flush.
+    skip that reap until the next `end` event, flush, or the slow
+    periodic sweep (`--periodic-reap-seconds`) picks it up regardless.
 
     Architect review, Delta 6: gated on a capability marker
     (`NUDGE_CAPABLE_MARKER_NAME`, written by `serve` at startup, inside
@@ -1122,6 +1150,7 @@ def ensure_running(
     grace_period_seconds: float = DEFAULT_GRACE_PERIOD_SECONDS,
     session_id: Optional[str] = None, session_pid: Optional[int] = None,
     transcripts_dir: Optional[Path] = None,
+    periodic_reap_seconds: float = DEFAULT_PERIODIC_REAP_SECONDS,
 ) -> bool:
     """Single instance enforced by pidfile + a listen probe; a second
     start is a no-op, never an error. Returns True if a (new or
@@ -1247,6 +1276,7 @@ def ensure_running(
         "--out-file", str(repo_root / backfill_tokens.DEFAULT_OUT_REL),
         "--pidfile", str(pidfile), "--port", str(port),
         "--grace-period-seconds", str(grace_period_seconds),
+        "--periodic-reap-seconds", str(periodic_reap_seconds),
     ]
     if transcripts_dir is not None:
         spawn_argv += ["--transcripts-dir", str(transcripts_dir)]
@@ -1293,29 +1323,48 @@ def _status(pidfile: Path, port: int, out_path: Path, sessions_dir: Path, transc
     dead-but-not-yet-reaped id is reported honestly as "dead" rather than
     silently omitted; only `--session-ended` and a flush actually reap.
 
-    The `dead` label uses the SAME two-signal check (addendum C) the
-    actual reap decision uses, not the raw pid probe alone (architect
-    review, Delta 3 nit): a dead pid protected by a fresh transcript is
-    reap-INeligible for up to 30 minutes, and an operator reading `dead`
-    reasonably expects the entry to disappear soon -- reporting `alive`
-    for that case is less literally true of the pid, but matches what
-    will actually happen next, which is what `--status` is for.
+    Four states, not three (architect review Delta 3, then Follow-up 4
+    at the re-review, 0d9f0b5 -- team-lead's final call): `alive` (pid
+    probe says alive), `dead` (BOTH signals agree -- reap-eligible right
+    now), `dead-pending` (pid probe says dead, but the transcript is
+    still fresh -- protected from reaping for up to 30 minutes; this is
+    the "why won't the receiver stop" diagnostic case an operator would
+    otherwise have to infer from `alive`, which would hide it), and
+    `unknown` (no pid ever captured -- never reaped, addendum C).
+
+    The `dead`/`dead-pending` distinction reads `TRANSCRIPTS_DIR_MARKER_NAME`,
+    written by the ACTUAL running daemon at its own startup, in
+    preference to the `transcripts_dir` this (separate) invocation
+    resolved on its own -- the two can legitimately differ (a test's
+    `--transcripts-dir` override only ever accompanies the ORIGINAL
+    `--ensure-running` spawn, not a later `--status` call) and only the
+    daemon's own answer is correct. Falls back to the passed-in
+    `transcripts_dir` when the marker is absent (no daemon has ever
+    written one -- an old daemon, or one that hasn't started yet).
     """
     pid = _read_pidfile(pidfile)
     running = pid is not None and _pid_is_alive(pid) and _port_is_listening(port)
     print(f"running: {running}")
     print(f"port: {port}")
     print(f"out-file: {out_path}")
+    try:
+        marker_text = (sessions_dir / TRANSCRIPTS_DIR_MARKER_NAME).read_text(encoding="utf-8").strip()
+        if marker_text:
+            transcripts_dir = Path(marker_text)
+    except OSError:
+        pass
     ids = live_session_ids(sessions_dir)
     print(f"sessions: {len(ids)}")
     for session_id in sorted(ids):
         entry_pid = ids[session_id]
         if entry_pid is None:
             state = "unknown"  # addendum C/§7: no pid ever captured
-        elif _is_session_dead(entry_pid, session_id, transcripts_dir):
-            state = "dead"
-        else:
+        elif _pid_is_alive(entry_pid):
             state = "alive"
+        elif _transcript_is_stale(session_id, transcripts_dir):
+            state = "dead"  # both signals agree -- reap-eligible now
+        else:
+            state = "dead-pending"  # pid gone, transcript still fresh -- not yet reap-eligible
         print(f"session {session_id}: {state}")
     return 0 if running else 1
 
@@ -1416,6 +1465,7 @@ def serve(
     port: int, out_path: Path, pidfile: Path, flush_interval: int,
     branch_repo_root: Path, prefix: str, roster: Set[str], transcripts_dir: Path,
     sessions_dir: Optional[Path] = None, grace_period_seconds: float = DEFAULT_GRACE_PERIOD_SECONDS,
+    periodic_reap_seconds: float = DEFAULT_PERIODIC_REAP_SECONDS,
 ) -> None:
     state = ReceiverState()
     sessions_dir = sessions_dir if sessions_dir is not None else _sessions_dir(pidfile)
@@ -1438,6 +1488,11 @@ def serve(
     # actually listening on the other end is new enough to survive it.
     sessions_dir.mkdir(parents=True, exist_ok=True)
     (sessions_dir / NUDGE_CAPABLE_MARKER_NAME).write_text("", encoding="utf-8")
+    # So a LATER, separate `--status` invocation can label a `dead`/
+    # `dead-pending` entry using the transcripts_dir THIS daemon actually
+    # resolved, not whatever that separate CLI call would resolve on its
+    # own -- see TRANSCRIPTS_DIR_MARKER_NAME's own comment.
+    (sessions_dir / TRANSCRIPTS_DIR_MARKER_NAME).write_text(str(transcripts_dir), encoding="utf-8")
 
     def _do_flush() -> None:
         branch = _current_branch(branch_repo_root)
@@ -1537,6 +1592,7 @@ def serve(
     def _watchdog_loop() -> None:
         shutdown_deadline: Optional[float] = None
         ever_nonempty = bool(live_session_ids(sessions_dir))
+        last_periodic_reap = time.monotonic()
         while True:
             nudged = wake_event.wait(WATCHDOG_TICK_SECONDS)
             wake_event.clear()
@@ -1558,16 +1614,27 @@ def serve(
             # flush, and once more immediately before the point of no
             # return -- are unconditional, below and in `_do_flush`.
             #
-            # Architect review, Delta 1 (team-lead's call, PT-86): when
-            # EVERY registered session has crashed, neither trigger ever
-            # fires, so a fully-crashed registry pins the receiver until
-            # some UNRELATED future session's own SessionEnd happens to
-            # reap it -- one session-lifecycle, not forever. §0: a pin
-            # costs only an idle localhost process, so this is accepted
-            # as documented behaviour (TRACKER → Ongoing collection)
-            # rather than fixed with a fourth reap trigger.
-            if nudged:
+            # Team-lead's ruling (PT-86, 138c03c, architect re-reviewed
+            # at 0d9f0b5): when EVERY registered session has crashed,
+            # neither the nudge nor a flush ever fires, so without a
+            # THIRD, time-based trigger a fully-crashed registry pins
+            # the receiver until some UNRELATED future session's own
+            # SessionEnd happens to reap it. `due_for_periodic_reap`
+            # below is that trigger -- deliberately far slower than
+            # WATCHDOG_TICK_SECONDS (reaping every tick regardless of a
+            # nudge was tried and rejected: it broke the "not yet
+            # reaped" window LivenessReapTests relies on) so it can
+            # never race that window in this suite's fast tests. It
+            # goes through the SAME two-signal `session_is_alive` check
+            # every other reap site uses -- a session that is merely
+            # idle (alive pid, or a fresh transcript) can never be
+            # removed by this or any other trigger, only one that is
+            # confirmed dead by both signals.
+            due_for_periodic_reap = (time.monotonic() - last_periodic_reap) >= periodic_reap_seconds
+            if nudged or due_for_periodic_reap:
                 reap_dead_sessions(sessions_dir, is_alive=session_is_alive)
+                if due_for_periodic_reap:
+                    last_periodic_reap = time.monotonic()
             if live_session_ids(sessions_dir):
                 ever_nonempty = True
                 shutdown_deadline = None
@@ -1688,6 +1755,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="deregister SESSION_ID (or --session-id, or the hook's stdin JSON) -- the SessionEnd hook's target",
     )
     parser.add_argument("--grace-period-seconds", "--grace", dest="grace_period_seconds", type=float, default=DEFAULT_GRACE_PERIOD_SECONDS)
+    parser.add_argument("--periodic-reap-seconds", type=float, default=DEFAULT_PERIODIC_REAP_SECONDS)
     args = parser.parse_args(argv)
 
     # `repo_root` anchors everything EXCEPT the branch read: prefix,
@@ -1725,6 +1793,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         ensure_running(
             repo_root, pidfile, port, grace_period_seconds=args.grace_period_seconds,
             session_id=session_id, session_pid=session_pid, transcripts_dir=transcripts_dir,
+            periodic_reap_seconds=args.periodic_reap_seconds,
         )
         # Deliberately NOT nudged: the watchdog's regular
         # WATCHDOG_TICK_SECONDS tick already re-checks emptiness every
@@ -1815,6 +1884,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     serve(
         port, out_path, pidfile, args.flush_interval, branch_repo_root, prefix, roster, transcripts_dir,
         sessions_dir=_sessions_dir(pidfile), grace_period_seconds=args.grace_period_seconds,
+        periodic_reap_seconds=args.periodic_reap_seconds,
     )
     return 0
 
