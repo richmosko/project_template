@@ -1,0 +1,1 @@
+{"type":"assistant","sessionId":"fake-mf2","timestamp":"2026-08-20T10:00:00Z","requestId":"req-mf2-bad","uuid":"uuid-mf2-bad","message":{"model":"claude-sonnet-5","usage":{"input_tokens":1,"cache_creation_input_tokens":1,"cache_read_input_tokens":1,"output_tokens":1}}}

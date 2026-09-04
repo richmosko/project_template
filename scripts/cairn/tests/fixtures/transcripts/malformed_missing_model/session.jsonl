@@ -1,0 +1,1 @@
+{"type":"assistant","sessionId":"fake-mf3","timestamp":"2026-08-20T10:00:00Z","gitBranch":"feature/pt-10-x","requestId":"req-mf3-bad","uuid":"uuid-mf3-bad","message":{"usage":{"input_tokens":1,"cache_creation_input_tokens":1,"cache_read_input_tokens":1,"output_tokens":1}}}

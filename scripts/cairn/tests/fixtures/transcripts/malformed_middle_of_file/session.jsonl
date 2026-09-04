@@ -1,0 +1,3 @@
+{"type":"assistant","sessionId":"fake-mf4","timestamp":"2026-08-20T10:00:00Z","gitBranch":"feature/pt-10-x","requestId":"req-mf4-ok","uuid":"uuid-mf4-ok","message":{"model":"claude-sonnet-5","usage":{"input_tokens":1,"cache_creation_input_tokens":1,"cache_read_input_tokens":1,"output_tokens":1}}}
+{"type":"assistant","sessionId":"fake-mf4","timestamp":"2026-08-20T10:01:00Z","gitBranch":"feature/pt-10-x","message":{"model":"claude-sonnet-5","usage":{"input_toke
+{"type":"assistant","sessionId":"fake-mf4","timestamp":"2026-08-20T10:02:00Z","gitBranch":"feature/pt-10-x","requestId":"req-mf4-ok2","uuid":"uuid-mf4-ok2","message":{"model":"claude-sonnet-5","usage":{"input_tokens":1,"cache_creation_input_tokens":1,"cache_read_input_tokens":1,"output_tokens":1}}}
