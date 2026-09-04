@@ -311,10 +311,23 @@ class OpenQueryParamAfterBoardLoadTests(unittest.TestCase):
 
     def test_open_param_handling_runs_inside_the_api_get_board_then_callback(self):
         source = self.BOARD_JS.read_text(encoding="utf-8")
-        callback_open = re.search(r"apiGetBoard\(\)\.then\(function \(data\) \{", source)
-        self.assertIsNotNone(callback_open, "expected apiGetBoard().then(function (data) { ... in board.js's init()")
-        callback_close = re.search(r"render\(\);\s*\}\);", source[callback_open.end():]) if callback_open else None
-        self.assertIsNotNone(callback_close, "expected the apiGetBoard().then() callback to close with 'render();\\n  });'")
+        # Team-lead's catch: board.js has TWO `apiGetBoard().then(function
+        # (data) { ... })` call sites -- refreshBoardSilently()'s (well
+        # before init()) and init()'s own (the one that matters here). An
+        # unscoped search grabbed the FIRST one in the file
+        # (refreshBoardSilently's), whose own nearest forward
+        # "render();\s*});" match landed on a completely unrelated
+        # filter-input handler that closes before init() even starts --
+        # producing a false red. Scoped the search to start AFTER
+        # `function init() {` specifically.
+        init_fn = re.search(r"function init\(\)\s*\{", source)
+        self.assertIsNotNone(init_fn, "expected a top-level function init() { ... in board.js")
+        rest = source[init_fn.end():] if init_fn else source
+        callback_open_in_rest = re.search(r"apiGetBoard\(\)\.then\(function \(data\) \{", rest)
+        self.assertIsNotNone(callback_open_in_rest, "expected apiGetBoard().then(function (data) { ... inside init()")
+        callback_open_end = init_fn.end() + callback_open_in_rest.end() if (init_fn and callback_open_in_rest) else None
+        callback_close = re.search(r"render\(\);\s*\}\);", source[callback_open_end:]) if callback_open_end is not None else None
+        self.assertIsNotNone(callback_close, "expected init()'s apiGetBoard().then() callback to close with 'render();\\n  });'")
         # Deliberately targets the CALL SITE only (openDrawer(openId)),
         # not `parseOpenIssueId(...)` -- board.js also has a destructuring
         # `var parseOpenIssueId = CairnLogic.parseOpenIssueId;` near the
@@ -327,8 +340,8 @@ class OpenQueryParamAfterBoardLoadTests(unittest.TestCase):
             open_handling,
             "expected an openDrawer(openId) call in board.js's init/load path",
         )
-        if callback_open and callback_close and open_handling:
-            callback_close_pos = callback_open.end() + callback_close.start()
+        if callback_open_end is not None and callback_close and open_handling:
+            callback_close_pos = callback_open_end + callback_close.start()
             self.assertLess(
                 open_handling.start(), callback_close_pos,
                 "the ?open= handling must run INSIDE apiGetBoard().then()'s callback (after "
