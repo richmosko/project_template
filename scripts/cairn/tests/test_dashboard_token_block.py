@@ -204,36 +204,139 @@ class MainBarNotClickableTests(unittest.TestCase):
         self.assertIn("main", source.lower(), "TokenCostChart.svelte never references 'main' -- ruling §4: 'main gets its own bar... no drawer link'")
 
     def test_main_bar_is_rendered_visually_muted_distinct_from_real_issue_bars(self):
-        # team-lead's browser-verified delta -- TWICE now. First pass on
-        # 3aa09e8: nothing varied main's appearance at all. Second pass
-        # on b934262: a `fillOpacity` ACCESSOR PROP was added
-        # (issue === 'main' ? 0.55 : 1) and this test's first version
-        # accepted it as sufficient -- but the real rendered <rect>
-        # still read opacity 1 in Chrome. layerchart's Bars component
-        # doesn't reliably wire an accessor PROP through to the actual
-        # SVG attribute the way passing it looks like it should (the
-        # same class of gap the click-handler delta hit earlier in this
-        # feature -- an invisible overlay/internal structure intercepting
-        # something a plain prop assumes reaches the DOM). Tightened per
-        # team-lead's explicit instruction: require evidence the value
-        # reaches an actual CLASS or ATTRIBUTE binding on the rendered
-        # markup (Svelte's `class:`/`style:` directives DO reliably
-        # reach the DOM, unlike a prop threaded through a third-party
-        # component's own internals) -- not just an accessor function
-        # that a library may or may not honor.
+        # team-lead's browser-verified delta -- multiple passes now.
+        # 3aa09e8: nothing varied main's appearance. b934262: a
+        # TOP-LEVEL `fillOpacity` prop on `<BarChart>` (issue === 'main'
+        # ? 0.55 : 1) -- looked right, didn't reach the rendered <rect>
+        # (this test's own second version wrongly accepted it, then
+        # required a class:/style: directive instead, based on an
+        # incomplete theory of why it failed). Third attempt (in
+        # progress as this test was written): implementation-lead traced
+        # layerchart's actual component tree
+        # (BarChart.base.svelte -> Bars.base.svelte -> Bar.svelte) and
+        # found `<BarChart>`'s top-level `fillOpacity` is NOT a real prop
+        # (silently absorbed into `restProps` and spread onto `<Chart>`,
+        # never reaching `<Bars>`/`<Bar>`) -- but `props.bars.fillOpacity`
+        # IS forwarded all the way to `<Bar>`, which explicitly supports
+        # a per-datum `fillOpacity` accessor via `resolveStyleProp`. A
+        # code-traced justification, not a guess -- this test now
+        # accepts EITHER that specific `props.bars`/`bars:` placement OR
+        # a class:/style: directive (the previous requirement), but no
+        # longer accepts a bare top-level `fillOpacity=` prop on
+        # `<BarChart>` itself (confirmed broken).
         source = _read_token_cost_chart()
         class_or_style_directive = re.search(
             r"(?:class|style):[\w-]+\s*=\s*\{[^}]*issue\s*===\s*['\"]main['\"][^}]*\}",
             source,
         )
-        self.assertIsNotNone(
-            class_or_style_directive,
-            "no Svelte class:/style: directive found keyed on issue === 'main' -- a "
-            "fillOpacity ACCESSOR PROP alone is not sufficient (verified in Chrome: it does "
-            "not reach the rendered <rect>, layerchart doesn't wire it through reliably); "
-            "the muting must reach the DOM via a class or style directive/attribute, not just "
-            "a prop passed into the chart library",
+        # Proximity check rather than brace-matched extraction (this
+        # file's comments themselves contain stray `{`/`}` that defeat a
+        # naive `bars\s*:\s*\{[^}]*\}` match): fillOpacity: must appear
+        # shortly AFTER a `bars:` key, referencing 'main', with nothing
+        # that looks like a sibling top-level prop key in between.
+        fill_opacity_prop = re.search(r"fillOpacity\s*:\s*\([^)]*\)\s*=>[^\n]*issue\s*===\s*['\"]main['\"]", source)
+        bars_key = re.search(r"\bbars\s*:\s*\{", source)
+        bars_scoped_fill_opacity = (
+            bool(fill_opacity_prop) and bool(bars_key)
+            and bars_key.start() < fill_opacity_prop.start() < bars_key.start() + 1500
         )
+        self.assertTrue(
+            bool(class_or_style_directive) or bars_scoped_fill_opacity,
+            "no evidence of main-muting reaching the actual rendered bar: expected either a "
+            "class:/style: directive OR fillOpacity nested specifically under bars: {...} / "
+            "props.bars (the layer layerchart's <Bar> component actually honors -- a bare "
+            "top-level fillOpacity= prop on <BarChart> is confirmed NOT to reach the DOM)",
+        )
+        top_level_fill_opacity = re.search(r"<BarChart[^>]*\bfillOpacity=", source)
+        self.assertIsNone(
+            top_level_fill_opacity,
+            "a bare fillOpacity= prop directly on <BarChart> is confirmed (Chrome, b934262) to "
+            "never reach the rendered <rect> -- it must live under bars:/props.bars instead",
+        )
+
+
+class BarClickNavigatesViaTheShellsIssueParamTests(unittest.TestCase):
+    """Root cause, team-lead's Chrome diagnosis: PT-79's bar click
+    navigates to `/dashboard/issues?open=<id>`, but the shell (App.svelte,
+    PT-72's ruling) only reads its OWN `?issue=<id>` param
+    (`issueTrackingOpenSuffix`, `new URLSearchParams(currentSearch).get(
+    'issue')`) and translates THAT into `&open=<id>` for the embedded
+    board iframe's own src. A bar click carrying `open=` instead of
+    `issue=` is invisible to the shell -- `issueTrackingOpenSuffix`
+    computes empty, the iframe gets a bare `/?embed=1`, and the embedded
+    board never even requests `/api/issue/<id>`. Not an archive-
+    resolution bug at all, per team-lead's diagnosis. Fix: the bar click
+    must use the SAME param name the shell already expects."""
+
+    def test_bar_click_navigates_with_the_shells_issue_param_not_open(self):
+        source = _read_token_cost_chart()
+        self.assertNotIn(
+            "dashboard/issues?open=", source,
+            "TokenCostChart.svelte must not navigate with ?open=<id> -- the shell "
+            "(App.svelte, PT-72) only reads its own ?issue=<id> param and this key is "
+            "invisible to it, which is the confirmed root cause of the drawer never opening",
+        )
+        self.assertRegex(
+            source, r"dashboard/issues\?issue=",
+            "expected navigation to /dashboard/issues?issue=<id> -- matching the shell's "
+            "existing issueTrackingOpenSuffix contract (PT-72), which already forwards "
+            "?issue= into the embedded board iframe's own ?open= suffix",
+        )
+
+
+class OpenQueryParamAfterBoardLoadTests(unittest.TestCase):
+    """Second half of team-lead's (C) fix instruction: "board.js reads
+    ?open= after the board payload loads and calls the existing
+    openDrawer path." Today (verified against the current source) the
+    `?open=` read + `openDrawer(openId)` call sit AFTER
+    `apiGetBoard().then(...)` in source order but OUTSIDE that
+    callback -- called synchronously at the end of `init()`, gated on
+    nothing. The existing comment even argues this is fine ("openDrawer
+    does its own fetch, so this doesn't need to wait on apiGetBoard's own
+    resolution") -- team-lead's instruction supersedes that reasoning.
+
+    Precisely anchored (a naive first-match-in-the-file search over a
+    file this size is unreliable -- board.js has TEN unrelated
+    `render();\n  });`-shaped closings; an early draft of this test
+    matched the wrong one entirely, in a different function, and passed
+    against the still-broken code as a false positive): locate
+    `apiGetBoard().then(function (data) {` specifically, then its OWN
+    matching `render();\n  });` close (the LAST statement inside that
+    callback per the current source, searched for AFTER the opening, not
+    from the start of the file) -- the open-handling code must sit
+    BEFORE that specific closing, i.e. nested inside the callback, not
+    after it."""
+
+    BOARD_JS = REPO_ROOT / "scripts" / "cairn" / "board" / "board.js"
+
+    def test_open_param_handling_runs_inside_the_api_get_board_then_callback(self):
+        source = self.BOARD_JS.read_text(encoding="utf-8")
+        callback_open = re.search(r"apiGetBoard\(\)\.then\(function \(data\) \{", source)
+        self.assertIsNotNone(callback_open, "expected apiGetBoard().then(function (data) { ... in board.js's init()")
+        callback_close = re.search(r"render\(\);\s*\}\);", source[callback_open.end():]) if callback_open else None
+        self.assertIsNotNone(callback_close, "expected the apiGetBoard().then() callback to close with 'render();\\n  });'")
+        # Deliberately targets the CALL SITE only (openDrawer(openId)),
+        # not `parseOpenIssueId(...)` -- board.js also has a destructuring
+        # `var parseOpenIssueId = CairnLogic.parseOpenIssueId;` near the
+        # TOP of the file (normal module-boundary pattern, same as every
+        # other CairnLogic.* import here), which an earlier draft of this
+        # test's regex matched instead of the real call site, producing a
+        # false green.
+        open_handling = re.search(r"openDrawer\(\s*openId\s*\)", source)
+        self.assertIsNotNone(
+            open_handling,
+            "expected an openDrawer(openId) call in board.js's init/load path",
+        )
+        if callback_open and callback_close and open_handling:
+            callback_close_pos = callback_open.end() + callback_close.start()
+            self.assertLess(
+                open_handling.start(), callback_close_pos,
+                "the ?open= handling must run INSIDE apiGetBoard().then()'s callback (after "
+                "state.board is set, before that callback closes), not after it returns -- "
+                "team-lead's explicit instruction, superseding this code's own prior comment "
+                "arguing the opposite ('openDrawer does its own fetch, so this doesn't need to "
+                "wait on apiGetBoard's own resolution')",
+            )
 
 
 class DrawerStableIdTests(unittest.TestCase):
