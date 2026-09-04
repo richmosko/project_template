@@ -286,6 +286,20 @@ def parse_export(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     for rm in payload["resourceMetrics"]:
         if not isinstance(rm, dict):
             continue
+        # Amendment A (25d7a42): one dict per datapoint = resource
+        # attributes overlaid by that datapoint's own attributes,
+        # DATAPOINT WINNING on conflict -- measured today Claude Code
+        # copies every resource attribute down onto each datapoint
+        # (cairn.issue included), so this is a no-op in practice, not a
+        # real conflict resolution. It matters for a silent-degradation
+        # path: if a future export ever stops duplicating `cairn.issue`
+        # onto datapoints, reading resource-level attributes here is what
+        # keeps the `main`-branch fallback from silently losing its hint.
+        # `_flatten_attrs` already applies `_ATTR_ALLOW_LIST`, so merging
+        # resource attrs in can never widen what gets persisted --
+        # resource-only host.arch/os.*/service.* are dropped at the same
+        # gate identity attributes already are.
+        resource_attrs = _flatten_attrs((rm.get("resource") or {}).get("attributes"))
         for sm in rm.get("scopeMetrics") or []:
             if not isinstance(sm, dict):
                 continue
@@ -295,14 +309,14 @@ def parse_export(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
                 for dp in ((metric.get("sum") or {}).get("dataPoints")) or []:
                     if not isinstance(dp, dict):
                         continue
-                    record = _parse_datapoint(dp)
+                    record = _parse_datapoint(dp, resource_attrs)
                     if record is not None:
                         datapoints.append(record)
     return datapoints
 
 
-def _parse_datapoint(dp: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    attrs = _flatten_attrs(dp.get("attributes"))
+def _parse_datapoint(dp: Dict[str, Any], resource_attrs: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Any]]:
+    attrs = {**(resource_attrs or {}), **_flatten_attrs(dp.get("attributes"))}
     counter_type = attrs.get("type")
     if counter_type not in _TYPE_TO_COUNTER:
         return None  # not one of the four measured values -- not our metric shape
