@@ -1,0 +1,252 @@
+{
+  "resourceMetrics": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "claude-code"
+            }
+          }
+        ]
+      },
+      "scopeMetrics": [
+        {
+          "scope": {
+            "name": "com.anthropic.claude_code",
+            "version": "1.0.0"
+          },
+          "metrics": [
+            {
+              "name": "claude_code.token.usage",
+              "sum": {
+                "dataPoints": [
+                  {
+                    "attributes": [
+                      {
+                        "key": "type",
+                        "value": {
+                          "stringValue": "input"
+                        }
+                      },
+                      {
+                        "key": "model",
+                        "value": {
+                          "stringValue": "claude-model-1"
+                        }
+                      },
+                      {
+                        "key": "query_source",
+                        "value": {
+                          "stringValue": "subagent"
+                        }
+                      },
+                      {
+                        "key": "session.id",
+                        "value": {
+                          "stringValue": "pt87-roster-setting-wins"
+                        }
+                      }
+                    ],
+                    "startTimeUnixNano": "1756742400000000000",
+                    "timeUnixNano": "1756742460000000000",
+                    "asInt": "1"
+                  },
+                  {
+                    "attributes": [
+                      {
+                        "key": "type",
+                        "value": {
+                          "stringValue": "input"
+                        }
+                      },
+                      {
+                        "key": "model",
+                        "value": {
+                          "stringValue": "claude-model-2"
+                        }
+                      },
+                      {
+                        "key": "query_source",
+                        "value": {
+                          "stringValue": "subagent"
+                        }
+                      },
+                      {
+                        "key": "session.id",
+                        "value": {
+                          "stringValue": "pt87-nonroster-setting-kept"
+                        }
+                      }
+                    ],
+                    "startTimeUnixNano": "1756742400000000000",
+                    "timeUnixNano": "1756742460000000000",
+                    "asInt": "1"
+                  },
+                  {
+                    "attributes": [
+                      {
+                        "key": "type",
+                        "value": {
+                          "stringValue": "input"
+                        }
+                      },
+                      {
+                        "key": "model",
+                        "value": {
+                          "stringValue": "claude-model-3"
+                        }
+                      },
+                      {
+                        "key": "query_source",
+                        "value": {
+                          "stringValue": "subagent"
+                        }
+                      },
+                      {
+                        "key": "session.id",
+                        "value": {
+                          "stringValue": "pt87-setting-no-agentname"
+                        }
+                      }
+                    ],
+                    "startTimeUnixNano": "1756742400000000000",
+                    "timeUnixNano": "1756742460000000000",
+                    "asInt": "1"
+                  },
+                  {
+                    "attributes": [
+                      {
+                        "key": "type",
+                        "value": {
+                          "stringValue": "input"
+                        }
+                      },
+                      {
+                        "key": "model",
+                        "value": {
+                          "stringValue": "claude-model-4"
+                        }
+                      },
+                      {
+                        "key": "query_source",
+                        "value": {
+                          "stringValue": "subagent"
+                        }
+                      },
+                      {
+                        "key": "session.id",
+                        "value": {
+                          "stringValue": "pt87-no-setting-roster-agentname"
+                        }
+                      }
+                    ],
+                    "startTimeUnixNano": "1756742400000000000",
+                    "timeUnixNano": "1756742460000000000",
+                    "asInt": "1"
+                  },
+                  {
+                    "attributes": [
+                      {
+                        "key": "type",
+                        "value": {
+                          "stringValue": "input"
+                        }
+                      },
+                      {
+                        "key": "model",
+                        "value": {
+                          "stringValue": "claude-model-5"
+                        }
+                      },
+                      {
+                        "key": "query_source",
+                        "value": {
+                          "stringValue": "subagent"
+                        }
+                      },
+                      {
+                        "key": "session.id",
+                        "value": {
+                          "stringValue": "pt87-no-setting-adhoc-agentname"
+                        }
+                      }
+                    ],
+                    "startTimeUnixNano": "1756742400000000000",
+                    "timeUnixNano": "1756742460000000000",
+                    "asInt": "1"
+                  },
+                  {
+                    "attributes": [
+                      {
+                        "key": "type",
+                        "value": {
+                          "stringValue": "input"
+                        }
+                      },
+                      {
+                        "key": "model",
+                        "value": {
+                          "stringValue": "claude-model-6"
+                        }
+                      },
+                      {
+                        "key": "query_source",
+                        "value": {
+                          "stringValue": "subagent"
+                        }
+                      },
+                      {
+                        "key": "session.id",
+                        "value": {
+                          "stringValue": "pt87-neither-field"
+                        }
+                      }
+                    ],
+                    "startTimeUnixNano": "1756742400000000000",
+                    "timeUnixNano": "1756742460000000000",
+                    "asInt": "1"
+                  },
+                  {
+                    "attributes": [
+                      {
+                        "key": "type",
+                        "value": {
+                          "stringValue": "input"
+                        }
+                      },
+                      {
+                        "key": "model",
+                        "value": {
+                          "stringValue": "claude-model-7"
+                        }
+                      },
+                      {
+                        "key": "query_source",
+                        "value": {
+                          "stringValue": "subagent"
+                        }
+                      },
+                      {
+                        "key": "session.id",
+                        "value": {
+                          "stringValue": "pt87-agentname-before-agentsetting"
+                        }
+                      }
+                    ],
+                    "startTimeUnixNano": "1756742400000000000",
+                    "timeUnixNano": "1756742460000000000",
+                    "asInt": "1"
+                  }
+                ],
+                "aggregationTemporality": 1,
+                "isMonotonic": true
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

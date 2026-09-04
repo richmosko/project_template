@@ -1,0 +1,2 @@
+{"type": "agent-setting", "agentSetting": "qa-engineer"}
+{"type": "assistant", "timestamp": "2026-09-04T10:00:00Z", "gitBranch": "feature/PT-301-x", "requestId": "req-pt87-1", "uuid": "uuid-req-pt87-1", "message": {"model": "claude-sonnet-5", "usage": {"input_tokens": 1, "cache_creation_input_tokens": 1, "cache_read_input_tokens": 1, "output_tokens": 1}}, "agentName": "qa-telemetry-probe"}

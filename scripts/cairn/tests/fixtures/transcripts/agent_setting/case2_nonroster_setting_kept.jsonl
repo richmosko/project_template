@@ -1,0 +1,2 @@
+{"type": "agent-setting", "agentSetting": "claude-code-guide"}
+{"type": "assistant", "timestamp": "2026-09-04T10:00:00Z", "gitBranch": "feature/PT-302-x", "requestId": "req-pt87-2", "uuid": "uuid-req-pt87-2", "message": {"model": "claude-sonnet-5", "usage": {"input_tokens": 2, "cache_creation_input_tokens": 2, "cache_read_input_tokens": 2, "output_tokens": 2}}, "agentName": "guide-pt18"}

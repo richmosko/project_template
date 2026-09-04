@@ -1,0 +1,1 @@
+{"type": "assistant", "sessionId": "fake-session-b", "timestamp": "2026-08-20T10:00:05Z", "gitBranch": "feature/pt-28-add-widget", "requestId": "req-lead-1", "uuid": "uuid-lead-1-dup", "message": {"model": "claude-sonnet-5", "usage": {"input_tokens": 100, "cache_creation_input_tokens": 200, "cache_read_input_tokens": 300, "output_tokens": 50}}}

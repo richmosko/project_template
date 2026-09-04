@@ -1,0 +1,1 @@
+{"type": "assistant", "sessionId": "fake-order", "timestamp": "2026-08-20T13:00:00Z", "gitBranch": "feature/pt-2-order-test", "agentName": "aaa-role", "requestId": "req-order-pt2", "uuid": "uuid-order-pt2", "message": {"model": "claude-sonnet-5", "usage": {"input_tokens": 4, "cache_creation_input_tokens": 4, "cache_read_input_tokens": 4, "output_tokens": 4}}}

@@ -1,0 +1,1 @@
+{"type": "assistant", "sessionId": "fake-session-e", "timestamp": "2026-08-21T10:00:00Z", "gitBranch": "feature/pt-7-8-9-13-cli-hardening", "agentName": "impl2", "requestId": "req-multi-issue-1", "uuid": "uuid-multi-issue-1", "message": {"model": "claude-sonnet-5", "usage": {"input_tokens": 3, "cache_creation_input_tokens": 4, "cache_read_input_tokens": 5, "output_tokens": 1}}}
