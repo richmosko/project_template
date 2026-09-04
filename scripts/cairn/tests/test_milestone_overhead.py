@@ -76,6 +76,7 @@ from typing import Optional
 import helpers  # noqa: F401
 
 import backfill_tokens
+import cairn
 
 BACKFILL_SCRIPT = helpers.CAIRN_DIR / "backfill_tokens.py"
 OTEL_SCRIPT = helpers.CAIRN_DIR / "otel_receiver.py"
@@ -110,9 +111,9 @@ class MilestoneForTimestampPureTests(unittest.TestCase):
     def _resolve(self, ts: str, windows: list[tuple[str, str]]) -> Optional[str]:
         self.assertTrue(
             hasattr(backfill_tokens, "milestone_for_timestamp"),
-            "backfill_tokens.milestone_for_timestamp does not exist yet -- PT-84's window-resolution seam is unimplemented",
+            "cairn.milestone_for_timestamp does not exist yet -- PT-84's window-resolution seam is unimplemented",
         )
-        return backfill_tokens.milestone_for_timestamp(ts, windows)
+        return cairn.milestone_for_timestamp(ts, windows)
 
     def test_a_timestamp_strictly_inside_one_window_resolves_to_that_milestone(self):
         windows = [
@@ -178,6 +179,25 @@ class MilestoneForTimestampPureTests(unittest.TestCase):
 
     def test_an_empty_windows_list_never_resolves(self):
         self.assertIsNone(self._resolve("2026-08-20T10:00:00Z", []))
+
+    def test_a_fractional_second_timestamp_in_the_same_second_as_a_boundary_lands_in_the_later_window(self):
+        # Architect's addendum (e0c116f): the backfill's real transcript
+        # timestamps carry milliseconds ("...52.326Z"); the receiver's
+        # and milestone_windows' own timestamps do not ("...52Z"). Under
+        # a NAIVE string compare, "...52.326Z" < "...52Z" is True ('.' =
+        # 0x2E sorts before 'Z' = 0x5A) -- a record 326ms INTO a window
+        # would wrongly compare as BEFORE its own boundary and land in
+        # the PREVIOUS milestone. milestone_for_timestamp must
+        # canonicalise (truncate fractional seconds) before comparing.
+        windows = [
+            ("2026-08-22T06:38:00Z", "PT-0.11"),
+            ("2026-08-22T06:38:52Z", "PT-0.12"),
+        ]
+        self.assertEqual(
+            self._resolve("2026-08-22T06:38:52.326Z", windows), "PT-0.12",
+            "a record 326ms into PT-0.12's window must resolve to PT-0.12, not fall back to PT-0.11 "
+            "because of an uncanonicalised string compare",
+        )
 
 
 # --------------------------------------------------------------------------
@@ -249,8 +269,8 @@ class MilestoneWindowsGitTests(unittest.TestCase):
         (milestones_dir / "0.3.md").write_text(MILESTONE_TMPL.format(id="PT-0.3", name="zero issues", status="archived"), encoding="utf-8")
         _commit_at(repo_root, "add 0.3.md (unprefixed filename)", "2026-08-20 08:19:49 +0000")
 
-        self.assertTrue(hasattr(backfill_tokens, "milestone_windows"), "backfill_tokens.milestone_windows does not exist yet")
-        windows = backfill_tokens.milestone_windows(repo_root)
+        self.assertTrue(hasattr(cairn, "milestone_windows"), "cairn.milestone_windows does not exist yet")
+        windows = cairn.milestone_windows(repo_root)
         ids = [mid for _start, mid in windows]
         self.assertIn("PT-0.3", ids, f"must resolve the frontmatter id even though the filename is 0.3.md, not PT-0.3.md -- got {windows!r}")
         self.assertNotIn("0.3", ids, f"must never derive the id from the filename stem -- got {windows!r}")
@@ -264,15 +284,18 @@ class MilestoneWindowsGitTests(unittest.TestCase):
         (milestones_dir / "PT-0.3.md").write_text(MILESTONE_TMPL.format(id="PT-0.3", name="zero issues", status="archived"), encoding="utf-8")
         _commit_at(repo_root, "add PT-0.3.md, no issues ever reference it", "2026-08-20 08:19:49 +0000")
 
-        windows = backfill_tokens.milestone_windows(repo_root)
+        windows = cairn.milestone_windows(repo_root)
         ids = [mid for _start, mid in windows]
         self.assertIn("PT-0.3", ids, f"a milestone with zero issue files must still produce a window -- got {windows!r}")
 
     def test_an_archived_milestones_creation_is_found_under_its_original_path(self):
-        # §3.2: one diff-filter=A walk over BOTH milestones/ and
-        # archive/milestones/, earliest add per file -- an archived
-        # milestone's CREATION commit only exists under its original
-        # (pre-move) path.
+        # Architect's addendum (c0affa5 supersedes the original §3.2 "one
+        # combined diff-filter=A walk" -- withdrawn in favour of a
+        # PER-FILE `git log --follow --diff-filter=A` on the CURRENT
+        # path): --follow walks the current, live path's history
+        # BACKWARD through its own renames to the true origin commit --
+        # an archived milestone's creation is only visible under its
+        # original (pre-move) path, and --follow is what survives that.
         repo_root = make_milestone_git_repo(self)
         milestones_dir = repo_root / "process" / "cairn" / "milestones"
         archive_dir = repo_root / "process" / "cairn" / "archive" / "milestones"
@@ -284,14 +307,60 @@ class MilestoneWindowsGitTests(unittest.TestCase):
         _git(repo_root, "mv", str(milestones_dir / "PT-0.4.md"), str(archive_dir / "PT-0.4.md"))
         _commit_at(repo_root, "archive PT-0.4.md (retroactive bookkeeping)", "2026-09-01 12:00:00 +0000")
 
-        windows = backfill_tokens.milestone_windows(repo_root)
+        windows = cairn.milestone_windows(repo_root)
         entry = next((w for w in windows if w[1] == "PT-0.4"), None)
         self.assertIsNotNone(entry, f"an archived milestone must still appear in the windows -- got {windows!r}")
         self.assertEqual(
-            entry[0], "2026-08-20T09:03:41+00:00" if entry[0].endswith("+00:00") else entry[0],
-            f"the window start must be the ORIGINAL creation time (2026-08-20T09:03:41), not the later archive-move commit (2026-09-01) -- got {entry!r}",
+            entry[0], "2026-08-20T09:03:41Z",
+            f"the window start must be the ORIGINAL creation time (2026-08-20T09:03:41Z, UTC-normalised), not the later archive-move commit (2026-09-01) -- got {entry!r}",
         )
-        self.assertNotIn("2026-09-01", entry[0], f"the archive-move timestamp must never be mistaken for the creation timestamp -- got {entry!r}")
+
+    def test_id_comes_from_current_content_not_the_creation_commits_content(self):
+        # Architect's deepened §3.1 (c0affa5): the trap runs one level
+        # below the filename -- the real PT-0.3.md's OWN FRONTMATTER at
+        # its creation commit said the bare, quoted `id: "0.3"`, not
+        # `PT-0.3`; it was corrected (and the file renamed) in a LATER
+        # commit. A implementation that reads the id from the historical
+        # creation-commit's blob (`git show <add-commit>:<path>`)
+        # reproduces the exact same stale id one level down from the
+        # filename bug. The id must come from the file's CURRENT (HEAD)
+        # content; the timestamp must still come from --follow finding
+        # the TRUE origin commit, even though that commit's own content
+        # disagrees with HEAD.
+        repo_root = make_milestone_git_repo(self)
+        milestones_dir = repo_root / "process" / "cairn" / "milestones"
+        archive_dir = repo_root / "process" / "cairn" / "archive" / "milestones"
+
+        # 1: created unprefixed, filename AND frontmatter both stale.
+        (milestones_dir / "0.3.md").write_text('---\nid: "0.3"\nname: zero issues\nkind: product\nmajor: PT-V1\nstatus: planned\ntarget_tag: null\nga: false\n---\n\nBody.\n', encoding="utf-8")
+        _commit_at(repo_root, "create 0.3.md, id: \"0.3\" (the real historical shape)", "2026-08-20 08:19:49 +0000")
+
+        # 2: pure rename, no content change -- keeps git's rename
+        # detection unambiguous.
+        _git(repo_root, "mv", str(milestones_dir / "0.3.md"), str(milestones_dir / "PT-0.3.md"))
+        _commit_at(repo_root, "rename 0.3.md -> PT-0.3.md", "2026-08-25 10:00:00 +0000")
+
+        # 3: much later, a pure content fix on the ALREADY-renamed path
+        # (and separately archived) -- HEAD's frontmatter is correct.
+        _git(repo_root, "mv", str(milestones_dir / "PT-0.3.md"), str(archive_dir / "PT-0.3.md"))
+        (archive_dir / "PT-0.3.md").write_text(MILESTONE_TMPL.format(id="PT-0.3", name="zero issues", status="archived"), encoding="utf-8")
+        _commit_at(repo_root, "archive + correct frontmatter id to PT-0.3", "2026-08-26 09:47:07 +0000")
+
+        windows = cairn.milestone_windows(repo_root)
+        entry = next((w for w in windows if w[1] == "PT-0.3"), None)
+        self.assertIsNotNone(
+            entry, f"must resolve to the CURRENT, correct id PT-0.3 -- a history-content-reading implementation "
+            f"would instead produce the stale '0.3' and never match this lookup -- got {windows!r}",
+        )
+        self.assertNotIn(
+            "0.3", [mid for _start, mid in windows if mid != "PT-0.3"],
+            f"the stale unprefixed id must never appear as its own separate window -- got {windows!r}",
+        )
+        self.assertEqual(
+            entry[0], "2026-08-20T08:19:49Z",
+            f"the timestamp must be the TRUE ORIGIN commit (found via --follow through both renames), "
+            f"not the much-later archive+content-fix commit -- got {entry!r}",
+        )
 
     def test_windows_are_sorted_by_creation_time_not_by_id_string(self):
         # §6's trap: "PT-0.10" sorts before "PT-0.5" lexicographically.
@@ -307,7 +376,7 @@ class MilestoneWindowsGitTests(unittest.TestCase):
         (milestones_dir / "PT-0.10.md").write_text(MILESTONE_TMPL.format(id="PT-0.10", name="tenth", status="archived"), encoding="utf-8")
         _commit_at(repo_root, "create PT-0.10.md", "2026-08-30 10:00:00 +0000")
 
-        windows = backfill_tokens.milestone_windows(repo_root)
+        windows = cairn.milestone_windows(repo_root)
         ids_in_order = [mid for _start, mid in windows]
         self.assertLess(
             ids_in_order.index("PT-0.5"), ids_in_order.index("PT-0.10"),
