@@ -1,0 +1,1 @@
+{"type": "assistant", "timestamp": "2026-09-04T10:00:00Z", "gitBranch": "feature/PT-305-x", "requestId": "req-pt87-5", "uuid": "uuid-req-pt87-5", "message": {"model": "claude-sonnet-5", "usage": {"input_tokens": 5, "cache_creation_input_tokens": 5, "cache_read_input_tokens": 5, "output_tokens": 5}}, "agentName": "impl2"}

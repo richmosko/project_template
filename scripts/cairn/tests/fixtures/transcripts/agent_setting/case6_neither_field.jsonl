@@ -1,0 +1,2 @@
+{"type": "last-prompt"}
+{"type": "assistant", "timestamp": "2026-09-04T10:00:00Z", "gitBranch": "feature/PT-306-x", "requestId": "req-pt87-6", "uuid": "uuid-req-pt87-6", "message": {"model": "claude-sonnet-5", "usage": {"input_tokens": 6, "cache_creation_input_tokens": 6, "cache_read_input_tokens": 6, "output_tokens": 6}}}
