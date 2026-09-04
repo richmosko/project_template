@@ -203,3 +203,67 @@ test("a role not present in ROLE_TOKEN_ORDER folds into an 'other' series", () =
   const series = mod.roleTokenSeries(unlistedRole);
   assert.equal(series, "other", `an unlisted role must fold to 'other', got ${JSON.stringify(series)}`);
 });
+
+// team-lead's browser-verified delta on 078ad9e (narrow width, 500px):
+// 13 x-axis labels overlapped -- the current thinning rule
+// (TokenCostChart.svelte's X_AXIS_DENSITY_THRESHOLD = 20) keys on a
+// FIXED bar count, not available pixel width, so it never engages until
+// 21+ bars regardless of how narrow the plot actually is. Proposed pure
+// function (negotiable), extracted to token-chart-logic.ts so it's
+// unit-testable and width-aware:
+//
+//   export function tickEveryNth(barCount, plotWidthPx, labelWidthPx): number
+//     // returns the step N such that "show every Nth bar's label" keeps
+//     // labels from overlapping at the given plot width -- 1 means "show
+//     // every label, no thinning needed."
+//
+// team-lead's own worked example: 13 bars at 300px thin, 13 bars at
+// 1200px do not -- the two tests below pin exactly that pair.
+
+test("tickEveryNth exists on token-chart-logic.ts", () => {
+  const mod = loadTokenChartLogic();
+  assert.equal(
+    typeof mod.tickEveryNth,
+    "function",
+    "expected a tickEveryNth(barCount, plotWidthPx, labelWidthPx) -> number pure function -- " +
+      "team-lead's instruction: label thinning must take available pixel width per bar into " +
+      "account, not a fixed bar-count threshold (the current X_AXIS_DENSITY_THRESHOLD = 20 in " +
+      "TokenCostChart.svelte is exactly the bug: 13 bars never thins regardless of width)"
+  );
+});
+
+test("13 bars at a narrow 300px plot width must thin (step > 1)", () => {
+  const mod = loadTokenChartLogic();
+  const step = mod.tickEveryNth(13, 300, 40);
+  assert.ok(step > 1, `expected thinning (step > 1) for 13 bars at 300px with ~40px labels, got step=${step}`);
+});
+
+test("the SAME 13 bars at a wide 1200px plot width must NOT thin (step === 1)", () => {
+  const mod = loadTokenChartLogic();
+  const step = mod.tickEveryNth(13, 1200, 40);
+  assert.equal(step, 1, `expected no thinning (step === 1) for 13 bars at 1200px with ~40px labels, got step=${step} -- this is the width-awareness team-lead's diagnosis requires: the SAME bar count must behave differently at different widths`);
+});
+
+test("thinning is decisive: it must differ between the narrow and wide case for the same bar count", () => {
+  // The single most important property here -- a function that returns
+  // the SAME step regardless of plotWidthPx would technically satisfy
+  // the two tests above independently if both happened to want step 1
+  // or both wanted step > 1, but wouldn't actually be width-aware. This
+  // test makes that failure mode impossible to pass accidentally.
+  const mod = loadTokenChartLogic();
+  const narrowStep = mod.tickEveryNth(13, 300, 40);
+  const wideStep = mod.tickEveryNth(13, 1200, 40);
+  assert.notEqual(narrowStep, wideStep, `tickEveryNth(13, 300, 40)=${narrowStep} and tickEveryNth(13, 1200, 40)=${wideStep} must differ -- a width-blind implementation could accidentally return the same step for both`);
+});
+
+test("more bars than fit even at the widest plausible width still thins sensibly (step is a positive integer)", () => {
+  const mod = loadTokenChartLogic();
+  const step = mod.tickEveryNth(69, 1200, 40);
+  assert.ok(Number.isInteger(step) && step >= 1, `expected a positive integer step, got ${step}`);
+});
+
+test("zero bars does not throw and returns a sane step", () => {
+  const mod = loadTokenChartLogic();
+  const step = mod.tickEveryNth(0, 300, 40);
+  assert.ok(Number.isInteger(step) && step >= 1, `expected a positive integer step for zero bars, got ${step}`);
+});
