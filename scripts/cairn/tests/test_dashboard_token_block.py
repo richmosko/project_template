@@ -204,23 +204,36 @@ class MainBarNotClickableTests(unittest.TestCase):
         self.assertIn("main", source.lower(), "TokenCostChart.svelte never references 'main' -- ruling §4: 'main gets its own bar... no drawer link'")
 
     def test_main_bar_is_rendered_visually_muted_distinct_from_real_issue_bars(self):
-        # team-lead's browser-verified delta on 3aa09e8: "main not muted"
-        # -- ruling §4 says main is rendered "last, visually muted", but
-        # nothing in the original component actually varied its
-        # appearance from a real issue bar. Pins a fill-opacity (or
-        # equivalently-purposed) function keyed on `issue === 'main'`
-        # returning something less than full opacity for main.
+        # team-lead's browser-verified delta -- TWICE now. First pass on
+        # 3aa09e8: nothing varied main's appearance at all. Second pass
+        # on b934262: a `fillOpacity` ACCESSOR PROP was added
+        # (issue === 'main' ? 0.55 : 1) and this test's first version
+        # accepted it as sufficient -- but the real rendered <rect>
+        # still read opacity 1 in Chrome. layerchart's Bars component
+        # doesn't reliably wire an accessor PROP through to the actual
+        # SVG attribute the way passing it looks like it should (the
+        # same class of gap the click-handler delta hit earlier in this
+        # feature -- an invisible overlay/internal structure intercepting
+        # something a plain prop assumes reaches the DOM). Tightened per
+        # team-lead's explicit instruction: require evidence the value
+        # reaches an actual CLASS or ATTRIBUTE binding on the rendered
+        # markup (Svelte's `class:`/`style:` directives DO reliably
+        # reach the DOM, unlike a prop threaded through a third-party
+        # component's own internals) -- not just an accessor function
+        # that a library may or may not honor.
         source = _read_token_cost_chart()
-        match = re.search(r"issue\s*===\s*['\"]main['\"]\s*\?\s*([\d.]+)\s*:\s*([\d.]+)", source)
-        self.assertIsNotNone(
-            match,
-            "no conditional found mapping issue === 'main' to a distinct numeric value (e.g. "
-            "fillOpacity) -- ruling §4: main must render 'visually muted', distinct from real "
-            "issue bars, not just excluded from the drawer link",
+        class_or_style_directive = re.search(
+            r"(?:class|style):[\w-]+\s*=\s*\{[^}]*issue\s*===\s*['\"]main['\"][^}]*\}",
+            source,
         )
-        if match:
-            main_value, other_value = float(match.group(1)), float(match.group(2))
-            self.assertLess(main_value, other_value, f"main's value ({main_value}) must be LESS than a real issue bar's ({other_value}) -- that's what 'muted' means")
+        self.assertIsNotNone(
+            class_or_style_directive,
+            "no Svelte class:/style: directive found keyed on issue === 'main' -- a "
+            "fillOpacity ACCESSOR PROP alone is not sufficient (verified in Chrome: it does "
+            "not reach the rendered <rect>, layerchart doesn't wire it through reliably); "
+            "the muting must reach the DOM via a class or style directive/attribute, not just "
+            "a prop passed into the chart library",
+        )
 
 
 class DrawerStableIdTests(unittest.TestCase):
