@@ -49,25 +49,26 @@
 		cache_read: 'Cache read',
 		output: 'Output',
 	};
-	// TODO(ux-designer, blocked on architect amendment ad940d3 §2): app.css
-	// carries no PT-79-specific color tokens yet, per that amendment's
-	// explicit "implementation-lead should not touch app.css" instruction
-	// -- the categorical role/token-type palette is an escalated
-	// design-system decision (hue values AND, for roles, list membership),
-	// not settled here. Built against EXISTING, already-validated tokens
-	// in the meantime ("TODO marker, palette swapped in afterwards"):
-	// four of PT-61's own six --chart-flow-* steps (the ordinal ramp
-	// already cleared the light/dark contrast floor against this card
-	// surface) -- deliberately NOT --chart-1/--chart-2, which PT-61's own
-	// finding measured failing that floor (1.33:1 / 1.91:1 vs. the 2:1
-	// gate). Reused as a stand-in only; token type has no real ordinal
-	// relationship to status, so this is NOT a claim these are the right
-	// long-term colors, only that they are already-safe ones.
+	// Browser-verified defect (team-lead's pass on 3aa09e8): the original
+	// placeholder reused four ADJACENT steps of PT-61's --chart-flow-*
+	// ordinal ramp -- deliberately near-identical golds by design (a
+	// monotone-lightness, single-hue ramp), which is exactly why it read
+	// as one indistinguishable swatch here and made three of the four
+	// series invisible against cache read. Token type has no ordinal
+	// relationship the flow ramp's design could correctly express in the
+	// first place. Fixed by drawing 4 WIDELY-SPACED hues from the now-
+	// landed, already-validated categorical role palette instead (its
+	// minimum pairwise separation across all 8 is >=0.078 dE_OK; any
+	// 4-subset inherits that same floor) -- reuse, not a new, unvalidated
+	// token. `input`/`output` (the two ruled-must-be-separate primary
+	// counters, AC2) get the two hues furthest apart on the wheel
+	// (blue/vermillion); cache read/write get two more, well clear of
+	// both and of each other.
 	const TOKEN_TYPE_COLOR: Record<(typeof TOKEN_TYPE_KEYS)[number], string> = {
-		input: 'var(--chart-flow-todo)',
-		cache_write: 'var(--chart-flow-in-progress)',
-		cache_read: 'var(--chart-flow-in-review)',
-		output: 'var(--chart-flow-done)',
+		input: 'var(--chart-role-1)', // blue
+		cache_write: 'var(--chart-role-6)', // yellow-green
+		cache_read: 'var(--chart-role-4)', // magenta
+		output: 'var(--chart-role-7)', // vermillion
 	};
 	// The real, designed categorical role palette (ux-designer's proposal,
 	// commit fd6df5c, docs/DESIGN/design-system-spec.md § Categorical role
@@ -159,6 +160,21 @@
 
 	const chartData = $derived(displayedIssues.map(rowFor));
 
+	// Browser-verified defect: Show-all's 69 x-axis labels overlapped into
+	// an unreadable smear -- layerchart's default band-axis tick generator
+	// renders one label per bar with no density awareness. Past a
+	// threshold, thin to every Nth issue (always including `main`, the
+	// last bar) and let the tooltip carry the rest -- team-lead's own
+	// suggested fix shape ("thin, rotate, or hide... rely on the
+	// tooltip").
+	const X_AXIS_DENSITY_THRESHOLD = 20;
+	const xAxisTicks = $derived.by(() => {
+		const ids = chartData.map((d) => d.issue as string);
+		if (ids.length <= X_AXIS_DENSITY_THRESHOLD) return undefined;
+		const step = Math.ceil(ids.length / X_AXIS_DENSITY_THRESHOLD);
+		return ids.filter((id, i) => i % step === 0 || id === 'main');
+	});
+
 	function onBarClick(_event: MouseEvent, detail: { data: Record<string, string | number> }): void {
 		const issue = detail.data.issue as string;
 		// Ruling § 4: main "must not look clickable" -- no drawer link.
@@ -168,6 +184,20 @@
 		// for the identical reason: a hard load still works through
 		// PT-54's SPA fallback).
 		window.location.href = `/dashboard/issues?open=${encodeURIComponent(issue)}`;
+	}
+
+	// Browser-verified defect: a real click on a bar did nothing.
+	// layerchart's BarChart renders an invisible hit-detection overlay
+	// (TooltipContext, tooltipContext="band" by default) ON TOP of the
+	// actual <rect> bars to drive the hover tooltip -- that overlay
+	// intercepts the pointer event before it ever reaches Bars' own
+	// onclick, so wiring only `onBarClick` (which attaches to the bars
+	// themselves) is a real click handler nothing can actually reach.
+	// The tooltip layer has its OWN onclick, fed the currently-hovered
+	// datum -- that is the one guaranteed to receive the click.
+	function onTooltipClick(event: MouseEvent, detail: { data: Record<string, string | number> | null }): void {
+		if (!detail.data) return;
+		onBarClick(event, { data: detail.data });
 	}
 
 	function formatTokens(n: number): string {
@@ -240,7 +270,13 @@
 						seriesLayout="stack"
 						legend
 						{onBarClick}
+						tooltipContext={{ onclick: onTooltipClick }}
+						padding={{ left: 64 }}
+						fillOpacity={(d: Record<string, string | number>) => (d.issue === 'main' ? 0.55 : 1)}
 						props={{
+							xAxis: {
+								ticks: xAxisTicks,
+							},
 							yAxis: {
 								format: (v: number) => (mode === 'cost' ? formatUsd(v) : formatTokens(v)),
 							},
