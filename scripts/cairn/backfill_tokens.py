@@ -105,6 +105,30 @@ def _transcript_dir_slug(repo_root: Path) -> str:
     return re.sub(r"[/_.]", "-", str(repo_root))
 
 
+def _resolve_tracker_prefix(repo_root: Path) -> str:
+    """The configured issue-id prefix (`config.yml`'s `prefix:`), resolved
+    from `repo_root` -- NEVER from `cairn.find_data_dir()`, which walks up
+    from `Path.cwd()` (architect's blocking finding on 99725d0): run this
+    script with a CWD outside the repo and `find_data_dir()` finds no
+    `config.yml`, and `cairn.load_config` then SILENTLY defaults to
+    `prefix: "ISS"` rather than raising -- every real issue bucket then
+    fails to match and collapses into `main`, at exit 0, looking like a
+    clean run. Anchoring to `repo_root` (already computed, CWD-independent)
+    removes the dependency; the explicit `config.yml` existence check below
+    is the load-bearing half, since it is `load_config`'s silent default
+    -- not its parsing -- that is the actual trap.
+
+    `CAIRN_DATA_DIR` is honoured first (same override seam `cairn.py`
+    itself uses), so a caller that legitimately points at a different data
+    dir still works.
+    """
+    env = os.environ.get("CAIRN_DATA_DIR")
+    data_dir = Path(env).resolve() if env else (repo_root / "process" / "cairn")
+    if not (data_dir / "config.yml").exists():
+        raise cairn.CairnError(f"no config.yml at {data_dir}")
+    return cairn.load_config(data_dir)["prefix"]
+
+
 def _roster_names(repo_root: Path) -> Set[str]:
     """Every agent stem under `.claude/agents/*.md` -- the "is this a
     roster name" check § 4's role-normalisation rule needs. Read live,
@@ -415,7 +439,20 @@ def _release_lock(lock_path: Path) -> None:
         pass
 
 
+_SORT_KEY_REQUIRED_KEYS = ("source", "issue", "role", "model")
+
+
 def _read_existing_lines(out_path: Path) -> List[Dict[str, Any]]:
+    """Parses every existing line and validates the keys `_sort_key`
+    (below) reads. Architect's review, minor 2: without this, a malformed
+    FOREIGN line (e.g. a future `otel` line missing `role`) reached
+    `_sort_key` unchecked and raised a bare `KeyError` -- correct exit
+    code, lock released, atomic write never ran so nothing was corrupted,
+    but a traceback instead of a named, actionable error. Same
+    fail-loudly-with-a-location contract as every other malformed-input
+    path in this script, extended to data this script did not itself
+    write.
+    """
     if not out_path.exists():
         return []
     lines = []
@@ -424,9 +461,15 @@ def _read_existing_lines(out_path: Path) -> List[Dict[str, Any]]:
         if not raw.strip():
             continue
         try:
-            lines.append(json.loads(raw))
+            record = json.loads(raw)
         except json.JSONDecodeError as e:
             raise BackfillError(f"{out_path}:{idx}: malformed existing data line: {e}")
+        if not isinstance(record, dict):
+            raise BackfillError(f"{out_path}:{idx}: existing data line is not a JSON object")
+        missing = [k for k in _SORT_KEY_REQUIRED_KEYS if k not in record]
+        if missing:
+            raise BackfillError(f"{out_path}:{idx}: existing data line missing required key(s) {missing}")
+        lines.append(record)
     return lines
 
 
@@ -491,7 +534,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
 
     try:
-        prefix = cairn.load_config(cairn.find_data_dir())["prefix"]
+        prefix = _resolve_tracker_prefix(repo_root)
     except cairn.CairnError as e:
         print(f"error: could not read the tracker prefix from config.yml: {e}", file=sys.stderr)
         return 1
