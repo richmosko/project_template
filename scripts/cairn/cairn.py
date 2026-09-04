@@ -2245,7 +2245,7 @@ def read_git_tags(data_dir: Path) -> Tuple[Optional[Set[str]], Optional[str]]:
 _MILESTONE_REL_PATHS = ("process/cairn/milestones/", "process/cairn/archive/milestones/")
 
 
-def milestone_windows(repo_root: Path) -> List[Tuple[str, str]]:
+def milestone_windows(repo_root: Path, strict: bool = False) -> List[Tuple[str, str]]:
     """§2/§4 (amended §3.2, addendum c0affa5): a milestone's window is
     `[creation of its file, creation of the next milestone's file)` --
     half-open, so a record on a boundary belongs to exactly one window
@@ -2327,13 +2327,24 @@ def milestone_windows(repo_root: Path) -> List[Tuple[str, str]]:
     "everything stays `main`", the same fail-safe direction this
     project's gating rulings consistently take.
 
-    Raises `MilestoneWindowError` (7341e2e) if the derived windows are
-    not exactly one entry per milestone id, strictly increasing in
-    start time -- a duplicate id, or two milestones resolving to the
-    same (or an inverted) timestamp, is exactly the failure shape a
-    `--follow` rename false-merge (or a genuinely duplicated milestone
-    file) produces; this turns that into an immediate, loud error
-    instead of a silent mis-bucketed window.
+    Invariant (7341e2e, severity corrected by architect's review at
+    4a7c2c3): the derived windows must be exactly one entry per
+    milestone id, strictly increasing in start time -- a duplicate id,
+    or two milestones resolving to the same (or an inverted) timestamp,
+    is exactly the failure shape a `--follow` rename false-merge (or a
+    genuinely duplicated milestone file) produces. The ORIGINAL ruling
+    had this raise `MilestoneWindowError`; the architect's review found
+    that a raise here runs inside the receiver's own flush path, so a
+    milestone-file naming coincidence could abort telemetry collection
+    outright -- the exact asymmetry PT-86 §0 already rejected once (a
+    loud, degraded result beats a silent stop). Default (`strict=False`,
+    every real caller): the colliding milestone(s) are DROPPED from the
+    returned list and a named warning is printed to stderr identifying
+    them and their shared/inverted timestamp; any record that would have
+    matched a dropped window falls back to `main` (the documented
+    "outside any window" bucket) -- under-attributed, never
+    mis-attributed, never a stop. `strict=True` (qa's own test surface,
+    exercising the detector in isolation) restores the original raise.
     """
     import subprocess
 
@@ -2374,24 +2385,43 @@ def milestone_windows(repo_root: Path) -> List[Tuple[str, str]]:
     windows.sort(key=lambda w: w[0])
 
     ids = [milestone_id for _start, milestone_id in windows]
-    if len(ids) != len(set(ids)):
-        dupes = sorted({milestone_id for milestone_id in ids if ids.count(milestone_id) > 1})
+    dup_ids = {milestone_id for milestone_id in ids if ids.count(milestone_id) > 1}
+    if dup_ids and strict:
         raise MilestoneWindowError(
             f"milestone_windows found more than one window for the same milestone id(s) "
-            f"{dupes!r} -- a milestone file present under both milestones/ and "
+            f"{sorted(dup_ids)!r} -- a milestone file present under both milestones/ and "
             f"archive/milestones/ at once, or a duplicated id in frontmatter -- "
             f"windows: {windows!r}"
         )
-    for (prev_start, prev_id), (start, milestone_id) in zip(windows, windows[1:]):
-        if start <= prev_start:
-            raise MilestoneWindowError(
-                f"milestone_windows produced a non-increasing timestamp: "
-                f"{prev_id!r}@{prev_start!r} then {milestone_id!r}@{start!r} -- two "
-                f"milestone files resolved to the same or an inverted creation time, "
-                f"most likely a `--follow` rename false-merge against unrepresentative "
-                f"content (see this function's docstring) rather than a genuine "
-                f"same-instant creation"
-            )
+
+    # Duplicate/inverted TIMESTAMPS -- grouped by start_iso (the windows
+    # are already sorted, so an "inverted" pair is impossible here; the
+    # only shape left is a TIE, two different ids sharing one start,
+    # which is exactly what a `--follow` false-merge produces).
+    by_start: Dict[str, List[str]] = {}
+    for start, milestone_id in windows:
+        by_start.setdefault(start, []).append(milestone_id)
+    tied_ids = {mid for group in by_start.values() if len(group) > 1 for mid in group}
+    if tied_ids and strict:
+        tied_start = next(start for start, group in by_start.items() if len(group) > 1)
+        raise MilestoneWindowError(
+            f"milestone_windows produced a non-increasing timestamp: milestone(s) "
+            f"{sorted(tied_ids)!r} all resolved to {tied_start!r} -- two milestone files "
+            f"resolved to the same or an inverted creation time, most likely a `--follow` "
+            f"rename false-merge against unrepresentative content (see this function's "
+            f"docstring) rather than a genuine same-instant creation"
+        )
+
+    colliding = dup_ids | tied_ids
+    if colliding:
+        sys.stderr.write(
+            f"cairn: warning: milestone_windows dropped colliding milestone window(s) "
+            f"{sorted(colliding)!r} -- two or more milestone files resolved to the same "
+            f"(or a duplicate) creation id/timestamp, most likely a `--follow` rename "
+            f"false-merge; records that would have matched a dropped window fall back to "
+            f"`main`\n"
+        )
+        windows = [(start, milestone_id) for start, milestone_id in windows if milestone_id not in colliding]
 
     return windows
 
