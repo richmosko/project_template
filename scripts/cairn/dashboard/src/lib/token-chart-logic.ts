@@ -57,6 +57,29 @@ export function barValue(issue: TokenIssueTotal, metric: Metric): number {
 // and top-12-by-cost sets differ on the real corpus, so pinning
 // selection to one metric would make the other view silently omit real
 // contenders while still calling itself complete.
+// team-lead's narrow-width re-check on 078ad9e (delta N2): the ORIGINAL
+// x-axis label-thinning fix used a fixed 20-bar-count threshold, so 13
+// bars never thinned regardless of viewport width -- but 13 bars already
+// overlap at a 500px plot, and the same 13 fit fine at 1200px. What
+// actually determines overlap is pixels-per-bar vs. label width, not bar
+// count, so this takes both as inputs (extracted here, not left inline
+// in TokenCostChart.svelte, so it's unit-testable without a browser/DOM
+// -- the component's own job is only to MEASURE the real plot width and
+// label width via a ResizeObserver/canvas measureText and hand both
+// numbers to this pure function). `X_AXIS_LABEL_GAP` is a small breathing
+// margin between adjacent visible labels, baked in here rather than a
+// 4th parameter -- this function's whole contract is "given these three
+// numbers, what step", not a place to grow a second knob.
+const X_AXIS_LABEL_GAP = 8;
+
+export function tickEveryNth(barCount: number, plotWidthPx: number, labelWidthPx: number): number {
+	if (barCount <= 0) return 1;
+	const perBarWidth = plotWidthPx / barCount;
+	const neededWidth = labelWidthPx + X_AXIS_LABEL_GAP;
+	if (perBarWidth >= neededWidth) return 1;
+	return Math.max(1, Math.ceil(neededWidth / perBarWidth));
+}
+
 export function selectBars(
 	issues: TokenIssueTotal[],
 	metric: Metric,

@@ -13,6 +13,7 @@
 		formatCaption,
 		ROLE_TOKEN_ORDER,
 		roleTokenSeries,
+		tickEveryNth,
 		type Metric,
 	} from '$lib/token-chart-logic';
 
@@ -161,20 +162,58 @@
 
 	const chartData = $derived(displayedIssues.map(rowFor));
 
-	// Browser-verified defect: Show-all's 69 x-axis labels overlapped into
-	// an unreadable smear -- layerchart's default band-axis tick generator
-	// renders one label per bar with no density awareness. Past a
-	// threshold, thin to every Nth issue (always including `main`, the
-	// last bar) and let the tooltip carry the rest -- team-lead's own
-	// suggested fix shape ("thin, rotate, or hide... rely on the
-	// tooltip").
-	const X_AXIS_DENSITY_THRESHOLD = 20;
-	const xAxisTicks = $derived.by(() => {
-		const ids = chartData.map((d) => d.issue as string);
-		if (ids.length <= X_AXIS_DENSITY_THRESHOLD) return undefined;
-		const step = Math.ceil(ids.length / X_AXIS_DENSITY_THRESHOLD);
-		return ids.filter((id, i) => i % step === 0 || id === 'main');
-	});
+	// Browser-verified defect (team-lead's narrow-width re-check on
+	// 078ad9e, delta N1): a FIXED row-count reservation (3 rows, 92px)
+	// cannot hold -- the cost view's role legend wraps to 4 rows at a
+	// 500px viewport, exceeding it and overlapping the plot again, the
+	// same failure mode as the original padding regression just at a
+	// different width. There is no bar-count/series-count formula that
+	// predicts row count without knowing the actual rendered width (the
+	// same information the browser's own flex-wrap layout already has),
+	// so this measures it directly instead of guessing: a ResizeObserver
+	// on the container watches BOTH the container's own width (also
+	// feeds the x-axis label thinning below, delta N2) and, via a
+	// MutationObserver locating it (layerchart mounts/replaces it after
+	// this element exists), the actually-rendered `.lc-legend-container`
+	// element's height. `legendHeight`'s initial value matches the old
+	// 3-row constant so there's no layout jump before the first
+	// measurement lands (typically within a frame of mount).
+	let containerWidth = $state(600);
+	let legendHeight = $state(92);
+
+	function measureChart(node: HTMLElement) {
+		const ro = new ResizeObserver((entries) => {
+			for (const entry of entries) {
+				if (entry.target === node) {
+					containerWidth = entry.contentRect.width;
+				} else {
+					const h = entry.contentRect.height;
+					if (h > 0) legendHeight = Math.ceil(h);
+				}
+			}
+		});
+		ro.observe(node);
+
+		let observedLegend: Element | null = null;
+		function syncLegendObservation() {
+			const el = node.querySelector('.lc-legend-container');
+			if (el && el !== observedLegend) {
+				if (observedLegend) ro.unobserve(observedLegend);
+				observedLegend = el;
+				ro.observe(el);
+			}
+		}
+		syncLegendObservation();
+		const mo = new MutationObserver(syncLegendObservation);
+		mo.observe(node, { childList: true, subtree: true });
+
+		return {
+			destroy() {
+				ro.disconnect();
+				mo.disconnect();
+			},
+		};
+	}
 
 	// Browser-verified regression (team-lead's re-check on b934262): once the
 	// y-axis-clipping fix below supplied an explicit `padding` object,
@@ -187,22 +226,58 @@
 	// labels) + 32 (one legend row) -- dropping that same reservation to 0 is
 	// exactly why the legend (position: absolute; bottom: 0, per layerchart's
 	// own Legend.svelte) ended up drawn on top of the bars and x-axis instead
-	// of in its own row below them. Reproduce the rest of the library's
-	// default here (top/right unchanged, left overridden as before), and
-	// enlarge the bottom reservation to cover a WRAPPED legend, not just the
-	// single row the library's own 32px constant assumes -- this view's
-	// largest legend (cost mode's role palette) can carry up to 11 entries,
-	// which wraps to multiple rows well before the single-row constant would
-	// suffice, and delta 6 (legend flex-wrap, still to be re-checked at
-	// narrow widths) depends on that headroom actually being there.
-	const LEGEND_ROWS_RESERVED = 3;
-	const LEGEND_ROW_HEIGHT = 24;
-	const CHART_PADDING = {
+	// of in its own row below them. Reproduces the rest of the library's
+	// default here (top/right unchanged, left overridden as before); the
+	// bottom reservation now tracks the MEASURED legend height (see
+	// measureChart above) rather than a guessed row count.
+	const CHART_PADDING = $derived({
 		top: 4,
 		right: 4,
 		left: 64,
-		bottom: 20 + LEGEND_ROW_HEIGHT * LEGEND_ROWS_RESERVED,
-	};
+		bottom: 20 + legendHeight,
+	});
+
+	// Browser-verified defect: Show-all's 69 x-axis labels overlapped into
+	// an unreadable smear -- layerchart's default band-axis tick generator
+	// renders one label per bar with no density awareness. team-lead's
+	// narrow-width re-check (delta N2) found the original fix's fixed
+	// 20-bar-count threshold was itself the wrong axis to thin on: 13 bars
+	// already overlap at a 500px viewport, well under 20, because what
+	// actually determines overlap is PIXELS PER BAR vs. LABEL WIDTH, not
+	// bar count -- the same count fits fine at 1553px. Measures both:
+	// `containerWidth` (measureChart's ResizeObserver, above) divided by
+	// bar count gives the real per-bar pixel budget, and each label's
+	// actual rendered width via canvas measureText (close enough to the
+	// real SVG text width for a spacing decision -- exact font metrics
+	// aren't load-bearing here, only "does the next label collide").
+	// Thins to the smallest step that gives every visible label its own
+	// width plus a breathing gap, always keeping `main` (the last bar).
+	// The step MATH is token-chart-logic.ts's tickEveryNth (pure, unit-
+	// tested without a browser/DOM) -- this only measures the two real
+	// numbers it needs: the actual plot width (measureChart's
+	// ResizeObserver, above) and each label's actual rendered width via
+	// canvas measureText (close enough to the real SVG text width for a
+	// spacing decision -- exact font metrics aren't load-bearing here,
+	// only "does the next label collide").
+	const X_AXIS_LABEL_FONT = '12px ui-sans-serif, system-ui, sans-serif';
+	let measureCanvasCtx: CanvasRenderingContext2D | null | undefined;
+	function measureLabelWidth(text: string): number {
+		if (measureCanvasCtx === undefined) {
+			measureCanvasCtx = typeof document === 'undefined' ? null : (document.createElement('canvas').getContext('2d') ?? null);
+		}
+		if (!measureCanvasCtx) return text.length * 7;
+		measureCanvasCtx.font = X_AXIS_LABEL_FONT;
+		return measureCanvasCtx.measureText(text).width;
+	}
+	const xAxisTicks = $derived.by(() => {
+		const ids = chartData.map((d) => d.issue as string);
+		if (ids.length === 0) return undefined;
+		const plotWidth = Math.max(containerWidth - CHART_PADDING.left - CHART_PADDING.right, 0);
+		const maxLabelWidth = Math.max(...ids.map(measureLabelWidth));
+		const step = tickEveryNth(ids.length, plotWidth, maxLabelWidth);
+		if (step <= 1) return undefined;
+		return ids.filter((id, i) => i % step === 0 || id === 'main');
+	});
 
 	function onBarClick(_event: MouseEvent, detail: { data: Record<string, string | number> }): void {
 		const issue = detail.data.issue as string;
@@ -295,6 +370,7 @@
 					No token usage recorded yet — this fills in once the backfill or the live receiver writes data.
 				</p>
 			{:else}
+				<div use:measureChart class="relative">
 				<Chart.Container config={chartConfig} class="aspect-auto h-[300px] w-full">
 					<BarChart
 						data={chartData}
@@ -341,6 +417,7 @@
 						{/snippet}
 					</BarChart>
 				</Chart.Container>
+				</div>
 				<p class="mt-3 text-xs text-muted-foreground">{captionText}</p>
 			{/if}
 		</Card.Content>
