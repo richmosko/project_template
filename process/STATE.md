@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Ongoing token accounting via Claude Code OpenTelemetry export, attributed to the active issue |
+| Issue | PT-78 |
+| Milestone | PT-0.11 (token accounting) |
+| Branch | `feature/pt-78-otel-receiver` |
+| Started | 2026-09-04 |
+| Goal | A cairn-owned local OTLP receiver appends live token counts to token-usage.jsonl, branch-first attribution, allow-listed keys only, verified end to end with a real teammate. |
+| Status | In Progress |
 
 ## Releases
 
