@@ -87,6 +87,14 @@ scripts/cairn/            THE ENGINE — self-contained, spin-off-ready
 
 **Tokens are exact; dollars are estimated.** The receiver does not persist `claude_code.cost.usage` (Claude Code's own client-side estimate) — dollars are recomputed from token counts for *both* sources (backfilled and live) using PT-79's one dated price table, so the chart never mixes two costing methods with a discontinuity at the boundary that looks like a real cost change and isn't. Token counts themselves are the API's own usage numbers and are exact for both sources.
 
+**The price table lives at `scripts/cairn/prices.json`, beside the engine — not under `process/cairn/`.** The rates are identical for every project that ever uses cairn (engine data, not this project's state): `git subtree split --prefix=scripts/cairn` must carry the table with the engine, and a spun-off cairn must never drag a project's usage history along with it.
+
+**To update a rate:** edit the model's entry directly and bump `retrieved` to today's date. **Rates are explicit per-model numbers, never multipliers derived from a base rate** — the published docs express caching as multipliers (5m = 1.25×, 1h = 2×, cache read = 0.1× input), and that is measurably wrong for at least one model in this table (Claude Fable 5.1's cache read is 0.025× input, not 0.1× — a multiplier-derived table would overcharge it 4×). Always copy the vendor's *published number* for each field, never compute one.
+
+**This is one flat snapshot, not a dated history.** `retrieved` records when the numbers were last checked; there is no `effective_from`/`effective_to` range. **Consequence: editing a rate here silently re-prices every past bucket that used that model, backfilled and live alike** — the dashboard has no way to know a rate changed on a particular date and will price August's tokens at today's number. If a rate ever actually changes (not just gets re-verified at the same value), the fix is to promote each model's value to a list of `{effective_from, rates}` entries and have the one consumer (`build_tokens_payload` in `cairn.py`) pick by the contributing line's own `window_end` — a schema change, not a data edit. Until that's built, only edit this file when a rate is *unchanged but re-verified*, or accept that you are re-pricing history.
+
+**An unpriced model never renders as free.** A model absent from `models` gets `cost_usd: null` on every bucket it contributes to (propagating up: a bucket with even one unpriced contribution has a `null`, not partial, total) — never `0`. Its token counts still render normally. `/api/tokens`' `prices.unpriced_models` names every such model so the dashboard's caption can say so, rather than silently under-counting the total.
+
 ### `config.yml`
 
 ```yaml

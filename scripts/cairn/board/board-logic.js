@@ -1186,6 +1186,37 @@ var CairnLogic = (function () {
     );
   }
 
+  // PT-79 AC4: the issue drawer's token-usage section is a pure LOOKUP
+  // against the already-fetched GET /api/tokens payload, filtered
+  // client-side by issue id -- no second endpoint (PT-51's "no GET
+  // /api/milestone/<id>" precedent, extended here). Returns
+  // {input, cache_write, cache_read, output, cost_usd, roles: [...]} --
+  // the matching entry's `total` object FLATTENED to the top level, its
+  // `roles` array carried through unchanged -- or `null` when the
+  // payload is missing/malformed, carries no entry for this issue (a
+  // fresh repo with no metrics file yet, or an issue with no recorded
+  // usage), or the id is `main` (not a real issue -- excluded here too
+  // as defense in depth alongside the chart's own no-drawer-link guard,
+  // ruling §4). `null` never a fabricated all-zero row: a drawer showing
+  // "0 tokens" for an issue with no data at all would be indistinguishable
+  // from an issue that genuinely used zero. Never mutates `tokensPayload`.
+  function tokenTotalsForIssue(tokensPayload, issueId) {
+    if (issueId === "main") return null;
+    if (!tokensPayload || !Array.isArray(tokensPayload.issues)) return null;
+    var match = tokensPayload.issues.filter(function (entry) {
+      return entry && entry.issue === issueId;
+    })[0];
+    if (!match || !match.total) return null;
+    return {
+      input: match.total.input,
+      cache_write: match.total.cache_write,
+      cache_read: match.total.cache_read,
+      output: match.total.output,
+      cost_usd: match.total.cost_usd,
+      roles: match.roles || [],
+    };
+  }
+
   return {
     primaryRootId: primaryRootId,
     milestoneLabel: milestoneLabel,
@@ -1252,5 +1283,6 @@ var CairnLogic = (function () {
     THEME_MODE_IDS: THEME_MODE_IDS,
     parseThemePrefs: parseThemePrefs,
     resolveDarkMode: resolveDarkMode,
+    tokenTotalsForIssue: tokenTotalsForIssue,
   };
 })();

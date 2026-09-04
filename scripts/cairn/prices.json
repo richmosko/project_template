@@ -1,0 +1,14 @@
+{
+  "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+  "retrieved": "2026-09-04",
+  "currency": "USD",
+  "unit": "per_mtok",
+  "models": {
+    "claude-fable-5-1":          {"input": 10,  "cache_write_5m": 12.50, "cache_write_1h": 20, "cache_read": 0.25, "output": 50},
+    "claude-fable-5":            {"input": 10,  "cache_write_5m": 12.50, "cache_write_1h": 20, "cache_read": 1.00, "output": 50},
+    "claude-opus-5":             {"input": 5,   "cache_write_5m": 6.25,  "cache_write_1h": 10, "cache_read": 0.50, "output": 25},
+    "claude-opus-4-8":           {"input": 5,   "cache_write_5m": 6.25,  "cache_write_1h": 10, "cache_read": 0.50, "output": 25},
+    "claude-sonnet-5":           {"input": 2,   "cache_write_5m": 2.50,  "cache_write_1h": 4,  "cache_read": 0.20, "output": 10},
+    "claude-haiku-4-5-20251001": {"input": 1,   "cache_write_5m": 1.25,  "cache_write_1h": 2,  "cache_read": 0.10, "output": 5}
+  }
+}

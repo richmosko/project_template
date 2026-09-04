@@ -123,6 +123,7 @@
   var wheelPullInitialState = CairnLogic.wheelPullInitialState;
   var wheelPullReduce = CairnLogic.wheelPullReduce;
   var wheelPullShouldFire = CairnLogic.wheelPullShouldFire;
+  var tokenTotalsForIssue = CairnLogic.tokenTotalsForIssue;
 
   // PT-5: "" is the sentinel option value for a null priority — inlineSelect
   // translates it to/from JSON null at the DOM boundary (see inlineSelect).
@@ -223,6 +224,13 @@
   var state = {
     board: null,       // last-known-good /api/board payload
     etag: null,
+    // PT-79 AC4: cached Promise for GET /api/tokens, fetched lazily on
+    // first drawer open (not eagerly at page load -- the board's own
+    // startup cost must not grow for a panel most sessions never open).
+    // Never re-fetched after the first success: PT-77/PT-78's own data
+    // changes on the order of a backfill re-run or a ~30-minute receiver
+    // flush, far slower than a user re-opening drawers in one session.
+    tokensPromise: null,
     currentMajor: "all",
     filters: { text: "", milestone: "", assignee: "", label: "", repo: "" },
     showCancelled: false,
@@ -354,6 +362,24 @@
       if (!resp.ok) throw new Error("not found");
       return resp.json();
     });
+  }
+
+  // PT-79 AC4: fetches GET /api/tokens at most once per page load, cached
+  // on state.tokensPromise -- renderDrawer filters the SAME payload
+  // client-side per issue (tokenTotalsForIssue, board-logic.js), never a
+  // second per-issue endpoint (PT-51's precedent). A fetch failure is
+  // cached too (the rejected Promise) rather than retried on every
+  // drawer open -- token data is supplementary; repeatedly re-hitting a
+  // broken endpoint on each open would just make every open slower for
+  // no benefit.
+  function fetchTokensOnce() {
+    if (!state.tokensPromise) {
+      state.tokensPromise = fetch("/api/tokens").then(function (resp) {
+        if (!resp.ok) throw new Error("tokens fetch failed: " + resp.status);
+        return resp.json();
+      });
+    }
+    return state.tokensPromise;
   }
 
   function apiCreateIssue(payload) {
@@ -1863,6 +1889,53 @@
     return ul;
   }
 
+  // PT-79 AC4: the token-usage section's DOM, built from an already-
+  // resolved {issue, total, roles} entry (board-logic.js's
+  // tokenTotalsForIssue). DOM-built element-by-element like every other
+  // drawer section here -- `role` is server-controlled today, but this
+  // follows the same "never innerHTML untrusted-shaped text" convention
+  // issueLinkListEl and the pr-link block above already established,
+  // rather than being the one section that reopens that question.
+  function renderTokenUsageSection(container, totals) {
+    var heading = document.createElement("div");
+    heading.className = "section-heading";
+    heading.textContent = "Token usage";
+    container.appendChild(heading);
+
+    function formatTokens(n) {
+      if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+      if (n >= 1000) return (n / 1000).toFixed(1) + "K";
+      return String(n);
+    }
+    function formatCost(usd) {
+      return usd === null || usd === undefined ? "—" : "$" + usd.toFixed(2);
+    }
+
+    var summary = document.createElement("div");
+    summary.className = "token-usage-summary";
+    summary.textContent =
+      "Input " + formatTokens(totals.input) +
+      " · Cache write " + formatTokens(totals.cache_write) +
+      " · Cache read " + formatTokens(totals.cache_read) +
+      " · Output " + formatTokens(totals.output) +
+      " · Estimated cost " + formatCost(totals.cost_usd);
+    container.appendChild(summary);
+
+    if (totals.roles && totals.roles.length) {
+      var roleList = document.createElement("ul");
+      roleList.className = "token-usage-roles";
+      totals.roles.forEach(function (role) {
+        var li = document.createElement("li");
+        li.textContent =
+          role.role + ": " +
+          formatTokens(role.input + role.cache_write + role.cache_read + role.output) +
+          " tokens, " + formatCost(role.cost_usd);
+        roleList.appendChild(li);
+      });
+      container.appendChild(roleList);
+    }
+  }
+
   function renderDrawer(issue) {
     // PT-40: race-guard widened to compare BOTH kind and id -- a fetch for
     // issue PT-1 that resolves after the user opened milestone PT-1.0
@@ -1992,6 +2065,32 @@
       drawer.appendChild(blocksHeading);
       drawer.appendChild(issueLinkListEl(blocks));
     }
+
+    // PT-79 AC4: token usage + estimated cost, with the per-role split --
+    // fetched async (fetchTokensOnce, cached after the first call) since
+    // renderDrawer itself is synchronous and the issue is already on
+    // screen without it. Race-guarded the same way this function's own
+    // opening check is: a slow /api/tokens response landing after the
+    // user closed this drawer (or opened a different one) must never
+    // paint into a stale/wrong drawer.
+    var tokensContainer = document.createElement("div");
+    // Addendum (a375ff7): "id=drawer-token-usage -- a stable target the
+    // browser-visibility leg can aim at." Present even before the async
+    // fetch resolves (an empty container is still a valid, findable
+    // target) -- the id must not depend on data having arrived yet.
+    tokensContainer.id = "drawer-token-usage";
+    drawer.appendChild(tokensContainer);
+    fetchTokensOnce().then(function (tokensPayload) {
+      if (!state.openRecord || state.openRecord.kind !== "issue" || state.openRecord.id !== issue.id) return;
+      var totals = tokenTotalsForIssue(tokensPayload, issue.id);
+      if (!totals) return; // no recorded usage for this issue -- no section, not a fabricated zero row
+      renderTokenUsageSection(tokensContainer, totals);
+    }).catch(function () {
+      // Token data is supplementary to the drawer, never load-bearing --
+      // a fetch failure here must not surface as a toast/error the way
+      // apiGetIssue's own failure does; the rest of the drawer already
+      // rendered successfully.
+    });
 
     var split = splitAcceptanceCriteria(issue.description);
 

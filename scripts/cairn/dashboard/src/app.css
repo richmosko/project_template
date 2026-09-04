@@ -86,6 +86,33 @@
 	--chart-flow-in-review: oklch(0.566 0.145 75.2);
 	--chart-flow-done: oklch(0.498 0.125 68.6);
 	--chart-flow-cancelled: oklch(0.43 0.1 62);
+	/* PT-79: the token/cost dashboard block's ROLE stack -- categorical
+	   (unordered), not ordinal, so this is a DIFFERENT validator shape
+	   from the flow ramp above (minimum pairwise OKLab dE, not monotone
+	   lightness). ux-designer's proposal (design-system-spec.md §
+	   Categorical role palette, commit fd6df5c), mechanism ruled by
+	   architect (PT-79 issue, amendments ad940d3 §2 + 962f3e9) --
+	   8 role hues (Okabe-Ito-derived, CVD-checked) via the explicit
+	   append-only ROLE_TOKEN_ORDER in token-chart-logic.ts, plus 3
+	   separate neutral fold/guard tokens (never one shared grey -- a
+	   grouped bucket must announce itself, same posture as cost_usd:
+	   null for an unpriced model). Guarded by
+	   scripts/cairn/tests/palette_check.py (in-repo, stdlib-only,
+	   never skips) -- both modes validated against each mode's own
+	   real --card, values parsed from THIS file, never hardcoded in
+	   the guard. Identical values in :root/.dark (no per-mode split
+	   needed -- verified against both real --card surfaces). */
+	--chart-role-1: oklch(0.570 0.1587 252.00);   /* team-lead */
+	--chart-role-2: oklch(0.6375 0.1242 76.77);   /* product-manager */
+	--chart-role-3: oklch(0.600 0.2403 300.00);   /* architect */
+	--chart-role-4: oklch(0.6018 0.2368 346.32);  /* ux-designer */
+	--chart-role-5: oklch(0.6286 0.1262 236.18);  /* seceng */
+	--chart-role-6: oklch(0.710 0.1402 105.04);   /* devops-engineer */
+	--chart-role-7: oklch(0.5735 0.1465 47.51);   /* implementation-lead */
+	--chart-role-8: oklch(0.5728 0.1114 165.46);  /* qa-engineer */
+	--chart-role-guard-aux: oklch(0.700 0.015 56.0);          /* auxiliary series */
+	--chart-role-guard-unattributed: oklch(0.440 0.020 56.0); /* subagent-unattributed series */
+	--chart-role-other: oklch(0.600 0.010 56.0);              /* grouped roles outside ROLE_TOKEN_ORDER */
 	--radius: 0.625rem;
 	--sidebar: oklch(0.985 0.001 106.423);
 	--sidebar-foreground: oklch(0.147 0.004 49.25);
@@ -149,6 +176,19 @@
 	--chart-flow-in-review: oklch(0.566 0.145 75.2);
 	--chart-flow-done: oklch(0.498 0.125 68.6);
 	--chart-flow-cancelled: oklch(0.43 0.1 62);
+	/* PT-79: see :root's comment -- identical values, both real --card
+	   surfaces validated independently (no per-mode split needed). */
+	--chart-role-1: oklch(0.570 0.1587 252.00);
+	--chart-role-2: oklch(0.6375 0.1242 76.77);
+	--chart-role-3: oklch(0.600 0.2403 300.00);
+	--chart-role-4: oklch(0.6018 0.2368 346.32);
+	--chart-role-5: oklch(0.6286 0.1262 236.18);
+	--chart-role-6: oklch(0.710 0.1402 105.04);
+	--chart-role-7: oklch(0.5735 0.1465 47.51);
+	--chart-role-8: oklch(0.5728 0.1114 165.46);
+	--chart-role-guard-aux: oklch(0.700 0.015 56.0);
+	--chart-role-guard-unattributed: oklch(0.440 0.020 56.0);
+	--chart-role-other: oklch(0.600 0.010 56.0);
 	--sidebar: oklch(0.216 0.006 56.043);
 	--sidebar-foreground: oklch(0.985 0.001 106.423);
 	--sidebar-primary: oklch(0.685 0.169 237.323);
