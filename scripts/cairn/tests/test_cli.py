@@ -755,6 +755,24 @@ class DiscoveryErrorTests(unittest.TestCase):
     # stderr") -- the existing `ls` tests above only assert a nonzero
     # exit.
 
+    def test_cairn_data_dir_env_var_pointing_at_a_dir_with_no_config_yml_errors_loudly(self):
+        # Distinct code path from the two `ls` tests above: CAIRN_DATA_DIR
+        # explicitly SET (not cwd walk-up discovery). resolve_data_dir
+        # applies the same config.yml-existence check regardless of where
+        # data_dir came from, so -- like the check/serve tests below --
+        # this is regression coverage for a path already correct today,
+        # not a red-first reproduction.
+        tmp_root = helpers.make_empty_tmp_dir(self)
+        bogus_data_dir = helpers.make_empty_tmp_dir(self)  # exists, no config.yml
+        env = self._env_without_override()
+        env["CAIRN_DATA_DIR"] = str(bogus_data_dir)
+        result = subprocess.run(
+            [str(helpers.CAIRN_BIN), "ls"],
+            cwd=str(tmp_root), capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(result.returncode, 1, f"stdout={result.stdout!r} stderr={result.stderr!r}")
+        self.assertIn(str(bogus_data_dir), result.stderr, f"error must name the CAIRN_DATA_DIR path -- got: {result.stderr!r}")
+
     def test_check_with_no_process_cairn_anywhere_up_the_tree_errors_loudly(self):
         tmp_root = helpers.make_empty_tmp_dir(self)
         result = subprocess.run(
