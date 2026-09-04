@@ -295,6 +295,52 @@ def make_milestone_git_repo(testcase, with_engine_copy: bool = False) -> Path:
     return tmp
 
 
+def make_false_merge_repo(testcase, with_engine_copy: bool = False) -> Path:
+    """Architect's ruling (7341e2e, reproduced on evidence at cf2c8d5,
+    'Shape A'): plain `--follow --diff-filter=A` is the right engine
+    choice (real milestone files never collide -- they differ in `name`
+    AND definition-of-done prose), but it COULD mis-pair two files that
+    stay near-identical, exactly the shape this deliberately reproduces:
+    PT-0.5 created normally; a SECOND milestone created unprefixed with
+    the SAME generic body as PT-0.5 (no distinct dod -- the one
+    deliberate, documented exception to milestone_text's own
+    no-identical-body convention), then renamed AND content-corrected in
+    the SAME commit (architect's Fact 2: a rename plus a content edit in
+    one commit is what defeats similarity detection for the
+    id-correction case, and what lets a near-identical OTHER file's add
+    look like a plausible rename source here).
+
+    `with_engine_copy=True` for tests that drive this THROUGH a real
+    collector CLI (needs the same-directory engine copy backfill_tokens
+    has no --repo-root override for); `False` for tests calling
+    cairn.milestone_windows directly."""
+    repo_root = make_milestone_git_repo(testcase, with_engine_copy=with_engine_copy)
+    milestones_dir = repo_root / "process" / "cairn" / "milestones"
+
+    identical_dod = "Body.\n"
+    (milestones_dir / "PT-0.5.md").write_text(
+        milestone_text(id="PT-0.5", name="fifth", status="archived", dod=identical_dod),
+        encoding="utf-8",
+    )
+    _commit_at(repo_root, "create PT-0.5.md", "2026-08-20 14:39:56 +0000")
+
+    (milestones_dir / "0.10.md").write_text(
+        milestone_text(id="0.10", name="tenth", status="planned", dod=identical_dod),
+        encoding="utf-8",
+    )
+    _commit_at(repo_root, "create 0.10.md, unprefixed id, identical body to PT-0.5", "2026-08-30 10:00:00 +0000")
+
+    # Rename AND correct the id in the SAME commit -- architect's Fact 2
+    # shape exactly.
+    _git(repo_root, "mv", str(milestones_dir / "0.10.md"), str(milestones_dir / "PT-0.10.md"))
+    (milestones_dir / "PT-0.10.md").write_text(
+        milestone_text(id="PT-0.10", name="tenth", status="archived", dod=identical_dod),
+        encoding="utf-8",
+    )
+    _commit_at(repo_root, "rename 0.10.md -> PT-0.10.md, correct id in the same commit", "2026-09-02 23:20:02 +0000")
+    return repo_root
+
+
 class MilestoneWindowsGitTests(unittest.TestCase):
     """§3's two real traps, against a real throwaway git repo -- never
     the shared checkout."""
@@ -442,57 +488,49 @@ class MilestoneWindowsGitTests(unittest.TestCase):
             f"PT-0.5 was created BEFORE PT-0.10 -- windows must be chronological, not alphabetical -- got {ids_in_order!r}",
         )
 
-    def test_a_false_merge_from_two_near_identical_milestone_files_raises_instead_of_silently_misbucketing(self):
-        # Architect's ruling (7341e2e, reproduced on evidence at
-        # cf2c8d5, "Shape A"): plain `--follow --diff-filter=A` is the
-        # right engine choice (real milestone files never collide -- they
-        # differ in `name` AND definition-of-done prose), but it COULD
-        # mis-pair two files that stay near-identical, exactly the shape
-        # this deliberately reproduces: PT-0.5 created normally; a SECOND
-        # milestone created unprefixed with the SAME generic body as
-        # PT-0.5 (no distinct dod -- this is the one deliberate,
-        # documented exception to milestone_text's own no-identical-body
-        # convention), then renamed AND content-corrected in the SAME
-        # commit (the exact combination architect's Fact 2 measured: a
-        # rename plus a content edit in one commit is what defeats
-        # similarity detection for the id-correction case, and what lets
-        # a near-identical OTHER file's add look like a plausible rename
-        # source here). Rather than carry a rename-walker to avoid this,
-        # the ruling adds a cheap invariant instead: milestone_windows
-        # must raise, loudly, the moment it would otherwise return two
-        # milestones sharing one timestamp (or any non-increasing
-        # sequence) -- turning a silent mis-bucketing into a named error.
-        repo_root = make_milestone_git_repo(self)
-        milestones_dir = repo_root / "process" / "cairn" / "milestones"
-
-        identical_dod = "Body.\n"
-        (milestones_dir / "PT-0.5.md").write_text(
-            milestone_text(id="PT-0.5", name="fifth", status="archived", dod=identical_dod),
-            encoding="utf-8",
-        )
-        _commit_at(repo_root, "create PT-0.5.md", "2026-08-20 14:39:56 +0000")
-
-        (milestones_dir / "0.10.md").write_text(
-            milestone_text(id="0.10", name="tenth", status="planned", dod=identical_dod),
-            encoding="utf-8",
-        )
-        _commit_at(repo_root, "create 0.10.md, unprefixed id, identical body to PT-0.5", "2026-08-30 10:00:00 +0000")
-
-        # Rename AND correct the id in the SAME commit -- architect's
-        # Fact 2 shape exactly.
-        _git(repo_root, "mv", str(milestones_dir / "0.10.md"), str(milestones_dir / "PT-0.10.md"))
-        (milestones_dir / "PT-0.10.md").write_text(
-            milestone_text(id="PT-0.10", name="tenth", status="archived", dod=identical_dod),
-            encoding="utf-8",
-        )
-        _commit_at(repo_root, "rename 0.10.md -> PT-0.10.md, correct id in the same commit", "2026-09-02 23:20:02 +0000")
-
+    def test_strict_mode_raises_on_a_false_merge_the_detector_seam(self):
+        # Architect's review (4a7c2c3) corrected the ORIGINAL raise-always
+        # ruling: a raise inside the receiver's own flush path could abort
+        # telemetry collection outright over a milestone-file naming
+        # coincidence -- the PT-86 §0 asymmetry, applied here. The
+        # detector itself is still exactly right and still earns its
+        # place; `strict=True` is the seam this test exercises it
+        # through directly, in isolation from either collector's
+        # degrade-and-continue behaviour (covered separately below).
+        repo_root = make_false_merge_repo(self)
         with self.assertRaises(
-            Exception,
-            msg="two milestone files with a near-identical body must raise (a named, loud error) rather than "
-            "silently return a duplicate or non-increasing timestamp",
+            cairn.MilestoneWindowError,
+            msg="strict=True must still raise on a false-merge -- this is the detector-in-isolation seam, "
+            "not the collectors' own degrade-and-warn behaviour",
         ):
-            cairn.milestone_windows(repo_root)
+            cairn.milestone_windows(repo_root, strict=True)
+
+    def test_default_mode_warns_and_drops_the_colliding_windows_falling_back_to_main(self):
+        # Architect's corrected ruling (4a7c2c3): the DEFAULT
+        # (strict=False, every real caller) must never raise -- it drops
+        # the colliding windows, warns loudly to stderr naming them, and
+        # any record that would have matched a dropped window falls back
+        # to `main`. Proven here at the pure milestone_windows level
+        # (the warning + the returned windows list); the collector-level
+        # survival tests below prove this actually keeps a real
+        # backfill/receiver run alive end to end, per the architect's
+        # explicit "a green suite is evidence of nothing about this path
+        # without that test" (1b60940).
+        repo_root = make_false_merge_repo(self)
+        import io
+        import contextlib
+
+        stderr_capture = io.StringIO()
+        with contextlib.redirect_stderr(stderr_capture):
+            windows = cairn.milestone_windows(repo_root)  # strict=False, the default
+
+        stderr_text = stderr_capture.getvalue()
+        self.assertIn("PT-0.5", stderr_text, f"the warning must name the colliding milestones -- got stderr: {stderr_text!r}")
+        self.assertIn("PT-0.10", stderr_text, f"the warning must name the colliding milestones -- got stderr: {stderr_text!r}")
+
+        ids = [mid for _start, mid in windows]
+        self.assertNotIn("PT-0.5", ids, f"a colliding window must be DROPPED from the returned list, not merely warned about -- got {windows!r}")
+        self.assertNotIn("PT-0.10", ids, f"a colliding window must be DROPPED from the returned list, not merely warned about -- got {windows!r}")
 
 
 # --------------------------------------------------------------------------
@@ -586,6 +624,44 @@ class BackfillMilestoneAttributionTests(unittest.TestCase):
         issues = {l["issue"] for l in lines}
         self.assertEqual(issues, {"main"}, f"a record before the first milestone's creation must stay plain main -- got {issues!r}")
 
+    def test_a_window_collision_does_not_abort_the_backfill_run_and_falls_back_to_main(self):
+        # Architect's follow-up review (4a7c2c3/1b60940): "a green suite
+        # is now evidence of nothing about this behaviour" without a
+        # test that drives the collision THROUGH a real collector run --
+        # the pure-function tests above only prove the detector fires,
+        # not that either collector SURVIVES it. Drives make_false_merge_repo's
+        # PT-0.5/PT-0.10 collision through a real backfill run: must
+        # exit 0 (not abort), warn by name on stderr, and bucket a record
+        # timestamped inside the (now-dropped) collision window to plain
+        # `main` -- never to either colliding milestone.
+        repo_root = make_false_merge_repo(self, with_engine_copy=True)
+        record = {
+            # Between PT-0.5's creation (2026-08-20T14:39:56) and
+            # PT-0.10's (2026-09-02T23:20:02) -- squarely inside the
+            # window that would have been PT-0.5's, had the collision
+            # not dropped it.
+            "type": "assistant", "timestamp": "2026-08-25T00:00:00Z", "gitBranch": "main",
+            "requestId": "req-collision-1", "uuid": "uuid-collision-1",
+            "message": {"model": "claude-sonnet-5", "usage": {
+                "input_tokens": 3, "cache_creation_input_tokens": 3,
+                "cache_read_input_tokens": 3, "output_tokens": 3,
+            }},
+        }
+        transcripts_dir = self._transcript_dir_for(self, [record])
+        out_path = helpers.make_empty_tmp_dir(self) / "token-usage.jsonl"
+        result = self._run_backfill(repo_root, transcripts_dir, out_path)
+        self.assertEqual(result.returncode, 0, f"a window collision must NOT abort the backfill run -- {result.stdout!r} {result.stderr!r}")
+        self.assertIn("PT-0.5", result.stderr, f"the warning must name the colliding milestones on stderr -- got: {result.stderr!r}")
+        self.assertIn("PT-0.10", result.stderr, f"the warning must name the colliding milestones on stderr -- got: {result.stderr!r}")
+
+        lines = read_jsonl(out_path)
+        issues = {l["issue"] for l in lines}
+        self.assertEqual(
+            issues, {"main"},
+            f"a record inside a DROPPED (colliding) window must fall back to main, never to either "
+            f"colliding milestone -- got {issues!r}",
+        )
+
 
 class ReceiverMilestoneAttributionTests(unittest.TestCase):
     """Same rule, the receiver's own flush path (§3/§5: same function,
@@ -637,6 +713,62 @@ class ReceiverMilestoneAttributionTests(unittest.TestCase):
         lines = read_jsonl(out_path)
         issues = {l["issue"] for l in lines}
         self.assertIn("milestone:PT-0.4", issues, f"got {issues!r}")
+
+    def test_a_window_collision_does_not_abort_the_receiver_flush_and_falls_back_to_main(self):
+        # Architect's follow-up review (4a7c2c3/1b60940): the same
+        # collector-survival proof, receiver side -- a raise here would
+        # be worse than the backfill's abort, per the architect's own
+        # named consequences (a dead signal handler, a watchdog killed
+        # mid-shutdown re-opening the exact PT-86 AC2 hazard implementation
+        # -lead's thread-join closed). --repo-root steers otel_receiver's
+        # own branch read (its documented contract); no engine copy
+        # needed here since otel_receiver.py DOES have --repo-root.
+        repo_root = make_false_merge_repo(self)
+        payload = {
+            "resourceMetrics": [{
+                "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "claude-code"}}]},
+                "scopeMetrics": [{
+                    "scope": {"name": "com.anthropic.claude_code", "version": "1.0.0"},
+                    "metrics": [{
+                        "name": "claude_code.token.usage",
+                        "sum": {
+                            "dataPoints": [{
+                                "attributes": [
+                                    {"key": "type", "value": {"stringValue": "input"}},
+                                    {"key": "model", "value": {"stringValue": "claude-sonnet-5"}},
+                                ],
+                                # 2026-08-25T00:00:00Z -- squarely inside
+                                # what would have been PT-0.5's window,
+                                # had the collision not dropped it.
+                                "startTimeUnixNano": "1787616000000000000",
+                                "timeUnixNano": "1787616000000000000",
+                                "asInt": "9",
+                            }],
+                            "aggregationTemporality": 1, "isMonotonic": True,
+                        },
+                    }],
+                }],
+            }],
+        }
+        payload_path = helpers.make_empty_tmp_dir(self) / "payload.json"
+        payload_path.write_text(json.dumps(payload), encoding="utf-8")
+        out_path = helpers.make_empty_tmp_dir(self) / "token-usage.jsonl"
+
+        result = subprocess.run(
+            [sys.executable, str(OTEL_SCRIPT), "--ingest", str(payload_path),
+             "--out-file", str(out_path), "--repo-root", str(repo_root)],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, f"a window collision must NOT abort the receiver's flush -- {result.stdout!r} {result.stderr!r}")
+        self.assertIn("PT-0.5", result.stderr, f"the warning must name the colliding milestones on stderr -- got: {result.stderr!r}")
+        self.assertIn("PT-0.10", result.stderr, f"the warning must name the colliding milestones on stderr -- got: {result.stderr!r}")
+
+        lines = read_jsonl(out_path)
+        issues = {l["issue"] for l in lines}
+        self.assertEqual(
+            issues, {"main"},
+            f"a datapoint inside a DROPPED (colliding) window must fall back to main -- got {issues!r}",
+        )
 
 
 if __name__ == "__main__":
