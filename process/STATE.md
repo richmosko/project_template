@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-85-throughput-flow-chart` |
 | Started | 2026-09-05 |
 | Goal | The dashboard's issue-flow chart shows opened and closed per period plus work-in-progress, scoped to a milestone, instead of cumulative status counts. |
-| Status | In Progress |
+| Status | In Review — [PR #171](https://github.com/richmosko/project_template/pull/171) |
 
 ## Releases
 
