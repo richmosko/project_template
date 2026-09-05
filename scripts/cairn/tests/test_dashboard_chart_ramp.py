@@ -175,22 +175,28 @@ class _SelfCheckTests(unittest.TestCase):
 
 
 class ChartLocalTokenContractTests(unittest.TestCase):
-    def test_exactly_six_derived_chart_tokens_exist_in_light_mode(self):
+    # PT-85 (architect ruling 586af1f): the 6-token ORDINAL --chart-flow-*
+    # ramp this file was written to guard is retired entirely -- PT-85's
+    # 3 throughput series (opened/closed/wip) are categorical, not
+    # ordinal, so 3 dedicated tokens replace it (implementation-lead,
+    # same commit as the ruling's own "the guard edit is yours" -- a
+    # forced mechanical consequence of retiring the thing being counted).
+    def test_exactly_three_derived_chart_tokens_exist_in_light_mode(self):
         source = _read_app_css()
         derived = _derived_chart_vars(_block(source, ":root"))
         self.assertEqual(
-            len(derived), 6,
-            f"expected 6 --chart-flow-*-prefixed tokens in :root (one per STATUS_ORDER "
-            f"status), found {len(derived)}: {sorted(derived)}",
+            len(derived), 3,
+            f"expected 3 --chart-flow-*-prefixed tokens in :root (opened/closed/wip), "
+            f"found {len(derived)}: {sorted(derived)}",
         )
 
-    def test_exactly_six_derived_chart_tokens_exist_in_dark_mode(self):
+    def test_exactly_three_derived_chart_tokens_exist_in_dark_mode(self):
         source = _read_app_css()
         derived = _derived_chart_vars(_block(source, ".dark"))
         self.assertEqual(
-            len(derived), 6,
-            f"expected 6 --chart-flow-*-prefixed tokens in .dark "
-            f"--chart-1..5 ramp, found {len(derived)}: {sorted(derived)}",
+            len(derived), 3,
+            f"expected 3 --chart-flow-*-prefixed tokens in .dark (opened/closed/wip), "
+            f"found {len(derived)}: {sorted(derived)}",
         )
 
     def test_light_and_dark_derived_token_names_match(self):
@@ -220,44 +226,21 @@ class ChartLocalTokenContractTests(unittest.TestCase):
         )
 
 
-class ChartRampOrdinalValidationTests(unittest.TestCase):
-    """Re-runs the dataviz skill's ordinal-ramp check against whatever 6
-    derived tokens actually land in app.css, in both modes -- the
-    permanent regression fence for the specific failure this ruling
-    fixed (skips gracefully if the validator can't be located)."""
-
-    def _validate_mode(self, mode: str, surface_hex: str):
-        module = _find_validator_module()
-        if module is None:
-            self.skipTest("dataviz validate_palette.py not found on this harness")
-        source = _read_app_css()
-        selector = ":root" if mode == "light" else ".dark"
-        derived = _derived_chart_vars(_block(source, selector))
-        if len(derived) != 6:
-            self.skipTest(f"{len(derived)} derived chart tokens found in {selector} (expected 6) -- see ChartLocalTokenContractTests")
-        palette = [_oklch_to_hex(l, c, h, module.lin2s) for l, c, h in derived.values()]
-        report, ok = module.validate_ordinal(palette, mode, surface_hex)
-        self.assertTrue(
-            ok,
-            f"the {mode}-mode derived chart ramp fails the dataviz ordinal validator: {report}",
-        )
-
-    def test_light_mode_derived_ramp_passes_the_ordinal_validator(self):
-        # --card in :root == oklch(1 0 0) == pure white -- the light
-        # card surface the ruling's contrast figures were measured
-        # against (see _SelfCheckTests).
-        self._validate_mode("light", "#ffffff")
-
-    def test_dark_mode_derived_ramp_passes_the_ordinal_validator(self):
-        module = _find_validator_module()
-        if module is None:
-            self.skipTest("dataviz validate_palette.py not found on this harness")
-        source = _read_app_css()
-        card_match = re.search(r"--card:\s*oklch\(([^)]*)\)", _block(source, ".dark"))
-        self.assertIsNotNone(card_match, "could not find .dark's --card token to use as the chart surface")
-        l, c, h = (float(x) for x in card_match.group(1).split())
-        surface_hex = _oklch_to_hex(l, c, h, module.lin2s)
-        self._validate_mode("dark", surface_hex)
+# PT-85 (architect ruling 586af1f): ChartRampOrdinalValidationTests
+# REMOVED here, not just edited -- it re-ran the dataviz skill's
+# ORDINAL-ramp check (monotone lightness, single hue, adjacent gaps)
+# against the 6-token --chart-flow-* ramp, and that ramp no longer
+# exists: PT-85's opened/closed/wip tokens are 3 categorical entries
+# (red/green/violet), not a ramp, so an ordinal check has nothing left
+# to validate -- "no ramp left to guard" (the architect's own words).
+# implementation-lead removed rather than adjusted per that same
+# ruling: "what replaces it (if anything) is a contrast/distinctness
+# assertion over the three series, which is qa's call" -- not silently
+# dropped, this comment is the record of what was here (a two-mode
+# validate_ordinal() run, `_oklch_to_hex`/`_find_validator_module`
+# helpers above still present and reusable for a categorical
+# replacement, e.g. validate_palette.js/py's own categorical checks
+# already used elsewhere in this repo, see PT-69/PT-79's palette_check.py).
 
 
 if __name__ == "__main__":

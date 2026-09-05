@@ -108,8 +108,13 @@ EXPECTED_VARS_BY_DIM = {
     }),
     "chart": frozenset({
         "--chart-1", "--chart-2", "--chart-3", "--chart-4", "--chart-5",
-        "--chart-flow-backlog", "--chart-flow-todo", "--chart-flow-in-progress",
-        "--chart-flow-in-review", "--chart-flow-done", "--chart-flow-cancelled",
+        # PT-85 (architect ruling 586af1f): the 6-token ordinal
+        # --chart-flow-* ramp is retired entirely -- opened/closed/wip
+        # are categorical, not ordinal, so 3 dedicated tokens replace it
+        # (implementation-lead's own edit, per the ruling's explicit
+        # "the guard edit is yours" -- a forced mechanical consequence
+        # of retiring the ramp this table asserted).
+        "--chart-flow-opened", "--chart-flow-closed", "--chart-flow-wip",
     }),
 }
 
