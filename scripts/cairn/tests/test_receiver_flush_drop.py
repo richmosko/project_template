@@ -527,3 +527,107 @@ class StatusUnaffectedTests(unittest.TestCase):
         output = buf.getvalue().lower()
         self.assertNotIn("dropped", output, f"--status must not surface flush-level drop counts -- got {output!r}")
         self.assertNotIn("straddl", output, f"--status must not surface flush-level straddling counts -- got {output!r}")
+
+
+# --------------------------------------------------------------------------
+# §1: the filter keys on each group's own datapoint time bounds, never on
+# startTimeUnixNano (the metric stream's start) -- a filter keyed on stream
+# start would drop a long-running cumulative series' entire future after
+# one regeneration.
+# --------------------------------------------------------------------------
+
+class FilterKeysOnDatapointTimeNotStreamStartTests(unittest.TestCase):
+    def test_a_long_lived_series_with_an_old_start_but_a_fresh_datapoint_is_kept(self):
+        out_path = _out_path(self)
+        _seed_backfill_line(out_path, generated=STAMP)
+        state = otel_receiver.ReceiverState()
+        ancient_start_ns = STAMP_NS - 365 * 86400 * ONE_SEC_NS  # a year before the stamp
+        otel_receiver.fold([_dp("m-long-lived", ancient_start_ns, AFTER_NS)], state)
+        try:
+            lines = _flush(state, out_path)
+        except otel_receiver.ReceiverError as e:
+            self.fail(f"must not raise -- got {e}")
+        self.assertEqual(
+            [l["model"] for l in lines], ["m-long-lived"],
+            "a datapoint whose METRIC STREAM started long ago but whose OWN time is fresh must "
+            "be KEPT -- filtering on startTimeUnixNano instead of the datapoint's own time_ns "
+            "would wrongly drop this (§1's own named premise failure)",
+        )
+
+
+# --------------------------------------------------------------------------
+# Architect's addendum (5208f32): group_time_bounds resets EVERY flush
+# cycle (never lifetime-persistent), and flushed_baseline is re-keyed from
+# SeriesKey to (SeriesKey, start_ns) -- the key group_max already uses.
+# Two tests this change specifically requires.
+# --------------------------------------------------------------------------
+
+class NoDropSafetyParityTests(unittest.TestCase):
+    """AC 4b -- the architect's own most-wanted test: every other test in
+    this file exercises the DROP path; this is the one that guards the
+    COMMON path. With nothing dropped, the re-keyed (per-group) baseline
+    arithmetic must still sum to the correct per-series total -- a series
+    with two groups (two different start_ns, e.g. a metric restart), both
+    kept, must flush the exact sum of both groups' values."""
+
+    def test_two_groups_of_the_same_series_both_kept_sum_to_the_correct_total(self):
+        out_path = _out_path(self)
+        _seed_backfill_line(out_path, generated=STAMP)
+        state = otel_receiver.ReceiverState()
+        otel_receiver.fold([
+            _dp("m-restart", AFTER_NS, AFTER_NS, value=30.0),
+            _dp("m-restart", AFTER_NS + 5 * ONE_SEC_NS, AFTER_NS + 5 * ONE_SEC_NS, value=70.0),
+        ], state)
+        try:
+            lines = _flush(state, out_path)
+        except otel_receiver.ReceiverError as e:
+            self.fail(f"must not raise -- got {e}")
+        self.assertEqual(len(lines), 1, f"one series (one model) must produce one bucket line -- got {lines!r}")
+        self.assertEqual(
+            lines[0]["input"], 100,
+            f"the flushed total must equal the sum of both groups' values (30+70=100) -- the "
+            f"re-keyed per-group baseline must not change the common (no-drop) path's arithmetic "
+            f"-- got {lines[0]['input']!r}",
+        )
+
+
+class DroppedGroupRecoveryTests(unittest.TestCase):
+    """AC 4's resurrection-bug closure: a group dropped in cycle N still
+    ADVANCES its baseline (architect's addendum) so that once it recovers
+    in cycle N+1 (its own bounds, reset each cycle, no longer straddle or
+    predate the stamp), the flushed delta excludes the already-dropped
+    range rather than resurrecting it."""
+
+    def test_a_group_dropped_in_one_cycle_recovers_without_double_counting_in_the_next(self):
+        out_path = _out_path(self)
+        _seed_backfill_line(out_path, generated=STAMP)
+        state = otel_receiver.ReceiverState()
+
+        # Cycle N: dropped -- entirely before the stamp.
+        start_ns = BEFORE_NS
+        otel_receiver.fold([_dp("m-recover", start_ns, BEFORE_NS, value=50.0)], state)
+        try:
+            lines_n = _flush(state, out_path)
+        except otel_receiver.ReceiverError as e:
+            self.fail(f"cycle N must not raise -- got {e}")
+        self.assertEqual(lines_n, [], "cycle N's entirely-pre-stamp group must not be written")
+
+        # Cycle N+1: SAME group (same model, same start_ns -- same
+        # group_key), new growth, this time safely after the stamp --
+        # group_time_bounds reset every cycle, so only THIS cycle's own
+        # datapoint governs classification.
+        otel_receiver.fold([_dp("m-recover", start_ns, AFTER_NS, value=90.0)], state)
+        try:
+            lines_n1 = _flush(state, out_path)
+        except otel_receiver.ReceiverError as e:
+            self.fail(f"cycle N+1 must not raise -- got {e}")
+        self.assertEqual(
+            [l["model"] for l in lines_n1], ["m-recover"],
+            "the recovered group must be written once its recent window clears the stamp",
+        )
+        self.assertEqual(
+            lines_n1[0]["input"], 40,
+            f"the recovery flush must exclude the already-dropped 50 tokens (baseline advanced "
+            f"to 50 in cycle N, so 90-50=40) -- a baseline that failed to advance on drop would "
+            f"resurrect the full 90 -- got {lines_n1[0]['input']!r}",
+        )
