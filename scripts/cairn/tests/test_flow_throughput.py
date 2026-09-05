@@ -845,3 +845,78 @@ class LegacyMilestoneIdCanonicalizationTests(unittest.TestCase):
             f"an unresolvable id's entry must have name: null (a genuine ghost), same shape as "
             f"a historical id with no current file -- got {matches[0]!r}",
         )
+
+
+class ConservationInvariantTests(unittest.TestCase):
+    """team-lead's ask, following architect's f979784 finding (closed
+    inflated by 43 on the real corpus): a single number that catches
+    both an under-count and an over-count, independent of any one day's
+    breakdown. Sum of opened across all points must equal the number of
+    issue stems EVER created; sum of closed must equal the number
+    CURRENTLY done on disk; sum of cancelled must equal the number
+    CURRENTLY cancelled on disk. This is exactly the check that caught
+    the real bug (128 closed counted vs 85 done on disk, architect's own
+    measurement) -- reproduced here as a fixture with a KNOWN answer,
+    including a bulk delete-then-readd of an already-done stem (the
+    exact shape that broke conservation on the real corpus)."""
+
+    def test_opened_closed_cancelled_sums_conserve_against_whats_actually_on_disk(self):
+        data_dir = make_flow_git_repo(self)
+        repo_root = data_dir.parent.parent
+
+        # PT-40: created -> done, then BULK-archived (deleted + re-added
+        # under archive/issues/ across two separate commits, alongside a
+        # second done stem PT-41r -- the real corpus's exact shape: a
+        # multi-file delete-then-readd commit pair) -- must close ONCE.
+        _write_issue(data_dir, id="PT-40", status="todo")
+        _write_issue(data_dir, id="PT-41r", status="todo")
+        _commit_at(repo_root, "create PT-40, PT-41r", "2026-08-10 10:00:00 +0000")
+        _write_issue(data_dir, id="PT-40", status="done")
+        _write_issue(data_dir, id="PT-41r", status="done")
+        _commit_at(repo_root, "PT-40, PT-41r -> done", "2026-08-11 10:00:00 +0000")
+        (data_dir / "issues" / "PT-40.md").unlink()
+        (data_dir / "issues" / "PT-41r.md").unlink()
+        _commit_at(repo_root, "bulk delete PT-40, PT-41r", "2026-08-12 10:00:00 +0000")
+        _write_issue(data_dir, id="PT-40", status="done", archived=True)
+        _write_issue(data_dir, id="PT-41r", status="done", archived=True)
+        _commit_at(repo_root, "bulk re-add PT-40, PT-41r under archive/issues/, still done", "2026-08-13 10:00:00 +0000")
+
+        # PT-42: created -> cancelled, stays cancelled, never archived.
+        _write_issue(data_dir, id="PT-42", status="todo")
+        _commit_at(repo_root, "create PT-42", "2026-08-14 10:00:00 +0000")
+        _write_issue(data_dir, id="PT-42", status="cancelled")
+        _commit_at(repo_root, "PT-42 -> cancelled", "2026-08-15 10:00:00 +0000")
+
+        # PT-43: created, stays todo forever -- never closes, never cancels.
+        _write_issue(data_dir, id="PT-43", status="todo")
+        _commit_at(repo_root, "create PT-43", "2026-08-16 10:00:00 +0000")
+
+        # PT-44: created -> in-progress, then genuinely DELETED (not
+        # archived) -- opened once, never closed, never resurrected.
+        _write_issue(data_dir, id="PT-44", status="in-progress")
+        _commit_at(repo_root, "create PT-44", "2026-08-17 10:00:00 +0000")
+        (data_dir / "issues" / "PT-44.md").unlink()
+        _commit_at(repo_root, "delete PT-44 permanently", "2026-08-18 10:00:00 +0000")
+
+        payload = _call_flow_payload(data_dir)
+        total_opened = sum(p["opened"] for p in payload["series"])
+        total_closed = sum(p["closed"] for p in payload["series"])
+        total_cancelled = sum(p["cancelled"] for p in payload["series"])
+
+        # Independently known answer, derived from what's actually on
+        # disk / was ever created -- not from re-reading the payload.
+        self.assertEqual(
+            total_opened, 5,
+            f"5 distinct stems were ever created (PT-40, PT-41r, PT-42, PT-43, PT-44) -- "
+            f"got total opened={total_opened}",
+        )
+        self.assertEqual(
+            total_closed, 2,
+            f"exactly 2 stems are CURRENTLY done on disk (PT-40, PT-41r, both archived) -- "
+            f"a bulk delete-then-readd of already-done stems must not inflate this -- "
+            f"got total closed={total_closed}",
+        )
+        self.assertEqual(
+            total_cancelled, 1,
+            f"exactly 1 stem is currently cancelled (PT-42) -- got total cancelled={total_cancelled}",
+        )
