@@ -270,8 +270,14 @@ THEME_OWNED = frozenset({
 })
 CHART_OWNED = frozenset({
     "--chart-1", "--chart-2", "--chart-3", "--chart-4", "--chart-5",
-    "--chart-flow-backlog", "--chart-flow-todo", "--chart-flow-in-progress",
-    "--chart-flow-in-review", "--chart-flow-done", "--chart-flow-cancelled",
+    # PT-61's --chart-flow-* ordinal ramp (6 names) is RETIRED (PT-85,
+    # architect's addendum + team-lead's scope decision) -- removed from
+    # here rather than left as dead ownership entries for tokens that no
+    # longer exist. Nothing in this file asserts DIMENSION_OWNED's own
+    # exhaustiveness (`_token_dimension` is a lookup used only against
+    # PAIRS ACTUALLY FOUND in source; an unclassified pair is dropped,
+    # never failed -- see `_derive_cross_dimension_pairs`), so this
+    # removal cannot regress a currently-passing test.
 })
 DIMENSION_OWNED = {"base": BASE_OWNED, "theme": THEME_OWNED, "chart": CHART_OWNED}
 
@@ -313,9 +319,11 @@ DROP_DONT_REDERIVE = (
     "the same pair fine) gets DROPPED FROM THE OPTION SET in "
     "variants.json, never re-derived -- 'repairing' shadcn's published "
     "neutrals/accents into a variant that isn't the real published color "
-    "is worse than offering fewer options. (Chart Color is the sole "
-    "exception -- --chart-flow-* is this project's own token, re-stepped "
-    "per PT-61, not dropped.) If EVERY (or nearly every) variant in a "
+    "is worse than offering fewer options. (PT-61's --chart-flow-* ramp "
+    "used to be this fence's sole re-step exception; PT-85 retired that "
+    "ramp entirely -- Chart Color's base --chart-1..5 palette follows "
+    "the same drop-don't-rederive rule as every other dimension now.) "
+    "If EVERY (or nearly every) variant in a "
     "dimension fails the SAME pair, that is NOT this fence's job -- per "
     "Mosko's 'darken the ink' ruling, a systemic miss gets a mechanically-"
     "derived per-base ink adjustment in gen_variants.py, and this gate "
