@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-84-milestone-overhead` |
 | Started | 2026-09-04 |
 | Goal | Main-branch usage lands in a per-milestone overhead bucket derived from the tracker's own dates, in both collectors and on the chart, instead of one unexplained `main` bar. |
-| Status | In Progress |
+| Status | In Review — [PR #168](https://github.com/richmosko/project_template/pull/168) |
 
 ## Releases
 
