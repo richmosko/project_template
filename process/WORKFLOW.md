@@ -227,6 +227,42 @@ Eight rules, each paid for once. They apply to every Implement→Validate loop.
 - **Runtime state beside the data file is untouched by tests and by measurements.** Registries, pidfiles, and capability markers belong to the running system; a cost measurement that registers a synthetic session drains the real registry. `--ensure-running` with no session id exercises the same fast path.
 - **Commit by pathspec bounds which file goes in, not whose hunks.** Before committing a file two people append to (an issue file, TRACKER), read `git diff -- <path>` and confirm every hunk is yours.
 
+#### Four gates and the loop caps (PT-94, 2026-09-05)
+
+Measured on PT-85 and PT-84 (`process/reviews/PT-94/README.md`): a third of gate traffic was confirmations and records, the verdict fragmented in proportion to the builder's commit count, 13 of 16 full-suite runs were a module run's job, and 33 of the lead's 64 inbound messages were idle notifications. The loop is therefore **four gates, each one issue-file commit and one message**:
+
+| Gate | Owner | The commit contains | The one message says |
+|---|---|---|---|
+| 1. Ruling | architect | measured claims (or `(unmeasured)` tags), the seam — payload shape, names, flags — the guard thresholds, AC amendments in place, the lead's decisions as "decided" lines | `read PT-NN.md @ <sha>` |
+| 2. Tests red | qa-engineer | the failing tests; no issue comment | `<sha>: N red, for <reason>` |
+| 3. Build green | implementation lead | the build; no issue comment | `<sha>: green, <paths>` |
+| 4. Verdict | architect (the lead's visual leg as a section, or by sha) | one table: axis → result → evidence sha; one batch of deltas | `verdict @ <sha>` |
+
+**Dropped — never a separate commit or message:** the lead's acceptance comment (a committed ruling is operative; the lead objects within the gate or is silent); "verified by execution" follow-ups (the measurement lives inside the ruling); provenance records for swept-in hunks (the pre-commit guard makes the event impossible); methodology restatements of someone else's pass; idle summaries, task echoes, "standing by". A builder's measured objection **reopens the ruling once**; the author re-issues it as one amended ruling. A second review round is a defect in the ruling, recorded as such. **A failing check is reported the moment it is found, whatever the gate; only passing results wait for the verdict table.**
+
+**Rules A–D, numbered as on PT-94, each with where it binds:**
+
+| # | Rule | Enforced in |
+|---|---|---|
+| A1 | One report per turn, sha-first, ≤ 8 lines; the turn ends on the report; no idle summaries, claim echoes, "dropping silently", or "standing by" | every agent definition → Reporting; `.claude/hooks/message_cap.py` (PreToolUse on `SendMessage`, > 8 lines or > 1,200 chars is blocked) |
+| A2 | Messages carry pointers, not rulings — the file first, then `read PT-NN.md @ <sha>`; no restating, no reversal by message; the gate owner sends the one pointer and the lead never relays it | agent definitions; `.claude/roles/team-lead.md` → Loop gates |
+| A3 | No confirmation round trips — "proceeding on X unless the file says otherwise"; the lead answers only when the file disagrees | agent definitions |
+| B4 | A ruling cites its measurement (command and output) or tags the claim `(unmeasured)`; an unmeasured claim cannot gate a build | architect definition → Rulings |
+| B5 | One gating ruling plus at most two addenda (≤ 15 lines each) before the build; a third addendum reopens the ruling | architect definition |
+| B6 | Issue comments ≤ 40 lines; verdicts as a table; constructions, harness output, and retro prose go to `temp/` or `process/reviews/<ID>/`, referenced by path | `cairn check` warns over the cap |
+| B7 | The review checklist is pre-registered before the build and run once; deltas in one batch | architect definition |
+| C8 | Four gates, fixed; the head-match is `cairn gate --head <verified sha>` (PASS = docs/tracker only since the sha) | `/finish-feature`; `cairn gate` |
+| C9 | One full-suite run per gate by the gate owner (qa at 2 and 3, the lead at finish); everyone else runs the touched module; a doc-only edit needs no run | agent definitions; mechanical half in PT-93 |
+| C10 | Live measurements are one script with fixed output, run once, never ad hoc against the real registry | agent definitions → Working principles (PT-84 rule above) |
+| D11 | Each test names the mutation that turns it red; no per-feature test file for a subject that has one; a feature pays back suite seconds it adds (budget set by PT-93) | qa-engineer definition; `cairn loop-stats` reports `tests_added` |
+| D12 | Tracker comments are committed at the four gates by pathspec, after `cairn comment`; a ruling or addendum lands the moment it is written | agent definitions; `cairn comment` refuses while another author's comment is uncommitted; `.githooks/pre-commit` refuses a file staging comments by two authors |
+| D13 | TRACKER/WORKFLOW paragraphs ≤ 8 sentences; instruction-shaped phrases (`say why`, `state both`, `not just`, `worth noting`…) fail the check | `cairn check` |
+| D14 | An issue file over 24 KB warns; the lead moves review logs out at the next gate | `cairn check` |
+| E16 | `cairn loop-stats <ID>` is pasted into every PR body; a row over its cap needs a one-line justification | `/finish-feature` |
+| F18 | Teammates `/compact` (or are re-spawned) at the build-green gate | agent definitions → Team mode |
+
+**Soft caps per loop** (`cairn loop-stats`): ≤ 40 messages to the lead, ≤ 3 ruling sections, ≤ 15 commits, ≤ 4 full-suite runs. PT-85 measured ~100 / 24 / 36 / 16.
+
 Two facts about live telemetry that belong with these, since both make a merge look complete while the running system still carries the old behaviour: an attribution-logic change is retroactive for backfilled lines and prospective-only for flushed `otel` lines; and merged receiver code protects future processes, not the daemon already running — restart it bare after any change to `scripts/cairn/otel_receiver.py` (see `/merge-pr` → Sync local).
 
 ### Instrument-corroborated claims (Chrome pass)
@@ -829,7 +865,7 @@ The [Release process](#release-process) defines *when a version is cut*; this se
 
 | Environment | Deploy trigger | Cadence | Purpose |
 |---|---|---|---|
-| **Preview / ephemeral** | every PR (or push to `feature/*`) | per-feature | Each feature gets a live URL for the [Validate](#validate) phase — QA and you review the *real thing*, not just green tests. Vercel / Netlify / Cloudflare Pages / Render / Amplify provision these automatically per PR. |
+| **Preview / ephemeral** | every PR (or push to `feature/*`) | per-feature | Each feature gets a live URL for the [Validate](#validate) phase — QA and you review the *real thing*, beyond green tests. Vercel / Netlify / Cloudflare Pages / Render / Amplify provision these automatically per PR. |
 | **Staging** | push to `main` | per-feature (continuous) | `main` is continuously integrated and auto-deployed to staging. Churn here is the *integration signal*, not a hazard — staging ≠ prod, so nothing user-facing is at risk. |
 | **Production** | git **tag** `v*` (or a `production` branch you fast-forward at milestone close) | per-milestone / release | Prod moves **only** when a `MINOR`/`PATCH` tag is cut — exactly the milestone cadence, with **zero** extra branch topology. |
 

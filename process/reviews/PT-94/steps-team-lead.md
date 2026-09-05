@@ -1,6 +1,6 @@
-# team-lead — every step, 2026-09-05T19:20:00Z → 2026-09-05T20:52:00Z
+# team-lead — every step, 2026-09-05T19:20 → 2026-09-05T20:52
 
-Waste classes (upper-case flags) map to PT-94 guardrails: FULL_RERUN_NO_CODE_CHANGE / FULL_RUN_AFTER_TEST_ONLY_EDITS → C9; CONFIRM_ROUNDTRIP → A3; idle:drop/standby → A1; REREAD_SAME_TURN → agent definition (read once per turn); task_tool echoes → A1. Lower-case flags are context, not waste.
+Upper-case flags are waste classes (PT-94): FULL_RERUN_NO_CODE_CHANGE / FULL_RUN_AFTER_TEST_ONLY_EDITS → C9; CONFIRM_ROUNDTRIP → A3; IDLE_STANDBY / TASK_ECHO → A1; REREAD_SAME_TURN → one read per file per turn. Lower-case flags are context.
 
 | # | time | kind | class | detail | verdict |
 |---|---|---|---|---|---|
@@ -163,7 +163,7 @@ Waste classes (upper-case flags) map to PT-94 guardrails: FULL_RERUN_NO_CODE_CHA
 | 157 | 19:54:06 | inbound | from:qa-engineer | Another Claude session sent a message: <teammate-message teammate_id="qa-enginee | ok |
 | 158 | 19:54:11 | text | report_text | The tie-break fixture is committed at 5ad49f8 and red for the exact reason the r | ok |
 | 159 | 19:54:11 | inbound | from:qa-engineer | Another Claude session sent a message: <teammate-message teammate_id="qa-enginee | ok |
-| 160 | 19:54:15 | text | idle:drop/standby | qa standing by. Waiting on implementation-lead's commits. | waste: IDLE_STANDBY |
+| 160 | 19:54:15 | text | report_text | qa standing by. Waiting on implementation-lead's commits. | ok |
 | 161 | 19:56:34 | inbound | from:qa-engineer | Another Claude session sent a message: <teammate-message teammate_id="qa-enginee | ok |
 | 162 | 19:56:42 | text | report_text | A good self-catch by qa, and a real finding behind it: their guard was reading t | ok |
 | 163 | 19:56:47 | tool | message | →implementation-lead: Two near-miss role collisions in your flow picks — adjust  | ok |

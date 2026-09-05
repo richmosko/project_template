@@ -1,6 +1,6 @@
-# architect — every step, 2026-09-05T19:20:00Z → 2026-09-05T20:52:00Z
+# architect — every step, 2026-09-05T19:20 → 2026-09-05T20:52
 
-Waste classes (upper-case flags) map to PT-94 guardrails: FULL_RERUN_NO_CODE_CHANGE / FULL_RUN_AFTER_TEST_ONLY_EDITS → C9; CONFIRM_ROUNDTRIP → A3; idle:drop/standby → A1; REREAD_SAME_TURN → agent definition (read once per turn); task_tool echoes → A1. Lower-case flags are context, not waste.
+Upper-case flags are waste classes (PT-94): FULL_RERUN_NO_CODE_CHANGE / FULL_RUN_AFTER_TEST_ONLY_EDITS → C9; CONFIRM_ROUNDTRIP → A3; IDLE_STANDBY / TASK_ECHO → A1; REREAD_SAME_TURN → one read per file per turn. Lower-case flags are context.
 
 | # | time | kind | class | detail | verdict |
 |---|---|---|---|---|---|
@@ -26,7 +26,7 @@ Waste classes (upper-case flags) map to PT-94 guardrails: FULL_RERUN_NO_CODE_CHA
 | 20 | 19:24:08 | text | report_text | They're right and I was wrong. Correcting it in the file. | ok |
 | 21 | 19:24:24 | tool | git_commit | cd /Users/mosko/Projects/project_template; git diff --stat -- process/cairn/issu | ok |
 | 22 | 19:24:37 | tool | message | →implementation-lead: You're right — §3's premise was wrong; answer is (a), leav | long(13 lines) |
-| 23 | 19:24:49 | tool | message | →qa-engineer: PT-85 §3 corrected — day buckets are UTC, not local; assert UTC da | ok |
+| 23 | 19:24:49 | tool | message | →qa-engineer: PT-85 §3 corrected — day buckets are UTC, not local; assert UTC da | long(11 lines) |
 | 24 | 19:24:59 | text | report_text | implementation-lead caught a factual error in my ruling, and it's the instructiv | ok |
 | 25 | 19:24:59 | inbound | from:team-lead | <teammate-message teammate_id="team-lead" summary="§7 decided in the file: cumul | ok |
 | 26 | 19:25:07 | text | report_text | The lead's right that I corrected by reading, not running. Executing the functio | ok |
@@ -35,7 +35,7 @@ Waste classes (upper-case flags) map to PT-94 guardrails: FULL_RERUN_NO_CODE_CHA
 | 29 | 19:25:20 | tool | bash_read | cd /Users/mosko/Projects/project_template; echo "=== do the ACs now carry the wr | ok |
 | 30 | 19:25:33 | text | report_text | Verified by execution, and the ACs already carry UTC. Recording the stronger evi | ok |
 | 31 | 19:25:43 | tool | git_commit | cd /Users/mosko/Projects/project_template; git diff --stat -- process/cairn/issu | ok |
-| 32 | 19:25:53 | tool | message | →qa-engineer: §3 correction is in at e974a0e, verified by execution at 123aa54 — | ok |
+| 32 | 19:25:53 | tool | message | →qa-engineer: §3 correction is in at e974a0e, verified by execution at 123aa54 — | long(9 lines) |
 | 33 | 19:26:04 | text | report_text | §3 is corrected at `e974a0e` and now **verified by execution** at `123aa54`, per | ok |
 | 34 | 19:26:04 | inbound | from:implementation-lead | <teammate-message teammate_id="implementation-lead" color="yellow" summary="PT-8 | ok |
 | 35 | 19:26:38 | text | narration | Good proposal. One claim to verify before I rule on dropping `counts`. | ok |
@@ -57,7 +57,7 @@ Waste classes (upper-case flags) map to PT-94 guardrails: FULL_RERUN_NO_CODE_CHA
 | 51 | 19:35:07 | inbound | from:team-lead | <teammate-message teammate_id="team-lead" summary="Rule on the six unprefixed le | ok |
 | 52 | 19:35:14 | text | report_text | Already ruled — option (a), at `ce521a5`. Pointing the lead there and getting qa | ok |
 | 53 | 19:35:23 | tool | message | →team-lead: Already ruled (a) at ce521a5 — crossed your message; one detail your | mentions_crossing long(13 lines) |
-| 54 | 19:35:38 | tool | message | →qa-engineer: PT-85: two fixture cases for the milestone-id fold ruled at ce521a | ok |
+| 54 | 19:35:38 | tool | message | →qa-engineer: PT-85: two fixture cases for the milestone-id fold ruled at ce521a | long(11 lines) |
 | 55 | 19:35:49 | text | report_text | Already ruled **(a) fold** at `ce521a5` — our messages crossed, and we landed on | ok |
 | 56 | 19:36:15 | inbound | from:implementation-lead | <teammate-message teammate_id="implementation-lead" color="yellow" summary="PT-8 | ok |
 | 57 | 19:36:40 | text | report_text | Two good questions. Checking the guard's actual shape before ruling on both. | ok |
@@ -88,7 +88,7 @@ Waste classes (upper-case flags) map to PT-94 guardrails: FULL_RERUN_NO_CODE_CHA
 | 82 | 19:41:08 | tool | message | →team-lead: Corrected at 76c970a — qa is right, the strip is a no-op; I measured | long(18 lines) |
 | 83 | 19:41:18 | text | report_text | Corrected at `76c970a` — qa is right, and I verified it before changing the ruli | ok |
 | 84 | 19:41:18 | inbound | from:team-lead | <teammate-message teammate_id="team-lead" summary="Variants.css retirement decid | ok |
-| 85 | 19:41:39 | tool | message | →team-lead: The quote-strip correction is already in at 76c970a — crossed your m | mentions_crossing |
+| 85 | 19:41:39 | tool | message | →team-lead: The quote-strip correction is already in at 76c970a — crossed your m | mentions_crossing long(9 lines) |
 | 86 | 19:41:48 | text | report_text | The quote-strip correction was already in at `76c970a` — crossed your message. O | ok |
 | 87 | 19:45:21 | inbound | from:implementation-lead | <teammate-message teammate_id="implementation-lead" color="yellow" summary="PT-8 | ok |
 | 88 | 19:45:34 | text | report_text | They may be right, and if so my §9 named a property I hadn't measured. Checking  | ok |
@@ -100,7 +100,7 @@ Waste classes (upper-case flags) map to PT-94 guardrails: FULL_RERUN_NO_CODE_CHA
 | 94 | 19:46:45 | text | report_text | I swept qa's comment in again — same error as PT-87. Owning it immediately. | ok |
 | 95 | 19:46:56 | tool | git_commit | cd /Users/mosko/Projects/project_template; git diff --quiet -- process/cairn/iss | ok |
 | 96 | 19:47:06 | tool | git_read | cd /Users/mosko/Projects/project_template; python3 - <<'PY' import pathlib p=pat | ok |
-| 97 | 19:47:20 | tool | message | →qa-engineer: I swept your comment into 7249f6c again — cite that sha; recorded  | ok |
+| 97 | 19:47:20 | tool | message | →qa-engineer: I swept your comment into 7249f6c again — cite that sha; recorded  | long(11 lines) |
 | 98 | 19:47:36 | tool | message | →team-lead: §9 palette premise was wrong (mine, unmeasured) — colour choice need | long(16 lines) |
 | 99 | 19:47:48 | text | report_text | Two things, and the pattern connecting them is the more useful report.  **implem | ok |
 | 100 | 19:48:22 | inbound | from:team-lead | <teammate-message teammate_id="team-lead" summary="Colour decision: dedicated fl | ok |
@@ -206,7 +206,7 @@ Waste classes (upper-case flags) map to PT-94 guardrails: FULL_RERUN_NO_CODE_CHA
 | 200 | 20:46:25 | inbound | from:team-lead | <teammate-message teammate_id="team-lead" summary="All PT-85 shas are in — head  | ok |
 | 201 | 20:46:32 | text | report_text | Already posted — but let me verify the sha relationship before saying so. | ok |
 | 202 | 20:46:35 | tool | git_write | cd /Users/mosko/Projects/project_template; git merge-base --is-ancestor 2ef458c  | ok |
-| 203 | 20:46:44 | tool | message | →team-lead: Verdict already posted at a4785fd — measured at 326b97e, whose code  | mentions_crossing |
+| 203 | 20:46:44 | tool | message | →team-lead: Verdict already posted at a4785fd — measured at 326b97e, whose code  | mentions_crossing long(9 lines) |
 | 204 | 20:46:54 | text | report_text | The verdict was already posted at `a4785fd` — our messages crossed.  It names `3 | ok |
 | 205 | 20:51:34 | inbound | from:team-lead | <teammate-message teammate_id="team-lead" summary="PT-85 merged (#171 → 1982756) | ok |
 | 206 | 20:51:43 | tool | git_read | cd /Users/mosko/Projects/project_template; git rev-parse --abbrev-ref HEAD; git  | ok |

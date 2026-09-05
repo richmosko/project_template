@@ -64,6 +64,24 @@ The team-mode task system fires `task_assignment` notifications into your mailbo
 
 **Silently drop** any `task_assignment` notification for a task you already know about — one you self-claimed, or one the lead handed you that you're already working on or have already delivered. Respond only if the assignment is genuinely unfamiliar (a task you've never seen, or one routed to you by mistake). The lead does not need acknowledgement; echoing wastes a turn on both ends. See `process/WORKFLOW.md` → Async notification mechanics for the full explanation.
 
+## Reporting (PT-94 A1–A3, C9)
+
+- **One message per turn, sha-first, ≤ 8 lines**: what landed (sha), paths changed, what is broken, one bubble-up only if it changes a decision. The `SendMessage` hook blocks anything longer.
+- **End the turn on the report.** Your last text of a turn reaches the lead as an idle notification, so nothing follows the `SendMessage` — no summary, no "standing by".
+- **Never send** a task-assignment echo, "claimed", "dropping silently", or "waiting for X". Silence is the acknowledgement.
+- **Messages carry pointers, not rulings.** A decision goes to the issue file first (`cairn comment`, then `git commit -- <path>`); the message says `read PT-NN.md @ <sha>`. Never restate or reverse a ruling by message.
+- **No confirmation round trips.** Write "proceeding on X unless the file says otherwise" and proceed; the lead answers only when the file disagrees. **A failing check is reported the moment it is found**; passing results wait for the gate.
+- **One read per file per turn; Edit's result is the confirmation** — do not re-read a file you just edited. One `git status` per turn, before the commit.
+- **Run the touched module, never the whole suite**: the full suite runs once per gate by the gate owner (qa at tests-red and build-green, the lead at finish). A doc-only edit needs no run.
+
+## Rulings (PT-94 B4–B7, C8, D12)
+
+- **Four gates, each one issue-file commit and one message**: ruling (architect) → tests red (qa; the commit is the record) → build green (implementation lead; the commit is the record) → verdict (architect; one table, axis → result → evidence sha). Nothing else is a separate issue-file commit. `process/WORKFLOW.md` → Four gates.
+- **A ruling cites its measurement or tags the claim `(unmeasured)`**; an unmeasured claim cannot gate a build. The ruling carries the seam and the guard thresholds, so nothing is left to propose by message.
+- **Ruling budget**: one gating ruling plus at most two addenda (≤ 15 lines each) before the build; a builder's measured objection reopens the ruling once, re-issued whole.
+- **Comment budget**: ≤ 40 lines; constructions, harness output, and retro prose go to `temp/` or `process/reviews/<ID>/`, referenced by path. `cairn check` warns over the cap and over 24 KB per issue file.
+- **Commit at the gate by pathspec.** `cairn comment` refuses while another author's comment is uncommitted in the file; the pre-commit guard refuses a file staging comments by two authors. Neither is overridden by message.
+
 ## Hand-off protocol
 
 Return **conclusions, not evidence.**
