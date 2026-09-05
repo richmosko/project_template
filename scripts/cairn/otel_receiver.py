@@ -813,10 +813,29 @@ def flush(
         # counts so an operator can tell a routine flush from a lossy one
         # at a glance.
         if dropped_count or straddling_count:
+            # Architect's review of c7b0068 (9c7915c): dropped and
+            # straddling groups are NOT the same loss and must not share
+            # one explanation. A dropped group's tokens were already
+            # counted by the backfill -- nothing is actually lost. A
+            # straddling group's PRE-stamp portion was also already
+            # counted, but its POST-stamp portion was never seen by the
+            # backfill and is discarded here anyway, because the group's
+            # value is one aggregate that can't be split (§2) -- that
+            # portion is real, deliberate data loss, not double-counting
+            # avoidance, and the log line is this loss's only visibility.
+            explanations = []
+            if dropped_count:
+                explanations.append("dropped groups' tokens were already counted by the backfill")
+            if straddling_count:
+                explanations.append(
+                    "straddling groups' pre-stamp portion was already counted by the backfill, but "
+                    "their post-stamp portion is discarded too -- the group's aggregate value can't "
+                    "be split, so that portion is genuinely lost, not merely deduplicated"
+                )
             print(
                 f"otel_receiver: flush vs backfill stamp {latest_backfill_generated} -- "
                 f"kept {kept_count}, dropped {dropped_count}, straddling {straddling_count} group(s) "
-                f"(dropped/straddling groups' tokens were already counted by the backfill)",
+                f"({'; '.join(explanations)})",
                 file=sys.stderr,
             )
 
