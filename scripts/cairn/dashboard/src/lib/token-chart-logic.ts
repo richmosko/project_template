@@ -19,8 +19,15 @@ export type TokenCounters = {
 	cost_usd: number | null;
 };
 
+// PT-84 §7: server-computed, never string-sniffed here -- the chart must
+// not infer a bar's kind by parsing the `milestone:` prefix off `issue`
+// itself (exactly the coupling §7 rejects; see build_tokens_payload's
+// _token_bucket_kind).
+export type TokenKind = 'issue' | 'milestone' | 'main';
+
 export type TokenIssueTotal = {
 	issue: string;
+	kind: TokenKind;
 	total: TokenCounters;
 	roles: Array<TokenCounters & { role: string }>;
 };
@@ -37,6 +44,11 @@ export type TokensPayload = {
 		unpriced_models: string[];
 	};
 	warning: string | null;
+	// PT-84 §7: one-clause explanation of what milestone bars are, null
+	// when the payload carries no milestone bucket -- server-composed
+	// (cairn.py's build_tokens_payload), appended VERBATIM by
+	// formatCaption below, never recomposed client-side.
+	milestone_caption: string | null;
 };
 
 // The raw value one issue contributes on the currently displayed axis --
@@ -80,17 +92,25 @@ export function tickEveryNth(barCount: number, plotWidthPx: number, labelWidthPx
 	return Math.max(1, Math.ceil(neededWidth / perBarWidth));
 }
 
+// PT-84 §6/§7: milestone bars get `main`'s existing treatment -- excluded
+// from the top-N ranking cut applied to real issues, never re-ranked by
+// their own value (they stay in PAYLOAD order, i.e. the server's own
+// creation-time order, cairn.milestone_rank_map) -- and are placed AFTER
+// the ranked/limited issue bars but BEFORE the trailing `main` bar (§6:
+// "milestone buckets rank after all issue bars and before main").
 export function selectBars(
 	issues: TokenIssueTotal[],
 	metric: Metric,
 	limit: number = DEFAULT_BAR_LIMIT,
 	showAll: boolean = false,
 ): TokenIssueTotal[] {
-	const real = issues.filter((i) => i.issue !== 'main');
-	const main = issues.find((i) => i.issue === 'main');
+	const real = issues.filter((i) => i.kind === 'issue');
+	const milestones = issues.filter((i) => i.kind === 'milestone');
+	const main = issues.find((i) => i.kind === 'main');
 	const ranked = [...real].sort((a, b) => barValue(b, metric) - barValue(a, metric));
 	const visible = showAll ? ranked : ranked.slice(0, limit);
-	return main ? [...visible, main] : visible;
+	const withMilestones = [...visible, ...milestones];
+	return main ? [...withMilestones, main] : withMilestones;
 }
 
 // Addendum's exact caption string shapes (verbatim sentence order):
@@ -124,6 +144,14 @@ export function formatCaption(payload: TokensPayload, metric: Metric, shown: num
 	const unpriced = payload.prices.unpriced_models ?? [];
 	if (unpriced.length > 0) {
 		parts.push(`${unpriced.length} model(s) have no published rate and are excluded from cost: ${unpriced.join(', ')}.`);
+	}
+
+	// PT-84 §7: appended VERBATIM, last -- server-composed
+	// (build_tokens_payload), never recomposed or reworded here. Absent
+	// (null) whenever the payload carries no milestone bucket, so a
+	// payload with none never mentions milestones at all.
+	if (payload.milestone_caption) {
+		parts.push(payload.milestone_caption);
 	}
 
 	return parts.join(' ');

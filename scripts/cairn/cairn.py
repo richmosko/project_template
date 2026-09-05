@@ -3450,7 +3450,7 @@ def build_tokens_payload(data_dir: Path, prices: Optional[Dict[str, Any]] = None
     milestone_caption = (
         "Milestone bars are main-branch work — filing, releases, between-loop "
         "planning — attributed to whichever milestone was active at the time, "
-        "not to any single issue"
+        "not to any single issue."
         if any(entry["kind"] == "milestone" for entry in issues_out)
         else None
     )

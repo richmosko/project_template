@@ -112,11 +112,16 @@
 	// (token-chart-logic.ts's selectBars -- team-lead's ruling: order
 	// follows the toggle; architect's ruling: selection is the necessary
 	// consequence). `main` is always appended last by selectBars itself,
-	// never part of the ranked cut, never subject to "Show all".
+	// never part of the ranked cut, never subject to "Show all". PT-84
+	// §6/§7: milestone bars get the same treatment -- `realCount`/
+	// `shownCount` (the caption's "top N of total issues" numbers) count
+	// only `kind: 'issue'` bars, exactly like `main` was already excluded;
+	// counting a milestone bar as a "shown issue" would make the caption
+	// lie about how many real issues are on screen.
 	const allIssues = $derived(tokens?.issues ?? []);
-	const realCount = $derived(allIssues.filter((i) => i.issue !== 'main').length);
+	const realCount = $derived(allIssues.filter((i) => i.kind === 'issue').length);
 	const displayedIssues = $derived(selectBars(allIssues, mode, DEFAULT_BAR_LIMIT, showAll));
-	const shownCount = $derived(displayedIssues.filter((i) => i.issue !== 'main').length);
+	const shownCount = $derived(displayedIssues.filter((i) => i.kind === 'issue').length);
 
 	// Cost view's role set is open-ended -- folded through roleTokenSeries
 	// so a role outside the 8-slot budget (or one of the two synthetic
@@ -146,7 +151,11 @@
 	);
 
 	function rowFor(issue: TokenIssueTotal): Record<string, string | number> {
-		const row: Record<string, string | number> = { issue: issue.issue };
+		// `kind` rides along on the chart datum so fillOpacity/onBarClick
+		// below can tell a milestone bar from a real issue without
+		// string-sniffing `issue` (PT-84 §7's whole point, extended to
+		// this component's own internals too).
+		const row: Record<string, string | number> = { issue: issue.issue, kind: issue.kind };
 		if (mode === 'cost') {
 			for (const r of issue.roles) {
 				const key = roleTokenSeries(r.role);
@@ -282,7 +291,12 @@
 	function onBarClick(_event: MouseEvent, detail: { data: Record<string, string | number> }): void {
 		const issue = detail.data.issue as string;
 		// Ruling § 4: main "must not look clickable" -- no drawer link.
-		if (issue === 'main') return;
+		// PT-84: a milestone bar gets the same treatment -- "milestone:
+		// <id>" is not an issue file the drawer can show, so it must not
+		// look clickable either (the drawer stays "unaffected" by opening
+		// on real issue bars only, exactly as before this feature).
+		const kind = detail.data.kind as string | undefined;
+		if (issue === 'main' || kind === 'main' || kind === 'milestone') return;
 		// Browser-verified defect (team-lead's re-check on b934262): the
 		// drawer never opened. Root cause -- App.svelte (PT-72) reads its
 		// OWN shell-level `?issue=<id>` query param and translates THAT
@@ -404,7 +418,9 @@
 								// explicitly supports fillOpacity as a per-datum
 								// accessor via resolveStyleProp -- this is the layer
 								// that actually reaches the rect.
-								fillOpacity: (d: Record<string, string | number>) => (d.issue === 'main' ? 0.55 : 1),
+								// PT-84 §4: milestone bars get main's existing muted
+								// treatment too -- "a muted variant, like main today".
+								fillOpacity: (d: Record<string, string | number>) => (d.kind === 'main' || d.kind === 'milestone' ? 0.55 : 1),
 							},
 						}}
 					>
