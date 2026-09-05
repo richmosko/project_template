@@ -93,7 +93,7 @@ ISSUE_TMPL = (
     "---\n\nBody.\n"
 )
 MAJOR_TMPL = "---\nid: {id}\nstatus: {status}\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n"
-MILESTONE_TMPL = "---\nid: {id}\nname: {name}\nkind: product\nmajor: PT-V1\nstatus: {status}\ntarget_tag: null\nga: false\n---\n\nBody.\n"
+MILESTONE_TMPL = "---\nid: {id}\nname: {name}\nkind: product\nmajor: PT-V1\nstatus: {status}\ntarget_tag: null\nga: false\n---\n\n{dod}\n"
 
 
 def _git(cwd: Path, *args: str, env: Optional[dict] = None) -> subprocess.CompletedProcess:
@@ -144,13 +144,21 @@ def _write_issue(data_dir: Path, *, id: str, status: str, milestone: Optional[st
     return path
 
 
-def _write_milestone(data_dir: Path, *, id: str, name: str, status: str = "in-progress") -> Path:
+def _write_milestone(data_dir: Path, *, id: str, name: str, status: str = "in-progress", dod: Optional[str] = None) -> Path:
     """A CURRENT milestone record -- `name`/`status` in the payload's
     `milestones` list come from these files as they stand at HEAD, per
     the ruling ("name/status come from the current milestone records"),
-    never from history."""
+    never from history. `dod` (definition-of-done body text) defaults to
+    something DISTINCT per (id, name) rather than a fixed literal --
+    PT-84's own lesson (test_windows_are_sorted_by_creation_time_not_by_id_string):
+    two milestone files with identical bodies differing only in
+    id/name/status trip git's `--follow` rename-detection false-merge
+    guard (cairn.MilestoneWindowError/the collision-drop path), which
+    matters the moment a test writes more than one milestone file into
+    the same fixture repo (as DefaultMilestoneTieBreakTests does)."""
     path = data_dir / "milestones" / f"{id}.md"
-    path.write_text(MILESTONE_TMPL.format(id=id, name=name, status=status), encoding="utf-8")
+    body = dod if dod is not None else f"Definition of done for {name} ({id})."
+    path.write_text(MILESTONE_TMPL.format(id=id, name=name, status=status, dod=body), encoding="utf-8")
     return path
 
 
