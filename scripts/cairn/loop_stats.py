@@ -1,0 +1,506 @@
+"""Per-loop scorecard and step-by-step transcript audit (PT-94 E16).
+
+`cairn loop-stats <ID>` prints the scorecard for the loop on the current
+feature branch: commits, chore commits, issue-file comments and ruling
+sections, KB added to the issue file, tests added, full-suite runs and
+messages to the lead (from the transcript dir, inside the loop's window),
+and $ from the tokens payload -- each against a soft cap. `--steps DIR`
+writes the per-agent step tables the PT-94 audit was made from: every
+tool call in order, classified, with waste flags.
+
+Transcripts are the harness's own `~/.claude/projects/<repo-slug>/*.jsonl`
+(same slug derivation as backfill_tokens); they decay, so the tables are
+the durable record, not the transcripts.
+"""
+from __future__ import annotations
+
+import collections
+import datetime
+import json
+import os
+import re
+import subprocess
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+CODE_EXT = (".py", ".js", ".mjs", ".ts", ".svelte", ".css", ".html", ".sh", ".yml", ".yaml", ".toml")
+
+DEFAULT_CAPS: Dict[str, int] = {"msgs_to_lead": 40, "ruling_sections": 3, "commits": 15, "full_suite_runs": 4}
+
+# A full-suite run: `unittest discover` with no -p/-k narrowing. A run
+# narrowed to one module, or `python -m unittest <module>`, is a module run.
+_FULL_RE = re.compile(r"unittest\s+discover")
+_CONFIRM_RE = re.compile(
+    r"(please confirm|confirm before|before (I|you) (proceed|build|touch|write|start|lock)|should I|shall I|"
+    r"your call|want me to|which (do you|would you)|ok to (proceed|build)|go ahead\?|awaiting your|"
+    r"need (your|a) (decision|ruling|confirmation|answer))", re.I)
+_STANDBY_RE = re.compile(r"(dropping (it )?silently|no reply needed|already (claimed|known)|standing by|"
+                         r"waiting (for|on) (the )?(architect|suite|ruling|verdict|lead|merge|teardown)|nothing to do)", re.I)
+_ECHO_RE = re.compile(r"^(claimed|task (claimed|updated|marked)|marked .* (done|complete)|noted\.?$)", re.I)
+_NARRATE_RE = re.compile(r"^(now|next|let'?s|let me|running|i'?ll|checking|good[,. ]|ok[,. ])", re.I)
+_CROSS_RE = re.compile(r"cross(ed|ing)", re.I)
+_RULING_RE = re.compile(r"\b(ruling|addendum|correction|verdict)\b", re.I)
+_COMMENT_HEADER_RE = re.compile(r"^### @(\S+) — (\S+)")
+
+
+def parse_ts(s: str) -> datetime.datetime:
+    return datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def records(path: Path, since: datetime.datetime, until: datetime.datetime) -> Iterable[Tuple[datetime.datetime, Dict[str, Any]]]:
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            try:
+                r = json.loads(line)
+            except Exception:
+                continue
+            ts = r.get("timestamp")
+            if not ts:
+                continue
+            try:
+                t = parse_ts(ts)
+            except Exception:
+                continue
+            if since <= t <= until:
+                yield t, r
+
+
+def text_of(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+    return ""
+
+
+def transcript_roles(transcripts_dir: Path) -> Dict[Path, str]:
+    """Role per transcript from the header: `agentSetting` (the harness's
+    own subagent_type) wins; a role-shaped `agentName` is the fallback; a
+    transcript with neither is the main session -> team-lead."""
+    out: Dict[Path, str] = {}
+    for p in sorted(Path(transcripts_dir).glob("*.jsonl")):
+        role = "team-lead"
+        try:
+            with open(p, encoding="utf-8") as f:
+                for i, line in enumerate(f):
+                    if i > 50:
+                        break
+                    try:
+                        r = json.loads(line)
+                    except Exception:
+                        continue
+                    if r.get("agentSetting"):
+                        role = r["agentSetting"]
+                        break
+                    # agentName is a spawn nickname or, on the main session, a
+                    # /rename title -- accept it only when it is shaped like a role.
+                    name = r.get("agentName")
+                    if name and re.fullmatch(r"[a-z][a-z0-9-]*", name):
+                        role = re.sub(r"-\d+$", "", name)
+                        break
+        except OSError:
+            continue
+        out[p] = role
+    return out
+
+
+# ---------------------------------------------------------------- classify
+
+def classify_bash(c: str) -> str:
+    c1 = c.strip()
+    if "unittest" in c1:
+        if _FULL_RE.search(c1) and " -p " not in c1 and " -k " not in c1:
+            return "FULL_SUITE"
+        return "module_test"
+    if "node --test" in c1 or "npm test" in c1:
+        return "js_suite"
+    if re.search(r"\bcairn\s+check\b", c1):
+        return "cairn_check"
+    if re.search(r"\bcairn\s+(comment|set|new)\b", c1):
+        return "cairn_write"
+    if re.search(r"\bcairn\s+(show|ls)\b", c1):
+        return "cairn_read"
+    if re.search(r"\bgit\s+commit\b", c1):
+        return "git_commit"
+    if re.search(r"\bgit\s+(push|checkout|switch|merge|rebase|stash|reset|add)\b", c1):
+        return "git_write"
+    if re.search(r"\bgit\s+(log|show|diff|status|rev-parse|branch|blame|cat-file|ls-files)\b", c1):
+        return "git_read"
+    if re.search(r"\bgh\s+pr\b", c1):
+        return "gh"
+    if re.search(r"^(cat|sed -n|head|tail|grep|rg|ls|wc|find|diff)\b", c1) or re.search(r"\|\s*(head|tail|grep|wc)\b", c1):
+        return "bash_read"
+    if re.search(r"\b(curl|wget)\b", c1):
+        return "http"
+    return "bash_other"
+
+
+def classify(name: str, inp: Dict[str, Any]) -> str:
+    if name == "Bash":
+        return classify_bash(inp.get("command", "") or "")
+    if name == "Read":
+        return "read"
+    if name in ("Grep", "Glob"):
+        return "search"
+    if name in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
+        return "edit"
+    if name == "SendMessage":
+        return "message"
+    if name in ("TaskCreate", "TaskUpdate", "TaskList", "TaskGet"):
+        return "task_tool"
+    if name.startswith("mcp__claude-in-chrome"):
+        return "browser"
+    return "other:" + name
+
+
+def classify_text_turn(txt: str) -> str:
+    t = txt.strip()
+    if _STANDBY_RE.search(t) and len(t) < 600:
+        return "idle:drop/standby"
+    if _ECHO_RE.search(t):
+        return "idle:task_echo"
+    if _NARRATE_RE.search(t) and len(t) < 300:
+        return "narration"
+    return "report_text"
+
+
+def _is_test_path(fp: str) -> bool:
+    return os.path.basename(fp).startswith("test_") or "/tests/" in fp or fp.endswith(".test.js")
+
+
+# ---------------------------------------------------------------- per-agent audit
+
+def audit_agent(path: Path, since: datetime.datetime, until: datetime.datetime, lead: bool = False):
+    """Every step of one transcript in the window, in order, with a class
+    and waste flags. Returns (steps, summary). A step is
+    (time, kind, class, detail, flags) with kind in inbound|text|tool.
+    `lead=True`: the main session's text turns face the user, not a
+    mailbox, so they are never idle waste."""
+    steps: List[Tuple[datetime.datetime, str, str, str, str]] = []
+    turn = 0
+    reads_this_turn: collections.Counter = collections.Counter()
+    reads_total: collections.Counter = collections.Counter()
+    edited_since_full: List[str] = []
+    last_full: Optional[datetime.datetime] = None
+    last_edit_path: Optional[str] = None
+    last_git_read: Optional[datetime.datetime] = None
+    msgs: List[Tuple[datetime.datetime, str, int]] = []
+    text_turns: collections.Counter = collections.Counter()
+    waste: collections.Counter = collections.Counter()
+
+    def add(t, kind, cls, detail, flags):
+        steps.append((t, kind, cls, detail, " ".join(flags)))
+        for f in flags:
+            head = f.split("(")[0]
+            if head[:1].isupper():
+                waste[head] += 1
+
+    for t, r in records(path, since, until):
+        typ = r.get("type")
+        m = r.get("message", {}) or {}
+        if typ == "user":
+            c = m.get("content")
+            is_tool_result = isinstance(c, list) and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in c)
+            if not is_tool_result:
+                turn += 1
+                reads_this_turn = collections.Counter()
+                inbound = text_of(c)
+                tag = re.search(r'teammate_id="([^"]+)"', inbound)
+                add(t, "inbound", "from:" + (tag.group(1) if tag else "user/system"), inbound[:110].replace("\n", " "), [])
+            continue
+        if typ != "assistant":
+            continue
+        content = m.get("content", [])
+        if not isinstance(content, list):
+            continue
+        tus = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
+        txt = text_of(content)
+        if not tus and txt.strip():
+            k = "report_text" if lead else classify_text_turn(txt)
+            text_turns[k] += 1
+            flags = ["IDLE_STANDBY"] if k == "idle:drop/standby" else (["TASK_ECHO"] if k == "idle:task_echo" else [])
+            add(t, "text", k, txt[:110].replace("\n", " "), flags)
+            continue
+        for b in tus:
+            inp = b.get("input", {}) or {}
+            cls = classify(b["name"], inp)
+            flags: List[str] = []
+            detail = ""
+            if cls == "read":
+                fp = inp.get("file_path", "") or ""
+                detail = fp
+                reads_this_turn[fp] += 1
+                reads_total[fp] += 1
+                if reads_this_turn[fp] > 1:
+                    flags.append("REREAD_SAME_TURN")
+                if fp == last_edit_path:
+                    flags.append("reread_after_own_edit")
+            elif cls == "edit":
+                fp = inp.get("file_path", "") or ""
+                detail = fp
+                last_edit_path = fp
+                edited_since_full.append(fp)
+            elif cls in ("FULL_SUITE", "module_test", "js_suite"):
+                cmd = inp.get("command", "") or ""
+                detail = cmd[:110].replace("\n", " ")
+                if cls == "FULL_SUITE":
+                    code_edits = [p for p in edited_since_full if p.endswith(CODE_EXT)]
+                    test_edits = [p for p in code_edits if _is_test_path(p)]
+                    src_edits = [p for p in code_edits if p not in test_edits]
+                    names = lambda ps: ",".join(sorted({os.path.basename(p) for p in ps}))
+                    if last_full is not None and not code_edits:
+                        flags.append("FULL_RERUN_NO_CODE_CHANGE(since %s; edits: %s)" % (last_full.strftime("%H:%M"), names(edited_since_full) or "none"))
+                    elif not src_edits and test_edits:
+                        flags.append("FULL_RUN_AFTER_TEST_ONLY_EDITS(%s)" % names(test_edits))
+                    elif src_edits:
+                        flags.append("full_run_after_src_edits(%s)" % names(src_edits))
+                    else:
+                        flags.append("first_full_run")
+                    last_full = t
+                    edited_since_full = []
+            elif cls == "message":
+                to = inp.get("to", "") or ""
+                body = inp.get("message", "") or ""
+                detail = "→%s: %s" % (to, (inp.get("summary") or body)[:90].replace("\n", " "))
+                if _CONFIRM_RE.search(body):
+                    flags.append("CONFIRM_ROUNDTRIP")
+                if _CROSS_RE.search(body):
+                    flags.append("mentions_crossing")
+                lines = body.count("\n") + 1
+                if lines > 8:
+                    flags.append("long(%d lines)" % lines)
+                msgs.append((t, to, lines))
+            elif cls == "git_read":
+                cmd = inp.get("command", "") or ""
+                detail = cmd[:110].replace("\n", " ")
+                if last_git_read and (t - last_git_read).total_seconds() < 120 and steps and steps[-1][2] == "git_read":
+                    flags.append("git_read_repeat")
+                last_git_read = t
+            elif cls == "git_commit":
+                cmd = inp.get("command", "") or ""
+                detail = cmd[:110].replace("\n", " ")
+                if " -- " not in cmd:
+                    flags.append("commit_not_pathspec")
+            elif cls == "task_tool":
+                detail = b["name"]
+                flags.append("task_tool")
+            else:
+                detail = (inp.get("command") or inp.get("pattern") or "")[:110].replace("\n", " ")
+            add(t, "tool", cls, detail, flags)
+
+    summary = {
+        "turns_inbound": turn,
+        "tool_calls": sum(1 for s in steps if s[1] == "tool"),
+        "by_class": collections.Counter(s[2] for s in steps if s[1] == "tool"),
+        "text_turns": text_turns,
+        "waste": waste,
+        "full_suite_runs": sum(1 for s in steps if s[2] == "FULL_SUITE"),
+        "messages": len(msgs),
+        "msgs_to_lead": sum(1 for x in msgs if x[1] == "team-lead"),
+        "msgs_to_peers": sum(1 for x in msgs if x[1] != "team-lead"),
+        "msg_lines_total": sum(x[2] for x in msgs),
+        "rereads_total": {os.path.basename(p): n for p, n in reads_total.items() if n >= 3},
+    }
+    return steps, summary
+
+
+def lead_inbound(path: Path, since: datetime.datetime, until: datetime.datetime):
+    """Teammate messages in a lead transcript: (time, from, direct|idle,
+    text, flag). An idle notification repeating >= 50 % of the words of the
+    direct message the same teammate sent within ten minutes is a dup."""
+    inbound = []
+    for t, r in records(path, since, until):
+        if r.get("type") != "user":
+            continue
+        txt = text_of((r.get("message") or {}).get("content"))
+        if "teammate-message" not in txt:
+            continue
+        tag = re.search(r'teammate_id="([^"]+)"', txt)
+        who = tag.group(1) if tag else "?"
+        body = re.sub(r"</?teammate-message[^>]*>", "", txt.split("sent a message:", 1)[-1]).strip()
+        kind, result = "direct", body
+        if body.startswith("{") and "idle_notification" in body[:80]:
+            kind = "idle"
+            try:
+                result = json.loads(body).get("result", "") or ""
+            except Exception:
+                result = body
+        inbound.append((t, who, kind, result))
+    last_direct: Dict[str, Tuple[datetime.datetime, set]] = {}
+    dup = 0
+    rows = []
+    for t, who, kind, txt in inbound:
+        words = set(re.findall(r"[a-z0-9`]{4,}", txt.lower()))
+        flag = ""
+        if kind == "direct":
+            last_direct[who] = (t, words)
+        else:
+            if who in last_direct and (t - last_direct[who][0]).total_seconds() < 600 and words:
+                ov = len(words & last_direct[who][1]) / len(words)
+                if ov >= 0.5:
+                    flag = "DUP_OF_DIRECT(%.0f%%)" % (ov * 100)
+                    dup += 1
+            if _STANDBY_RE.search(txt) and len(txt) < 600:
+                flag = (flag + " " if flag else "") + "standby"
+        rows.append((t, who, kind, txt[:100].replace("\n", " "), flag))
+    return rows, dup
+
+
+def write_steps(out_dir: Path, name: str, steps, since: str, until: str) -> Path:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    p = out_dir / f"steps-{name}.md"
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(f"# {name} — every step, {since} → {until}\n\n")
+        f.write("Upper-case flags are waste classes (PT-94): FULL_RERUN_NO_CODE_CHANGE / FULL_RUN_AFTER_TEST_ONLY_EDITS → C9; "
+                "CONFIRM_ROUNDTRIP → A3; IDLE_STANDBY / TASK_ECHO → A1; REREAD_SAME_TURN → one read per file per turn. "
+                "Lower-case flags are context.\n\n| # | time | kind | class | detail | verdict |\n|---|---|---|---|---|---|\n")
+        for i, (t, kind, cls, det, flags) in enumerate(steps, 1):
+            waste = [x for x in flags.split() if x[:1].isupper()]
+            verdict = ("waste: " + " ".join(waste)) if waste else (flags or "ok")
+            f.write(f"| {i} | {t.strftime('%H:%M:%S')} | {kind} | {cls} | {det[:80].replace('|', '¦')} | {verdict} |\n")
+    return p
+
+
+def write_lead_inbound(out_dir: Path, rows) -> Path:
+    p = Path(out_dir) / "lead-inbound.md"
+    with open(p, "w", encoding="utf-8") as f:
+        f.write("| # | time | from | kind | text | flag |\n|---|---|---|---|---|---|\n")
+        for i, (t, w, k, txt, fl) in enumerate(rows, 1):
+            f.write(f"| {i} | {t.strftime('%H:%M:%S')} | {w} | {k} | {txt.replace('|', '¦')} | {fl} |\n")
+    return p
+
+
+# ---------------------------------------------------------------- scorecard
+
+def _git(repo_root: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=repo_root, capture_output=True, text=True, check=True).stdout
+
+
+def _issue_path(data_dir: Path, issue_id: str) -> Optional[Path]:
+    for sub in ("issues", "archive/issues"):
+        p = Path(data_dir) / sub / f"{issue_id}.md"
+        if p.exists():
+            return p
+    return None
+
+
+def count_comments_and_rulings(text: str) -> Tuple[int, int]:
+    """Comments = `### @author — date` headers. Ruling sections = comment
+    blocks or headings whose first line names a ruling, addendum,
+    correction, or verdict."""
+    comments = 0
+    rulings = 0
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        if _COMMENT_HEADER_RE.match(line):
+            comments += 1
+            first = next((l for l in lines[i + 1:i + 4] if l.strip()), "")
+            if _RULING_RE.search(first):
+                rulings += 1
+        elif re.match(r"^#{2,4} ", line) and _RULING_RE.search(line):
+            rulings += 1
+    return comments, rulings
+
+
+def scorecard(repo_root: Path, data_dir: Path, issue_id: str, base: str = "main",
+              since: Optional[datetime.datetime] = None, until: Optional[datetime.datetime] = None,
+              transcripts_dir: Optional[Path] = None, caps: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
+    repo_root = Path(repo_root)
+    data_dir = Path(data_dir)
+    caps = dict(DEFAULT_CAPS if caps is None else caps)
+    rng = f"{base}..HEAD"
+    log = _git(repo_root, "log", "--format=%H%x1f%s%x1f%aI", rng).strip()
+    commits = [l.split("\x1f") for l in log.split("\n") if l]
+    chore = sum(1 for c in commits if re.match(r"^(chore|docs)\b", c[1]))
+    if since is None:
+        since = parse_ts(commits[-1][2]) if commits else datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)
+    if until is None:
+        until = datetime.datetime.now(datetime.timezone.utc)
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=datetime.timezone.utc)
+    if until.tzinfo is None:
+        until = until.replace(tzinfo=datetime.timezone.utc)
+    # git's %aI carries the committer's local offset; the card is labelled in UTC.
+    since = since.astimezone(datetime.timezone.utc)
+    until = until.astimezone(datetime.timezone.utc)
+
+    issue_path = _issue_path(data_dir, issue_id)
+    comments = rulings = 0
+    kb_added = 0.0
+    if issue_path is not None:
+        text = issue_path.read_text(encoding="utf-8")
+        comments, rulings = count_comments_and_rulings(text)
+        rel = os.path.relpath(issue_path, repo_root)
+        try:
+            base_text = _git(repo_root, "show", f"{base}:{rel}")
+        except subprocess.CalledProcessError:
+            base_text = ""
+        kb_added = round((len(text.encode("utf-8")) - len(base_text.encode("utf-8"))) / 1024, 1)
+
+    diff = _git(repo_root, "diff", rng)
+    tests_added = sum(1 for l in diff.split("\n") if re.match(r"^\+\s*(def test_|(test|it)\()", l))
+
+    full_runs = msgs_to_lead = idle = idle_dup = 0
+    per_agent: Dict[str, Dict[str, Any]] = {}
+    if transcripts_dir and Path(transcripts_dir).is_dir():
+        for p, role in transcript_roles(Path(transcripts_dir)).items():
+            steps, summ = audit_agent(p, since, until, lead=(role == "team-lead"))
+            if not steps:
+                continue
+            full_runs += summ["full_suite_runs"]
+            msgs_to_lead += summ["msgs_to_lead"]
+            per_agent[role if role not in per_agent else f"{role}-{p.stem[:8]}"] = summ
+            if role == "team-lead":
+                rows, dup = lead_inbound(p, since, until)
+                idle += sum(1 for r in rows if r[2] == "idle")
+                idle_dup += dup
+
+    cost = None
+    try:
+        import cairn  # local import: cairn imports nothing from here
+        payload = cairn.build_tokens_payload(data_dir)
+        for row in payload.get("issues", []):
+            if row.get("issue") == issue_id:
+                cost = row.get("total", {}).get("cost_usd")
+    except Exception:
+        cost = None
+
+    card: Dict[str, Any] = {
+        "issue": issue_id, "base": base,
+        "since": since.isoformat(), "until": until.isoformat(),
+        "commits": len(commits), "chore_commits": chore,
+        "comments": comments, "ruling_sections": rulings,
+        "issue_kb_added": kb_added, "tests_added": tests_added,
+        "suite_seconds_added": None,
+        "full_suite_runs": full_runs, "msgs_to_lead": msgs_to_lead,
+        "idle_notifications": idle, "idle_dup_of_direct": idle_dup,
+        "cost_usd": cost, "per_agent": per_agent,
+    }
+    card["caps"] = {k: {"cap": v, "value": card.get(k), "over": (card.get(k) or 0) > v} for k, v in caps.items()}
+    return card
+
+
+ROW_ORDER = ["commits", "chore_commits", "comments", "ruling_sections", "issue_kb_added", "tests_added",
+             "suite_seconds_added", "full_suite_runs", "msgs_to_lead", "idle_notifications", "idle_dup_of_direct", "cost_usd"]
+
+
+def format_scorecard(card: Dict[str, Any]) -> str:
+    out = [f"## Loop scorecard — {card['issue']}", "",
+           f"Window {card['since'][:16]}Z → {card['until'][:16]}Z, commits `{card['base']}..HEAD`. "
+           "A cap exceeded needs a one-line justification in the PR.", "",
+           "| metric | value | cap | status |", "|---|---|---|---|"]
+    for k in ROW_ORDER:
+        v = card.get(k)
+        shown = "(unmeasured — PT-93)" if k == "suite_seconds_added" and v is None else ("—" if v is None else v)
+        if k in card["caps"]:
+            c = card["caps"][k]
+            out.append(f"| {k} | {shown} | {c['cap']} | {'OVER' if c['over'] else 'ok'} |")
+        else:
+            out.append(f"| {k} | {shown} | — | — |")
+    if card.get("per_agent"):
+        out += ["", "| agent | tool calls | full-suite runs | msgs to lead | waste flags |", "|---|---|---|---|---|"]
+        for role, s in card["per_agent"].items():
+            w = ", ".join(f"{k} {n}" for k, n in sorted(s["waste"].items())) or "—"
+            out.append(f"| {role} | {s['tool_calls']} | {s['full_suite_runs']} | {s['msgs_to_lead']} | {w} |")
+    return "\n".join(out) + "\n"

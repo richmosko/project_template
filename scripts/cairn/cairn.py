@@ -33,6 +33,8 @@ Port override for `serve`: CAIRN_PORT=8899, or `--port`.
 """
 
 import argparse
+import subprocess
+import collections
 import datetime
 import hashlib
 import http.server
@@ -1641,6 +1643,8 @@ def check_repo(data_dir: Path) -> List[str]:
             f"fix: scripts/cairn/cairn migrate archive-issues --dry-run   (then re-run without --dry-run)"
         )
 
+    # PT-94 D13: the operative docs are linted with the data dir.
+    errors.extend(check_docs(data_dir))
     return errors
 
 
@@ -5542,6 +5546,13 @@ def cmd_comment(args: argparse.Namespace) -> int:
         print(f"error: no such record: {args.id}", file=sys.stderr)
         return 1
     body = sys.stdin.read() if args.body == "-" else args.body
+    # PT-94 E15: someone else's comment is uncommitted in this file -- an
+    # append now would ride in their pathspec commit (or theirs in yours).
+    foreign = uncommitted_comment_authors(path) - {args.author}
+    if foreign and not getattr(args, "allow_foreign", False):
+        print(f"error: {path.name} has an uncommitted comment by {', '.join('@' + a for a in sorted(foreign))} -- "
+              f"wait for it to be committed (or pass --allow-foreign if you are sweeping it in on purpose)", file=sys.stderr)
+        return 1
     append_comment(path, args.author, body)
     return 0
 
@@ -5920,6 +5931,10 @@ def cmd_archive(args: argparse.Namespace) -> int:
 def cmd_check(args: argparse.Namespace) -> int:
     data_dir = resolve_data_dir(args)
     errors = check_repo(data_dir)
+    # PT-94 B6 / D13 / D14: budgets warn, never fail -- the exit code is
+    # the lint's, and the warning is what the lead acts on at the next gate.
+    for w in check_budgets(data_dir):
+        print(f"warning: {w}", file=sys.stderr)
     if errors:
         for e in errors:
             print(e, file=sys.stderr)
@@ -6113,6 +6128,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_comment.add_argument("id")
     p_comment.add_argument("--author", required=True)
     p_comment.add_argument("--body", required=True, help="comment text, or '-' to read from stdin")
+    p_comment.add_argument("--allow-foreign", dest="allow_foreign", action="store_true", help="append even though another author's comment is uncommitted in the file (PT-94 E15)")
     p_comment.set_defaults(func=cmd_comment)
 
     p_show = sub.add_parser("show", parents=[common], help="print a single issue")
@@ -6141,6 +6157,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     p_check = sub.add_parser("check", parents=[common], help="lint the data dir")
     p_check.set_defaults(func=cmd_check)
+
+    # PT-94: gate head-match (C8), loop scorecard (E16), foreign-hunk guard (E15)
+    p_gate = sub.add_parser("gate", parents=[common], help="head-match check: is everything since the verified sha docs/tracker only?")
+    p_gate.add_argument("--head", required=True, metavar="VERIFIED_SHA", help="the sha the reviewer/qa measured")
+    p_gate.set_defaults(func=cmd_gate)
+
+    p_loop = sub.add_parser("loop-stats", parents=[common], help="per-loop scorecard for an issue's feature branch")
+    p_loop.add_argument("id")
+    p_loop.add_argument("--base", default="main")
+    p_loop.add_argument("--since", help="ISO timestamp; default: the branch's first commit")
+    p_loop.add_argument("--until", help="ISO timestamp; default: now")
+    p_loop.add_argument("--transcripts-dir", dest="transcripts_dir", help="override ~/.claude/projects/<repo-slug>")
+    p_loop.add_argument("--steps", metavar="DIR", help="also write the per-agent step tables here")
+    p_loop.add_argument("--json", action="store_true")
+    p_loop.set_defaults(func=cmd_loop_stats)
+
+    p_guard = sub.add_parser("guard-commit", parents=[common], help="pre-commit body: refuse a staged tracker file with comments by >1 author")
+    p_guard.set_defaults(func=cmd_guard_commit)
 
     # PT-28 (architect's ruling § 5): a NAMED migration, not a bare
     # "migrate" -- each one-shot tracker migration gets its own
@@ -6190,6 +6224,230 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_serve.set_defaults(func=cmd_serve)
 
     return parser
+
+
+# --------------------------------------------------------------------------
+# PT-94 guardrails: budgets, docs lint, gate head-match, foreign-hunk guard
+# --------------------------------------------------------------------------
+
+COMMENT_LINE_CAP = 40          # B6: an issue comment over this warns
+ISSUE_SIZE_CAP_BYTES = 24 * 1024  # D14: an issue file over this warns
+DOC_PARAGRAPH_SENTENCE_CAP = 8    # D13: a TRACKER/WORKFLOW paragraph over this warns
+# D13: instruction-shaped phrases fail the check in the operative docs --
+# what to do belongs in the sentence, the persuasion in the ledger.
+DOC_PHRASES = ("say why", "state both", "not just", "worth noting", "worth stating",
+               "flag it", "flag this", "flag that", "be sure to", "make sure to", "don't forget")
+DOC_LINT_FILES = ("TRACKER.md", "WORKFLOW.md")
+_COMMENT_HEADER_RE = re.compile(r"^### @(\S+) — (\S+)")
+_DIFF_COMMENT_HEADER_RE = re.compile(r"^\+### @(\S+) — ")
+_QUOTED_SPAN_RE = re.compile(r"`[^`]*`|\"[^\"]*\"|“[^”]*”")
+
+
+def _docs_dir(data_dir: Path) -> Path:
+    """The operative docs sit one level above the data dir (process/cairn -> process/)."""
+    return Path(data_dir).resolve().parent
+
+
+def _doc_paragraphs(text: str):
+    """(first_line_no, paragraph_text) for prose paragraphs -- tables,
+    headings, lists, quotes, and fenced code are skipped."""
+    lines = text.split("\n")
+    i = 0
+    in_fence = False
+    while i < len(lines):
+        if lines[i].lstrip().startswith("```"):
+            in_fence = not in_fence
+            i += 1
+            continue
+        if in_fence or not lines[i].strip():
+            i += 1
+            continue
+        start = i
+        block = []
+        while i < len(lines) and lines[i].strip() and not lines[i].lstrip().startswith("```"):
+            block.append(lines[i])
+            i += 1
+        first = block[0].lstrip()
+        if block[0][:1].isspace() or first.startswith(("|", "#", "-", "*", ">", "<")) or re.match(r"^\d+\.", first):
+            continue
+        yield start + 1, "\n".join(block)
+
+
+def check_docs(data_dir: Path) -> List[str]:
+    """D13 phrase lint on process/TRACKER.md and process/WORKFLOW.md: an
+    instruction-shaped phrase outside quotes, code spans, and fences is an
+    ERROR. Docs that don't exist are skipped."""
+    errors: List[str] = []
+    for name in DOC_LINT_FILES:
+        p = _docs_dir(data_dir) / name
+        if not p.exists():
+            continue
+        in_fence = False
+        for no, line in enumerate(p.read_text(encoding="utf-8").split("\n"), 1):
+            if line.lstrip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                continue
+            bare = _QUOTED_SPAN_RE.sub(" ", line).lower()
+            for phrase in DOC_PHRASES:
+                if re.search(r"\b" + re.escape(phrase) + r"\b", bare):
+                    errors.append(f"{name}:{no}: instruction-shaped phrase \"{phrase}\" -- operative text says what to do; the rationale goes to the ledger")
+    return errors
+
+
+def check_budgets(data_dir: Path) -> List[str]:
+    """Warnings, never errors: comments over COMMENT_LINE_CAP lines and
+    issue files over ISSUE_SIZE_CAP_BYTES (issues/ only -- archived files
+    are frozen history), and doc paragraphs over the sentence cap."""
+    warnings: List[str] = []
+    data_dir = Path(data_dir)
+    for p in _dir_glob(data_dir / "issues"):
+        text = p.read_text(encoding="utf-8")
+        size = len(text.encode("utf-8"))
+        if size > ISSUE_SIZE_CAP_BYTES:
+            warnings.append(f"{p.name} is {size / 1024:.1f} KB (cap {ISSUE_SIZE_CAP_BYTES // 1024} KB) -- move review logs to process/reviews/ or a linked file at the next gate")
+        lines = text.split("\n")
+        headers = [(i, m) for i, l in enumerate(lines) if (m := _COMMENT_HEADER_RE.match(l))]
+        for idx, (i, m) in enumerate(headers):
+            end = headers[idx + 1][0] if idx + 1 < len(headers) else len(lines)
+            block = lines[i + 1:end]
+            while block and not block[-1].strip():
+                block.pop()
+            while block and not block[0].strip():
+                block.pop(0)
+            if len(block) > COMMENT_LINE_CAP:
+                warnings.append(f"{p.name}: comment by @{m.group(1)} ({m.group(2)}) is {len(block)} lines (cap {COMMENT_LINE_CAP}) -- verdicts as a table, constructions to a review-log file")
+    for name in DOC_LINT_FILES:
+        doc = _docs_dir(data_dir) / name
+        if not doc.exists():
+            continue
+        for no, para in _doc_paragraphs(doc.read_text(encoding="utf-8")):
+            n = len(re.findall(r"[.!?](?:\s|$)", para))
+            if n > DOC_PARAGRAPH_SENTENCE_CAP:
+                warnings.append(f"{name}:{no}: paragraph has {n} sentences (cap {DOC_PARAGRAPH_SENTENCE_CAP})")
+    return warnings
+
+
+_DOCS_PREFIXES = ("process/", "docs/", "temp/")
+
+
+def gate_head_match(repo_root: Path, verified_sha: str) -> Tuple[bool, List[str], str]:
+    """C8: what changed between the verified sha and HEAD. Passes when every
+    changed path is docs or tracker (process/, docs/, temp/, or *.md).
+    Returns (ok, changed_paths, diff_stat)."""
+    rng = f"{verified_sha}..HEAD"
+    changed = [l for l in subprocess.run(["git", "diff", "--name-only", rng], cwd=repo_root, capture_output=True, text=True, check=True).stdout.split("\n") if l]
+    stat = subprocess.run(["git", "diff", "--stat", rng], cwd=repo_root, capture_output=True, text=True, check=True).stdout
+    ok = all(p.startswith(_DOCS_PREFIXES) or p.endswith(".md") for p in changed)
+    return ok, changed, stat
+
+
+def cmd_gate(args: argparse.Namespace) -> int:
+    root = _git_toplevel(Path.cwd())
+    if root is None:
+        print("error: not inside a git repository", file=sys.stderr)
+        return 1
+    try:
+        ok, changed, stat = gate_head_match(root, args.head)
+    except subprocess.CalledProcessError as e:
+        print(f"error: git diff failed: {e.stderr.strip()}", file=sys.stderr)
+        return 1
+    print(stat.rstrip() or "(no changes)")
+    non_docs = [p for p in changed if not (p.startswith(_DOCS_PREFIXES) or p.endswith(".md"))]
+    if ok:
+        print(f"PASS: {args.head[:7]}..HEAD is docs/tracker only ({len(changed)} path(s)); the verified code is at HEAD")
+        return 0
+    print(f"FAIL: {len(non_docs)} non-docs path(s) changed since {args.head[:7]}: " + ", ".join(non_docs))
+    return 1
+
+
+def _git_toplevel(start: Path) -> Optional[Path]:
+    try:
+        out = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=start, capture_output=True, text=True, check=True).stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    return Path(out) if out else None
+
+
+def _added_comment_authors(diff_text: str) -> Set[str]:
+    return {m.group(1) for l in diff_text.split("\n") if (m := _DIFF_COMMENT_HEADER_RE.match(l))}
+
+
+def uncommitted_comment_authors(path: Path) -> Set[str]:
+    """Authors of comment headers the working tree adds over HEAD for
+    `path`. Empty outside a git repo or for an untracked file."""
+    path = Path(path)
+    root = _git_toplevel(path.parent)
+    if root is None:
+        return set()
+    r = subprocess.run(["git", "diff", "HEAD", "--", str(path)], cwd=root, capture_output=True, text=True)
+    if r.returncode != 0:
+        return set()
+    return _added_comment_authors(r.stdout)
+
+
+def cmd_guard_commit(args: argparse.Namespace) -> int:
+    """`cairn guard-commit` (E15, the pre-commit hook's body): refuse when a
+    staged tracker file adds comments by more than one author -- someone
+    else's uncommitted hunk is riding in this commit."""
+    root = _git_toplevel(Path.cwd())
+    if root is None:
+        return 0
+    staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=root, capture_output=True, text=True).stdout.split("\n")
+    bad = []
+    for rel in staged:
+        if not rel or not rel.endswith(".md") or "/cairn/" not in ("/" + rel):
+            continue
+        diff = subprocess.run(["git", "diff", "--cached", "--", rel], cwd=root, capture_output=True, text=True).stdout
+        authors = _added_comment_authors(diff)
+        if len(authors) > 1:
+            bad.append((rel, sorted(authors)))
+    if not bad:
+        return 0
+    for rel, authors in bad:
+        print(f"guard-commit: {rel} stages comments by {', '.join('@' + a for a in authors)} -- a pathspec commit carries every uncommitted hunk in the file; commit your own comment only (the other author commits theirs)", file=sys.stderr)
+    return 1
+
+
+def cmd_loop_stats(args: argparse.Namespace) -> int:
+    import loop_stats  # sibling module; imported here so `cairn` stays import-light
+    data_dir = resolve_data_dir(args)
+    root = _git_toplevel(Path.cwd()) or data_dir.resolve().parent.parent
+    tdir = Path(args.transcripts_dir) if args.transcripts_dir else _default_transcripts_dir(root)
+    since = loop_stats.parse_ts(args.since) if args.since else None
+    until = loop_stats.parse_ts(args.until) if args.until else None
+    try:
+        card = loop_stats.scorecard(root, data_dir, args.id, base=args.base, since=since, until=until, transcripts_dir=tdir)
+    except subprocess.CalledProcessError as e:
+        print(f"error: git failed: {e.stderr.strip() if e.stderr else e}", file=sys.stderr)
+        return 1
+    if args.steps:
+        out = Path(args.steps)
+        s, u = loop_stats.parse_ts(card["since"]), loop_stats.parse_ts(card["until"])
+        seen: Dict[str, int] = {}
+        for p, role in loop_stats.transcript_roles(tdir).items():
+            steps, _ = loop_stats.audit_agent(p, s, u, lead=(role == "team-lead"))
+            if not steps:
+                continue
+            seen[role] = seen.get(role, 0) + 1
+            name = role if seen[role] == 1 else f"{role}-{p.stem[:8]}"
+            loop_stats.write_steps(out, name, steps, card["since"][:16], card["until"][:16])
+            if role == "team-lead":
+                rows, _ = loop_stats.lead_inbound(p, s, u)
+                loop_stats.write_lead_inbound(out, rows)
+        print(f"steps written to {out}", file=sys.stderr)
+    if args.json:
+        card = dict(card)
+        card["per_agent"] = {k: {kk: (dict(vv) if isinstance(vv, collections.Counter) else vv) for kk, vv in v.items()} for k, v in card["per_agent"].items()}
+        print(json.dumps(card, indent=1, default=str))
+    else:
+        print(loop_stats.format_scorecard(card), end="")
+    return 0
+
+
+def _default_transcripts_dir(repo_root: Path) -> Path:
+    return Path.home() / ".claude" / "projects" / re.sub(r"[/_.]", "-", str(Path(repo_root).resolve()))
 
 
 def main(argv: Optional[List[str]] = None) -> int:
