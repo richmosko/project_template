@@ -615,3 +615,105 @@ class TrackerDocumentsUtcDayConventionTests(unittest.TestCase):
             f"without reading the line that computes `day`) is exactly the mistake an unstated "
             f"convention invites the next reader to repeat -- got window: {window!r}",
         )
+
+
+# --------------------------------------------------------------------------
+# ce521a5: legacy (pre-PT-28) milestone ids in issue blobs are unprefixed --
+# "0.4" instead of "PT-0.4" -- and split into a phantom ghost entry unless
+# folded. Assignment (which milestone, at that event) stays historical;
+# identity (how it's named) is canonical. Canonicalise: strip quotes,
+# prefix with the tracker's configured prefix if absent, accept ONLY if
+# the result matches a known milestone record, else keep the raw value as
+# its own `name: null` ghost.
+#
+# Verified before writing these (not assumed): parse_frontmatter's own
+# scalar parser already strips quotes generically (`raw[1:-1]` for both
+# quote styles) BEFORE any milestone-specific code sees the value, so a
+# bare and a quoted-bare legacy id parse to the IDENTICAL python string.
+# A "prefix-only, quote-unaware" implementation is therefore not a
+# distinguishable bug shape in THIS reader -- both forms are included
+# below anyway (cheap, and the underlying corpus really does have both),
+# but neither is framed as its own discriminating mutation target.
+# --------------------------------------------------------------------------
+
+class LegacyMilestoneIdCanonicalizationTests(unittest.TestCase):
+    def test_an_unprefixed_legacy_milestone_id_folds_into_its_canonical_prefixed_record(self):
+        data_dir = make_flow_git_repo(self)
+        repo_root = data_dir.parent.parent
+        _write_milestone(data_dir, id="PT-0.4", name="Legacy migration fixture")
+        _commit_at(repo_root, "add milestone record PT-0.4", "2026-08-09 12:00:00 +0000")
+
+        # Early history: bare, unprefixed id -- the real pre-PT-28 shape.
+        _write_issue(data_dir, id="PT-20", status="todo", milestone="0.4")
+        _commit_at(repo_root, "create PT-20 under bare 0.4", "2026-08-10 10:00:00 +0000")
+        # Later: same issue, same milestone, now prefixed (post-migration).
+        _write_issue(data_dir, id="PT-20", status="in-progress", milestone="PT-0.4")
+        _commit_at(repo_root, "PT-20 -> in-progress under PT-0.4", "2026-08-11 10:00:00 +0000")
+
+        payload = _call_flow_payload(data_dir)
+        ids = _milestone_ids(payload)
+        self.assertIn("PT-0.4", ids, f"got {ids!r}")
+        self.assertNotIn(
+            "0.4", ids,
+            f"the bare id must fold into its canonical record, not survive as a separate "
+            f"ghost -- got {ids!r}",
+        )
+
+        points = _points_by_date(payload["series"])
+        day1 = points.get("2026-08-10", {})
+        self.assertEqual(
+            _by_milestone(day1, "PT-0.4")["opened"], 1,
+            f"the EARLY, bare-id activity must land under the CANONICAL id, not be lost or split "
+            f"-- got {_by_milestone(day1, 'PT-0.4')!r}",
+        )
+
+    def test_a_quoted_legacy_milestone_id_also_folds_into_its_canonical_record(self):
+        data_dir = make_flow_git_repo(self)
+        repo_root = data_dir.parent.parent
+        _write_milestone(data_dir, id="PT-0.5", name="Legacy migration fixture 2")
+        _commit_at(repo_root, "add milestone record PT-0.5", "2026-08-09 12:00:00 +0000")
+
+        # Quoted bare id -- the same YAML-quoting artifact PT-87 found in
+        # milestone frontmatter (id: "0.3").
+        _write_issue(data_dir, id="PT-21", status="todo", milestone='"0.5"')
+        _commit_at(repo_root, "create PT-21 under quoted bare 0.5", "2026-08-10 10:00:00 +0000")
+
+        payload = _call_flow_payload(data_dir)
+        ids = _milestone_ids(payload)
+        self.assertIn("PT-0.5", ids, f"got {ids!r}")
+        self.assertNotIn("0.5", ids, f"got {ids!r}")
+        self.assertNotIn('"0.5"', ids, f"the surrounding quote characters must never leak into an id -- got {ids!r}")
+
+        points = _points_by_date(payload["series"])
+        day1 = points.get("2026-08-10", {})
+        self.assertEqual(
+            _by_milestone(day1, "PT-0.5")["opened"], 1,
+            f"got {_by_milestone(day1, 'PT-0.5')!r}",
+        )
+
+    def test_an_unresolvable_bare_milestone_id_survives_as_its_own_ghost_entry(self):
+        # PT-89's own lesson, reapplied (architect's own framing): the
+        # canonicalization fold makes every REAL legacy id resolve, which
+        # means nothing in normal fixtures exercises the "doesn't match
+        # any known record" fallback any more. Without a fixture built
+        # specifically to hit it, that branch could be deleted or broken
+        # and every other test would stay green.
+        data_dir = make_flow_git_repo(self)
+        repo_root = data_dir.parent.parent
+        # Deliberately NO milestones/PT-0.99.md record exists anywhere.
+        _write_issue(data_dir, id="PT-22", status="todo", milestone="0.99")
+        _commit_at(repo_root, "create PT-22 under unresolvable bare 0.99", "2026-08-10 10:00:00 +0000")
+
+        payload = _call_flow_payload(data_dir)
+        matches = [m for m in payload["milestones"] if m.get("id") == "0.99"]
+        self.assertEqual(
+            len(matches), 1,
+            f"an unresolvable bare id (no matching PT-0.99 record anywhere) must survive as its "
+            f"own entry, raw, rather than being silently dropped or force-matched -- "
+            f"got {payload['milestones']!r}",
+        )
+        self.assertIsNone(
+            matches[0].get("name"),
+            f"an unresolvable id's entry must have name: null (a genuine ghost), same shape as "
+            f"a historical id with no current file -- got {matches[0]!r}",
+        )
