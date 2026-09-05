@@ -71,7 +71,7 @@ import helpers  # noqa: F401
 
 DASHBOARD_SRC = helpers.CAIRN_DIR / "dashboard" / "src"
 APP_CSS = DASHBOARD_SRC / "app.css"
-BOARD_VARIANTS_CSS = helpers.CAIRN_DIR / "board" / "variants.css"
+DASHBOARD_VARIANTS_CSS = helpers.CAIRN_DIR / "dashboard" / "src" / "variants.css"
 FLOW_CHART_SVELTE = DASHBOARD_SRC / "lib" / "components" / "IssueFlowChart.svelte"
 
 # The retired ordinal ramp's six step names -- must never appear in the
@@ -93,7 +93,7 @@ ROLE_COLLISION_HUE_FLOOR_DEGREES = 25.0
 # team-lead's decision (69bee40): the three interim tokens must not
 # coincide with a --chart-role-* hue used on the SAME dashboard
 # (TokenCostChart.svelte) -- role-1..8 are fixed/global (not
-# variant-scoped -- confirmed: 0 occurrences in board/variants.css).
+# variant-scoped -- confirmed: 0 occurrences in dashboard/src/variants.css).
 # Checked in BOTH :root and .dark separately (architect's own note: a
 # scan finding identical hues across modes is an observation, not a
 # guarantee -- this file measures each block, never assumes they match).
@@ -245,8 +245,8 @@ class CategoricalHueSeparationTests(unittest.TestCase):
         self.assertTrue(dark_block, f"{APP_CSS} has no .dark block (or doesn't exist)")
 
         variants = {"__default__": {"light": "", "dark": ""}}
-        if BOARD_VARIANTS_CSS.is_file():
-            variants_source = BOARD_VARIANTS_CSS.read_text(encoding="utf-8")
+        if DASHBOARD_VARIANTS_CSS.is_file():
+            variants_source = DASHBOARD_VARIANTS_CSS.read_text(encoding="utf-8")
             for name, is_dark, body in _find_chart_variant_blocks(variants_source):
                 variants.setdefault(name, {})["dark" if is_dark else "light"] = body
 
