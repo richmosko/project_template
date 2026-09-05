@@ -234,11 +234,20 @@ class MainBarNotClickableTests(unittest.TestCase):
         # naive `bars\s*:\s*\{[^}]*\}` match): fillOpacity: must appear
         # shortly AFTER a `bars:` key, referencing 'main', with nothing
         # that looks like a sibling top-level prop key in between.
-        fill_opacity_prop = re.search(r"fillOpacity\s*:\s*\([^)]*\)\s*=>[^\n]*issue\s*===\s*['\"]main['\"]", source)
+        # PT-84 (implementation-lead, 57fc0f2): the muting condition
+        # legitimately widened from `issue === 'main'` to
+        # `kind === 'main' || kind === 'milestone'` -- PT-84 §7's own
+        # principle (never string-sniff `issue`, use the server-computed
+        # `kind` field, even for this internal check). A bare widened
+        # regex would pass against ANY condition text, so this asserts
+        # the actual new condition -- both clauses present, not just
+        # loosened matching -- per team-lead's instruction not to merely
+        # widen the pattern into a no-op.
+        fill_opacity_stmt = re.search(r"fillOpacity\s*:\s*\([^)]*\)\s*=>\s*\([^)]*\)", source)
         bars_key = re.search(r"\bbars\s*:\s*\{", source)
         bars_scoped_fill_opacity = (
-            bool(fill_opacity_prop) and bool(bars_key)
-            and bars_key.start() < fill_opacity_prop.start() < bars_key.start() + 1500
+            bool(fill_opacity_stmt) and bool(bars_key)
+            and bars_key.start() < fill_opacity_stmt.start() < bars_key.start() + 1500
         )
         self.assertTrue(
             bool(class_or_style_directive) or bars_scoped_fill_opacity,
@@ -247,6 +256,18 @@ class MainBarNotClickableTests(unittest.TestCase):
             "props.bars (the layer layerchart's <Bar> component actually honors -- a bare "
             "top-level fillOpacity= prop on <BarChart> is confirmed NOT to reach the DOM)",
         )
+        if bars_scoped_fill_opacity:
+            fill_opacity_body = fill_opacity_stmt.group(0)
+            self.assertIn(
+                "kind === 'main'", fill_opacity_body,
+                f"the bars-scoped fillOpacity condition dropped the 'main' clause entirely -- "
+                f"got {fill_opacity_body!r}",
+            )
+            self.assertIn(
+                "kind === 'milestone'", fill_opacity_body,
+                f"PT-84 requires milestone bars to share main's muted treatment, but the "
+                f"fillOpacity condition covers 'main' without 'milestone' -- got {fill_opacity_body!r}",
+            )
         top_level_fill_opacity = re.search(r"<BarChart[^>]*\bfillOpacity=", source)
         self.assertIsNone(
             top_level_fill_opacity,
