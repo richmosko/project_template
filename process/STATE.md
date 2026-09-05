@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Attribute main-branch token usage to the active milestone as milestone overhead |
-| Issue | PT-84 (cairn) |
-| Milestone | PT-0.12 (telemetry attribution) |
-| Branch | `feature/pt-84-milestone-overhead` |
-| Started | 2026-09-04 |
-| Goal | Main-branch usage lands in a per-milestone overhead bucket derived from the tracker's own dates, in both collectors and on the chart, instead of one unexplained `main` bar. |
-| Status | In Review — [PR #168](https://github.com/richmosko/project_template/pull/168) |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Releases
 
