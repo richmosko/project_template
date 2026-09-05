@@ -37,13 +37,21 @@ Hue-angle separation, computed directly from each token's own declared
 OKLCH values -- no dependency on the external dataviz validator (which
 is ordinal-shape-specific and may not even be present on a given
 harness; every pre-existing ramp test here already skips gracefully
-without it). A floor of 20 degrees between every pair is used: the
-retired ramp's own adjacent steps spanned roughly 6-13 degrees each
-(see the measured table in this ticket's architect comments), so 20
-degrees is comfortably outside "one more ramp step" while still modest
-enough not to dictate the actual color choice (ux-designer's call,
-per the ruling) -- this floor exists to catch a REGRESSION back to
-ramp-shaped reuse, not to bless a specific palette.
+without it). Thresholds are the architect's own PRE-REGISTERED numbers
+(9336826, published before the build, derived from the actual
+--chart-role-* palette so they are achievable rather than invented):
+- **ΔH >= 60 degrees** between every pair of the three flow tokens
+  (the retired ramp was 36 degrees across six steps, ~7 degrees
+  adjacent; 60 is comfortably outside ramp territory and the widest
+  achievable gap in the role palette is 65.6 degrees worst-case, so
+  this is satisfiable with margin, not aspirational).
+- **ΔH >= 25 degrees** from every `--chart-role-*` hue (the achievable
+  maximum given the role palette's own gaps is ~30 degrees, so 25
+  leaves headroom rather than pinning the answer to one placement).
+Both checked in light AND dark separately -- the architect's own note:
+a scan finding the same role hues across modes is an observation, not
+a guarantee, so this file measures each block rather than assuming
+they match.
 
 Nothing under test exists yet in its final form: `IssueFlowChart.svelte`'s
 `SERIES_COLOR` map is mid-flight (as of this file's writing, still
@@ -77,14 +85,18 @@ RETIRED_RAMP_NAMES = {
 # for these three series either.
 BASE_RAMP_NAMES = {f"--chart-{i}" for i in range(1, 6)}
 
-HUE_SEPARATION_FLOOR_DEGREES = 20.0
+# Architect's pre-registered thresholds (9336826), derived from the
+# actual --chart-role-* palette so they are achievable, not invented.
+FLOW_PAIRWISE_HUE_FLOOR_DEGREES = 60.0
+ROLE_COLLISION_HUE_FLOOR_DEGREES = 25.0
 
 # team-lead's decision (69bee40): the three interim tokens must not
 # coincide with a --chart-role-* hue used on the SAME dashboard
 # (TokenCostChart.svelte) -- role-1..8 are fixed/global (not
-# variant-scoped -- confirmed: 0 occurrences in board/variants.css, and
-# :root/.dark declare identical values), so this check needs no
-# per-variant resolution of its own.
+# variant-scoped -- confirmed: 0 occurrences in board/variants.css).
+# Checked in BOTH :root and .dark separately (architect's own note: a
+# scan finding identical hues across modes is an observation, not a
+# guarantee -- this file measures each block, never assumes they match).
 CHART_ROLE_NAMES = tuple(f"--chart-role-{i}" for i in range(1, 9))
 
 _VAR_REF_RE = re.compile(r"var\((--[\w-]+)\)")
@@ -260,11 +272,12 @@ class CategoricalHueSeparationTests(unittest.TestCase):
                     for a, b in pairs:
                         distance = _hue_distance(hues[a], hues[b])
                         self.assertGreaterEqual(
-                            distance, HUE_SEPARATION_FLOOR_DEGREES,
+                            distance, FLOW_PAIRWISE_HUE_FLOOR_DEGREES,
                             f"{variant_name}/{mode}: '{a}' ({hues[a]:.1f} deg) and '{b}' "
                             f"({hues[b]:.1f} deg) are only {distance:.1f} deg apart -- below the "
-                            f"{HUE_SEPARATION_FLOOR_DEGREES} deg floor for 'tell apart at a "
-                            f"glance', the same defect the retired ramp had",
+                            f"{FLOW_PAIRWISE_HUE_FLOOR_DEGREES} deg floor (architect's pre-"
+                            f"registered constraint 1, 9336826) for 'tell apart at a glance', "
+                            f"the same defect the retired ramp had",
                         )
 
 
@@ -274,31 +287,42 @@ class NoCollisionWithChartRolePaletteTests(unittest.TestCase):
     sibling block on the same dashboard, already uses that palette to
     mean specific roster roles; an identical hue on the flow chart would
     read as "this bar is architect's work" to a reader who has seen the
-    other chart."""
+    other chart. Threshold is the architect's pre-registered constraint
+    2 (9336826): >=25 deg from every role hue, checked in :root and
+    .dark SEPARATELY (their own note: matching hues across modes today
+    is an observation, not a guarantee)."""
 
-    def test_no_flow_series_hue_matches_a_chart_role_hue(self):
+    def _role_hues(self, block: str, block_label: str) -> Dict[str, float]:
+        role_hues = {}
+        for name in CHART_ROLE_NAMES:
+            oklch = _oklch_in_block(block, name)
+            self.assertIsNotNone(oklch, f"{name} not found in app.css {block_label} -- expected the fixed role palette")
+            role_hues[name] = oklch[2]
+        return role_hues
+
+    def test_no_flow_series_hue_matches_a_chart_role_hue_in_either_mode(self):
         tokens = _series_color_tokens()
         app_css_source = APP_CSS.read_text(encoding="utf-8") if APP_CSS.is_file() else ""
         root_block = _extract_unqualified_block(app_css_source, ":root")
-        self.assertTrue(root_block, f"{APP_CSS} has no :root block (or doesn't exist)")
-
-        role_hues = {}
-        for name in CHART_ROLE_NAMES:
-            oklch = _oklch_in_block(root_block, name)
-            self.assertIsNotNone(oklch, f"{name} not found in app.css :root -- expected the fixed role palette")
-            role_hues[name] = oklch[2]
-
         dark_block = _extract_unqualified_block(app_css_source, ".dark")
-        for series, var_name in tokens.items():
-            oklch = _resolve_oklch(var_name, "", root_block, dark_block, is_dark=False)
-            self.assertIsNotNone(oklch, f"could not resolve '{series}' token {var_name!r} in app.css")
-            series_hue = oklch[2]
-            for role_name, role_hue in role_hues.items():
-                distance = _hue_distance(series_hue, role_hue)
-                self.assertGreaterEqual(
-                    distance, HUE_SEPARATION_FLOOR_DEGREES,
-                    f"'{series}' ({var_name}, {series_hue:.1f} deg) is only {distance:.1f} deg "
-                    f"from {role_name} ({role_hue:.1f} deg) -- TokenCostChart.svelte uses that hue "
-                    f"to mean a specific roster role; the same hue on the flow chart would read "
-                    f"as that role's work, not '{series}'",
-                )
+        self.assertTrue(root_block, f"{APP_CSS} has no :root block (or doesn't exist)")
+        self.assertTrue(dark_block, f"{APP_CSS} has no .dark block (or doesn't exist)")
+
+        for mode, block, is_dark in (("light", root_block, False), ("dark", dark_block, True)):
+            with self.subTest(mode=mode):
+                role_hues = self._role_hues(block, f"({mode})")
+                for series, var_name in tokens.items():
+                    oklch = _resolve_oklch(var_name, "", root_block, dark_block, is_dark=is_dark)
+                    self.assertIsNotNone(oklch, f"{mode}: could not resolve '{series}' token {var_name!r} in app.css")
+                    series_hue = oklch[2]
+                    for role_name, role_hue in role_hues.items():
+                        distance = _hue_distance(series_hue, role_hue)
+                        self.assertGreaterEqual(
+                            distance, ROLE_COLLISION_HUE_FLOOR_DEGREES,
+                            f"{mode}: '{series}' ({var_name}, {series_hue:.1f} deg) is only "
+                            f"{distance:.1f} deg from {role_name} ({role_hue:.1f} deg) -- below "
+                            f"the {ROLE_COLLISION_HUE_FLOOR_DEGREES} deg floor (architect's "
+                            f"pre-registered constraint 2, 9336826). TokenCostChart.svelte uses "
+                            f"that hue to mean a specific roster role; the same hue on the flow "
+                            f"chart would read as that role's work, not '{series}'",
+                        )
