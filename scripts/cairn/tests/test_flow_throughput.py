@@ -3,7 +3,8 @@ per-period opened/closed/WIP/cancelled, milestone-scoped -- derived from
 the SAME git walk `_compute_flow_payload` (PT-61) already does.
 
 Pinned to the architect's gating ruling, process/cairn/issues/PT-85.md
-("@architect -- 2026-09-05", commit 409d310) -- read it before anything
+("@architect -- 2026-09-05", commit 409d310, §3 corrected at e974a0e/
+123aa54, payload shape pinned at 2f8eba0) -- read it before anything
 else.
 
 ## The trap this file exists to catch (§2)
@@ -32,28 +33,47 @@ issues edited in place (status flips), an issue moved to
 critically -- one single commit that archives SEVERAL issues at once
 (the §2 trap's natural habitat, per PT-84's measured 7-file shape).
 
-## What this file does NOT cover yet
+## §3 (corrected): day buckets are UTC
 
-The period-boundary (local vs UTC day) question is open -- the ruling's
-§3 claims today's day-bucketing is "local, not UTC", but reading
-`_parse_flow_events` shows it converts every commit to UTC via
-`.astimezone(utc)` before taking `.date()`, which is UTC bucketing, not
-local. Flagged to team-lead/architect; every fixture below uses
-unambiguous UTC (`+0000`) commit times so it is not exercised here
-either way (same sidestep test_dashboard_flow.py's own `_commit_at`
-docstring already uses). A dedicated boundary test lands once that's
-resolved.
+The architect's original ruling claimed today's day-bucketing is
+"local, not UTC"; both implementation-lead and I independently read
+`_parse_flow_events` and found it does `.astimezone(utc).date()` --
+UTC bucketing. Corrected at e974a0e, verified by execution at 123aa54.
+`UtcDayBoundaryTests` below is the discriminating fixture (a late-
+evening local-offset commit that lands on the next UTC day) -- a
+fixture built only from mid-day commits cannot tell the two
+conventions apart.
 
-## Payload schema (agreed with implementation-lead -- update if it
-changes)
+## Payload schema (pinned by the architect at 2f8eba0 -- the third,
+authoritative revision; my two earlier guesses in this file's history
+used a wrong `throughput: {overall, by_milestone}` wrapper and then a
+bare `milestone` key/plain-string milestones list)
 
-`build_flow_payload`'s payload gains a `throughput` key:
-    {"overall": [{"date": ..., "opened": N, "closed": N, "wip": N, "cancelled": N}, ...],
-     "by_milestone": {"<milestone-id>": [ ...same shape... ], ...}}
-plus `milestones` (available ids) and `default_milestone` (most recent
-activity). `_call_flow_throughput` below asserts the shape exists with a
-clear message before any test relies on it, so a schema mismatch fails
-loudly rather than as a buried KeyError.
+    {"period": "day",
+     "series": [{"date": "YYYY-MM-DD",
+                 "opened": n, "closed": n, "cancelled": n, "wip": n,
+                 "by_milestone": {"<id>": {"opened": n, "closed": n,
+                                           "cancelled": n, "wip": n}, ...}}],
+     "milestones": [{"id": "...", "name": "..."|null, "status": "..."|null}],
+     "default_milestone": "<id>"|null,
+     "as_of": "<head sha>", "scope": "...", "warning": "..."|absent}
+
+Top-level `opened`/`closed`/`cancelled`/`wip` are OVERALL (every stem,
+including any with no milestone recorded). `by_milestone` is DENSE once
+a milestone has first appeared -- every already-seen milestone appears
+on EVERY later point, zeros for the deltas and the CARRIED value for
+`wip` (never absent, since a missing day would ambiguously mean either
+"zero delta" or "unchanged WIP" -- the ruling's own point: mixing two
+gap semantics in one sparse structure is PT-85's defect reproduced in
+the schema). `default_milestone`'s "activity" is a TRANSITION (nonzero
+opened/closed/cancelled), never standing WIP alone, else an abandoned
+milestone with stale in-progress issues would stay the default forever.
+`period` names the granularity the SERVER emits (always "day" -- the
+client aggregates for the week toggle: sum opened/closed/cancelled,
+take the LAST wip of the week, never a sum/mean of WIP).
+`_call_flow_payload` below asserts the top-level keys exist with a
+clear message before any test relies on them, so a schema mismatch
+fails loudly rather than as a buried KeyError.
 """
 from __future__ import annotations
 
@@ -73,6 +93,7 @@ ISSUE_TMPL = (
     "---\n\nBody.\n"
 )
 MAJOR_TMPL = "---\nid: {id}\nstatus: {status}\nowner: mosko\ntarget_ship: null\nhealth: on-track\n---\n\nBody.\n"
+MILESTONE_TMPL = "---\nid: {id}\nname: {name}\nkind: product\nmajor: PT-V1\nstatus: {status}\ntarget_tag: null\nga: false\n---\n\nBody.\n"
 
 
 def _git(cwd: Path, *args: str, env: Optional[dict] = None) -> subprocess.CompletedProcess:
@@ -82,10 +103,11 @@ def _git(cwd: Path, *args: str, env: Optional[dict] = None) -> subprocess.Comple
 
 
 def _commit_at(repo_root: Path, message: str, when: str) -> None:
-    """`when`: git raw date, e.g. '2026-08-10 10:00:00 +0000' -- always
-    UTC (+0000), same sidestep test_dashboard_flow.py's own `_commit_at`
-    already takes, since the local-vs-UTC day convention is unresolved
-    (see module docstring)."""
+    """`when`: git raw date, e.g. '2026-08-10 10:00:00 +0000' (UTC) or
+    '2026-03-10 23:30:00 -0700' (a local offset, for UtcDayBoundaryTests
+    specifically -- every other fixture uses +0000 so the day-convention
+    question is never accidentally exercised by tests that aren't about
+    it)."""
     env = dict(os.environ)
     env["GIT_AUTHOR_DATE"] = when
     env["GIT_COMMITTER_DATE"] = when
@@ -122,25 +144,46 @@ def _write_issue(data_dir: Path, *, id: str, status: str, milestone: Optional[st
     return path
 
 
-def _call_flow_throughput(data_dir: Path) -> dict:
-    """Every test routes through here so a missing/mis-shaped throughput
-    payload fails with one clear message instead of an opaque KeyError."""
+def _write_milestone(data_dir: Path, *, id: str, name: str, status: str = "in-progress") -> Path:
+    """A CURRENT milestone record -- `name`/`status` in the payload's
+    `milestones` list come from these files as they stand at HEAD, per
+    the ruling ("name/status come from the current milestone records"),
+    never from history."""
+    path = data_dir / "milestones" / f"{id}.md"
+    path.write_text(MILESTONE_TMPL.format(id=id, name=name, status=status), encoding="utf-8")
+    return path
+
+
+def _call_flow_payload(data_dir: Path) -> dict:
+    """Every test routes through here so a missing/mis-shaped payload
+    fails with one clear message instead of an opaque KeyError."""
     assert hasattr(cairn, "build_flow_payload"), (
         "cairn.build_flow_payload does not exist -- PT-61's chart data source is unimplemented"
     )
     payload = cairn.build_flow_payload(data_dir)
-    assert "throughput" in payload, (
-        f"PT-85's payload must carry a top-level 'throughput' key -- got top-level keys "
-        f"{sorted(payload.keys())!r}"
-    )
-    throughput = payload["throughput"]
-    assert "overall" in throughput, f"throughput must carry an 'overall' series -- got {sorted(throughput.keys())!r}"
-    assert "by_milestone" in throughput, f"throughput must carry 'by_milestone' -- got {sorted(throughput.keys())!r}"
+    for key in ("series", "milestones", "default_milestone", "period"):
+        assert key in payload, (
+            f"PT-85's payload must carry '{key}' -- got top-level keys {sorted(payload.keys())!r}"
+        )
     return payload
 
 
 def _points_by_date(points: list) -> dict:
     return {p["date"]: p for p in points}
+
+
+def _milestone_ids(payload: dict) -> set:
+    return {m["id"] for m in payload["milestones"]}
+
+
+def _by_milestone(point: dict, milestone_id: str) -> dict:
+    """A milestone sub-point. Once a milestone has appeared, the ruling
+    (2f8eba0, change 1) requires it DENSE on every later point -- a
+    missing key past that point is itself a bug. Before a milestone's
+    first appearance, absence is correct; tests that need to
+    distinguish the two check for KEY PRESENCE explicitly rather than
+    relying on this default."""
+    return point.get("by_milestone", {}).get(milestone_id, {"opened": 0, "closed": 0, "cancelled": 0, "wip": 0})
 
 
 # --------------------------------------------------------------------------
@@ -163,17 +206,17 @@ class SeenStemsOpenedOnceTests(unittest.TestCase):
             _git(repo_root, "mv", f"process/cairn/issues/{stem}.md", f"process/cairn/archive/issues/{stem}.md")
         _commit_at(repo_root, "bulk archive PT-1/2/3", "2026-08-11 10:00:00 +0000")
 
-        payload = _call_flow_throughput(data_dir)
-        overall = _points_by_date(payload["throughput"]["overall"])
+        payload = _call_flow_payload(data_dir)
+        points = _points_by_date(payload["series"])
         self.assertEqual(
-            overall["2026-08-10"]["opened"], 3,
-            f"day 1 (three real creations) must show opened: 3 -- got {overall.get('2026-08-10')!r}",
+            points["2026-08-10"]["opened"], 3,
+            f"day 1 (three real creations) must show opened: 3 -- got {points.get('2026-08-10')!r}",
         )
         self.assertEqual(
-            overall["2026-08-11"]["opened"], 0,
+            points["2026-08-11"]["opened"], 0,
             f"a bulk-archive-move day (three files re-appearing under a new path, same stems) must "
             f"show opened: 0, not 3 -- a stem-appearance-based 'opened' would wrongly spike here, "
-            f"got {overall.get('2026-08-11')!r}",
+            f"got {points.get('2026-08-11')!r}",
         )
 
 
@@ -194,13 +237,50 @@ class DeleteDoesNotClearSeenStemsTests(unittest.TestCase):
         _write_issue(data_dir, id="PT-4", status="todo")
         _commit_at(repo_root, "re-add PT-4", "2026-08-12 10:00:00 +0000")
 
-        payload = _call_flow_throughput(data_dir)
-        overall = _points_by_date(payload["throughput"]["overall"])
-        self.assertEqual(overall["2026-08-10"]["opened"], 1, "the original creation is a real open")
+        payload = _call_flow_payload(data_dir)
+        points = _points_by_date(payload["series"])
+        self.assertEqual(points["2026-08-10"]["opened"], 1, "the original creation is a real open")
         self.assertEqual(
-            overall["2026-08-12"]["opened"], 0,
+            points["2026-08-12"]["opened"], 0,
             f"re-adding a previously-deleted stem must NOT count as a new open -- "
-            f"got {overall.get('2026-08-12')!r}",
+            f"got {points.get('2026-08-12')!r}",
+        )
+
+
+# --------------------------------------------------------------------------
+# §3 (corrected, e974a0e): day buckets are UTC, not local-offset --
+# demonstrated by the architect at 123aa54 (a 23:30 PDT commit buckets to
+# the NEXT UTC day). A fixture built entirely from mid-day commits passes
+# under either convention and so cannot detect a silent flip -- this one
+# deliberately can't.
+# --------------------------------------------------------------------------
+
+class UtcDayBoundaryTests(unittest.TestCase):
+    def test_a_late_evening_local_commit_buckets_to_the_next_utc_day(self):
+        data_dir = make_flow_git_repo(self)
+        repo_root = data_dir.parent.parent
+        _write_issue(data_dir, id="PT-15", status="todo")
+        # 23:30 PDT (-0700) on 2026-03-10 is 06:30 UTC on 2026-03-11 --
+        # the exact case the architect measured directly against
+        # _parse_flow_events (123aa54).
+        _commit_at(repo_root, "create PT-15 late evening PDT", "2026-03-10 23:30:00 -0700")
+
+        payload = _call_flow_payload(data_dir)
+        points = _points_by_date(payload["series"])
+        self.assertNotIn(
+            "2026-03-10", points,
+            f"a commit at 23:30 PDT on 2026-03-10 must NOT bucket to the LOCAL calendar day -- "
+            f"got points {sorted(points.keys())!r}",
+        )
+        self.assertIn(
+            "2026-03-11", points,
+            f"a commit at 23:30 PDT on 2026-03-10 (06:30 UTC on 2026-03-11) must bucket to the "
+            f"UTC day 2026-03-11 -- got points {sorted(points.keys())!r}",
+        )
+        self.assertEqual(
+            points["2026-03-11"]["opened"], 1,
+            f"the late-evening-PDT creation must be the sole open on the UTC day -- "
+            f"got {points['2026-03-11']!r}",
         )
 
 
@@ -224,16 +304,16 @@ class ClosedKeysOnTransitionTests(unittest.TestCase):
         _git(repo_root, "mv", "process/cairn/issues/PT-5.md", "process/cairn/archive/issues/PT-5.md")
         _commit_at(repo_root, "archive already-done PT-5", "2026-08-12 10:00:00 +0000")
 
-        payload = _call_flow_throughput(data_dir)
-        overall = _points_by_date(payload["throughput"]["overall"])
+        payload = _call_flow_payload(data_dir)
+        points = _points_by_date(payload["series"])
         self.assertEqual(
-            overall["2026-08-11"]["closed"], 1,
-            f"the actual done-transition is the one real close -- got {overall.get('2026-08-11')!r}",
+            points["2026-08-11"]["closed"], 1,
+            f"the actual done-transition is the one real close -- got {points.get('2026-08-11')!r}",
         )
         self.assertEqual(
-            overall["2026-08-12"]["closed"], 0,
+            points["2026-08-12"]["closed"], 0,
             f"archiving an ALREADY-done issue must not re-count it as closed -- there is no status "
-            f"transition on the archive-move day -- got {overall.get('2026-08-12')!r}",
+            f"transition on the archive-move day -- got {points.get('2026-08-12')!r}",
         )
 
     def test_a_transition_into_cancelled_counts_as_neither_opened_nor_closed(self):
@@ -246,21 +326,21 @@ class ClosedKeysOnTransitionTests(unittest.TestCase):
         _write_issue(data_dir, id="PT-6", status="cancelled")
         _commit_at(repo_root, "PT-6 -> cancelled", "2026-08-11 10:00:00 +0000")
 
-        payload = _call_flow_throughput(data_dir)
-        overall = _points_by_date(payload["throughput"]["overall"])
-        self.assertEqual(overall["2026-08-10"]["opened"], 1)
+        payload = _call_flow_payload(data_dir)
+        points = _points_by_date(payload["series"])
+        self.assertEqual(points["2026-08-10"]["opened"], 1)
         self.assertEqual(
-            overall["2026-08-11"]["closed"], 0,
-            f"a transition into cancelled must NOT count as closed -- got {overall.get('2026-08-11')!r}",
+            points["2026-08-11"]["closed"], 0,
+            f"a transition into cancelled must NOT count as closed -- got {points.get('2026-08-11')!r}",
         )
         self.assertEqual(
-            overall["2026-08-11"].get("opened", 0), 0,
+            points["2026-08-11"].get("opened", 0), 0,
             f"a transition into cancelled must not count as a fresh open either -- "
-            f"got {overall.get('2026-08-11')!r}",
+            f"got {points.get('2026-08-11')!r}",
         )
         self.assertEqual(
-            overall["2026-08-11"]["cancelled"], 1,
-            f"the cancelled count must reflect the transition -- got {overall.get('2026-08-11')!r}",
+            points["2026-08-11"]["cancelled"], 1,
+            f"the cancelled count must reflect the transition -- got {points.get('2026-08-11')!r}",
         )
 
 
@@ -282,16 +362,16 @@ class WipEndOfPeriodTests(unittest.TestCase):
         _write_issue(data_dir, id="PT-7", status="done")
         _commit_at(repo_root, "PT-7 -> done, same day", "2026-08-10 18:00:00 +0000")
 
-        payload = _call_flow_throughput(data_dir)
-        overall = _points_by_date(payload["throughput"]["overall"])
+        payload = _call_flow_payload(data_dir)
+        points = _points_by_date(payload["series"])
         self.assertEqual(
-            overall["2026-08-10"]["wip"], 0,
+            points["2026-08-10"]["wip"], 0,
             f"PT-7 passed THROUGH in-progress but is 'done' by the end of the period -- WIP is "
             f"point-in-time at period END, not 'was ever in-progress during the period' -- "
-            f"got {overall.get('2026-08-10')!r}",
+            f"got {points.get('2026-08-10')!r}",
         )
         self.assertEqual(
-            overall["2026-08-10"]["closed"], 1,
+            points["2026-08-10"]["closed"], 1,
             "the same-period done transition is still a real close",
         )
 
@@ -304,12 +384,12 @@ class WipEndOfPeriodTests(unittest.TestCase):
         _write_issue(data_dir, id="PT-8", status="in-progress")
         _commit_at(repo_root, "PT-8 -> in-progress", "2026-08-11 10:00:00 +0000")
 
-        payload = _call_flow_throughput(data_dir)
-        overall = _points_by_date(payload["throughput"]["overall"])
+        payload = _call_flow_payload(data_dir)
+        points = _points_by_date(payload["series"])
         self.assertEqual(
-            overall["2026-08-11"]["wip"], 1,
+            points["2026-08-11"]["wip"], 1,
             f"PT-8 is in-progress at the end of 2026-08-11 with no later event -- must count as "
-            f"WIP -- got {overall.get('2026-08-11')!r}",
+            f"WIP -- got {points.get('2026-08-11')!r}",
         )
 
     def test_in_review_also_counts_as_wip_backlog_and_todo_do_not(self):
@@ -321,12 +401,12 @@ class WipEndOfPeriodTests(unittest.TestCase):
         _write_issue(data_dir, id="PT-11", status="todo")
         _commit_at(repo_root, "create PT-9/10/11", "2026-08-10 10:00:00 +0000")
 
-        payload = _call_flow_throughput(data_dir)
-        overall = _points_by_date(payload["throughput"]["overall"])
+        payload = _call_flow_payload(data_dir)
+        points = _points_by_date(payload["series"])
         self.assertEqual(
-            overall["2026-08-10"]["wip"], 1,
+            points["2026-08-10"]["wip"], 1,
             f"only in-review (PT-9) counts as WIP; backlog/todo (PT-10/PT-11) are queue depth, "
-            f"not work in flight -- got {overall.get('2026-08-10')!r}",
+            f"not work in flight -- got {points.get('2026-08-10')!r}",
         )
 
 
@@ -347,56 +427,191 @@ class MilestoneFromBlobAtEventTests(unittest.TestCase):
         _write_issue(data_dir, id="PT-12", status="in-progress", milestone="PT-0.2")
         _commit_at(repo_root, "PT-12 moves to PT-0.2", "2026-08-11 10:00:00 +0000")
 
-        payload = _call_flow_throughput(data_dir)
-        by_milestone = payload["throughput"]["by_milestone"]
-        self.assertIn("PT-0.1", by_milestone, f"expected a PT-0.1 bucket -- got {sorted(by_milestone.keys())!r}")
-        self.assertIn("PT-0.2", by_milestone, f"expected a PT-0.2 bucket -- got {sorted(by_milestone.keys())!r}")
+        payload = _call_flow_payload(data_dir)
+        ids = _milestone_ids(payload)
+        self.assertIn("PT-0.1", ids, f"expected PT-0.1 in the scope list -- got {ids!r}")
+        self.assertIn("PT-0.2", ids, f"expected PT-0.2 in the scope list -- got {ids!r}")
 
-        pt01_points = _points_by_date(by_milestone["PT-0.1"])
-        pt02_points = _points_by_date(by_milestone["PT-0.2"])
+        points = _points_by_date(payload["series"])
+        day1 = points.get("2026-08-10", {})
         self.assertEqual(
-            pt01_points.get("2026-08-10", {}).get("opened", 0), 1,
+            _by_milestone(day1, "PT-0.1")["opened"], 1,
             f"PT-12's creation must be attributed to PT-0.1, the milestone recorded AT THAT EVENT -- "
-            f"got PT-0.1's 2026-08-10 point: {pt01_points.get('2026-08-10')!r}",
+            f"got day1's PT-0.1 sub-point: {_by_milestone(day1, 'PT-0.1')!r}",
         )
         self.assertEqual(
-            pt02_points.get("2026-08-10", {}).get("opened", 0), 0,
+            _by_milestone(day1, "PT-0.2")["opened"], 0,
             f"the creation must NOT be retroactively moved to PT-0.2 (today's/latest milestone) -- "
-            f"got PT-0.2's 2026-08-10 point: {pt02_points.get('2026-08-10')!r}",
+            f"got day1's PT-0.2 sub-point: {_by_milestone(day1, 'PT-0.2')!r}",
         )
 
 
 # --------------------------------------------------------------------------
-# Payload shape sanity -- overall/by_milestone use the same point shape,
-# and milestone metadata for the scope control is present.
+# 2f8eba0 change 1: by_milestone is DENSE once a milestone has first
+# appeared -- a gap day still carries a zeroed delta and the CARRIED wip,
+# never absence (absence would mix two incompatible gap semantics: delta
+# fields treat a missing day as zero, wip treats it as unchanged).
+# --------------------------------------------------------------------------
+
+class ByMilestoneDensityTests(unittest.TestCase):
+    def test_a_milestone_stays_present_with_zero_deltas_and_carried_wip_on_a_day_with_no_events_for_it(self):
+        data_dir = make_flow_git_repo(self)
+        repo_root = data_dir.parent.parent
+
+        _write_issue(data_dir, id="PT-16", status="in-progress", milestone="PT-0.4")
+        _commit_at(repo_root, "create PT-16 under PT-0.4, in-progress", "2026-08-10 10:00:00 +0000")
+
+        # A day with an event for a DIFFERENT (unrelated) stem/milestone --
+        # PT-0.4 itself has no event on this day, but has already appeared.
+        _write_issue(data_dir, id="PT-17", status="todo", milestone="PT-0.5")
+        _commit_at(repo_root, "create PT-17 under PT-0.5", "2026-08-11 10:00:00 +0000")
+
+        payload = _call_flow_payload(data_dir)
+        points = _points_by_date(payload["series"])
+        day2 = points["2026-08-11"]
+        self.assertIn(
+            "PT-0.4", day2.get("by_milestone", {}),
+            f"PT-0.4 already appeared on 2026-08-10 -- it must stay present (dense), not vanish "
+            f"on a day it had no events -- got by_milestone keys {list(day2.get('by_milestone', {}).keys())!r}",
+        )
+        self.assertEqual(
+            _by_milestone(day2, "PT-0.4"),
+            {"opened": 0, "closed": 0, "cancelled": 0, "wip": 1},
+            f"PT-0.4's deltas must be zeroed (no event that day) but wip must be CARRIED (still 1, "
+            f"PT-16 is still in-progress) -- got {_by_milestone(day2, 'PT-0.4')!r}",
+        )
+
+
+# --------------------------------------------------------------------------
+# 2f8eba0 change 3: default_milestone's "activity" is a TRANSITION, never
+# standing WIP alone -- else an abandoned milestone with stale in-progress
+# issues stays the default forever.
+# --------------------------------------------------------------------------
+
+class DefaultMilestoneRequiresTransitionTests(unittest.TestCase):
+    def test_a_milestone_with_only_standing_wip_and_no_transitions_is_never_the_default(self):
+        data_dir = make_flow_git_repo(self)
+        repo_root = data_dir.parent.parent
+
+        # Milestone A: a real transition (open) on day 1.
+        _write_issue(data_dir, id="PT-18", status="todo", milestone="PT-0.6")
+        _commit_at(repo_root, "create PT-18 under PT-0.6", "2026-08-10 10:00:00 +0000")
+        _write_issue(data_dir, id="PT-18", status="in-progress", milestone="PT-0.6")
+        _commit_at(repo_root, "PT-18 -> in-progress under PT-0.6", "2026-08-11 10:00:00 +0000")
+
+        # Day 3: PT-18's milestone field alone changes to PT-0.7 (status
+        # stays in-progress -- no transition). PT-18 was already
+        # seen_stems'd under PT-0.6, so this produces NO opened/closed/
+        # cancelled anywhere; PT-0.7 only ever gets standing WIP.
+        _write_issue(data_dir, id="PT-18", status="in-progress", milestone="PT-0.7")
+        _commit_at(repo_root, "PT-18 moves to PT-0.7, still in-progress", "2026-08-12 10:00:00 +0000")
+
+        payload = _call_flow_payload(data_dir)
+        ids = _milestone_ids(payload)
+        self.assertIn("PT-0.7", ids, f"PT-0.7 must still appear in the scope list -- got {ids!r}")
+        self.assertEqual(
+            payload["default_milestone"], "PT-0.6",
+            f"PT-0.7 has standing WIP but ZERO transitions ever -- it must never become the "
+            f"default despite being the most recently touched milestone; PT-0.6 (the milestone "
+            f"with the actual open/close activity) must remain the default -- got "
+            f"default_milestone={payload['default_milestone']!r}",
+        )
+
+
+# --------------------------------------------------------------------------
+# Payload shape sanity -- per-point overall fields, milestone metadata for
+# the scope control, and the server-emitted granularity marker.
 # --------------------------------------------------------------------------
 
 class ThroughputPayloadShapeTests(unittest.TestCase):
-    def test_every_overall_point_carries_opened_closed_wip_cancelled(self):
+    def test_every_point_carries_opened_closed_wip_cancelled_and_a_by_milestone_breakdown(self):
         data_dir = make_flow_git_repo(self)
         repo_root = data_dir.parent.parent
         _write_issue(data_dir, id="PT-13", status="todo")
         _commit_at(repo_root, "create PT-13", "2026-08-10 10:00:00 +0000")
 
-        payload = _call_flow_throughput(data_dir)
-        expected_keys = {"date", "opened", "closed", "wip", "cancelled"}
-        for point in payload["throughput"]["overall"]:
+        payload = _call_flow_payload(data_dir)
+        expected_keys = {"date", "opened", "closed", "wip", "cancelled", "by_milestone"}
+        for point in payload["series"]:
             self.assertEqual(
                 set(point.keys()), expected_keys,
-                f"every throughput point must carry exactly {expected_keys} -- got {point!r}",
+                f"every series point must carry exactly {expected_keys} -- got {point!r}",
             )
+            self.assertIsInstance(point["by_milestone"], dict, f"'by_milestone' must be a dict -- got {point['by_milestone']!r}")
 
-    def test_milestones_list_and_default_milestone_are_present(self):
+    def test_period_is_day(self):
+        data_dir = make_flow_git_repo(self)
+        payload = _call_flow_payload(data_dir)
+        self.assertEqual(
+            payload["period"], "day",
+            f"the server emits day granularity only -- the client aggregates weeks itself -- "
+            f"got period={payload['period']!r}",
+        )
+
+    def test_milestones_list_carries_id_name_status_dicts_and_default_milestone_is_present(self):
         data_dir = make_flow_git_repo(self)
         repo_root = data_dir.parent.parent
+        _write_milestone(data_dir, id="PT-0.3", name="Throughput chart", status="in-progress")
         _write_issue(data_dir, id="PT-14", status="todo", milestone="PT-0.3")
         _commit_at(repo_root, "create PT-14 under PT-0.3", "2026-08-10 10:00:00 +0000")
 
-        payload = _call_flow_throughput(data_dir)
-        self.assertIn("milestones", payload, f"expected a top-level 'milestones' list for the scope control -- got {sorted(payload.keys())!r}")
-        self.assertIn("PT-0.3", payload["milestones"], f"got {payload['milestones']!r}")
-        self.assertIn("default_milestone", payload, f"expected a top-level 'default_milestone' -- got {sorted(payload.keys())!r}")
+        payload = _call_flow_payload(data_dir)
+        matches = [m for m in payload["milestones"] if m.get("id") == "PT-0.3"]
+        self.assertEqual(len(matches), 1, f"expected exactly one PT-0.3 entry -- got {payload['milestones']!r}")
+        self.assertEqual(
+            matches[0].get("name"), "Throughput chart",
+            f"name must come from the CURRENT milestone record -- got {matches[0]!r}",
+        )
         self.assertEqual(
             payload["default_milestone"], "PT-0.3",
             "the only milestone with any activity must be the default",
+        )
+
+    def test_a_milestone_id_seen_only_in_history_with_no_current_file_still_appears_with_null_name(self):
+        # The ruling's own instruction: dropping a historical id with no
+        # CURRENT milestone file would erase history from the scope
+        # control, which is the one thing this list exists to expose.
+        data_dir = make_flow_git_repo(self)
+        repo_root = data_dir.parent.parent
+        _write_issue(data_dir, id="PT-19", status="todo", milestone="PT-0.8")
+        _commit_at(repo_root, "create PT-19 under long-gone PT-0.8", "2026-08-10 10:00:00 +0000")
+        # Deliberately no milestones/PT-0.8.md file at all.
+
+        payload = _call_flow_payload(data_dir)
+        matches = [m for m in payload["milestones"] if m.get("id") == "PT-0.8"]
+        self.assertEqual(
+            len(matches), 1,
+            f"a milestone id seen in the WALK must appear even with no current file -- "
+            f"got {payload['milestones']!r}",
+        )
+        self.assertIsNone(
+            matches[0].get("name"),
+            f"with no current milestone file, name must be null, not fabricated -- got {matches[0]!r}",
+        )
+
+
+# --------------------------------------------------------------------------
+# AC 5: TRACKER.md documents the day-bucketing convention explicitly --
+# the architect's own §3 mistake (inferring "local" from %cI without
+# reading the line that computes `day`) is exactly what an unstated
+# convention invites the next reader to repeat.
+# --------------------------------------------------------------------------
+
+class TrackerDocumentsUtcDayConventionTests(unittest.TestCase):
+    def test_tracker_states_api_flow_day_bucketing_is_utc(self):
+        tracker_path = helpers.TESTS_DIR.parent.parent.parent / "process" / "TRACKER.md"
+        text = tracker_path.read_text(encoding="utf-8")
+        # Scoped, not whole-file (this suite's own convention: no real
+        # parser over prose docs) -- find the /api/flow section and look
+        # for "UTC" in a reasonably-sized nearby window, not anywhere in
+        # the whole file (which would pass on an unrelated UTC mention).
+        idx = text.find("/api/flow")
+        self.assertNotEqual(idx, -1, "TRACKER.md has no /api/flow section yet")
+        window = text[idx: idx + 1500]
+        self.assertIn(
+            "UTC", window,
+            f"the /api/flow section must explicitly state its day-bucketing is UTC, not "
+            f"local-offset -- the architect's own corrected §3 (inferring 'local' from %cI "
+            f"without reading the line that computes `day`) is exactly the mistake an unstated "
+            f"convention invites the next reader to repeat -- got window: {window!r}",
         )

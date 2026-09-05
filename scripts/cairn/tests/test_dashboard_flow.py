@@ -36,6 +36,21 @@ below is expected to fail on a genuinely-missing function/route --
 either a clear, explicitly-asserted `hasattr` failure (not a bare,
 confusing AttributeError from deep in a test body) or a 404 from the
 server -- never an import error.
+
+## PT-85 update (2026-09-05)
+
+PT-61's cumulative status-stack `counts` shape is RETIRED (architect
+§7 + team-lead: removed, not kept behind a toggle) and replaced by a
+throughput view -- `series` points now carry `opened`/`closed`/
+`cancelled`/`wip`/`milestone` instead of a `counts` dict keyed by
+`cairn.STATUS_ORDER`. Item 4 above (taxonomy coupling) no longer
+applies and its test class is removed; items 1/2/3/5's PROPERTIES are
+still real and still tested here, re-targeted to the new field names.
+The throughput-specific matrix (opened-once/seen_stems, closed-on-
+transition, WIP-end-of-period, milestone-from-blob-at-event, the UTC
+day-boundary discriminator) lives in its own file,
+test_flow_throughput.py, per this suite's own convention of one file
+per feature ruling.
 """
 from __future__ import annotations
 
@@ -172,27 +187,23 @@ class FlowPayloadDegradationTests(unittest.TestCase):
         self.assertEqual(body.get("series"), [])
 
 
-class FlowTaxonomyCouplingTests(unittest.TestCase):
-    def test_every_points_counts_keys_match_status_order_exactly(self):
-        data_dir = make_flow_git_repo(self)
-        _write_issue(data_dir, id="PT-1", status="backlog")
-        _commit_at(data_dir.parent.parent, "add PT-1", "2026-08-10 10:00:00 +0000")
-        _write_issue(data_dir, id="PT-1", status="in-progress")
-        _commit_at(data_dir.parent.parent, "PT-1 -> in-progress", "2026-08-11 10:00:00 +0000")
-
-        payload = _call_build_flow_payload(data_dir)
-        self.assertTrue(payload["series"], "expected at least one point after committing issue history")
-        expected_keys = set(cairn.STATUS_ORDER)
-        for point in payload["series"]:
-            self.assertEqual(
-                set(point["counts"].keys()), expected_keys,
-                f"point {point!r} count keys don't match cairn.STATUS_ORDER exactly -- "
-                f"the chart's taxonomy must come from STATUS_ORDER, not a hardcoded/partial key set",
-            )
+# FlowTaxonomyCouplingTests (the STATUS_ORDER-keyed `counts` shape) is
+# retired along with the cumulative status-stack view it belonged to
+# (PT-85, architect §7 + team-lead: removed, not kept behind a toggle).
+# The new payload's key set is a fixed literal (opened/closed/cancelled/
+# wip/milestone), not derived from STATUS_ORDER, so there is no
+# equivalent coupling to guard -- see test_flow_throughput.py's
+# ThroughputPayloadShapeTests for the new schema's own shape guard.
 
 
 class FlowSameDayFoldingTests(unittest.TestCase):
-    def test_two_commits_on_the_same_utc_day_fold_into_one_point_with_the_later_status(self):
+    def test_two_commits_on_the_same_utc_day_fold_into_one_point_governed_by_the_later_status(self):
+        # PT-85: the `counts["in-progress"]`/`counts["backlog"]` shape
+        # this test used to assert is retired; re-targeted to the
+        # throughput shape while keeping the property this class exists
+        # to pin -- multiple same-day commits fold into exactly ONE
+        # point, and WIP (the only per-point field a mid-day status flip
+        # can flip the answer to) is governed by the LATER status.
         data_dir = make_flow_git_repo(self)
         repo_root = data_dir.parent.parent
         _write_issue(data_dir, id="PT-1", status="backlog")
@@ -207,51 +218,69 @@ class FlowSameDayFoldingTests(unittest.TestCase):
             f"expected exactly one point for 2026-08-10 (two commits, same day, last wins), "
             f"got {same_day_points!r}",
         )
-        self.assertEqual(same_day_points[0]["counts"]["in-progress"], 1)
-        self.assertEqual(same_day_points[0]["counts"]["backlog"], 0)
+        self.assertEqual(
+            same_day_points[0]["wip"], 1,
+            f"the LATER same-day status (in-progress) must govern the single folded point's WIP -- "
+            f"got {same_day_points[0]!r}",
+        )
+        self.assertEqual(same_day_points[0]["opened"], 1, "the creation is still the one real open that day")
 
 
 class FlowArchiveMoveImmunityTests(unittest.TestCase):
-    def test_an_issue_moved_into_archive_issues_keeps_its_identity_no_double_count_no_vanish(self):
+    def test_an_in_progress_issue_moved_into_archive_issues_keeps_counting_as_wip(self):
+        # PT-85: re-targeted from the retired `counts["todo"]` shape.
+        # The seen_stems/opened-count half of "archive move keeps
+        # identity" is now test_flow_throughput.py's own job
+        # (SeenStemsOpenedOnceTests); this test keeps the property that
+        # file doesn't cover -- an in-progress issue's WIP status must
+        # survive an archive/issues/ move, since archiving is a path
+        # change, not a status transition.
         data_dir = make_flow_git_repo(self)
         repo_root = data_dir.parent.parent
-        _write_issue(data_dir, id="PT-2", status="todo")
-        _commit_at(repo_root, "add PT-2", "2026-08-10 10:00:00 +0000")
+        _write_issue(data_dir, id="PT-2", status="in-progress")
+        _commit_at(repo_root, "add PT-2 in-progress", "2026-08-10 10:00:00 +0000")
 
         # git mv, same filename/stem, issues/ -> archive/issues/ -- the
         # exact move the ruling names as the recurring defect class
         # ("keying on the wrong dimension").
         _git(repo_root, "mv", "process/cairn/issues/PT-2.md", "process/cairn/archive/issues/PT-2.md")
-        _commit_at(repo_root, "archive PT-2", "2026-08-11 10:00:00 +0000")
+        _commit_at(repo_root, "archive PT-2 while still in-progress", "2026-08-11 10:00:00 +0000")
 
         payload = _call_build_flow_payload(data_dir)
         points_by_date = {p["date"]: p for p in payload["series"]}
         self.assertIn("2026-08-10", points_by_date)
         self.assertIn("2026-08-11", points_by_date)
-        # Present (not vanished) and counted exactly once (not doubled)
-        # on the day of the move -- stem-keying is what makes this hold
-        # across the directory change.
         self.assertEqual(
-            points_by_date["2026-08-11"]["counts"]["todo"], 1,
-            f"PT-2 either vanished or double-counted after its archive/issues/ move: "
+            points_by_date["2026-08-11"]["wip"], 1,
+            f"PT-2's WIP status must survive its archive/issues/ move -- vanished after: "
             f"{points_by_date['2026-08-11']!r}",
         )
+        self.assertEqual(
+            points_by_date["2026-08-11"]["opened"], 0,
+            f"the archive move itself must not re-count as a new open -- "
+            f"got {points_by_date['2026-08-11']!r}",
+        )
 
-    def test_a_deleted_issue_drops_out_of_later_points(self):
+    def test_a_deleted_in_progress_issue_drops_out_of_wip(self):
+        # PT-85: re-targeted from the retired `counts["backlog"]` shape,
+        # and strengthened -- deletion dropping an entity out of the
+        # NEXT point's snapshot matters most for WIP specifically (a
+        # deleted issue that was mid-flight must not linger as phantom
+        # work-in-progress).
         data_dir = make_flow_git_repo(self)
         repo_root = data_dir.parent.parent
-        _write_issue(data_dir, id="PT-3", status="backlog")
-        _commit_at(repo_root, "add PT-3", "2026-08-10 10:00:00 +0000")
+        _write_issue(data_dir, id="PT-3", status="in-progress")
+        _commit_at(repo_root, "add PT-3 in-progress", "2026-08-10 10:00:00 +0000")
         (data_dir / "issues" / "PT-3.md").unlink()
         _commit_at(repo_root, "delete PT-3", "2026-08-11 10:00:00 +0000")
 
         payload = _call_build_flow_payload(data_dir)
         points_by_date = {p["date"]: p for p in payload["series"]}
-        self.assertEqual(points_by_date["2026-08-10"]["counts"]["backlog"], 1)
+        self.assertEqual(points_by_date["2026-08-10"]["wip"], 1)
         self.assertEqual(
-            points_by_date["2026-08-11"]["counts"]["backlog"], 0,
-            "a deleted issue should drop out of the count on the day it was deleted, "
-            "per the ruling's 'deletes drop the entity'",
+            points_by_date["2026-08-11"]["wip"], 0,
+            "a deleted issue must drop out of WIP on the day it was deleted, per the ruling's "
+            "'deletes drop the entity from the live snapshot'",
         )
 
 
@@ -276,10 +305,18 @@ class FlowNonAsciiByteSlicingTests(unittest.TestCase):
         _write_issue(data_dir, id="PT-5", status="todo", title="Plain ascii issue")
         _commit_at(repo_root, "add PT-4 and PT-5", "2026-08-10 10:00:00 +0000")
 
+        # PT-85: re-targeted from the retired `counts["in-review"]`/
+        # `counts["todo"]` shape -- both parsing correctly (no
+        # byte-slice mis-slice/desync) shows up as opened: 2 (both new
+        # stems reached seen_stems, which only happens if their blob
+        # parsed to a real status) and wip: 1 (only PT-4's in-review).
+        # A desync would drop one of the two blobs' status to
+        # unparseable, which never reaches seen_stems at all (see
+        # _compute_flow_payload's "unparseable/unresolved blob" branch).
         payload = _call_build_flow_payload(data_dir)
         point = next(p for p in payload["series"] if p["date"] == "2026-08-10")
-        self.assertEqual(point["counts"]["in-review"], 1, f"PT-4 (em-dash content) failed to parse correctly: {point!r}")
-        self.assertEqual(point["counts"]["todo"], 1, f"PT-5 (after the em-dash blob in the batch) desynced: {point!r}")
+        self.assertEqual(point["opened"], 2, f"PT-4 and/or PT-5 failed to parse (byte-slice desync): {point!r}")
+        self.assertEqual(point["wip"], 1, f"PT-4 (em-dash content, in-review) failed to parse correctly: {point!r}")
 
 
 class FlowCachingTests(unittest.TestCase):
@@ -317,8 +354,10 @@ class FlowCachingTests(unittest.TestCase):
             "a call at a NEW HEAD triggered zero git subprocesses -- looks like the memo "
             "isn't keyed by HEAD sha (stale data would be served forever)",
         )
+        # PT-85: re-targeted from the retired `counts["done"]` shape --
+        # backlog -> done is a transition into done, i.e. a real close.
         point = next(p for p in payload["series"] if p["date"] == "2026-08-11")
-        self.assertEqual(point["counts"]["done"], 1, "the recompute after the new commit didn't pick up the status change")
+        self.assertEqual(point["closed"], 1, "the recompute after the new commit didn't pick up the status change")
 
 
 class FlowEndpointHTTPHeadersTests(unittest.TestCase):
