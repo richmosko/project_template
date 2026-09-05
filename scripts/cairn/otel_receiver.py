@@ -262,11 +262,14 @@ _OUTPUT_KEY_ORDER = (
 
 
 class ReceiverError(Exception):
-    """Raised on the non-overlap violation, a malformed existing data
-    file, or a structurally invalid OTLP payload -- same fail-loudly
-    contract as backfill_tokens.BackfillError. Deliberately a distinct
-    class: a receiver failure and a backfill failure are different
-    callers' problems."""
+    """Raised on a malformed existing data file or a structurally
+    invalid OTLP payload -- same fail-loudly contract as
+    backfill_tokens.BackfillError. Deliberately a distinct class: a
+    receiver failure and a backfill failure are different callers'
+    problems. NOT raised for the non-overlap case any more (PT-89):
+    a group predating or straddling the backfill's `generated` stamp is
+    dropped and logged, never refused as a whole-batch error -- see
+    `flush`'s own docstring."""
 
 
 # --------------------------------------------------------------------------
@@ -366,6 +369,23 @@ def _ns_to_iso(ns: int) -> str:
 
 def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _iso_to_ns(iso: str) -> Optional[int]:
+    """PT-89 §3: converts a `generated`-shaped whole-second UTC `Z`
+    timestamp to nanoseconds since epoch, at the START of that second --
+    `generated` never carries a fractional part (`_now_iso`'s own
+    format), so there is nothing to truncate; this is the inverse of
+    `_ns_to_iso`. Integer arithmetic throughout (seconds, then * 1e9) to
+    avoid float rounding drift a naive `timestamp() * 1e9` could
+    introduce. `None` on anything that doesn't parse -- the caller's
+    signal that no stamp is available, degrading to "no guard active"
+    exactly like a missing/absent `_latest_backfill_generated`."""
+    try:
+        dt = datetime.datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+    except (TypeError, ValueError):
+        return None
+    return int(dt.timestamp()) * 1_000_000_000
 
 
 # --------------------------------------------------------------------------
@@ -469,15 +489,33 @@ class ReceiverState:
         # series_key -> the attribution inputs for that series (captured
         # once, at first sight -- they don't change mid-series).
         self.series_meta: Dict[SeriesKey, Dict[str, Optional[str]]] = {}
-        # series_key -> the total already CONTRIBUTED to some prior
-        # flush. The NEXT flush's contribution is
-        # (current series total) - (this baseline), never the full total
-        # again -- otherwise every flush of a long-lived series would
-        # re-write everything it already wrote.
-        self.flushed_baseline: Dict[SeriesKey, float] = {}
+        # (series_key, start_time_ns) -> the total already CONTRIBUTED to
+        # some prior flush, keyed PER GROUP (PT-89, architect's ruling
+        # 5208f32) -- the SAME key `group_max` uses, not per series. The
+        # next flush's contribution for a given group is (that group's
+        # current total) - (this baseline), never the full total again.
+        # Keyed per-group rather than per-series specifically so a
+        # dropped/straddling group's baseline can advance WITHOUT writing
+        # its delta (the backfill already counted that value) while a
+        # DIFFERENT group of the same series keeps flushing normally --
+        # advancing the baseline is what prevents that dropped value from
+        # being resurrected once the group's later, clean data arrives.
+        self.flushed_baseline: Dict[Tuple[SeriesKey, int], float] = {}
+        # (series_key, start_time_ns) -> (min_time_ns, max_time_ns) for
+        # datapoints folded SINCE THE LAST FLUSH (PT-89) -- reset to
+        # empty at the end of every flush, exactly like pending_min_ns/
+        # pending_max_ns below, so a group's classification against the
+        # backfill's stamp always reflects only its most recent window,
+        # never its whole lifetime (architect's correction, 5208f32:
+        # lifetime-persistent bounds would make one collision permanently
+        # exclude a long-running cumulative series from every future
+        # flush, which is not the bounded loss PT-89 promises).
+        self.group_time_bounds: Dict[Tuple[SeriesKey, int], Tuple[int, int]] = {}
         # Earliest/latest datapoint timeUnixNano seen since the LAST
-        # flush (reset after each flush) -- window_start/window_end and
-        # the non-overlap check both key on this, not on wall-clock "now".
+        # flush (reset after each flush) -- used only as the "did
+        # anything accrue at all" cheap check in flush(); window_start/
+        # window_end and the non-overlap classification key on
+        # group_time_bounds instead (PT-89), not on these two directly.
         self.pending_min_ns: Optional[int] = None
         self.pending_max_ns: Optional[int] = None
         self.last_issue_bucket: Optional[str] = None
@@ -511,6 +549,9 @@ def fold(datapoints: List[Dict[str, Any]], state: ReceiverState) -> ReceiverStat
             t = dp["time_ns"]
             state.pending_min_ns = t if state.pending_min_ns is None else min(state.pending_min_ns, t)
             state.pending_max_ns = t if state.pending_max_ns is None else max(state.pending_max_ns, t)
+            # PT-89: per-group bounds, same loop, same key as group_max.
+            bounds = state.group_time_bounds.get(group_key)
+            state.group_time_bounds[group_key] = (t, t) if bounds is None else (min(bounds[0], t), max(bounds[1], t))
     return state
 
 
@@ -674,8 +715,12 @@ def flush(
     buckets by (issue, role, model), and appends the resulting `source:
     "otel"` lines under `process/cairn/metrics/.lock`. Returns the lines
     written (empty list -- and no write at all -- if nothing had accrued
-    since the last flush). Raises ReceiverError on the non-overlap
-    violation or a malformed existing file, naming both timestamps.
+    since the last flush, or if everything that accrued was dropped as
+    predating/straddling the backfill's stamp). Never raises for a
+    predating/straddling group (PT-89, architect's ruling 0fd8774 +
+    5208f32) -- see the per-group classification below; a malformed
+    existing data file can still raise via `_latest_backfill_generated`'s
+    own reader.
 
     `issue`/`generated` are resolved by the CALLER (branch/`cairn.issue`
     attribution needs `git`/cwd; this function stays a pure data
@@ -697,25 +742,86 @@ def flush(
         if state.pending_min_ns is None:
             return []  # nothing accrued since the last flush -- a no-op, not an error
 
+        # PT-89 §5: read once per flush, pass the stamp down -- this
+        # walks the whole data file, so per-group or per-datapoint reads
+        # would make flush O(groups x file).
         latest_backfill_generated = _latest_backfill_generated(out_path)
-        earliest_iso = _ns_to_iso(state.pending_min_ns)
-        if latest_backfill_generated is not None and earliest_iso < latest_backfill_generated:
-            raise ReceiverError(
-                f"non-overlap invariant violated: this flush's earliest datapoint "
-                f"({earliest_iso}) predates the latest transcript-backfill generated "
-                f"timestamp ({latest_backfill_generated}) already in {out_path}"
-            )
+        stamp_ns = _iso_to_ns(latest_backfill_generated) if latest_backfill_generated else None
 
-        series_totals: Dict[SeriesKey, float] = {}
-        for (series_key, _start_ns), value in state.group_max.items():
-            series_totals[series_key] = series_totals.get(series_key, 0.0) + value
+        # PT-89: classify each (series, start_ns) GROUP against the
+        # stamp using ITS OWN recent (since-last-flush) time bounds --
+        # never the batch-wide earliest datapoint (today's bug: one old
+        # datapoint refused everything), never startTimeUnixNano (the
+        # architect's §1: that's the metric stream's start, not a
+        # datapoint's time, and would drop a long-running cumulative
+        # series' entire future). §3's boundary: `time_ns < stamp_ns`
+        # predates; a point AT the stamp's own second is kept -- PT-84's
+        # own half-open `[start, next)` convention, reused rather than
+        # inventing a second boundary rule in this codebase.
+        #
+        # Baseline is keyed PER GROUP (architect's correction, 5208f32),
+        # not per series: a dropped/straddling group's baseline still
+        # advances to its current total WITHOUT writing a delta for it --
+        # those tokens were already counted by the backfill, so from the
+        # receiver's side they count as "handled". Advancing the baseline
+        # anyway is what prevents that value from being resurrected once
+        # the SAME group's later, clean-of-the-stamp window arrives (the
+        # group's own bounds reset every flush, so it recovers naturally).
+        kept_deltas: Dict[SeriesKey, float] = {}
+        kept_count = 0
+        dropped_count = 0
+        straddling_count = 0
+        kept_min_ns: Optional[int] = None
+        kept_max_ns: Optional[int] = None
 
-        buckets: Dict[Tuple[str, str, str], Dict[str, float]] = {}
-        for series_key, total in series_totals.items():
-            baseline = state.flushed_baseline.get(series_key, 0.0)
+        for group_key, total in state.group_max.items():
+            series_key, _start_ns = group_key
+            baseline = state.flushed_baseline.get(group_key, 0.0)
             delta = total - baseline
             if delta <= 0:
-                continue
+                continue  # no new growth for this exact group since it was last accounted for
+
+            bounds = state.group_time_bounds.get(group_key)
+            dropped = False
+            straddling = False
+            if stamp_ns is not None and bounds is not None:
+                lo, hi = bounds
+                if hi < stamp_ns:
+                    dropped = True
+                elif lo < stamp_ns:
+                    straddling = True
+                # else lo >= stamp_ns: entirely after the stamp -- keep.
+
+            if dropped or straddling:
+                dropped_count += 1 if dropped else 0
+                straddling_count += 1 if straddling else 0
+            else:
+                kept_deltas[series_key] = kept_deltas.get(series_key, 0.0) + delta
+                kept_count += 1
+                if bounds is not None:
+                    lo, hi = bounds
+                    kept_min_ns = lo if kept_min_ns is None else min(kept_min_ns, lo)
+                    kept_max_ns = hi if kept_max_ns is None else max(kept_max_ns, hi)
+
+            # Baseline advances for EVERY processed group, kept or not --
+            # see the docstring note above on why this is the fix, not a
+            # side effect.
+            state.flushed_baseline[group_key] = total
+
+        # PT-89 §6: one line per flush, never per datapoint -- only when
+        # there is something to report, naming the stamp and all three
+        # counts so an operator can tell a routine flush from a lossy one
+        # at a glance.
+        if dropped_count or straddling_count:
+            print(
+                f"otel_receiver: flush vs backfill stamp {latest_backfill_generated} -- "
+                f"kept {kept_count}, dropped {dropped_count}, straddling {straddling_count} group(s) "
+                f"(dropped/straddling groups' tokens were already counted by the backfill)",
+                file=sys.stderr,
+            )
+
+        buckets: Dict[Tuple[str, str, str], Dict[str, float]] = {}
+        for series_key, delta in kept_deltas.items():
             meta = state.series_meta[series_key]
             role = resolve_role(meta.get("role_raw"), meta.get("session_id"), transcripts_dir, roster, state.role_cache)
             model = meta.get("model") or "unknown"
@@ -726,36 +832,44 @@ def flush(
             )
             acc[counter] += delta
             acc["records"] += 1
-            state.flushed_baseline[series_key] = total
-
-        window_start = _ns_to_date(state.pending_min_ns)
-        window_end = _ns_to_date(state.pending_max_ns)
 
         new_lines = []
-        for (b_issue, b_role, b_model), acc in buckets.items():
-            line = {
-                "source": SOURCE_NAME,
-                "generated": generated,
-                "window_start": window_start,
-                "window_end": window_end,
-                "issue": b_issue,
-                "role": b_role,
-                "model": b_model,
-                "input": int(round(acc["input"])),
-                "cache_write": int(round(acc["cache_write"])),
-                "cache_read": int(round(acc["cache_read"])),
-                "output": int(round(acc["output"])),
-                "records": int(acc["records"]),
-            }
-            new_lines.append({k: line[k] for k in _OUTPUT_KEY_ORDER})
-        milestone_rank_map = cairn.milestone_rank_map(milestone_windows_table)
-        new_lines.sort(key=lambda line: backfill_tokens._sort_key(line, milestone_rank_map))
-
-        if new_lines:
+        if buckets:
+            # PT-89 §4: window bounds come from the KEPT groups' own
+            # cycle bounds, never the pre-filter pending_min_ns/max_ns --
+            # the batch-wide minimum can sit inside a group that was just
+            # dropped, which would make the line claim a window earlier
+            # than anything it actually contains.
+            window_start = _ns_to_date(kept_min_ns)
+            window_end = _ns_to_date(kept_max_ns)
+            for (b_issue, b_role, b_model), acc in buckets.items():
+                line = {
+                    "source": SOURCE_NAME,
+                    "generated": generated,
+                    "window_start": window_start,
+                    "window_end": window_end,
+                    "issue": b_issue,
+                    "role": b_role,
+                    "model": b_model,
+                    "input": int(round(acc["input"])),
+                    "cache_write": int(round(acc["cache_write"])),
+                    "cache_read": int(round(acc["cache_read"])),
+                    "output": int(round(acc["output"])),
+                    "records": int(acc["records"]),
+                }
+                new_lines.append({k: line[k] for k in _OUTPUT_KEY_ORDER})
+            milestone_rank_map = cairn.milestone_rank_map(milestone_windows_table)
+            new_lines.sort(key=lambda line: backfill_tokens._sort_key(line, milestone_rank_map))
             _append_lines(out_path, new_lines, milestone_rank_map)
 
+        # PT-89 §4: unconditional reset on every path -- this, not the
+        # classification above, is the actual fix. Today's bug is that a
+        # refused flush left pending_min_ns/pending_max_ns (and, now,
+        # group_time_bounds) untouched, so the next flush recomputed the
+        # exact same stale bounds and was refused identically forever.
         state.pending_min_ns = None
         state.pending_max_ns = None
+        state.group_time_bounds = {}
         state.last_issue_bucket = issue
         state.last_flush_monotonic = time.monotonic()
         return new_lines
