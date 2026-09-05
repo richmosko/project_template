@@ -58,6 +58,16 @@ git pull --ff-only
 git branch -d feature/<id>-<slug>
 ```
 
+**If the PR touched `scripts/cairn/otel_receiver.py`:** the running receiver still holds the pre-merge code (a Python daemon does not hot-reload). Restart it bare and confirm before reporting done:
+
+```bash
+python3 scripts/cairn/otel_receiver.py --stop
+python3 scripts/cairn/otel_receiver.py --ensure-running </dev/null   # bare: no --session-id, so a never-non-empty registry never arms the self-stop
+python3 scripts/cairn/otel_receiver.py --status
+```
+
+Also check the sync didn't stall on the receiver's live data file: it appends `otel` lines to `process/cairn/metrics/token-usage.jsonl` while you work. If `git pull --ff-only` refuses, preserve the lines not yet on `main` (`comm -13` of the sorted `otel` lines in `origin/main` vs the working tree), restore the file, pull, and re-append only those — never re-append a previously preserved set, which duplicates lines already committed.
+
 Major-line completion isn't auto-tracked: when a line EOLs, the lead runs `scripts/cairn/cairn set <major-id> status=done` on a doc-update branch.
 
 ### 4. Update process/STATE.md
