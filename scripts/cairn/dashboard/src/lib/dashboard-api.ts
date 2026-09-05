@@ -187,15 +187,46 @@ export function subscribeRoster(
 // /api/dashboard) -- different cost profile (bounded git subprocesses on
 // a cache miss), different cache key (HEAD sha), different freshness
 // cadence. `counts` keys are always the live STATUS_ORDER set server-side;
-// this type doesn't enumerate them so a status addition needs no client
-// change here.
+// PT-85: PT-61's cumulative status-stack shape (`counts: Record<string,
+// number>`) is retired -- replaced by a throughput view (architect's
+// ruling 409d310, payload pinned at 2f8eba0). `opened`/`closed`/
+// `cancelled` are per-period DELTAS (a missing key would mean zero);
+// `wip` is POINT-IN-TIME (a missing key would mean "unchanged") -- see
+// `by_milestone`'s own comment for why the server never actually omits
+// either kind once a milestone has appeared.
+export type FlowMilestoneBreakdown = {
+	opened: number;
+	closed: number;
+	cancelled: number;
+	wip: number;
+};
+
 export type FlowPoint = {
-	date: string;
-	counts: Record<string, number>;
+	date: string; // UTC calendar day, half-open [start, next)
+	opened: number;
+	closed: number;
+	cancelled: number;
+	wip: number;
+	// DENSE from a milestone's first appearance in the walk onward (never
+	// sparse) -- the server, not the client, resolves the "missing means
+	// zero vs missing means unchanged" ambiguity a sparse dict would leave
+	// for every consumer to get right independently.
+	by_milestone: Record<string, FlowMilestoneBreakdown>;
+};
+
+export type FlowMilestone = {
+	id: string;
+	// `null` when the walk saw this id (so it's real, selectable history)
+	// but no CURRENT milestone file carries it any more.
+	name: string | null;
+	status: string | null;
 };
 
 export type FlowPayload = {
+	period: 'day'; // server emits day granularity only; week is a client aggregation
 	series: FlowPoint[];
+	milestones: FlowMilestone[];
+	default_milestone: string | null;
 	as_of: string | null;
 	scope: string;
 	warning: string | null;

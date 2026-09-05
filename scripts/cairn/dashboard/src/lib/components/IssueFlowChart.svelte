@@ -1,27 +1,43 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { scaleUtc } from 'd3-scale';
-	import { Area, AreaChart } from 'layerchart';
+	import { scaleBand } from 'd3-scale';
+	import { BarChart, Bars, Spline } from 'layerchart';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Chart from '$lib/components/ui/chart/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
 	import { subscribeFlow, type FlowPayload } from '$lib/dashboard-api';
+	import {
+		ALL_MILESTONES_SCOPE,
+		aggregateByPeriod,
+		defaultScope,
+		formatFlowCaption,
+		scopedSeries,
+		type Period,
+	} from '$lib/flow-chart-logic';
 
-	// PT-61 (architect ruling): /api/flow is a SEPARATE data source from
-	// /api/dashboard (own poll, own three-state error/skeleton/content
-	// shape -- roster's established pattern in App.svelte, repeated here
-	// rather than threaded through the parent, since this whole component
-	// is dynamically imported specifically so layerchart lands in its own
-	// bundle chunk).
+	// PT-85 (architect ruling 409d310, shape pinned 2f8eba0): replaces
+	// PT-61's cumulative status-stack area chart with a throughput view --
+	// opened/closed bars plus a WIP line, day/week toggle, milestone scope
+	// control. Same /api/flow data source, own poll, own three-state
+	// error/skeleton/content shape (PT-61's own precedent, unchanged).
 	let flow = $state<FlowPayload | null>(null);
 	let flowError = $state<string | null>(null);
 	let tableView = $state(false);
+	let period = $state<Period>('day');
+	// 'all' or a milestone id -- initialised once the first payload
+	// arrives (architect's ruling §3: default to the milestone with the
+	// most recent activity); a later poll never resets a scope the user
+	// already picked.
+	let scope = $state<string | null>(null);
 
 	const unsubscribe = subscribeFlow(
 		(payload) => {
 			flow = payload;
 			flowError = null;
+			if (scope === null) {
+				scope = defaultScope(payload);
+			}
 		},
 		(err) => {
 			flowError = err instanceof Error ? err.message : String(err);
@@ -29,197 +45,195 @@
 	);
 	onDestroy(unsubscribe);
 
-	// Same STATUS_ORDER the server's counts keys come from (App.svelte's
-	// STATUS_BADGE_VARIANT uses the identical key set) -- this is only the
-	// chart's display label + color map, never a second taxonomy: the
-	// series actually plotted are driven by whatever keys the server sent,
-	// this just supplies text/color for the ones it recognizes.
-	const STATUS_LABEL: Record<string, string> = {
-		backlog: 'Backlog',
-		todo: 'Todo',
-		'in-progress': 'In Progress',
-		'in-review': 'In Review',
-		done: 'Done',
-		cancelled: 'Cancelled',
+	// §9 (architect ruling 586af1f -- supersedes an earlier ramp-reuse
+	// proposal of mine, rejected: three ramp steps are three shades of
+	// one hue, the wrong encoding for a contrast a reader must make at a
+	// glance). PT-85's 3 series are CATEGORICAL, not ordinal -- the old
+	// 6-token --chart-flow-* ramp is retired entirely (all six, both
+	// app.css and variants.css). Three NEW dedicated tokens, sourced
+	// from the dataviz skill's validated categorical palette, chosen so
+	// all three are mutually distinguishable and none lands on a
+	// --chart-role-* hue on this same page (team-lead's decision; full
+	// picks + validate_palette.js output recorded on PT-85 and in
+	// app.css's own comment). Interim, not final -- PT-92 is filed for
+	// a ux-designer eye on the specific hex values.
+	const SERIES_COLOR = {
+		opened: 'var(--chart-flow-opened)',
+		closed: 'var(--chart-flow-closed)',
+		wip: 'var(--chart-flow-wip)',
 	};
-
-	// PT-61 (Mosko's ruling, "re-step the chart ramp"): chart-LOCAL tokens,
-	// one per status, validated via the dataviz skill's ordinal check in
-	// both modes (design-system-spec.md § Accessibility carries the
-	// evidence) -- never the base --chart-1..5 ramp, whose two lightest
-	// steps fail the light-end contrast floor on this app's white card.
-	const STATUS_COLOR: Record<string, string> = {
-		backlog: 'var(--chart-flow-backlog)',
-		todo: 'var(--chart-flow-todo)',
-		'in-progress': 'var(--chart-flow-in-progress)',
-		'in-review': 'var(--chart-flow-in-review)',
-		done: 'var(--chart-flow-done)',
-		cancelled: 'var(--chart-flow-cancelled)',
-	};
-
-	const STATUS_KEYS = ['backlog', 'todo', 'in-progress', 'in-review', 'done', 'cancelled'];
+	const SERIES_LABEL = { opened: 'Opened', closed: 'Closed', wip: 'WIP (end of period)' };
 
 	const chartConfig = {
-		backlog: { label: STATUS_LABEL.backlog, color: STATUS_COLOR.backlog },
-		todo: { label: STATUS_LABEL.todo, color: STATUS_COLOR.todo },
-		'in-progress': { label: STATUS_LABEL['in-progress'], color: STATUS_COLOR['in-progress'] },
-		'in-review': { label: STATUS_LABEL['in-review'], color: STATUS_COLOR['in-review'] },
-		done: { label: STATUS_LABEL.done, color: STATUS_COLOR.done },
-		cancelled: { label: STATUS_LABEL.cancelled, color: STATUS_COLOR.cancelled },
+		opened: { label: SERIES_LABEL.opened, color: SERIES_COLOR.opened },
+		closed: { label: SERIES_LABEL.closed, color: SERIES_COLOR.closed },
+		wip: { label: SERIES_LABEL.wip, color: SERIES_COLOR.wip },
 	} satisfies Chart.ChartConfig;
 
-	const series = STATUS_KEYS.map((key) => ({
-		key,
-		label: STATUS_LABEL[key],
-		color: STATUS_COLOR[key],
-	}));
+	const barSeries = [
+		{ key: 'opened', label: SERIES_LABEL.opened, color: SERIES_COLOR.opened },
+		{ key: 'closed', label: SERIES_LABEL.closed, color: SERIES_COLOR.closed },
+	];
 
-	// Stacked-area composition-over-time (dataviz skill's choosing-a-form:
-	// "trend over time" + "part-to-whole" together -> stacked area), one
-	// point per day the server already folded same-day commits into.
-	const chartData = $derived(
-		(flow?.series ?? []).map((point) => {
-			const row: Record<string, number | Date> = { date: new Date(`${point.date}T00:00:00Z`) };
-			for (const key of STATUS_KEYS) {
-				row[key] = point.counts[key] ?? 0;
-			}
-			return row;
-		}),
+	// Selection order: scope first (server-native, per-point), THEN period
+	// aggregation (client-side, pure -- flow-chart-logic.ts's own
+	// contract: sum the deltas, take the LAST wip of the week, never a
+	// sum/mean of a point-in-time value).
+	const displayedSeries = $derived(
+		flow ? aggregateByPeriod(scopedSeries(flow.series, scope ?? ALL_MILESTONES_SCOPE), period) : [],
 	);
 
-	// PT-61 (team-lead's browser-pass finding): layerchart's default tick
-	// generator picks a "nice" sub-day interval for a scaleUtc() domain
-	// spanning several days, and every sub-day tick formats to the same
-	// day string (formatDay has no time component) -- every date rendered
-	// twice. Passing the exact array of UTC-midnight Dates we actually
-	// have data for pins one tick per real data point, never a generated
-	// in-between one.
-	const chartTickDates = $derived(chartData.map((row) => row.date as Date));
+	const captionText = $derived(flow ? formatFlowCaption(flow, period, scope ?? ALL_MILESTONES_SCOPE) : '');
 
-	function formatDay(d: Date): string {
-		return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-	}
+	// yDomain must cover all three plotted values -- BarChart's own
+	// auto-domain only considers the declared bar series (opened/closed);
+	// the WIP line, drawn as an extra Spline mark sharing the same scale,
+	// would clip silently at the bars' own max otherwise.
+	const yMax = $derived(
+		displayedSeries.reduce((max, p) => Math.max(max, p.opened, p.closed, p.wip), 0),
+	);
+	const yDomain = $derived([0, yMax === 0 ? 1 : yMax] as [number, number]);
 </script>
 
-<!-- PT-61: the chart panel named in the AC -- issue flow over time, one
-     stacked area per status, on the re-stepped chart-local ramp. -->
-<section aria-label="Issue flow over time">
+<!-- PT-85: throughput view -- issues opened/closed per period (bars),
+     issues in flight at period end (WIP line), scoped to one milestone
+     or all. Replaces PT-61's cumulative status-stack chart entirely
+     (architect's ruling §7: retired, not toggled). -->
+<section aria-label="Issue throughput over time">
 	<Card.Root class="[--card-spacing:1.5rem]">
 		<Card.Header class="flex flex-wrap items-center justify-between gap-2 space-y-0">
 			<div class="grid gap-1">
-				<Card.Title class="text-lg">Issue flow over time</Card.Title>
+				<Card.Title class="text-lg">Issue throughput</Card.Title>
 				{#if flow}
-					<!-- Architect's ruling: the two divergences from the status
-					     cards (archived issues included; last point is
-					     committed-only, may lag an uncommitted edit) must be
-					     surfaced in the UI, not silently reconciled. -->
-					<Card.Description class="text-xs">{flow.scope}</Card.Description>
+					<Card.Description class="text-xs">{captionText} {flow.scope}</Card.Description>
 				{/if}
 			</div>
 			{#if flow && flow.series.length > 0 && !flow.warning}
-				<!-- dataviz skill (components.md): every chart carries a
-				     table-view toggle, the WCAG-clean accessibility twin. -->
-				<Button variant="outline" size="sm" onclick={() => (tableView = !tableView)}>
-					{tableView ? 'Show chart' : 'Show table'}
-				</Button>
+				<div class="flex flex-wrap items-center gap-2">
+					{#if flow.milestones.length > 0}
+						<!-- Milestone scope control (ruling §3): a plain native
+						     select -- this control has no other requirement
+						     (styling, search, etc.) named in the ruling, and a
+						     native element is free accessibility. Archived
+						     milestones are selectable: `flow.milestones` already
+						     includes them (server-side, no client-side filter). -->
+						<label class="flex items-center gap-1 text-xs text-muted-foreground">
+							Milestone
+							<select
+								class="h-8 rounded-md border border-input bg-background px-2 text-xs"
+								bind:value={scope}
+								aria-label="Scope to one milestone, or all"
+							>
+								<option value={ALL_MILESTONES_SCOPE}>All milestones</option>
+								{#each flow.milestones as m (m.id)}
+									<option value={m.id}>{m.name ?? m.id}</option>
+								{/each}
+							</select>
+						</label>
+					{/if}
+					<div class="flex items-center gap-1" role="group" aria-label="Period">
+						<Button variant={period === 'day' ? 'default' : 'outline'} size="sm" onclick={() => (period = 'day')}>
+							Day
+						</Button>
+						<Button variant={period === 'week' ? 'default' : 'outline'} size="sm" onclick={() => (period = 'week')}>
+							Week
+						</Button>
+					</div>
+					<!-- dataviz skill (components.md): every chart carries a
+					     table-view toggle, the WCAG-clean accessibility twin. -->
+					<Button variant="outline" size="sm" onclick={() => (tableView = !tableView)}>
+						{tableView ? 'Show chart' : 'Show table'}
+					</Button>
+				</div>
 			{/if}
 		</Card.Header>
 		<Card.Content>
 			{#if flowError && !flow}
 				<p class="text-sm text-destructive">
-					Couldn't load issue flow history: {flowError}
+					Couldn't load issue throughput history: {flowError}
 				</p>
 			{:else if flow === null}
-				<!-- design-system-spec.md: skeleton shaped like the real
-				     content it's replacing -- a chart-height bar, matching the
-				     ChartContainer's own h-[250px] below. -->
 				<Skeleton class="h-[250px] w-full" />
 			{:else if flow.warning}
-				<!-- Degraded-but-200 case (git unavailable, non-worktree
-				     data_dir) -- build_flow_payload's own warning text, not a
-				     fabricated one. -->
 				<p class="text-sm text-muted-foreground">{flow.warning}</p>
 			{:else if flow.series.length === 0}
-				<!-- Honest empty state -- a fresh template instance has no
-				     issue-history commits yet (ruling: "required, not
-				     optional"). -->
 				<p class="text-sm text-muted-foreground">
-					No committed issue history yet — this fills in as issues change status over time.
+					No committed issue history yet — this fills in as issues open, close, or change status
+					over time.
 				</p>
-			{:else if flow.series.length < 2 || tableView}
-				{#if flow.series.length < 2}
-					<!-- Few-points state (ruling: "required, not optional") --
-					     an area chart can't show a trend from one point; the
-					     table is the honest presentation, not a degraded one. -->
+			{:else if displayedSeries.length < 2 || tableView}
+				{#if displayedSeries.length < 2}
 					<p class="mb-3 text-sm text-muted-foreground">
-						Only {flow.series.length} day{flow.series.length === 1 ? '' : 's'} of committed history
-						so far — not enough to plot a trend yet.
+						Only {displayedSeries.length} {period}{displayedSeries.length === 1 ? '' : 's'} of committed
+						history so far — not enough to plot a trend yet.
 					</p>
 				{/if}
 				<div class="overflow-x-auto">
 					<table class="w-full text-sm">
-						<caption class="sr-only">Issue counts by status, one row per day</caption>
+						<caption class="sr-only">Issue throughput, one row per {period}</caption>
 						<thead>
 							<tr class="border-b border-border">
-								<th class="py-2 pr-4 text-left font-medium text-muted-foreground">Date</th>
-								{#each STATUS_KEYS as key (key)}
-									<th class="py-2 pr-4 text-right font-medium text-muted-foreground">
-										{STATUS_LABEL[key]}
-									</th>
-								{/each}
+								<th class="py-2 pr-4 text-left font-medium text-muted-foreground">
+									{period === 'week' ? 'Week of' : 'Date'}
+								</th>
+								<th class="py-2 pr-4 text-right font-medium text-muted-foreground">Opened</th>
+								<th class="py-2 pr-4 text-right font-medium text-muted-foreground">Closed</th>
+								<th class="py-2 pr-4 text-right font-medium text-muted-foreground">WIP</th>
+								<th class="py-2 pr-4 text-right font-medium text-muted-foreground">Cancelled</th>
 							</tr>
 						</thead>
 						<tbody>
-							{#each flow.series as point (point.date)}
+							{#each displayedSeries as point (point.date)}
 								<tr class="border-b border-border last:border-0">
 									<td class="py-2 pr-4 font-mono">{point.date}</td>
-									{#each STATUS_KEYS as key (key)}
-										<td class="py-2 pr-4 text-right font-mono">{point.counts[key] ?? 0}</td>
-									{/each}
+									<td class="py-2 pr-4 text-right font-mono">{point.opened}</td>
+									<td class="py-2 pr-4 text-right font-mono">{point.closed}</td>
+									<td class="py-2 pr-4 text-right font-mono">{point.wip}</td>
+									<td class="py-2 pr-4 text-right font-mono">{point.cancelled}</td>
 								</tr>
 							{/each}
 						</tbody>
 					</table>
 				</div>
 			{:else}
-				<Chart.Container config={chartConfig} class="aspect-auto h-[250px] w-full">
-					<AreaChart
-						legend
-						data={chartData}
+				<Chart.Container config={chartConfig} class="aspect-auto h-[280px] w-full">
+					<BarChart
+						data={displayedSeries}
 						x="date"
-						xScale={scaleUtc()}
-						{series}
-						seriesLayout="stack"
+						xScale={scaleBand()}
+						series={barSeries}
+						seriesLayout="group"
+						legend
+						{yDomain}
 						props={{
-							xAxis: { ticks: chartTickDates, format: (v: Date) => formatDay(v) },
 							yAxis: { format: (v: number) => String(v) },
 						}}
 					>
 						{#snippet marks({ context })}
-							<!-- marks-and-anatomy.md: ~10% opacity wash on the
-							     fill (never a saturated block), 2px stroke lines. -->
 							{#each context.series.visibleSeries as s (s.key)}
-								<Area seriesKey={s.key} fillOpacity={0.1} line={{ class: 'stroke-2' }} {...s.props} />
+								<Bars seriesKey={s.key} radius={2} {...s.props} />
 							{/each}
+							<!-- WIP overlaid as a line on the SAME shared scale
+							     (yDomain above forces it to cover the line too) --
+							     point-in-time, deliberately never a bar (a bar
+							     would visually read as another delta, exactly the
+							     "two gap semantics in one shape" defect PT-85
+							     exists to remove). -->
+							<Spline
+								data={displayedSeries}
+								x={(d: { date: string }) => d.date}
+								y={(d: { wip: number }) => d.wip}
+								stroke={SERIES_COLOR.wip}
+								class="stroke-2"
+							/>
 						{/snippet}
 						{#snippet tooltip()}
-							<!-- interaction.md: crosshair + one tooltip listing
-							     every series at that X -- Chart.Tooltip's default
-							     shape, not a per-mark hover. PT-61 (team-lead's
-							     browser-pass finding): explicit bg-popover +
-							     ring + z-50 -- the vendored default (bg-background,
-							     no explicit stacking) read translucent in light
-							     mode where the tooltip overhangs the plot edge
-							     near the legend; forcing an opaque popover
-							     surface above everything else can't make that
-							     worse regardless of the underlying cause. -->
 							<Chart.Tooltip
-								labelFormatter={(v: Date) => formatDay(v)}
 								indicator="line"
 								class="z-50 bg-popover text-popover-foreground ring-1 ring-border"
 							/>
 						{/snippet}
-					</AreaChart>
+					</BarChart>
 				</Chart.Container>
 			{/if}
 		</Card.Content>

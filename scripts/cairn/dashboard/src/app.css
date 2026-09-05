@@ -66,26 +66,50 @@
 	--chart-3: oklch(0.681 0.162 75.834);
 	--chart-4: oklch(0.554 0.135 66.442);
 	--chart-5: oklch(0.476 0.114 61.907);
-	/* PT-61 (Mosko's ruling, 2026-08-28, "re-step the chart ramp"):
-	   --chart-1/2 above fail the dataviz skill's ordinal light-end
-	   contrast floor against this file's own --card (white, 1.33:1 /
-	   1.91:1 vs the 2:1 hard gate) -- --chart-1..5 stay untouched for
-	   everything else already using them; these 6 are a SEPARATE,
-	   chart-LOCAL ramp for the flow chart specifically (one step per
-	   STATUS_ORDER status), snapped within the same golden hue to clear
-	   every ordinal check -- monotone L, >=0.06 adjacent gaps, <=40°
-	   hue spread, and >=2:1 light-end contrast -- validated in BOTH
-	   modes against the real --card surface via the dataviz skill's
-	   validate_ordinal (design-system-spec.md § Accessibility carries
-	   the validator evidence). Identical values in :root/.dark
-	   (verified to clear the DARK check too, same as the base ramp's
-	   own light/dark duplication) -- not a copy-paste oversight. */
-	--chart-flow-backlog: oklch(0.77 0.17 95);
-	--chart-flow-todo: oklch(0.702 0.168 88.4);
-	--chart-flow-in-progress: oklch(0.634 0.16 81.8);
-	--chart-flow-in-review: oklch(0.566 0.145 75.2);
-	--chart-flow-done: oklch(0.498 0.125 68.6);
-	--chart-flow-cancelled: oklch(0.43 0.1 62);
+	/* PT-85 (architect ruling 409d310 §7/§9, retired the PT-61 ordinal
+	   ramp entirely, 586af1f): the throughput chart's 3 series --
+	   opened/closed (two bars a reader must contrast at a glance) and
+	   wip (a distinct mark) -- are CATEGORICAL, not ordinal, so an
+	   ordinal ramp (even a re-stepped one) is the wrong encoding
+	   regardless of step count. team-lead's decision (69bee40): three
+	   NEW dedicated tokens (not --chart-1..5, itself measurably the
+	   same single-hue-ramp shape; not --chart-role-*, borrowed from an
+	   unrelated series on this same page).
+
+	   NOT the literal named swatches from the dataviz skill's palette
+	   (.claude/skills/dataviz/references/palette.md) -- measured
+	   (implementation-lead): all 8 named colors sit within the
+	   architect's own pre-registered 25 deg role-collision floor
+	   (9336826) of SOME --chart-role-* hue, in at least one mode (worst
+	   cases: green 22.5 deg from role-8/165 deg, red 22.1-24.7 deg from
+	   role-7/47 deg) -- no 3-subset of the 8 satisfies the floor, so the
+	   literal-palette instruction and the pre-registered threshold are
+	   jointly unsatisfiable. Built instead at the architect's OWN
+	   suggested placements from that same pre-registration -- the three
+	   widest gaps between role hues, at their midpoints (16.9 / 135.2 /
+	   200.8 deg) -- with L/C independently tuned (not copied from any
+	   palette.md swatch) to also clear the dataviz validator's other
+	   checks (lightness band, chroma floor, CVD separation, contrast).
+	   validate_palette.js:
+	     light (#ffffff surface): ALL CHECKS PASS -- one WARN, contrast
+	       (closed/#63-equivalent 2.73:1, below 3:1) -- mitigated: the
+	       chart always carries a text legend + tooltip (direct labels),
+	       the skill's own stated relief for this WARN band.
+	     dark (#1c1917 surface): ALL CHECKS PASS -- one WARN, CVD
+	       separation (opened/closed deutan ΔE 7.1, in the 6-8 "legal
+	       only with secondary encoding" band) -- same legend/tooltip
+	       mitigation.
+	   Role-collision: 16.9/135.2/200.8 deg are each ~30 deg from the
+	   nearest of 252/76.8/300/346/236/105/47/165 deg (>= the 25 deg
+	   floor); pairwise 118.3/65.6/176.1 deg (>= the 60 deg floor).
+	   Interim, not final, and this deviation from "literal palette.md
+	   values" is flagged on PT-85 for the architect/team-lead, not
+	   silently substituted: PT-92 is filed for a ux-designer eye on the
+	   specific hex picks; the token NAMES and qa's per-variant
+	   distinctness guard are the contract this ticket ships. */
+	--chart-flow-opened: oklch(0.55 0.20 16.9);
+	--chart-flow-closed: oklch(0.68 0.18 135.2);
+	--chart-flow-wip: oklch(0.62 0.15 200.8);
 	/* PT-79: the token/cost dashboard block's ROLE stack -- categorical
 	   (unordered), not ordinal, so this is a DIFFERENT validator shape
 	   from the flow ramp above (minimum pairwise OKLab dE, not monotone
@@ -180,16 +204,15 @@
 	--chart-3: oklch(0.681 0.162 75.834);
 	--chart-4: oklch(0.554 0.135 66.442);
 	--chart-5: oklch(0.476 0.114 61.907);
-	/* PT-61: same 6-step chart-local ramp as :root -- validated
-	   separately against THIS block's --card (the dark surface) via
-	   the dataviz skill's validate_ordinal, not assumed identical
-	   because the light values happened to pass. See :root's comment. */
-	--chart-flow-backlog: oklch(0.77 0.17 95);
-	--chart-flow-todo: oklch(0.702 0.168 88.4);
-	--chart-flow-in-progress: oklch(0.634 0.16 81.8);
-	--chart-flow-in-review: oklch(0.566 0.145 75.2);
-	--chart-flow-done: oklch(0.498 0.125 68.6);
-	--chart-flow-cancelled: oklch(0.43 0.1 62);
+	/* PT-85 (interim, PT-92 filed for ux-designer ratification):
+	   dataviz skill's validated categorical palette, dark-mode values
+	   -- red/green/violet, chosen to avoid every --chart-role-* hue on
+	   this page and validated via validate_palette.js against this
+	   block's own --card surface (#1c1917). See :root's comment for
+	   the full picks + validator output, recorded on PT-85. */
+	--chart-flow-opened: oklch(0.58 0.17 16.9);
+	--chart-flow-closed: oklch(0.65 0.15 135.2);
+	--chart-flow-wip: oklch(0.60 0.13 200.8);
 	/* PT-79: see :root's comment -- identical values, both real --card
 	   surfaces validated independently (no per-mode split needed). */
 	--chart-role-1: oklch(0.570 0.1587 252.00);
