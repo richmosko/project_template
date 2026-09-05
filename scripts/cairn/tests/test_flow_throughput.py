@@ -324,6 +324,81 @@ class ClosedKeysOnTransitionTests(unittest.TestCase):
             f"transition on the archive-move day -- got {points.get('2026-08-12')!r}",
         )
 
+    def test_a_genuine_delete_then_readd_of_an_already_done_stem_is_not_recounted_as_closed(self):
+        # Architect's review (f979784): a `git mv` (my other test above)
+        # is ONE rename event (R###) in git's raw diff -- it never
+        # exercises the D-branch at all. The real bug is in the D branch
+        # specifically: `live.pop(stem)` clears the stem's last-known
+        # status, so a LATER, SEPARATE add (genuinely two commits, no
+        # rename pairing possible across commit boundaries) sees
+        # previous_status=None and re-counts an already-done issue as
+        # closed a second time. Measured on the real corpus: a 43-file
+        # bulk-archive commit (bulk delete+re-add, not git mv) inflated
+        # `closed` by exactly 43 this way.
+        data_dir = make_flow_git_repo(self)
+        repo_root = data_dir.parent.parent
+
+        _write_issue(data_dir, id="PT-5b", status="todo")
+        _commit_at(repo_root, "create PT-5b", "2026-08-10 10:00:00 +0000")
+        _write_issue(data_dir, id="PT-5b", status="done")
+        _commit_at(repo_root, "PT-5b -> done", "2026-08-11 10:00:00 +0000")
+
+        # A genuine delete, its OWN commit -- not paired with any add in
+        # the SAME commit, so git's rename detection cannot pair it with
+        # anything: this is unambiguously a "D" event in the raw walk.
+        (data_dir / "issues" / "PT-5b.md").unlink()
+        _commit_at(repo_root, "delete PT-5b (simulating an external archive step)", "2026-08-12 10:00:00 +0000")
+
+        # Re-added under archive/issues/ in a SEPARATE, LATER commit --
+        # unambiguously an "A" event, still done.
+        _write_issue(data_dir, id="PT-5b", status="done", archived=True)
+        _commit_at(repo_root, "re-add PT-5b under archive/issues/, still done", "2026-08-13 10:00:00 +0000")
+
+        payload = _call_flow_payload(data_dir)
+        points = _points_by_date(payload["series"])
+        self.assertEqual(
+            points["2026-08-11"]["closed"], 1,
+            f"the actual done-transition is the one real close -- got {points.get('2026-08-11')!r}",
+        )
+        self.assertEqual(
+            points.get("2026-08-13", {}).get("closed", 0), 0,
+            f"re-adding an already-done stem after a genuine delete (D-then-A, not a rename) "
+            f"must NOT be re-counted as closed -- the D branch must remember the stem was "
+            f"already 'done' even though it was removed from the live snapshot -- "
+            f"got {points.get('2026-08-13')!r}",
+        )
+
+    def test_a_genuine_delete_then_readd_of_an_already_cancelled_stem_is_not_recounted_as_cancelled(self):
+        # Architect's own note: "cancelled has the identical bug,
+        # currently latent, since the corpus has zero cancelled issues,
+        # which is precisely why a fixture must cover it." Same shape as
+        # the closed test above, for the cancelled transition.
+        data_dir = make_flow_git_repo(self)
+        repo_root = data_dir.parent.parent
+
+        _write_issue(data_dir, id="PT-5c", status="todo")
+        _commit_at(repo_root, "create PT-5c", "2026-08-10 10:00:00 +0000")
+        _write_issue(data_dir, id="PT-5c", status="cancelled")
+        _commit_at(repo_root, "PT-5c -> cancelled", "2026-08-11 10:00:00 +0000")
+
+        (data_dir / "issues" / "PT-5c.md").unlink()
+        _commit_at(repo_root, "delete PT-5c", "2026-08-12 10:00:00 +0000")
+
+        _write_issue(data_dir, id="PT-5c", status="cancelled", archived=True)
+        _commit_at(repo_root, "re-add PT-5c under archive/issues/, still cancelled", "2026-08-13 10:00:00 +0000")
+
+        payload = _call_flow_payload(data_dir)
+        points = _points_by_date(payload["series"])
+        self.assertEqual(
+            points["2026-08-11"]["cancelled"], 1,
+            f"the actual cancel-transition is the one real cancellation -- got {points.get('2026-08-11')!r}",
+        )
+        self.assertEqual(
+            points.get("2026-08-13", {}).get("cancelled", 0), 0,
+            f"re-adding an already-cancelled stem after a genuine delete must NOT be "
+            f"re-counted as cancelled -- got {points.get('2026-08-13')!r}",
+        )
+
     def test_a_transition_into_cancelled_counts_as_neither_opened_nor_closed(self):
         data_dir = make_flow_git_repo(self)
         repo_root = data_dir.parent.parent
