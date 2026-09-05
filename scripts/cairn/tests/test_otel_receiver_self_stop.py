@@ -65,11 +65,14 @@ grace survived into the FINAL flush rather than being dropped on exit.
 
 ## AC4 -- the real committed data file
 
-`RealDataFileUntouchedGuard` snapshots process/cairn/metrics/
-token-usage.jsonl's bytes once for this whole module (setUpClass) and
-re-checks them unchanged at the very end (tearDownClass) -- on top of
-every individual test's own --out-file pointing at a fake root's own
-tree, never the real one.
+Module-level `setUpModule`/`tearDownModule` snapshot process/cairn/metrics/
+token-usage.jsonl's bytes once before any test in this module runs, and
+re-check them unchanged after the very last one -- on top of every
+individual test's own --out-file pointing at a fake root's own tree,
+never the real one. Deliberately module-level rather than a TestCase's
+setUpClass/tearDownClass: unittest loads classes alphabetically by name,
+so a class-scoped guard only brackets its own class, not ones that sort
+after it.
 """
 from __future__ import annotations
 
@@ -256,34 +259,36 @@ def read_jsonl(path: Path) -> list[dict]:
 # AC4: the real, committed data file must never move.
 # --------------------------------------------------------------------------
 
-class RealDataFileUntouchedGuard(unittest.TestCase):
-    """Snapshots the REAL repo's committed token-usage.jsonl once before
-    any test in this module runs a subprocess, and again after the very
-    last one -- on top of every individual test already pointing its own
-    --out-file at a fake root. This is the module-wide backstop against a
-    seam mistake (e.g. a spawned daemon resolving repo_root wrong and
-    writing into the real checkout)."""
+_REAL_TOKEN_USAGE_BEFORE: Optional[bytes] = None
 
-    _before: Optional[bytes] = None
 
-    @classmethod
-    def setUpClass(cls):
-        cls._before = REAL_TOKEN_USAGE_PATH.read_bytes() if REAL_TOKEN_USAGE_PATH.exists() else None
+def setUpModule():
+    # Module-level, not a TestCase's setUpClass/tearDownClass: unittest's
+    # own loader walks `dir(module)` (alphabetical by class name, not
+    # definition order) to find TestCase classes, so a class-scoped
+    # setUpClass/tearDownClass pair only brackets ITS OWN class's tests --
+    # any class in this file sorting after it alphabetically could touch
+    # the real file AFTER that guard's tearDownClass already passed,
+    # which is a silent gap, not a loud failure. setUpModule/
+    # tearDownModule are unittest's own guaranteed whole-module brackets
+    # and don't have that gap (found and converted during the PT-84
+    # receiver-self-stop investigation, 2026-09-04 -- see
+    # test_milestone_overhead.py's identical pattern for the sessions
+    # registry).
+    global _REAL_TOKEN_USAGE_BEFORE
+    _REAL_TOKEN_USAGE_BEFORE = REAL_TOKEN_USAGE_PATH.read_bytes() if REAL_TOKEN_USAGE_PATH.exists() else None
 
-    def test_snapshot_taken(self):
-        # A trivial always-passing assertion so this class registers as
-        # having run at least one test -- the real check is in
-        # test_zz_real_file_unchanged, ordered last by unittest's default
-        # alphabetical test method sort within the class.
-        self.assertTrue(True)
 
-    def test_zz_real_file_unchanged_so_far(self):
-        after = REAL_TOKEN_USAGE_PATH.read_bytes() if REAL_TOKEN_USAGE_PATH.exists() else None
-        self.assertEqual(
-            after, self._before,
-            "the real, committed process/cairn/metrics/token-usage.jsonl must never be "
-            "touched by this test module -- every test must point --out-file at a fake root",
-        )
+def tearDownModule():
+    # This is the module-wide backstop against a seam mistake (e.g. a
+    # spawned daemon resolving repo_root wrong and writing into the real
+    # checkout) -- on top of every individual test already pointing its
+    # own --out-file at a fake root.
+    after = REAL_TOKEN_USAGE_PATH.read_bytes() if REAL_TOKEN_USAGE_PATH.exists() else None
+    assert after == _REAL_TOKEN_USAGE_BEFORE, (
+        "the real, committed process/cairn/metrics/token-usage.jsonl must never be "
+        "touched by this test module -- every test must point --out-file at a fake root"
+    )
 
 
 # --------------------------------------------------------------------------
