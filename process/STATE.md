@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Guardrails against loop bloat and round-trip cycles: message budget, ruling discipline, gate count, per-loop scorecard, mechanical enforcement |
+| Issue | PT-94 (cairn) |
+| Milestone | PT-0.12.1 |
+| Branch | `feature/pt-94-loop-guardrails` |
+| Started | 2026-09-05 |
+| Goal | Audit the PT-85 loop step by step, then make the four-gate flow and its caps mechanical: cairn check lints, cairn gate/loop-stats, pre-commit foreign-hunk guard, agent-definition sections. |
+| Status | In Progress — team-lead executes directly, no Implement team (user directive 2026-09-05) |
 
 ## Releases
 
