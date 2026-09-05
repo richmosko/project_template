@@ -31,7 +31,7 @@ Full history, every tagged release with its notes, lives at [the GitHub Releases
 
 | Version | Date | Major line | Milestone shipped | Branch | Notes |
 |---|---|---|---|---|---|
-| v0.11.0 | 2026-09-04 | PT-V1 | PT-0.11 (token accounting) — [release](https://github.com/richmosko/project_template/releases/tag/v0.11.0) | main | Published |
+| v0.12.0 | 2026-09-05 | PT-V1 | PT-0.12 (telemetry attribution) — [release](https://github.com/richmosko/project_template/releases/tag/v0.12.0) | main | Draft |
 
 ## Decisions
 
