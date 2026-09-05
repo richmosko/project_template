@@ -3143,18 +3143,23 @@ def _compute_flow_payload(data_dir: Path) -> Dict[str, Any]:
         _emit_point(current_day)
 
     # default_milestone: the milestone whose LATEST transition day is the
-    # most recent (addendum change 3); ties break toward the "later-
-    # created" milestone -- approximated here by a numeric-aware compare
-    # of the id's trailing version number (never a plain string compare,
-    # the PT-84 lesson: "PT-0.10" sorts before "PT-0.5" lexicographically),
-    # since resolving true creation commits here would be the exact
-    # "second git pass" §5/§6 rule out for this endpoint. Flagged to the
-    # architect as a judgment call, not an exact reading of "later-created".
+    # most recent (addendum change 3); ties break toward the milestone
+    # whose FILE was created later in real history -- qa's test names
+    # the exact real shape this matters for: a lower-numbered hotfix
+    # milestone (PT-0.11.1) opened AFTER a higher-numbered one (PT-0.12)
+    # is already live, so numeric/lexicographic id order picks the wrong
+    # one. `milestone_windows` already resolves true creation order (the
+    # same derivation `_flow_milestone_lookup` above's sibling concern,
+    # PT-84's own git-creation-commit walk) -- reused here rather than
+    # inventing a second heuristic; a milestone with no resolvable window
+    # (git failure, or dropped by that function's own collision guard)
+    # sorts first via "", never crashes the tie-break.
     default_milestone = None
     if transition_last_day:
+        creation_order = {mid: start_iso for start_iso, mid in milestone_windows(repo_root)}
         default_milestone = max(
             transition_last_day.keys(),
-            key=lambda mid: (transition_last_day[mid], _milestone_id_sort_key(mid)),
+            key=lambda mid: (transition_last_day[mid], creation_order.get(mid, "")),
         )
 
     milestones_out = [
@@ -3171,20 +3176,6 @@ def _compute_flow_payload(data_dir: Path) -> Dict[str, Any]:
         "scope": FLOW_THROUGHPUT_SCOPE_NOTE,
         "warning": None,
     }
-
-
-def _milestone_id_sort_key(milestone_id: str) -> Tuple[int, ...]:
-    """Numeric-aware sort key for a milestone id shaped `<prefix>-N[.N...]`
-    (e.g. `PT-0.12`) or a bare, unprefixed legacy form (`0.12`) -- splits
-    the trailing dotted-number portion into an int tuple so `PT-0.10`
-    sorts AFTER `PT-0.5` (never a plain string compare, which gets this
-    backwards -- the same trap `cairn.milestone_windows` was built to
-    avoid, PT-84 §6). Falls back to `(0,)` for anything with no trailing
-    number, so it never raises on an unexpected id shape."""
-    m = re.search(r"(\d+(?:\.\d+)*)$", milestone_id)
-    if not m:
-        return (0,)
-    return tuple(int(part) for part in m.group(1).split("."))
 
 
 def _flow_milestone_lookup(repo_root: Path) -> Dict[str, Dict[str, Optional[str]]]:
@@ -3242,11 +3233,15 @@ def build_flow_payload(data_dir: Path) -> Dict[str, Any]:
     null` rather than being dropped -- dropping it would erase real
     history from the scope control). `default_milestone` is the id whose
     latest TRANSITION day (a day with a non-zero opened/closed/cancelled,
-    never standing WIP alone) is most recent, or `null` if the walk
-    carries no milestone data at all (degrades to the overall/all-
-    milestones view). The server emits day granularity only; a week view
-    is a client-side aggregation (sum the deltas, take the LAST wip of
-    the week -- never sum or average a point-in-time value).
+    never standing WIP alone) is most recent, ties broken toward the
+    milestone whose FILE was created LATER in real history (via
+    `milestone_windows`, never a numeric/lexicographic id compare -- a
+    lower-numbered hotfix milestone opened after a higher-numbered one
+    is already live is the real shape this matters for), or `null` if
+    the walk carries no milestone data at all (degrades to the overall/
+    all-milestones view). The server emits day granularity only; a week
+    view is a client-side aggregation (sum the deltas, take the LAST wip
+    of the week -- never sum or average a point-in-time value).
 
     Memoized in-process, keyed by `data_dir` and the CURRENT HEAD sha --
     history is a pure function of HEAD, so a repeat call at an unchanged
