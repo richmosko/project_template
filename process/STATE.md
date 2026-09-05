@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-89-receiver-flush-drop` |
 | Started | 2026-09-05 |
 | Goal | A backfill re-run while the receiver is live costs at most the datapoints the backfill already holds; the receiver keeps flushing. |
-| Status | In Progress |
+| Status | In Review — [PR #169](https://github.com/richmosko/project_template/pull/169) |
 
 ## Releases
 
