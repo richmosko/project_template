@@ -82,6 +82,10 @@ BACKFILL_SCRIPT = helpers.CAIRN_DIR / "backfill_tokens.py"
 OTEL_SCRIPT = helpers.CAIRN_DIR / "otel_receiver.py"
 OTLP_FIXTURES = helpers.FIXTURES_DIR / "otlp"
 
+REAL_METRICS_DIR = helpers.TESTS_DIR.parent.parent.parent / "process" / "cairn" / "metrics"
+REAL_RECEIVER_PIDFILE = REAL_METRICS_DIR / ".receiver.pid"
+REAL_SESSIONS_DIR = REAL_METRICS_DIR / ".sessions"
+
 MILESTONE_TMPL = "---\nid: {id}\nname: {name}\nkind: product\nmajor: PT-V1\nstatus: {status}\ntarget_tag: null\nga: false\n---\n\n{dod}\n"
 
 
@@ -661,6 +665,58 @@ class BackfillMilestoneAttributionTests(unittest.TestCase):
             f"a record inside a DROPPED (colliding) window must fall back to main, never to either "
             f"colliding milestone -- got {issues!r}",
         )
+
+
+def _snapshot_real_sessions_registry():
+    if not REAL_SESSIONS_DIR.is_dir():
+        return None
+    return sorted((p.name, p.read_bytes()) for p in REAL_SESSIONS_DIR.iterdir() if p.is_file())
+
+
+_REAL_PIDFILE_BEFORE: Optional[bytes] = None
+_REAL_SESSIONS_BEFORE: Optional[list] = None
+
+
+def setUpModule():
+    # Module-level, not a TestCase's setUpClass: unittest's own loader
+    # walks `dir(module)` (alphabetical) to find TestCase classes, so a
+    # per-class setUpClass/tearDownClass pair only brackets ITS OWN
+    # class's tests, not the whole module -- a class sorting after it
+    # alphabetically (e.g. one added later) would run, and be able to
+    # touch the real files, AFTER this guard's tearDownClass already
+    # passed. setUpModule/tearDownModule are unittest's own guaranteed
+    # whole-module brackets and don't have that gap.
+    global _REAL_PIDFILE_BEFORE, _REAL_SESSIONS_BEFORE
+    _REAL_PIDFILE_BEFORE = REAL_RECEIVER_PIDFILE.read_bytes() if REAL_RECEIVER_PIDFILE.exists() else None
+    _REAL_SESSIONS_BEFORE = _snapshot_real_sessions_registry()
+
+
+def tearDownModule():
+    # Prompted by a real incident (2026-09-04, ~16:27 PDT): the production
+    # receiver self-stopped with .sessions/ modified and no refused-flush
+    # line -- the exact signature of a session registering and draining
+    # the REAL registry. Traced (not guessed): every subprocess.run(...)
+    # call in this module invokes OTEL_SCRIPT with only
+    # --ingest/--out-file/--repo-root, never --ensure-running/
+    # --session-ended/--flush-now/--stop, and otel_receiver.py's own
+    # --ingest branch (confirmed by reading main()'s dispatch order)
+    # never calls register_session/deregister_session or resolves
+    # _sessions_dir(pidfile) at all -- only --ensure-running,
+    # --session-ended, --status and the bare serve() daemon fallback do.
+    # So this module's tests were not the cause of that incident; this
+    # guard exists so a FUTURE test in this file that adds one of those
+    # flags without a fake engine root fails HERE, not in production.
+    pidfile_after = REAL_RECEIVER_PIDFILE.read_bytes() if REAL_RECEIVER_PIDFILE.exists() else None
+    assert pidfile_after == _REAL_PIDFILE_BEFORE, (
+        "the real, live process/cairn/metrics/.receiver.pid must never be touched by "
+        "this test module -- every otel_receiver.py invocation here must be --ingest-only "
+        "(never --ensure-running/--session-ended/--flush-now/--stop) with --repo-root "
+        "pointed at a fake root"
+    )
+    assert _snapshot_real_sessions_registry() == _REAL_SESSIONS_BEFORE, (
+        "the real, live process/cairn/metrics/.sessions/ registry must never be touched "
+        "by this test module -- see tearDownModule's comment for why --ingest alone is safe"
+    )
 
 
 class ReceiverMilestoneAttributionTests(unittest.TestCase):
