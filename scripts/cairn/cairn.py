@@ -3039,6 +3039,18 @@ def _compute_flow_payload(data_dir: Path) -> Dict[str, Any]:
     live: Dict[str, str] = {}
     live_milestone: Dict[str, Optional[str]] = {}
     seen_stems: Set[str] = set()
+    # Architect's review of 37f0cfe (f979784): a `D` clearing `live`
+    # made the transition check read the re-add's `previous_status` as
+    # `None`, so an archived-then-re-added `done` stem counted as a
+    # FRESH close every time -- measured on the real corpus, `closed`
+    # was inflated by exactly 43, the size of one bulk-archive commit.
+    # `last_status` is the fix: it persists across a `D` exactly like
+    # `seen_stems` does (never cleared there), so the transition check
+    # below has the stem's true last-known status to compare against,
+    # regardless of how many times it's been archived/re-added. `live`
+    # keeps driving WIP unchanged -- a deleted stem must still stop
+    # counting as in-flight, so only the TRANSITION's source changes.
+    last_status: Dict[str, str] = {}
     # Milestone ids in FIRST-APPEARANCE order across the whole walk --
     # `by_milestone` (addendum 2f8eba0, change 1) is DENSE from a
     # milestone's first appearance onward, so this is also the set every
@@ -3129,7 +3141,7 @@ def _compute_flow_payload(data_dir: Path) -> Dict[str, Any]:
         if milestone_id:
             milestone_id = _canonicalize_milestone_id(milestone_id)
         _note_milestone_seen(milestone_id)
-        previous_status = live.get(stem)
+        previous_status = last_status.get(stem)
         if stem not in seen_stems:
             seen_stems.add(stem)
             day_opened[milestone_id] = day_opened.get(milestone_id, 0) + 1
@@ -3139,6 +3151,7 @@ def _compute_flow_payload(data_dir: Path) -> Dict[str, Any]:
             day_cancelled[milestone_id] = day_cancelled.get(milestone_id, 0) + 1
         live[stem] = status
         live_milestone[stem] = milestone_id
+        last_status[stem] = status
     if current_day is not None:
         _emit_point(current_day)
 
