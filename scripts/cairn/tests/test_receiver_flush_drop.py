@@ -350,6 +350,17 @@ class EntirelyDroppedBatchAndResetTests(unittest.TestCase):
         )
         self.assertIn(STAMP, log_lines[0], f"the log line must name the backfill's generated stamp -- got {log_lines[0]!r}")
         self.assertIn("dropped", log_lines[0].lower(), f"the log line must name the dropped count -- got {log_lines[0]!r}")
+        # Architect's review delta (9c7915c): a clean drop must NOT carry
+        # the straddling clause's "discard"/loss language -- a dropped
+        # group's tokens genuinely WERE already counted by the backfill,
+        # nothing here is lost. Conflating the two explanations would
+        # make the log claim loss that didn't happen (the mirror-image
+        # mistake of the one the delta actually caught).
+        self.assertNotIn(
+            "discard", log_lines[0].lower(),
+            f"a batch with only clean drops (no straddling) must not claim any data was "
+            f"discarded -- got {log_lines[0]!r}",
+        )
 
 
 # --------------------------------------------------------------------------
@@ -401,6 +412,22 @@ class StraddlingGroupDroppedWholeTests(unittest.TestCase):
         self.assertIn(
             "dropped", log,
             f"the log line must also name the clean-dropped count -- got {log!r}",
+        )
+        # Architect's review delta (9c7915c): a dropped group and a
+        # straddling group are NOT the same loss and must not share one
+        # explanation. A dropped group's tokens were already counted by
+        # the backfill -- nothing is lost. A straddling group's PRE-stamp
+        # portion was also already counted, but its POST-stamp portion
+        # was never seen by the backfill and is discarded anyway (the
+        # group's aggregate value can't be split) -- that portion is
+        # real, deliberate data loss, and the log line is its only
+        # visibility. The clause must say so, not just "already counted".
+        self.assertIn(
+            "discard", log,
+            f"the straddling clause must state that its post-stamp portion is genuinely "
+            f"DISCARDED (real data loss), not merely 'already counted' like a clean drop -- "
+            f"an operator reading only 'already counted' would wrongly conclude nothing was "
+            f"lost -- got {log!r}",
         )
 
 
