@@ -270,6 +270,16 @@ class FrontmatterError(CairnError):
     """Raised by parse_frontmatter when the '---'/'---' fences are missing or malformed."""
 
 
+class MilestoneWindowError(CairnError):
+    """Raised by milestone_windows when its own strictly-increasing/one-
+    entry-per-file invariant is violated (architect's ruling, 7341e2e) --
+    a duplicate milestone id, or two milestone files resolving to the
+    same (or an inverted) creation timestamp. Converts what would
+    otherwise be a silent mis-bucketing (two milestones sharing a
+    window, or a `--follow` rename false-merge) into an immediate,
+    named error instead."""
+
+
 class ConflictError(CairnError):
     """Raised on the server-side patch path when a write's `seen` token is stale.
 
@@ -2218,6 +2228,283 @@ def read_git_tags(data_dir: Path) -> Tuple[Optional[Set[str]], Optional[str]]:
     return tags, None
 
 
+# --------------------------------------------------------------------------
+# PT-84: main-branch usage attributed to the milestone active at a
+# record's timestamp, instead of an undifferentiated `main` bucket.
+# Lives here, not in backfill_tokens.py (the architect's addendum on
+# process/cairn/issues/PT-84.md, "@architect -- 2026-09-04", amending
+# §4): backfill_tokens.py imports cairn, cairn.py does not import
+# backfill_tokens, and otel_receiver.py imports both -- so with THREE
+# consumers, one of them the common ancestor the other two already
+# depend on, placing the shared function anywhere else would create a
+# cycle or bury it downstream of one of its own callers. Same
+# "no new capability class" reasoning as `read_git_tags` above: this
+# module already shells git from a `-C <dir>` anchor, never CWD.
+# --------------------------------------------------------------------------
+
+_MILESTONE_REL_PATHS = ("process/cairn/milestones/", "process/cairn/archive/milestones/")
+
+
+def milestone_windows(repo_root: Path, strict: bool = False) -> List[Tuple[str, str]]:
+    """§2/§4 (amended §3.2, addendum c0affa5): a milestone's window is
+    `[creation of its file, creation of the next milestone's file)` --
+    half-open, so a record on a boundary belongs to exactly one window
+    (the later one) by construction. §1 measured this against all 14
+    real milestones and eliminated the two alternatives (issue-derived
+    dates: `PT-0.3` has zero issues, and several milestones share a day;
+    archive-move timestamps: retroactive bulk-commit bookkeeping that
+    overlaps six ways) -- creation commits are the only source that is
+    unique, non-overlapping, and defined for every milestone.
+
+    Two lookups, deliberately split by source of truth (§3.2 amendment):
+    - **Ids come from CURRENT file content** -- a plain glob over
+      `process/cairn/milestones/` and `process/cairn/archive/milestones/`
+      under `repo_root`, no git for this half. Measured: the first six
+      milestones' FRONTMATTER, not just the filename, said the bare,
+      quoted `id: "0.3"` at creation time -- reading `git show
+      <add-commit>:<path>` (historical content) reproduces that exact
+      stale id one level below the filename bug. Only HEAD's content is
+      ever correct.
+    - **Timestamps come from PER-FILE `git log --follow --diff-filter=A
+      --format=%aI -- <current path>`,** taking the LAST line (git log
+      is newest-first; the origin commit is oldest). `--follow` accepts
+      exactly one path, which is why this cannot be one combined call
+      over both directories: `--follow` walks the CURRENT, live path's
+      history backward through its own renames to the true origin commit
+      -- confirmed against `PT-0.3.md`: it finds the 2026-08-20 creation
+      commit even though that commit's own path and frontmatter both
+      said `0.3`. A combined `--name-status` walk would give
+      `(timestamp, historical path)` pairs and leave the rename chain to
+      be reconstructed by hand.
+
+    `-C repo_root`, never CWD (this module's standing convention,
+    `read_git_tags` above) -- a CWD-relative git call returns different,
+    or silently empty, answers depending on where the process happens to
+    run. Author-date timezone offsets are normalised to UTC before
+    return (git's `%aI` carries the COMMITTER's own local offset, not
+    UTC; a transcript's own `timestamp` field is always UTC `Z` --
+    comparable strings require the same normalisation, not just the same
+    ISO8601 grammar, or an offset would sort as if later than it truly
+    is).
+
+    Cost, measured (addendum c0affa5): 0.23 s for all 14 real milestones
+    (~16 ms each), linear in milestone count. Built ONCE per flush (the
+    receiver) or once per run (the backfill), never per datapoint or per
+    record, and never on the hook path (`--ensure-running` never calls
+    this). If milestone count ever makes this matter, the fix is caching
+    keyed on the two directories' mtimes -- not a hand-rolled rename-chain
+    parser; the per-file `--follow` is the correct derivation and should
+    stay the one that runs (confirmed against the real repo: plain
+    `--follow --diff-filter=A` reproduces all 14 milestones' true,
+    distinct creation timestamps with no collapsing -- an earlier
+    `-M100%` variant of this function broke that, misread at the time as
+    a defect in the ruling's own invocation rather than in that edit;
+    withdrawn once the architect's own independent run of the literal
+    ruling text failed to reproduce it).
+
+    A synthetic-fixture-only edge remains open, not an engine defect:
+    two DIFFERENT milestone files sharing the exact same template body
+    (differing only in `id`/`name`) are similar enough for `--follow`'s
+    default content-similarity rename detection to jump one's history
+    onto the other's -- reproducible in a throwaway repo, never observed
+    against a real milestone file (whose `name`/definition-of-done prose
+    differs substantially, confirmed by the architect building both
+    shapes: distinct prose eliminates it). Per the architect's ruling
+    (7341e2e): fix the fixture to look like the real artifact, not the
+    engine to tolerate an unrepresentative one. In its place, an
+    invariant (below) converts the residual risk into a named error
+    instead of carrying permanent rename-disambiguation machinery for
+    an input this codebase's own milestone files don't produce.
+
+    Returns `[(start_iso, milestone_id), ...]` sorted ASCENDING by start
+    -- creation-timestamp order, never id string-compare (§6: `PT-0.10`
+    sorts before `PT-0.5` lexicographically, which is exactly wrong).
+    Returns `[]` on any git failure (no repo, git not on PATH, timeout),
+    a missing directory, or a file this repo's own git history has no
+    record of (a freshly-created, uncommitted milestone file) -- the
+    caller's job to decide what "no window" means, not this function's;
+    every caller in this codebase treats an empty/failed lookup as
+    "everything stays `main`", the same fail-safe direction this
+    project's gating rulings consistently take.
+
+    Invariant (7341e2e, severity corrected by architect's review at
+    4a7c2c3): the derived windows must be exactly one entry per
+    milestone id, strictly increasing in start time -- a duplicate id,
+    or two milestones resolving to the same (or an inverted) timestamp,
+    is exactly the failure shape a `--follow` rename false-merge (or a
+    genuinely duplicated milestone file) produces. The ORIGINAL ruling
+    had this raise `MilestoneWindowError`; the architect's review found
+    that a raise here runs inside the receiver's own flush path, so a
+    milestone-file naming coincidence could abort telemetry collection
+    outright -- the exact asymmetry PT-86 §0 already rejected once (a
+    loud, degraded result beats a silent stop). Default (`strict=False`,
+    every real caller): the colliding milestone(s) are DROPPED from the
+    returned list and a named warning is printed to stderr identifying
+    them and their shared/inverted timestamp; any record that would have
+    matched a dropped window falls back to `main` (the documented
+    "outside any window" bucket) -- under-attributed, never
+    mis-attributed, never a stop. `strict=True` (qa's own test surface,
+    exercising the detector in isolation) restores the original raise.
+    """
+    import subprocess
+
+    windows: List[Tuple[str, str]] = []
+    for rel in _MILESTONE_REL_PATHS:
+        milestone_dir = repo_root / rel
+        if not milestone_dir.is_dir():
+            continue
+        for path in sorted(milestone_dir.glob("*.md")):
+            try:
+                text = path.read_text(encoding="utf-8")
+                frontmatter, _ = parse_frontmatter(text)
+            except (OSError, FrontmatterError):
+                continue
+            milestone_id = frontmatter.get("id")
+            if not milestone_id:
+                continue
+            rel_path = path.relative_to(repo_root).as_posix()
+            try:
+                log = subprocess.run(
+                    ["git", "-C", str(repo_root), "log", "--follow", "--diff-filter=A",
+                     "--format=%aI", "--", rel_path],
+                    capture_output=True, text=True, timeout=10,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if log.returncode != 0:
+                continue
+            lines = [l for l in log.stdout.splitlines() if l.strip()]
+            if not lines:
+                continue
+            git_iso = lines[-1]  # git log is newest-first; the origin commit is the last line
+            start_iso = _git_iso_to_utc_z(git_iso)
+            if start_iso is None:
+                continue
+            windows.append((start_iso, str(milestone_id)))
+
+    windows.sort(key=lambda w: w[0])
+
+    ids = [milestone_id for _start, milestone_id in windows]
+    dup_ids = {milestone_id for milestone_id in ids if ids.count(milestone_id) > 1}
+    if dup_ids and strict:
+        raise MilestoneWindowError(
+            f"milestone_windows found more than one window for the same milestone id(s) "
+            f"{sorted(dup_ids)!r} -- a milestone file present under both milestones/ and "
+            f"archive/milestones/ at once, or a duplicated id in frontmatter -- "
+            f"windows: {windows!r}"
+        )
+
+    # Duplicate/inverted TIMESTAMPS -- grouped by start_iso (the windows
+    # are already sorted, so an "inverted" pair is impossible here; the
+    # only shape left is a TIE, two different ids sharing one start,
+    # which is exactly what a `--follow` false-merge produces).
+    by_start: Dict[str, List[str]] = {}
+    for start, milestone_id in windows:
+        by_start.setdefault(start, []).append(milestone_id)
+    tied_ids = {mid for group in by_start.values() if len(group) > 1 for mid in group}
+    if tied_ids and strict:
+        tied_start = next(start for start, group in by_start.items() if len(group) > 1)
+        raise MilestoneWindowError(
+            f"milestone_windows produced a non-increasing timestamp: milestone(s) "
+            f"{sorted(tied_ids)!r} all resolved to {tied_start!r} -- two milestone files "
+            f"resolved to the same or an inverted creation time, most likely a `--follow` "
+            f"rename false-merge against unrepresentative content (see this function's "
+            f"docstring) rather than a genuine same-instant creation"
+        )
+
+    colliding = dup_ids | tied_ids
+    if colliding:
+        sys.stderr.write(
+            f"cairn: warning: milestone_windows dropped colliding milestone window(s) "
+            f"{sorted(colliding)!r} -- two or more milestone files resolved to the same "
+            f"(or a duplicate) creation id/timestamp, most likely a `--follow` rename "
+            f"false-merge; records that would have matched a dropped window fall back to "
+            f"`main`\n"
+        )
+        windows = [(start, milestone_id) for start, milestone_id in windows if milestone_id not in colliding]
+
+    return windows
+
+
+def _git_iso_to_utc_z(git_iso: str) -> Optional[str]:
+    """`%aI` renders the AUTHOR's own local offset (e.g. `-07:00`), which
+    varies by committer/DST and is NOT the same representation Claude
+    Code's own transcript `timestamp` field uses (always UTC, `Z`
+    suffix). Converts to the exact `%Y-%m-%dT%H:%M:%SZ` shape this
+    codebase already uses elsewhere (e.g. `otel_receiver._now_iso`)."""
+    try:
+        parsed = datetime.datetime.fromisoformat(git_iso)
+    except ValueError:
+        return None
+    return parsed.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def milestone_for_timestamp(ts: str, windows: List[Tuple[str, str]]) -> Optional[str]:
+    """Pure (§4: "this is where the boundary tests aim", §8: "no git in
+    the unit tests") -- `windows` is `milestone_windows`'s own return
+    shape, already sorted ascending by start.
+
+    Canonicalises `ts` before comparing (addendum, precision ruling):
+    the two collectors disagree not just on timezone offset but on
+    PRECISION -- a real backfill transcript timestamp carries
+    milliseconds (`"2026-08-22T06:38:52.326Z"`), the receiver's
+    `_ns_to_iso` and this function's own `windows` do not
+    (`"...52Z"`). Demonstrated: `"...52.326Z" < "...52Z"` is `True` under
+    plain string compare, because `.` (0x2E) sorts before `Z` (0x5A) --
+    so a record 326 ms INTO a window would compare as BEFORE its own
+    boundary and land in the PREVIOUS milestone. Truncating any
+    fractional-second component to whole seconds before comparing is
+    what makes the half-open `[start, next)` boundary rule actually
+    hold; it only ever bites when a record falls in the same second as
+    a milestone-creation commit, which is exactly the boundary case this
+    function exists to get right. Canonicalising HERE (not at each call
+    site) keeps this the one place that invariant is enforced -- two
+    collectors already demonstrably emit different precisions, and nothing
+    stops a third one from doing so again.
+
+    Half-open windows: the LAST window whose start is `<= ts` wins,
+    matching §2's "a record landing exactly on a boundary belongs to the
+    later window" -- iterating windows in ascending order and keeping
+    the last match, rather than stopping at the first `>` window, gets
+    this right without a separate boundary special-case. Returns `None`
+    when `ts` is before the first window's start (records that old stay
+    `main` -- §2's "pre-cairn answer") or when `windows` is empty.
+    """
+    if ts.endswith("Z") and "." in ts:
+        ts = ts.split(".", 1)[0] + "Z"
+    result: Optional[str] = None
+    for start_iso, milestone_id in windows:
+        if start_iso <= ts:
+            result = milestone_id
+        else:
+            break
+    return result
+
+
+def milestone_rank_map(milestone_windows_table: Optional[List[Tuple[str, str]]]) -> Dict[str, int]:
+    """`milestone_windows_table` is already sorted ascending by creation
+    timestamp (`milestone_windows`'s own contract) -- so a milestone
+    id's RANK is just its position in that list. Computed ONCE per sort
+    call and passed into each per-item sort key, rather than rebuilt on
+    every one of the O(n) comparisons a single `.sort()` already makes.
+    Lives here (not `backfill_tokens.py`) for the same three-consumer
+    reason as `milestone_windows`/`milestone_for_timestamp` above --
+    `backfill_tokens.py`'s own on-disk sort (§6) and `cairn.py`'s own
+    `/api/tokens` payload sort (§7) both need the identical rank, and
+    `cairn.py` is the common ancestor.
+
+    `None`/empty (a caller with no table -- e.g. a test exercising a
+    sort key in isolation, or a `MilestoneWindowError` caught upstream
+    and degraded) yields an empty map; every milestone id then falls
+    back to rank 0, degrading to insertion/stable-sort order rather than
+    raising -- still deterministic, just not creation-time-ordered
+    without the table.
+    """
+    if not milestone_windows_table:
+        return {}
+    return {milestone_id: i for i, (_start, milestone_id) in enumerate(milestone_windows_table)}
+
+
 def _release_status(target_tag: Optional[str], tag_set: Optional[Set[str]]) -> Optional[bool]:
     """Whether `target_tag` has shipped, per `tag_set` (PT-44 §4's
     formula) -- extracted so `build_board_payload`'s milestone loop and
@@ -2981,6 +3268,19 @@ def _read_token_usage_lines(path: Path) -> Tuple[List[Dict[str, Any]], Optional[
     return lines, warning
 
 
+def _token_bucket_kind(issue: str) -> str:
+    """PT-84 §7: the `kind` discriminator server-computes from the raw
+    `issue` string ONCE, here -- the chart must never string-sniff the
+    `milestone:` prefix itself (§7's own stated reason: a prefix
+    convention parsed on the client is exactly the coupling that breaks
+    the next time the storage form changes)."""
+    if issue == "main":
+        return "main"
+    if issue.startswith("milestone:"):
+        return "milestone"
+    return "issue"
+
+
 def build_tokens_payload(data_dir: Path, prices: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """`GET /api/tokens`'s payload (PT-79, architect's ruling § 2).
     Aggregated to issue x role -- model detail is folded into `cost_usd`
@@ -3015,6 +3315,7 @@ def build_tokens_payload(data_dir: Path, prices: Optional[Dict[str, Any]] = None
             "sources": [],
             "prices": {"retrieved": prices.get("retrieved"), "source": prices.get("source"), "unpriced_models": []},
             "warning": "no token data",
+            "milestone_caption": None,
         }
 
     rows, read_warning = _read_token_usage_lines(usage_path)
@@ -3084,17 +3385,44 @@ def build_tokens_payload(data_dir: Path, prices: Optional[Dict[str, Any]] = None
         role_entries.sort(key=lambda r: r["role"])
         total = {c: sum(r[c] for r in role_entries) for c in _TOKEN_COUNTERS}
         total["cost_usd"] = None if issue_any_unpriced[issue] else round(raw_issue_cost.get(issue, 0.0), 2)
-        issues_out.append({"issue": issue, "total": total, "roles": role_entries})
+        issues_out.append({"issue": issue, "kind": _token_bucket_kind(issue), "total": total, "roles": role_entries})
 
-    # Issue order: numeric ascending, `main` last -- PT-77's own
-    # `_sort_key` convention for the underlying data file, applied here
-    # to the aggregated payload for the same determinism reason, and
-    # because the ruling's § 4 renders `main` "last, visually muted".
+    # PT-84 §7: `milestone_windows` (this module) built ONCE per payload
+    # build, never per bucket -- same "once, not per record" discipline
+    # as the receiver's flush-time table. `_repo_root_for` (already used
+    # by `build_roster_payload` above) derives the true git worktree root
+    # from `data_dir`; `milestone_windows` itself needs that ROOT, never
+    # `data_dir`, because its own git pathspecs are computed relative to
+    # it (see that function's docstring). Caught broadly, not just
+    # `MilestoneWindowError`: this payload's own contract is "never
+    # raises" (a missing/corrupt metrics file already degrades rather
+    # than 500s), and a milestone-ordering failure is strictly less
+    # essential than the token totals themselves -- degrades to an empty
+    # rank map, which `milestone_rank_map` itself already defines as
+    # "every milestone bucket falls back to rank 0" (stable-sort/
+    # insertion order among milestones, not creation-time order, but
+    # still deterministic and never a 500).
+    try:
+        milestone_windows_table = milestone_windows(_repo_root_for(data_dir))
+    except Exception:
+        milestone_windows_table = []
+    rank_map = milestone_rank_map(milestone_windows_table)
+
+    # Issue order: numeric ascending, then milestone buckets by their own
+    # CREATION timestamp (never string compare -- `PT-0.10` sorts before
+    # `PT-0.5` lexicographically), then `main` last -- PT-77's own
+    # `_sort_key` convention for the underlying data file (§6), mirrored
+    # here for the aggregated payload for the same determinism reason,
+    # and because the ruling's §4 renders `main` "last, visually muted"
+    # and §6 ranks milestone buckets between issues and `main`.
     def _issue_sort_key(entry: Dict[str, Any]) -> Tuple[int, int]:
         iid = entry["issue"]
+        if entry["kind"] == "milestone":
+            milestone_id = iid[len("milestone:"):]
+            return (1, rank_map.get(milestone_id, 0))
         m = re.match(r"^[A-Za-z]+-(\d+)$", iid)
         if iid == "main" or not m:
-            return (1, 0)
+            return (2, 0)
         return (0, int(m.group(1)))
 
     issues_out.sort(key=_issue_sort_key)
@@ -3113,6 +3441,20 @@ def build_tokens_payload(data_dir: Path, prices: Optional[Dict[str, Any]] = None
     warnings = [w for w in (read_warning, None if models else "no price table found") if w]
     combined_warning = "; ".join(warnings) if warnings else None
 
+    # §7: "caption explains what they are in one clause" -- present only
+    # when the payload actually carries a milestone bucket (nothing to
+    # explain otherwise), same "field appears only when relevant"
+    # convention as `warning`/`unpriced_models`. One clause, no period-
+    # separated second sentence, so a client can drop it inline without
+    # sounding like two unrelated statements.
+    milestone_caption = (
+        "Milestone bars are main-branch work — filing, releases, between-loop "
+        "planning — attributed to whichever milestone was active at the time, "
+        "not to any single issue."
+        if any(entry["kind"] == "milestone" for entry in issues_out)
+        else None
+    )
+
     return {
         "issues": issues_out,
         "window_start": window_start,
@@ -3125,6 +3467,7 @@ def build_tokens_payload(data_dir: Path, prices: Optional[Dict[str, Any]] = None
             "unpriced_models": sorted(unpriced_models),
         },
         "warning": combined_warning,
+        "milestone_caption": milestone_caption,
     }
 
 

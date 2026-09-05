@@ -43,9 +43,15 @@ function loadTokenChartLogic() {
   }
 }
 
-function sampleIssue(issue, tokensTotal, costTotal) {
+function sampleIssue(issue, tokensTotal, costTotal, kind) {
   return {
     issue: issue,
+    // PT-84 §7: kind defaults to "issue" so every PRE-EXISTING call site
+    // above (none of which pass a 4th argument) keeps behaving exactly
+    // as it did before this field existed -- "main" is the one
+    // pre-existing exception, matching build_tokens_payload's own
+    // server-side derivation (issue === "main" -> kind: "main").
+    kind: kind || (issue === "main" ? "main" : "issue"),
     total: { input: tokensTotal, cache_write: 0, cache_read: 0, output: 0, cost_usd: costTotal },
     roles: [],
   };
@@ -60,6 +66,9 @@ function samplePayload(issueList) {
     sources: ["transcript-backfill"],
     prices: { retrieved: "2026-09-04", source: "https://example.invalid", unpriced_models: [] },
     warning: null,
+    // PT-84 §7: null when the payload has no milestone bucket -- the
+    // committed server behaviour (implementation-lead, 775576e).
+    milestone_caption: null,
   };
 }
 
@@ -266,4 +275,92 @@ test("zero bars does not throw and returns a sane step", () => {
   const mod = loadTokenChartLogic();
   const step = mod.tickEveryNth(0, 300, 40);
   assert.ok(Number.isInteger(step) && step >= 1, `expected a positive integer step for zero bars, got ${step}`);
+});
+
+// --------------------------------------------------------------------------
+// PT-84 AC 4: milestone-overhead bars (process/cairn/issues/PT-84.md, §7,
+// team-lead's decision that milestone_caption stays server-side and the
+// chart appends it verbatim). Written after the ruling landed, same
+// discipline as everything else in PT-84.
+// --------------------------------------------------------------------------
+
+test("selectBars excludes kind:'milestone' bars from the top-N ranking cut, like main", () => {
+  const mod = loadTokenChartLogic();
+  // 3 real issues ranked PT-1 > PT-2 > PT-3 by tokens; 2 milestone bars
+  // with token totals that WOULD outrank everything if they competed for
+  // the cut (200, matching PT-2) -- must never be cut regardless of value.
+  const issues = [
+    sampleIssue("PT-1", 300, 3.0),
+    sampleIssue("PT-2", 200, 30.0),
+    sampleIssue("PT-3", 100, 1.0),
+    sampleIssue("milestone:PT-0.4", 200, 2.0, "milestone"),
+    sampleIssue("milestone:PT-0.12", 50, 0.5, "milestone"),
+    sampleIssue("main", 999, 9.0),
+  ];
+  const selected = mod.selectBars(issues, "tokens", 1, false);
+  const ids = selected.map((e) => e.issue);
+  assert.deepEqual(
+    ids,
+    ["PT-1", "milestone:PT-0.4", "milestone:PT-0.12", "main"],
+    `top 1 real issue (PT-1) + both milestone bars (never cut, never re-ranked among themselves -- payload order) + main last, got ${JSON.stringify(ids)}`,
+  );
+});
+
+test("selectBars milestone bars are never counted toward the real-issues top-N limit", () => {
+  const mod = loadTokenChartLogic();
+  // limit=2: exactly 2 real issues must survive regardless of how many
+  // milestone bars sit alongside them -- a milestone bar consuming a
+  // slot in the cut would be the same bug as main being rankable.
+  const issues = [
+    sampleIssue("PT-1", 300, 3.0),
+    sampleIssue("PT-2", 200, 2.0),
+    sampleIssue("PT-3", 100, 1.0),
+    sampleIssue("milestone:PT-0.4", 500, 5.0, "milestone"),
+  ];
+  const selected = mod.selectBars(issues, "tokens", 2, false);
+  const realIds = selected.filter((e) => e.kind === "issue").map((e) => e.issue);
+  assert.deepEqual(realIds, ["PT-1", "PT-2"], `exactly 2 real issues must survive the limit=2 cut regardless of milestone bars present, got ${JSON.stringify(realIds)}`);
+});
+
+test("selectBars keeps milestone bars ordered exactly as the payload orders them (creation-time order, server-side)", () => {
+  const mod = loadTokenChartLogic();
+  // §6: milestone bars are already creation-time-ordered by the server
+  // (cairn.milestone_rank_map) -- selectBars must NOT re-sort them by
+  // their own token/cost value, only preserve payload order among them.
+  const issues = [
+    sampleIssue("PT-1", 300, 3.0),
+    sampleIssue("milestone:PT-0.4", 10, 0.1, "milestone"), // smaller value, but created FIRST
+    sampleIssue("milestone:PT-0.12", 900, 9.0, "milestone"), // larger value, but created LATER
+    sampleIssue("main", 5, 0.05),
+  ];
+  const selected = mod.selectBars(issues, "tokens", 12, false);
+  const milestoneIds = selected.filter((e) => e.kind === "milestone").map((e) => e.issue);
+  assert.deepEqual(
+    milestoneIds,
+    ["milestone:PT-0.4", "milestone:PT-0.12"],
+    `milestone bars must stay in the server's payload order (creation time), never re-ranked by value -- got ${JSON.stringify(milestoneIds)}`,
+  );
+});
+
+test("formatCaption appends milestone_caption verbatim when the payload has a milestone bucket", () => {
+  const mod = loadTokenChartLogic();
+  const payload = samplePayload([sampleIssue("milestone:PT-0.4", 10, 0.1, "milestone")]);
+  payload.milestone_caption = "Milestone bars are main-branch work attributed to whichever milestone was active at the time.";
+  const caption = mod.formatCaption(payload, "tokens", 1, 1);
+  assert.ok(
+    caption.includes(payload.milestone_caption),
+    `caption must include milestone_caption verbatim when present -- got ${JSON.stringify(caption)}`,
+  );
+});
+
+test("formatCaption does not mention milestones at all when milestone_caption is null", () => {
+  const mod = loadTokenChartLogic();
+  const payload = samplePayload([sampleIssue("PT-1", 10, 0.1)]);
+  // milestone_caption stays null (samplePayload's own default) -- no
+  // milestone bucket in this payload.
+  const caption = mod.formatCaption(payload, "tokens", 1, 1);
+  assert.ok(
+    !/milestone/i.test(caption),
+    `caption must not mention milestones at all when milestone_caption is null -- got ${JSON.stringify(caption)}`,
+  );
 });

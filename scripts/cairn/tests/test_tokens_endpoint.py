@@ -138,11 +138,18 @@ SONNET_PRICE = make_prices({"claude-sonnet-5": {"input": 2, "cache_write_5m": 2.
 
 class TokensPayloadShapeTests(unittest.TestCase):
     def test_payload_has_exactly_the_ruled_top_level_keys(self):
+        # PT-84 §7 added `milestone_caption` to this set (implementation-
+        # lead's own choice of key name, confirmed against the committed
+        # payload -- see TokensPayloadMilestoneKindTests below, which
+        # pins its content/shape) -- the one-clause caption explaining
+        # milestone bars, present unconditionally per the committed
+        # implementation (not gated on whether any milestone bucket is
+        # actually present in this particular payload).
         data_dir = make_tokens_data_dir(self, [
             token_line("PT-1", "team-lead", "claude-sonnet-5", input=100, cache_write=10, cache_read=20, output=5),
         ])
         payload = _call_build_tokens_payload(data_dir, prices=SONNET_PRICE)
-        expected_keys = {"issues", "window_start", "window_end", "generated", "sources", "prices", "warning"}
+        expected_keys = {"issues", "window_start", "window_end", "generated", "sources", "prices", "warning", "milestone_caption"}
         self.assertEqual(set(payload.keys()), expected_keys, payload.keys())
 
     def test_each_issue_carries_total_and_roles_with_the_four_counters_plus_cost(self):
@@ -422,6 +429,82 @@ class TokensEndpointNotOnDashboardTests(unittest.TestCase):
         resp = urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/dashboard", timeout=5)
         body = json.loads(resp.read().decode("utf-8"))
         self.assertNotIn("tokens", body, "/api/dashboard must not gain a 'tokens' key -- ruling §2 requires a SEPARATE endpoint")
+
+
+class TokensPayloadMilestoneKindTests(unittest.TestCase):
+    """PT-84 §7 (architect's gating ruling, process/cairn/issues/PT-84.md):
+    'add an explicit `kind` per bar -- "issue" | "milestone" | "main".
+    The chart must not infer type by string-sniffing the `issue` value;
+    a prefix convention parsed on the client is exactly the coupling
+    that breaks the next time the form changes.'
+
+    Written after the ruling landed (same discipline as the rest of
+    PT-84). Scoped narrowly to what §7 actually names -- the `kind`
+    discriminator and the one-clause caption. Milestone-bucket ORDERING
+    by creation timestamp (§6, 'ranked after issue bars, before main,
+    by creation timestamp not string compare') needs its own
+    coordination with implementation-lead first: it requires
+    build_tokens_payload to consult cairn.milestone_windows (a
+    repo_root-dependent lookup this function's current signature has no
+    parameter for), and I'm not guessing a signature change here --
+    flagged separately, not silently worked around.
+    """
+
+    def test_a_plain_issue_bucket_has_kind_issue(self):
+        data_dir = make_tokens_data_dir(self, [
+            token_line("PT-28", "team-lead", "claude-sonnet-5", input=100, cache_write=10, cache_read=20, output=5),
+        ])
+        payload = _call_build_tokens_payload(data_dir, prices=SONNET_PRICE)
+        entry = next(e for e in payload["issues"] if e["issue"] == "PT-28")
+        self.assertEqual(entry.get("kind"), "issue", f"a plain issue bucket must carry kind: 'issue' -- got {entry!r}")
+
+    def test_a_milestone_bucket_has_kind_milestone(self):
+        data_dir = make_tokens_data_dir(self, [
+            token_line("milestone:PT-0.4", "team-lead", "claude-sonnet-5", input=50, cache_write=5, cache_read=10, output=2),
+        ])
+        payload = _call_build_tokens_payload(data_dir, prices=SONNET_PRICE)
+        entry = next(e for e in payload["issues"] if e["issue"] == "milestone:PT-0.4")
+        self.assertEqual(entry.get("kind"), "milestone", f"a milestone bucket must carry kind: 'milestone', not 'issue' -- got {entry!r}")
+
+    def test_the_main_bucket_has_kind_main(self):
+        data_dir = make_tokens_data_dir(self, [
+            token_line("main", "team-lead", "claude-sonnet-5", input=30, cache_write=3, cache_read=6, output=1),
+        ])
+        payload = _call_build_tokens_payload(data_dir, prices=SONNET_PRICE)
+        entry = next(e for e in payload["issues"] if e["issue"] == "main")
+        self.assertEqual(entry.get("kind"), "main", f"the main bucket must carry kind: 'main' -- got {entry!r}")
+
+    def test_the_client_never_has_to_string_sniff_the_issue_value(self):
+        # §7's own stated reason for the field: every bucket, of every
+        # kind, in one payload -- proving kind is populated universally,
+        # not just for the one shape each test above isolates.
+        data_dir = make_tokens_data_dir(self, [
+            token_line("PT-28", "team-lead", "claude-sonnet-5", input=100, cache_write=10, cache_read=20, output=5),
+            token_line("milestone:PT-0.4", "team-lead", "claude-sonnet-5", input=50, cache_write=5, cache_read=10, output=2),
+            token_line("main", "team-lead", "claude-sonnet-5", input=30, cache_write=3, cache_read=6, output=1),
+        ])
+        payload = _call_build_tokens_payload(data_dir, prices=SONNET_PRICE)
+        kinds_by_issue = {e["issue"]: e.get("kind") for e in payload["issues"]}
+        self.assertEqual(
+            kinds_by_issue, {"PT-28": "issue", "milestone:PT-0.4": "milestone", "main": "main"},
+            f"every bucket in one payload must carry its own correct kind -- got {kinds_by_issue!r}",
+        )
+
+    def test_a_one_clause_caption_explains_what_milestone_buckets_are(self):
+        data_dir = make_tokens_data_dir(self, [
+            token_line("milestone:PT-0.4", "team-lead", "claude-sonnet-5", input=50, cache_write=5, cache_read=10, output=2),
+        ])
+        payload = _call_build_tokens_payload(data_dir, prices=SONNET_PRICE)
+        caption = payload.get("milestone_caption") or payload.get("caption")
+        self.assertIsNotNone(
+            caption,
+            f"§7: 'caption explains what they are in one clause' -- expected a caption string "
+            f"somewhere in the payload (milestone_caption or caption), got payload keys {list(payload.keys())!r}",
+        )
+        self.assertNotIn(
+            "\n", caption or "",
+            "a ONE-clause caption must not itself be multi-line prose",
+        )
 
 
 class DataFileSha256GuardTests(unittest.TestCase):
