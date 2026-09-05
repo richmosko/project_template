@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Dashboard flow chart becomes a throughput view: opened/closed per period plus WIP, milestone-scoped |
-| Issue | PT-85 (cairn) |
-| Milestone | PT-0.12 (telemetry attribution) |
-| Branch | `feature/pt-85-throughput-flow-chart` |
-| Started | 2026-09-05 |
-| Goal | The dashboard's issue-flow chart shows opened and closed per period plus work-in-progress, scoped to a milestone, instead of cumulative status counts. |
-| Status | In Review — [PR #171](https://github.com/richmosko/project_template/pull/171) |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Releases
 
