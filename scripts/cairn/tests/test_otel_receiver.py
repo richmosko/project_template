@@ -402,7 +402,13 @@ class ResourceAttributeFlatteningTests(unittest.TestCase):
 
 class MergeWithBackfillTests(unittest.TestCase):
     """Ruling §7/§8 -- append-only, own-source-only, non-overlap
-    invariant."""
+    invariant. PT-89 (0fd8774) supersedes the invariant's own enforcement:
+    a batch predating the backfill's `generated` stamp is now DROPPED
+    (logged, exit 0) rather than refusing the whole flush forever -- see
+    test_receiver_flush_drop.py for the full group-level classification
+    matrix (straddling groups, the reset-enables-the-next-flush property,
+    window bounds recomputed from survivors). This file keeps only the
+    CLI-level, single-flush shape of that behaviour."""
 
     def _seed_backfill_line(self, out_path: Path, generated: str, issue: str = "PT-1") -> dict:
         line = {
@@ -436,17 +442,37 @@ class MergeWithBackfillTests(unittest.TestCase):
         self.assertEqual(backfill_lines, [backfill_line], "the pre-existing transcript-backfill line must survive untouched")
         self.assertTrue(otel_lines, "the new otel contribution must also be present")
 
-    def test_a_flush_predating_the_latest_backfill_generated_is_refused(self):
-        # §8: non-overlap invariant. old_timestamp.json's datapoint is
-        # 2024-01-01; seed a backfill line generated far AFTER that.
+    def test_a_flush_entirely_predating_the_latest_backfill_generated_is_dropped_not_refused(self):
+        # PT-89 (0fd8774) supersedes this test's own former name/shape:
+        # old_timestamp.json's single datapoint (2024-01-01, one group)
+        # predates a backfill line generated far AFTER it -- the whole
+        # flush is no longer refused (exit != 0, nothing written, and
+        # every SUBSEQUENT flush on the same process refused identically
+        # forever -- PT-89's own problem statement). It is DROPPED: exit
+        # 0, one log line naming the stamp and the dropped count, still
+        # nothing written for this datapoint specifically since its own
+        # group is entirely before the stamp.
         out_dir = helpers.make_empty_tmp_dir(self)
         out_path = out_dir / "token-usage.jsonl"
         self._seed_backfill_line(out_path, generated="2026-12-31T00:00:00Z")
 
         result = ingest("old_timestamp.json", out_path)
-        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         combined = result.stdout + result.stderr
-        self.assertIn("2026-12-31", combined, f"error must name the backfill's generated timestamp -- got: {combined!r}")
+        self.assertIn(
+            "2026-12-31", combined,
+            f"the log line must name the backfill's generated stamp -- got: {combined!r}",
+        )
+        self.assertIn(
+            "dropped", combined.lower(),
+            f"the log line must name the dropped count -- got: {combined!r}",
+        )
+        lines = read_jsonl(out_path)
+        otel_lines = [l for l in lines if l["source"] == "otel"]
+        self.assertEqual(
+            otel_lines, [],
+            "the entirely-pre-stamp datapoint's own group must still produce no otel line",
+        )
 
 
 class MalformedPayloadTests(unittest.TestCase):
