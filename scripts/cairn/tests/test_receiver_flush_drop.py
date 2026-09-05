@@ -260,7 +260,19 @@ class GroupTimeBoundsSeamTests(unittest.TestCase):
 # AC 2 + the reset regression (the property a single-flush test cannot see).
 # --------------------------------------------------------------------------
 
-class EntirelyDroppedBatchAndResetTests(unittest.TestCase):
+class EntirelyDroppedBatchPendingResetTests(unittest.TestCase):
+    """AC 2. Architect's mutation run (fbebe00): this class's name used
+    to read "AndReset" as though it also guarded the group_time_bounds
+    per-cycle reset -- it doesn't (a lifetime-persistent-bounds mutation
+    passed GREEN here, undetected, because every test below folds a
+    DIFFERENT model on its second flush, a different group, so the
+    first group's stale bounds are never consulted). What this class
+    actually guards is pending_min_ns/pending_max_ns resetting to None
+    (the batch-level, AC 2 property) and the flush AFTER a fully-dropped
+    one succeeding. The bounds-reset/recovery property is
+    DroppedGroupRecoveryTests' job -- it reuses the SAME group across
+    two cycles and goes red under a lifetime-persistent-bounds mutation."""
+
     def test_a_batch_entirely_before_the_stamp_does_not_raise_and_writes_nothing(self):
         out_path = _out_path(self)
         _seed_backfill_line(out_path, generated=STAMP)
