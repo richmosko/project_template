@@ -136,11 +136,19 @@ function scopeLabel(payload: FlowPayload, scope: string): string {
 // AC 2: caption names the period, the scope, and that WIP is end-of-
 // period -- one clause each, composed here (never inlined in the
 // component) so the exact wording is unit-testable without a browser.
+//
+// Architect's ruling 0145915: a flat WIP line is not a chart bug on a
+// repo where work tends to open and close inside one period -- but the
+// caption must say so explicitly, since a reader has no other way to
+// tell "flat because nothing changed" from "flat because the metric
+// doesn't move." The near-zero clause is unconditional (day AND week),
+// not just a week-aggregation footnote -- it's a property of the metric
+// itself, not of the aggregation step.
 export function formatFlowCaption(payload: FlowPayload, period: Period, scope: string): string {
 	const periodWord = period === 'week' ? 'week' : 'day';
 	const parts = [
 		`Bars show issues opened and closed per ${periodWord}, scoped to ${scopeLabel(payload, scope)}.`,
-		`The WIP line is a point-in-time count (in-progress + in-review) at the END of each ${periodWord}, not an activity count.`,
+		`The WIP line is a point-in-time count (in-progress + in-review) at the END of each ${periodWord}, not an activity count -- it reads near zero whenever work opens and closes within the same ${periodWord}.`,
 	];
 	if (period === 'week') {
 		parts.push('Week totals sum daily opens/closes; WIP is the last day of the week, never a sum.');

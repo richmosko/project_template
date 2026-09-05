@@ -75,6 +75,22 @@
 		{ key: 'closed', label: SERIES_LABEL.closed, color: SERIES_COLOR.closed },
 	];
 
+	// dataviz rule (team-lead's browser pass): every series of >= 2 gets a
+	// legend entry -- a flat WIP baseline with no legend is
+	// indistinguishable from a rendering artifact. layerchart's own
+	// series-based Legend derives its items from the `series` prop passed
+	// to BarChart (`context.series.series`), which ALSO drives grouped-bar
+	// band width -- adding `wip` there would reserve a third, empty band
+	// per bar group and visually compress opened/closed for no reason,
+	// since wip is a line, not a bar. A small custom legend row below the
+	// chart instead, covering all three series explicitly, keeps bar
+	// layout untouched by a legend-only entry.
+	const legendItems = [
+		{ key: 'opened', label: SERIES_LABEL.opened, color: SERIES_COLOR.opened },
+		{ key: 'closed', label: SERIES_LABEL.closed, color: SERIES_COLOR.closed },
+		{ key: 'wip', label: SERIES_LABEL.wip, color: SERIES_COLOR.wip },
+	];
+
 	// Selection order: scope first (server-native, per-point), THEN period
 	// aggregation (client-side, pure -- flow-chart-logic.ts's own
 	// contract: sum the deltas, take the LAST wip of the week, never a
@@ -203,7 +219,6 @@
 						xScale={scaleBand()}
 						series={barSeries}
 						seriesLayout="group"
-						legend
 						{yDomain}
 						props={{
 							yAxis: { format: (v: number) => String(v) },
@@ -235,6 +250,24 @@
 						{/snippet}
 					</BarChart>
 				</Chart.Container>
+				<!-- Custom legend (see legendItems comment above): all three
+				     series explicitly, including wip -- BarChart's own
+				     built-in `legend` prop is deliberately not used here,
+				     since it would only cover barSeries (opened/closed) and
+				     a partial legend is worse than none for a 3-series
+				     chart. -->
+				<ul class="mt-2 flex flex-wrap items-center gap-4 text-xs text-muted-foreground" aria-label="Legend">
+					{#each legendItems as item (item.key)}
+						<li class="flex items-center gap-1.5">
+							<span
+								class="inline-block h-2.5 w-2.5 shrink-0 rounded-sm"
+								style={`background-color: ${item.color}`}
+								aria-hidden="true"
+							></span>
+							{item.label}
+						</li>
+					{/each}
+				</ul>
 			{/if}
 		</Card.Content>
 	</Card.Root>
