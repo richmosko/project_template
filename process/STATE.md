@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | Receiver flush: drop only datapoints predating the backfill's generated stamp, never refuse the whole batch forever |
+| Issue | PT-89 (cairn) |
+| Milestone | PT-0.12 (telemetry attribution) |
+| Branch | `feature/pt-89-receiver-flush-drop` |
+| Started | 2026-09-05 |
+| Goal | A backfill re-run while the receiver is live costs at most the datapoints the backfill already holds; the receiver keeps flushing. |
+| Status | In Progress |
 
 ## Releases
 
