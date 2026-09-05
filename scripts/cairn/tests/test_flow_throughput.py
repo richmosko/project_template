@@ -518,6 +518,51 @@ class DefaultMilestoneRequiresTransitionTests(unittest.TestCase):
         )
 
 
+class DefaultMilestoneTieBreakTests(unittest.TestCase):
+    """ea185fc: the tie-break (two milestones sharing the latest transition
+    day) is CREATION order via cairn.milestone_windows, never numeric/
+    lexicographic id order. WORKFLOW's versioning scheme allows a patch
+    milestone (e.g. PT-0.11.1) to be created AFTER a later-numbered one
+    (PT-0.12) already exists -- the documented hotfix-against-an-already-
+    released-line path, not an invented edge case. A fixture using only
+    milestones whose numeric and creation orders agree (the real corpus's
+    own shape, per the ruling's own measurement) can never expose a
+    lexicographic-order bug -- this one deliberately reverses them."""
+
+    def test_a_later_created_lower_numbered_milestone_wins_the_tie_over_creation_order_not_numeric_order(self):
+        data_dir = make_flow_git_repo(self)
+        repo_root = data_dir.parent.parent
+
+        # Creation order: PT-0.12's milestone FILE committed FIRST...
+        _write_milestone(data_dir, id="PT-0.12", name="Telemetry attribution")
+        _commit_at(repo_root, "open milestone PT-0.12", "2026-08-10 09:00:00 +0000")
+        # ...PT-0.11.1's milestone FILE committed SECOND (later in real
+        # time) despite its LOWER numeric id -- the hotfix-against-an-
+        # already-released-line shape WORKFLOW documents.
+        _write_milestone(data_dir, id="PT-0.11.1", name="Hotfix patch")
+        _commit_at(repo_root, "open patch milestone PT-0.11.1 after PT-0.12", "2026-08-11 09:00:00 +0000")
+
+        # Both milestones get their ONLY (and therefore latest) real
+        # transition on the SAME day -- a genuine tie on "latest
+        # transition day" that only creation order, not numeric/string
+        # id order, can break correctly.
+        _write_issue(data_dir, id="PT-30", status="todo", milestone="PT-0.12")
+        _write_issue(data_dir, id="PT-31", status="todo", milestone="PT-0.11.1")
+        _commit_at(repo_root, "open one issue under each milestone, same day", "2026-08-12 10:00:00 +0000")
+
+        payload = _call_flow_payload(data_dir)
+        ids = _milestone_ids(payload)
+        self.assertIn("PT-0.12", ids, f"got {ids!r}")
+        self.assertIn("PT-0.11.1", ids, f"got {ids!r}")
+        self.assertEqual(
+            payload["default_milestone"], "PT-0.11.1",
+            f"PT-0.12 and PT-0.11.1 tie on latest-transition-day -- creation order (PT-0.11.1's "
+            f"milestone file committed SECOND, i.e. later) must win the tie, not numeric/"
+            f"lexicographic id order (which would wrongly pick PT-0.12, since 'PT-0.11.1' < "
+            f"'PT-0.12' as a string) -- got default_milestone={payload['default_milestone']!r}",
+        )
+
+
 # --------------------------------------------------------------------------
 # Payload shape sanity -- per-point overall fields, milestone metadata for
 # the scope control, and the server-emitted granularity marker.
