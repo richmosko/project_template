@@ -65,11 +65,14 @@ grace survived into the FINAL flush rather than being dropped on exit.
 
 ## AC4 -- the real committed data file
 
-`RealDataFileUntouchedGuard` snapshots process/cairn/metrics/
-token-usage.jsonl's bytes once for this whole module (setUpClass) and
-re-checks them unchanged at the very end (tearDownClass) -- on top of
-every individual test's own --out-file pointing at a fake root's own
-tree, never the real one.
+Module-level `setUpModule`/`tearDownModule` snapshot process/cairn/metrics/
+token-usage.jsonl's bytes once before any test in this module runs, and
+re-check them unchanged after the very last one -- on top of every
+individual test's own --out-file pointing at a fake root's own tree,
+never the real one. Deliberately module-level rather than a TestCase's
+setUpClass/tearDownClass: unittest loads classes alphabetically by name,
+so a class-scoped guard only brackets its own class, not ones that sort
+after it.
 """
 from __future__ import annotations
 
@@ -95,9 +98,10 @@ SCRIPT_PATH = helpers.CAIRN_DIR / "otel_receiver.py"
 FIXTURES = helpers.FIXTURES_DIR / "otlp"
 SETTINGS_PATH = helpers.TESTS_DIR.parent.parent.parent / ".claude" / "settings.json"
 GITIGNORE_PATH = helpers.TESTS_DIR.parent.parent.parent / ".gitignore"
-REAL_TOKEN_USAGE_PATH = (
-    helpers.TESTS_DIR.parent.parent.parent / "process" / "cairn" / "metrics" / "token-usage.jsonl"
-)
+REAL_METRICS_DIR = helpers.TESTS_DIR.parent.parent.parent / "process" / "cairn" / "metrics"
+REAL_TOKEN_USAGE_PATH = REAL_METRICS_DIR / "token-usage.jsonl"
+REAL_RECEIVER_PIDFILE = REAL_METRICS_DIR / ".receiver.pid"
+REAL_SESSIONS_DIR = REAL_METRICS_DIR / ".sessions"
 
 ENGINE_FILES = ("otel_receiver.py", "backfill_tokens.py", "cairn.py")
 
@@ -256,33 +260,234 @@ def read_jsonl(path: Path) -> list[dict]:
 # AC4: the real, committed data file must never move.
 # --------------------------------------------------------------------------
 
-class RealDataFileUntouchedGuard(unittest.TestCase):
-    """Snapshots the REAL repo's committed token-usage.jsonl once before
-    any test in this module runs a subprocess, and again after the very
-    last one -- on top of every individual test already pointing its own
-    --out-file at a fake root. This is the module-wide backstop against a
-    seam mistake (e.g. a spawned daemon resolving repo_root wrong and
-    writing into the real checkout)."""
+_REAL_TOKEN_USAGE_BEFORE: Optional[bytes] = None
+_REAL_PIDFILE_BEFORE: Optional[bytes] = None
+_REAL_SESSIONS_BEFORE: Optional[list] = None
+_GUARD_ARMED = False
 
-    _before: Optional[bytes] = None
+
+def _snapshot_real_sessions_registry():
+    if not REAL_SESSIONS_DIR.is_dir():
+        return None
+    return sorted((p.name, p.read_bytes()) for p in REAL_SESSIONS_DIR.iterdir() if p.is_file())
+
+
+def setUpModule():
+    # Module-level, not a TestCase's setUpClass/tearDownClass: unittest's
+    # own loader walks `dir(module)` (alphabetical by class name, not
+    # definition order) to find TestCase classes, so a class-scoped
+    # setUpClass/tearDownClass pair only brackets ITS OWN class's tests --
+    # any class in this file sorting after it alphabetically could touch
+    # the real file AFTER that guard's tearDownClass already passed,
+    # which is a silent gap, not a loud failure. setUpModule/
+    # tearDownModule are unittest's own guaranteed whole-module brackets
+    # and don't have that gap (found and converted during the PT-84
+    # receiver-self-stop investigation, 2026-09-04 -- see
+    # test_milestone_overhead.py's identical pattern for the sessions
+    # registry).
+    #
+    # PT-91 architect ruling (Amendment 2): the runtime state beside the
+    # data file -- .receiver.pid and .sessions/ -- must be snapshotted
+    # too, not just token-usage.jsonl (the Ask names both).
+    global _REAL_TOKEN_USAGE_BEFORE, _REAL_PIDFILE_BEFORE, _REAL_SESSIONS_BEFORE, _GUARD_ARMED
+    _REAL_TOKEN_USAGE_BEFORE = REAL_TOKEN_USAGE_PATH.read_bytes() if REAL_TOKEN_USAGE_PATH.exists() else None
+    _REAL_PIDFILE_BEFORE = REAL_RECEIVER_PIDFILE.read_bytes() if REAL_RECEIVER_PIDFILE.exists() else None
+    _REAL_SESSIONS_BEFORE = _snapshot_real_sessions_registry()
+    # PT-91 Amendment 3, part 1: a sentinel ZZZGuardCoverageProbeTests
+    # (sorts last in this module) checks was actually armed before it
+    # ran -- proof that setUpModule really executed ahead of every test,
+    # not just a documented claim.
+    _GUARD_ARMED = True
+
+
+def tearDownModule():
+    # This is the module-wide backstop against a seam mistake (e.g. a
+    # spawned daemon resolving repo_root wrong and writing into the real
+    # checkout) -- on top of every individual test already pointing its
+    # own --out-file at a fake root.
+    #
+    # PT-91 architect ruling (Amendment 1): a bare `assert` is stripped
+    # entirely under `python -O` (measured) -- a guard whose firing
+    # depends on an interpreter flag is not a guard. Raise explicitly
+    # instead.
+    after_token_usage = REAL_TOKEN_USAGE_PATH.read_bytes() if REAL_TOKEN_USAGE_PATH.exists() else None
+    if after_token_usage != _REAL_TOKEN_USAGE_BEFORE:
+        raise AssertionError(
+            "the real, committed process/cairn/metrics/token-usage.jsonl must never be "
+            "touched by this test module -- every test must point --out-file at a fake root"
+        )
+    after_pidfile = REAL_RECEIVER_PIDFILE.read_bytes() if REAL_RECEIVER_PIDFILE.exists() else None
+    if after_pidfile != _REAL_PIDFILE_BEFORE:
+        raise AssertionError(
+            "the real, live process/cairn/metrics/.receiver.pid must never be touched by "
+            "this test module -- every otel_receiver.py invocation here must use a fake "
+            "--repo-root, never the real one"
+        )
+    if _snapshot_real_sessions_registry() != _REAL_SESSIONS_BEFORE:
+        raise AssertionError(
+            "the real, live process/cairn/metrics/.sessions/ registry must never be "
+            "touched by this test module -- every otel_receiver.py invocation here must "
+            "use a fake --repo-root, never the real one"
+        )
+
+
+# --------------------------------------------------------------------------
+# PT-91, AC1: proof that a class-scoped guard only brackets its own class.
+# Architect ruling (PT-91.md @ 5ccfbdd), Amendment 3 -- two parts, both
+# required.
+# --------------------------------------------------------------------------
+
+# Independently-written (not copied from the production guard above) old
+# vs. new guard patterns, each paired with a class deliberately named to
+# sort last and write to a FAKE "real" file -- run as their own
+# subprocesses by GuardBracketDifferentialTests below. Never touches the
+# actual committed file; `sys.argv[1]` is always a scratch path.
+_OLD_CLASS_SCOPED_GUARD_TEMPLATE = '''
+import sys
+import unittest
+from pathlib import Path
+
+FAKE_REAL_FILE = Path(sys.argv[1])
+
+
+class AAAClassScopedGuard(unittest.TestCase):
+    _before = None
 
     @classmethod
     def setUpClass(cls):
-        cls._before = REAL_TOKEN_USAGE_PATH.read_bytes() if REAL_TOKEN_USAGE_PATH.exists() else None
+        cls._before = FAKE_REAL_FILE.read_bytes() if FAKE_REAL_FILE.exists() else None
 
-    def test_snapshot_taken(self):
-        # A trivial always-passing assertion so this class registers as
-        # having run at least one test -- the real check is in
-        # test_zz_real_file_unchanged, ordered last by unittest's default
-        # alphabetical test method sort within the class.
+    def test_placeholder(self):
         self.assertTrue(True)
 
-    def test_zz_real_file_unchanged_so_far(self):
-        after = REAL_TOKEN_USAGE_PATH.read_bytes() if REAL_TOKEN_USAGE_PATH.exists() else None
+    @classmethod
+    def tearDownClass(cls):
+        after = FAKE_REAL_FILE.read_bytes() if FAKE_REAL_FILE.exists() else None
+        if after != cls._before:
+            raise AssertionError("guard caught a change")
+
+
+class ZZZEscapeProbe(unittest.TestCase):
+    def test_writes_after_the_class_scoped_guard_already_reported(self):
+        with open(FAKE_REAL_FILE, "ab") as f:
+            f.write(b"escaped\\n")
+
+
+if __name__ == "__main__":
+    unittest.main(argv=[sys.argv[0]])
+'''
+
+_NEW_MODULE_SCOPED_GUARD_TEMPLATE = '''
+import sys
+import unittest
+from pathlib import Path
+
+FAKE_REAL_FILE = Path(sys.argv[1])
+_before = None
+
+
+def setUpModule():
+    global _before
+    _before = FAKE_REAL_FILE.read_bytes() if FAKE_REAL_FILE.exists() else None
+
+
+def tearDownModule():
+    after = FAKE_REAL_FILE.read_bytes() if FAKE_REAL_FILE.exists() else None
+    if after != _before:
+        raise AssertionError("guard caught a change")
+
+
+class AAAPlaceholder(unittest.TestCase):
+    def test_placeholder(self):
+        self.assertTrue(True)
+
+
+class ZZZEscapeProbe(unittest.TestCase):
+    def test_writes_after_the_old_design_would_have_already_reported(self):
+        with open(FAKE_REAL_FILE, "ab") as f:
+            f.write(b"escaped\\n")
+
+
+if __name__ == "__main__":
+    unittest.main(argv=[sys.argv[0]])
+'''
+
+
+class GuardBracketDifferentialTests(unittest.TestCase):
+    """Amendment 3, part 2 -- the decisive proof for AC1, and an
+    INDEPENDENT second implementation of the guard semantics (not a
+    re-read of the production guard above). Generates both guard
+    patterns into a scratch directory, each with a class deliberately
+    named to sort last and write to a FAKE "real" file, runs each as
+    its own subprocess, and asserts on EXIT CODE alone (guard threshold
+    (d): text output cannot distinguish "the guard fires" from "the
+    guard exists"). Never touches the real, committed file."""
+
+    def _run_pattern(self, template: str, use_dash_o: bool = False):
+        fake_root = helpers.make_empty_tmp_dir(self)
+        fake_real_file = fake_root / "fake-real-file.jsonl"
+        fake_real_file.write_bytes(b'{"seed": true}\n')
+        script = fake_root / "guard_probe.py"
+        script.write_text(template, encoding="utf-8")
+        args = [sys.executable]
+        if use_dash_o:
+            args.append("-O")
+        args += [str(script), str(fake_real_file)]
+        result = subprocess.run(args, capture_output=True, text=True)
+        return result, fake_real_file
+
+    def test_the_old_class_scoped_pattern_misses_a_write_from_a_later_sorting_class(self):
+        result, fake_real_file = self._run_pattern(_OLD_CLASS_SCOPED_GUARD_TEMPLATE)
         self.assertEqual(
-            after, self._before,
-            "the real, committed process/cairn/metrics/token-usage.jsonl must never be "
-            "touched by this test module -- every test must point --out-file at a fake root",
+            result.returncode, 0,
+            f"the old class-scoped guard pattern must (wrongly) exit 0 even though a "
+            f"later-sorting class wrote to the guarded file -- got rc={result.returncode} "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}",
+        )
+        self.assertIn(
+            b"escaped", fake_real_file.read_bytes(),
+            "the fake file must actually have been mutated -- otherwise this isn't proving "
+            "an escape, just an untested no-op",
+        )
+
+    def test_the_new_module_scoped_pattern_catches_the_same_write(self):
+        result, _ = self._run_pattern(_NEW_MODULE_SCOPED_GUARD_TEMPLATE)
+        self.assertNotEqual(
+            result.returncode, 0,
+            f"the module-scoped guard pattern must catch the write and exit non-zero -- "
+            f"got rc={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}",
+        )
+
+    def test_the_new_module_scoped_pattern_still_catches_it_under_dash_o(self):
+        # Amendment 1: a bare `assert` is stripped at optimisation level
+        # 1 -- this template raises AssertionError explicitly, so it
+        # must still fire with -O.
+        result, _ = self._run_pattern(_NEW_MODULE_SCOPED_GUARD_TEMPLATE, use_dash_o=True)
+        self.assertNotEqual(
+            result.returncode, 0,
+            f"the module-scoped guard must still catch the write under python -O -- got "
+            f"rc={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}",
+        )
+
+
+class ZZZGuardCoverageProbeTests(unittest.TestCase):
+    """Amendment 3, part 1: named to sort LAST, alphabetically, among
+    every class in this module -- satisfies AC1's literal wording (a
+    deliberately-named last class that would have escaped the old
+    guard). Writes nothing; the decisive proof is
+    GuardBracketDifferentialTests above. Asserts only that the
+    module-level guard's setUpModule had actually armed its sentinel
+    before this, the very last test in the module, ran -- would have
+    failed outright under the old class-scoped design, which had no
+    module-level sentinel at all (NameError/AttributeError on
+    `_GUARD_ARMED`)."""
+
+    def test_the_module_level_guard_armed_itself_before_the_last_test_ran(self):
+        self.assertTrue(
+            _GUARD_ARMED,
+            "setUpModule must have armed _GUARD_ARMED before any test ran -- if this is "
+            "false (or undefined), either setUpModule never ran or this class ran before "
+            "it, either of which would defeat PT-91's whole-module coverage guarantee",
         )
 
 
