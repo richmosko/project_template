@@ -23,7 +23,7 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-91-module-level-guard` |
 | Started | 2026-09-05 |
 | Goal | Module-level guard covering every class regardless of name order, proven by a deliberately last-sorting class; first teamed loop under the PT-94 four gates (scorecard → PT-94 AC 5). |
-| Status | In Progress — roster: architect, qa-engineer |
+| Status | In Review — PR [#176](https://github.com/richmosko/project_template/pull/176); roster: architect, qa-engineer |
 
 ## Releases
 
