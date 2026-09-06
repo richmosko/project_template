@@ -1,0 +1,203 @@
+"""PT-93 gate 2 (qa-engineer): failing tests for scripts/cairn/run_tests.py,
+the parallel test runner, pinned to the architect's gate-1 ruling
+(process/cairn/issues/PT-93.md @ cb3b4a4 -- "Seam" and "Guard thresholds").
+
+D11 (this feature pays back the seconds it adds): NONE of these tests may
+run the real 1379-test suite. Every test that needs a subprocess.run of the
+runner's *inner* logic mocks it; the only real subprocess calls here are
+`--list` (prints names, never runs a test) and pure-function calls against
+run_tests.py's own module-level functions.
+
+Expected public surface of run_tests.py (this file IS the spec for gate 3):
+    discover_files(tests_dir, patterns) -> List[Path]      sorted, deduped
+    build_argv(python_exe, file_name) -> List[str]          exact child argv, no -t
+    parse_summary(stderr) -> (ran, failures, errors, skipped)
+    ParseError                                              raised, not swallowed
+    order_by_size(files) -> List[Path]                      largest first
+    default_jobs() -> int                                   min(8, os.cpu_count() or 4)
+    parse_args(argv) -> argparse.Namespace                   .jobs, .pattern, .serial, .list, .json
+    run_all(files, jobs, cwd, runner=subprocess.run) -> dict  wall/jobs/files/tests/failures/
+                                                              errors/skipped/failed_files/times
+    exit_code(agg) -> int                                    0 iff failed_files == []
+    main(argv) -> int                                        CLI entry
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import subprocess
+import sys
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import helpers  # noqa: F401
+
+import run_tests
+
+
+def _completed(returncode: int, stderr: str) -> subprocess.CompletedProcess:
+    return subprocess.CompletedProcess(args=["x"], returncode=returncode, stdout="", stderr=stderr)
+
+
+class DiscoveryTests(unittest.TestCase):
+    """Guard threshold 1: discovery == sorted(glob("test_*.py")), >= 80
+    files; -p narrows it; --list prints exactly that, exit 0."""
+
+    def test_default_pattern_discovers_at_least_80_files_matching_sorted_glob(self):
+        expected = sorted(helpers.TESTS_DIR.glob("test_*.py"))
+        got = run_tests.discover_files(helpers.TESTS_DIR, ["test_*.py"])
+        self.assertEqual(got, expected)
+        self.assertGreaterEqual(len(got), 80, "the real suite has 82 test_*.py files at this sha")
+
+    def test_a_narrower_pattern_returns_only_matching_files(self):
+        got = run_tests.discover_files(helpers.TESTS_DIR, ["test_run_tests.py"])
+        self.assertEqual([p.name for p in got], ["test_run_tests.py"])
+
+    def test_cli_list_prints_exactly_the_discovered_names_and_exits_zero(self):
+        expected_names = [p.name for p in sorted(helpers.TESTS_DIR.glob("test_*.py"))]
+        result = subprocess.run(
+            [sys.executable, str(helpers.CAIRN_DIR / "run_tests.py"), "--list"],
+            cwd=helpers.CAIRN_DIR, capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        printed = [line for line in result.stdout.splitlines() if line]
+        self.assertEqual(printed, expected_names)
+
+
+class ChildArgvTests(unittest.TestCase):
+    """Guard threshold 2: child argv equals the ruling's list element for
+    element; '-t' never appears (the measured trap: -t . drops tests/ off
+    sys.path and every module dies on `import helpers`)."""
+
+    def test_build_argv_matches_the_ruling_exactly(self):
+        argv = run_tests.build_argv(sys.executable, "test_x.py")
+        self.assertEqual(
+            argv,
+            [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_x.py"],
+        )
+        self.assertNotIn("-t", argv)
+
+
+class ParseSummaryTests(unittest.TestCase):
+    """Guard threshold 3: parsing real unittest stderr yields (ran,
+    failures, errors, skipped); a `Ran 0 tests` child contributes 0 rather
+    than being dropped; an unparseable child is an error, not a silent 0."""
+
+    def test_ok_with_skipped(self):
+        stderr = "Ran 26 tests in 0.212s\n\nOK (skipped=1)\n"
+        self.assertEqual(run_tests.parse_summary(stderr), (26, 0, 0, 1))
+
+    def test_failed_with_failures_and_errors(self):
+        stderr = "Ran 12 tests in 1.011s\n\nFAILED (failures=2, errors=1)\n"
+        self.assertEqual(run_tests.parse_summary(stderr), (12, 2, 1, 0))
+
+    def test_ran_zero_tests_contributes_zero_not_dropped(self):
+        stderr = "Ran 0 tests in 0.000s\n\nOK\n"
+        self.assertEqual(run_tests.parse_summary(stderr), (0, 0, 0, 0))
+
+    def test_unparseable_stderr_raises_rather_than_silently_returning_zero(self):
+        # e.g. the -t . trap: every module dies on ImportError before
+        # unittest ever prints its own "Ran N tests" summary line.
+        stderr = "Traceback (most recent call last):\nImportError: no module named helpers\n"
+        with self.assertRaises(run_tests.ParseError):
+            run_tests.parse_summary(stderr)
+
+
+class DefaultJobsTests(unittest.TestCase):
+    """Guard threshold 5: default jobs == min(8, os.cpu_count() or 4);
+    --serial => jobs 1."""
+
+    def test_default_jobs_matches_the_formula(self):
+        self.assertEqual(run_tests.default_jobs(), min(8, os.cpu_count() or 4))
+
+    def test_parse_args_default_jobs(self):
+        args = run_tests.parse_args([])
+        self.assertEqual(args.jobs, min(8, os.cpu_count() or 4))
+
+    def test_serial_flag_forces_one_job(self):
+        args = run_tests.parse_args(["--serial"])
+        self.assertEqual(args.jobs, 1)
+
+    def test_explicit_jobs_flag_is_honoured(self):
+        args = run_tests.parse_args(["--jobs", "3"])
+        self.assertEqual(args.jobs, 3)
+
+    @patch("os.cpu_count", return_value=None)
+    def test_cpu_count_none_falls_back_to_four(self, _mock):
+        self.assertEqual(run_tests.default_jobs(), min(8, 4))
+
+
+class SizeOrderingTests(unittest.TestCase):
+    """Guard threshold 6: for files of known sizes, submission order is
+    size-descending."""
+
+    def test_files_are_ordered_largest_first(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        small = tmp / "test_small.py"
+        medium = tmp / "test_medium.py"
+        large = tmp / "test_large.py"
+        small.write_text("x" * 10, encoding="utf-8")
+        medium.write_text("x" * 100, encoding="utf-8")
+        large.write_text("x" * 1000, encoding="utf-8")
+        ordered = run_tests.order_by_size([small, medium, large])
+        self.assertEqual([p.name for p in ordered], ["test_large.py", "test_medium.py", "test_small.py"])
+
+
+class AggregationExitCodeTests(unittest.TestCase):
+    """Guard threshold 4: one child exiting non-zero => process exit 1 and
+    that name in failed_files; all zero => exit 0, failed_files == [].
+    Every subprocess.run call here is mocked -- no real test file is ever
+    executed (D11)."""
+
+    def _run_all_with(self, side_effects):
+        files = [Path(f"test_fake_{i}.py") for i in range(len(side_effects))]
+        with patch("run_tests.subprocess.run", side_effect=side_effects):
+            return run_tests.run_all(files, jobs=1, cwd=Path("."))
+
+    def test_all_files_passing_exits_zero_and_failed_files_empty(self):
+        agg = self._run_all_with([
+            _completed(0, "Ran 3 tests in 0.01s\n\nOK\n"),
+            _completed(0, "Ran 5 tests in 0.02s\n\nOK (skipped=1)\n"),
+        ])
+        self.assertEqual(run_tests.exit_code(agg), 0)
+        self.assertEqual(agg["failed_files"], [])
+        self.assertEqual(agg["tests"], 8)
+        self.assertEqual(agg["skipped"], 1)
+
+    def test_one_failing_file_exits_nonzero_and_is_named(self):
+        agg = self._run_all_with([
+            _completed(0, "Ran 3 tests in 0.01s\n\nOK\n"),
+            _completed(1, "Ran 5 tests in 0.02s\n\nFAILED (failures=1)\n"),
+        ])
+        self.assertEqual(run_tests.exit_code(agg), 1)
+        self.assertEqual(agg["failed_files"], ["test_fake_1.py"])
+
+    def test_an_unparseable_child_counts_as_an_error_not_a_silent_pass(self):
+        agg = self._run_all_with([
+            _completed(0, "garbage, no summary line at all\n"),
+        ])
+        self.assertEqual(run_tests.exit_code(agg), 1)
+        self.assertEqual(agg["failed_files"], ["test_fake_0.py"])
+        self.assertEqual(agg["errors"], 1)
+
+
+class JsonOutputTests(unittest.TestCase):
+    """Guard threshold 7: --json writes every key from the ruling's Seam
+    section; `times` has one entry per discovered file."""
+
+    def test_run_all_result_has_every_required_key_and_one_time_entry_per_file(self):
+        files = [Path("test_a.py"), Path("test_b.py")]
+        side_effects = [
+            _completed(0, "Ran 1 tests in 0.01s\n\nOK\n"),
+            _completed(0, "Ran 2 tests in 0.02s\n\nOK\n"),
+        ]
+        with patch("run_tests.subprocess.run", side_effect=side_effects):
+            agg = run_tests.run_all(files, jobs=1, cwd=Path("."))
+        for key in ("wall", "jobs", "files", "tests", "failures", "errors", "skipped", "failed_files", "times"):
+            self.assertIn(key, agg, f"missing required key {key!r}")
+        self.assertEqual(set(agg["times"]), {"test_a.py", "test_b.py"})
+
+
+if __name__ == "__main__":
+    unittest.main()
