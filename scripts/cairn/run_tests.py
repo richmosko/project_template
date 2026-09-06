@@ -93,6 +93,7 @@ TESTS_DIR = SCRIPT_DIR / "tests"
 
 _RAN_RE = re.compile(r"^Ran (\d+) tests? in", re.MULTILINE)
 _SUMMARY_RE = re.compile(r"^(OK|FAILED)\b\s*(?:\(([^)]*)\))?", re.MULTILINE)
+_NO_TESTS_RE = re.compile(r"^NO TESTS RAN", re.MULTILINE)
 
 
 class ParseError(Exception):
@@ -118,10 +119,17 @@ def build_argv(python_exe: str, file_name) -> List[str]:
     return [python_exe, "-m", "unittest", "discover", "-s", "tests", "-p", str(file_name)]
 
 
-def parse_summary(stderr: str) -> Tuple[int, int, int, int]:
+def parse_summary(stderr: str, file_name: Optional[str] = None) -> Tuple[int, int, int, int]:
     ran_match = _RAN_RE.search(stderr)
     summary_match = _SUMMARY_RE.search(stderr)
     if not ran_match or not summary_match:
+        # NO TESTS RAN is parseable -- unittest exits 5 and prints a "Ran 0
+        # tests" line with no OK/FAILED summary -- and it names a real,
+        # nameable condition (an empty test file, a bad -k), not the
+        # generic "garbled output" case. Gate-4 verdict delta 2: never
+        # lump the two into the same message.
+        if _NO_TESTS_RE.search(stderr):
+            raise ParseError(f"no tests ran in {file_name if file_name is not None else '<unknown>'}")
         raise ParseError(f"unparseable unittest stderr: {stderr[:200]!r}")
     ran = int(ran_match.group(1))
     failures = errors = skipped = 0
@@ -174,7 +182,7 @@ def _run_one(file: Path, cwd: Path, runner) -> Dict[str, object]:
                         capture_output=True, text=True)
     seconds = time.time() - t0
     try:
-        ran, failures, errors, skipped = parse_summary(completed.stderr)
+        ran, failures, errors, skipped = parse_summary(completed.stderr, file_name=file.name)
         unparseable = False
     except ParseError:
         ran, failures, skipped = 0, 0, 0
@@ -226,13 +234,25 @@ def exit_code(agg: Dict[str, object]) -> int:
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
+    files = discover_files(TESTS_DIR, args.pattern)
+
+    if not files:
+        # Gate-4 verdict delta 1 (blocking): the tiered rule has every
+        # teammate typing `-p "test_<area>*.py"` mid-loop, and a typo'd
+        # or wrong-prefix pattern used to discover nothing and still exit
+        # 0 -- a silent pass on the exact operator error the runner
+        # exists to catch. Exit 2, distinct from 1 (a red suite), so a
+        # caller can tell "nothing ran" from "something failed". Applies
+        # to --list too -- it's the same discovery step.
+        print(f"no test files matched: {args.pattern}", file=sys.stderr)
+        return 2
 
     if args.list:
-        for file in discover_files(TESTS_DIR, args.pattern):
+        for file in files:
             print(file.name)
         return 0
 
-    files = order_by_size(discover_files(TESTS_DIR, args.pattern))
+    files = order_by_size(files)
     t0 = time.time()
     results = _run_files(files, TESTS_DIR.parent, args.jobs, subprocess.run)
     wall = time.time() - t0
