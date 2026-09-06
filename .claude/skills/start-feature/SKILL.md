@@ -58,7 +58,7 @@ Feature started. Branch: `feature/<id>-<slug>`.
 EOF
 ```
 
-These edits dirty the working tree on the feature branch and merge with the feature's PR — the tracker state change and the work that caused it land atomically.
+Commit these two edits right away, by pathspec — `git commit -m "chore(<ID>): feature started" -- process/cairn/issues/<ID>.md process/STATE.md` (STATE after step 8) — so the tracker state change lands on the feature branch before any teammate touches the file. `cairn comment` refuses to append while another author's comment is uncommitted (PT-94 E15), so an uncommitted feature-start comment blocks the architect's gate-1 ruling.
 
 ### 5. Post the feature plan
 
