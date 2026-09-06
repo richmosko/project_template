@@ -21,9 +21,10 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Issue | PT-95 (cairn) |
 | Milestone | PT-0.12.1 |
 | Branch | `feature/pt-95-explicit-raise-guard` |
+| PR | https://github.com/richmosko/project_template/pull/177 |
 | Started | 2026-09-06 |
 | Goal | The module-level guard raises explicitly so it fires under python -O, proven by a subprocess test under -O. |
-| Status | In Progress |
+| Status | In Review |
 
 ## Releases
 
