@@ -65,6 +65,7 @@ silently dropped.
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import subprocess
@@ -250,7 +251,10 @@ class MilestoneForTimestampPureTests(unittest.TestCase):
 
 def _git(cwd: Path, *args: str, env: Optional[dict] = None) -> subprocess.CompletedProcess:
     result = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, env=env)
-    assert result.returncode == 0, f"git {' '.join(args)} failed: {result.stderr}"
+    # PT-95 (gate 1 ruling): a bare `assert` is stripped entirely under
+    # `python -O` (measured on PT-91) -- raise explicitly instead.
+    if result.returncode != 0:
+        raise AssertionError(f"git {' '.join(args)} failed: {result.stderr}")
     return result
 
 
@@ -706,17 +710,21 @@ def tearDownModule():
     # So this module's tests were not the cause of that incident; this
     # guard exists so a FUTURE test in this file that adds one of those
     # flags without a fake engine root fails HERE, not in production.
+    # PT-95 (gate 1 ruling): a bare `assert` is stripped entirely under
+    # `python -O` (measured on PT-91) -- raise explicitly instead.
     pidfile_after = REAL_RECEIVER_PIDFILE.read_bytes() if REAL_RECEIVER_PIDFILE.exists() else None
-    assert pidfile_after == _REAL_PIDFILE_BEFORE, (
-        "the real, live process/cairn/metrics/.receiver.pid must never be touched by "
-        "this test module -- every otel_receiver.py invocation here must be --ingest-only "
-        "(never --ensure-running/--session-ended/--flush-now/--stop) with --repo-root "
-        "pointed at a fake root"
-    )
-    assert _snapshot_real_sessions_registry() == _REAL_SESSIONS_BEFORE, (
-        "the real, live process/cairn/metrics/.sessions/ registry must never be touched "
-        "by this test module -- see tearDownModule's comment for why --ingest alone is safe"
-    )
+    if pidfile_after != _REAL_PIDFILE_BEFORE:
+        raise AssertionError(
+            "the real, live process/cairn/metrics/.receiver.pid must never be touched by "
+            "this test module -- every otel_receiver.py invocation here must be --ingest-only "
+            "(never --ensure-running/--session-ended/--flush-now/--stop) with --repo-root "
+            "pointed at a fake root"
+        )
+    if _snapshot_real_sessions_registry() != _REAL_SESSIONS_BEFORE:
+        raise AssertionError(
+            "the real, live process/cairn/metrics/.sessions/ registry must never be touched "
+            "by this test module -- see tearDownModule's comment for why --ingest alone is safe"
+        )
 
 
 class ReceiverMilestoneAttributionTests(unittest.TestCase):
@@ -824,6 +832,174 @@ class ReceiverMilestoneAttributionTests(unittest.TestCase):
         self.assertEqual(
             issues, {"main"},
             f"a datapoint inside a DROPPED (colliding) window must fall back to main -- got {issues!r}",
+        )
+
+
+# --------------------------------------------------------------------------
+# PT-95: `_git`'s and `tearDownModule`'s bare `assert` is stripped entirely
+# under `python -O` (measured on PT-91, ruling 5ccfbdd amendment 1) -- a
+# guard whose firing depends on an interpreter flag is not a guard.
+# --------------------------------------------------------------------------
+
+class NoBareAssertInGuardFunctionsTests(unittest.TestCase):
+    """Parses this module's own AST (immune to comments or string
+    literals containing the word 'assert' -- unlike a text/regex scan)
+    and fails if `_git` or `tearDownModule` still contains an
+    `ast.Assert` node. This is the literal threshold from the gate 1
+    ruling: 'no bare assert remains in setUpModule/tearDownModule'
+    (extended here to `_git`, the helper `tearDownModule` itself calls
+    into transitively via every git-backed fixture)."""
+
+    _GUARDED_FUNCTIONS = ("_git", "tearDownModule")
+
+    def test_no_bare_assert_remains_in_the_named_guard_functions(self):
+        source_path = Path(__file__)
+        tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+        offenders = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name in self._GUARDED_FUNCTIONS:
+                for inner in ast.walk(node):
+                    if isinstance(inner, ast.Assert):
+                        offenders.append(f"{node.name} (line {inner.lineno})")
+        self.assertEqual(
+            offenders, [],
+            f"a bare `assert` statement is stripped entirely under `python -O` -- convert to "
+            f"`if not X: raise AssertionError(...)`. Offending function(s): {offenders!r}",
+        )
+
+
+# Synthetic guard-shape templates -- independently written, not copied from
+# the production guard above -- run as their own subprocesses by
+# ExplicitRaiseDifferentialTests below. Never touches the actual committed
+# file; sys.argv[1] is always a scratch path. Same construction as
+# test_otel_receiver_self_stop.py's GuardBracketDifferentialTests (PT-91
+# Amendment 3, part 2), reused here for a different claim: bare `assert`
+# vs. explicit `raise AssertionError`, not class- vs. module-scoping.
+_BARE_ASSERT_TEARDOWN_TEMPLATE = '''
+import sys
+import unittest
+from pathlib import Path
+
+FAKE_REAL_FILE = Path(sys.argv[1])
+_before = None
+
+
+def setUpModule():
+    global _before
+    _before = FAKE_REAL_FILE.read_bytes() if FAKE_REAL_FILE.exists() else None
+
+
+def tearDownModule():
+    after = FAKE_REAL_FILE.read_bytes() if FAKE_REAL_FILE.exists() else None
+    assert after == _before, "guard caught a change"
+
+
+class AAAPlaceholder(unittest.TestCase):
+    def test_placeholder(self):
+        self.assertTrue(True)
+
+
+class ZZZClobber(unittest.TestCase):
+    def test_clobbers_the_guarded_file(self):
+        with open(FAKE_REAL_FILE, "ab") as f:
+            f.write(b"escaped\\n")
+
+
+if __name__ == "__main__":
+    unittest.main(argv=[sys.argv[0]])
+'''
+
+_EXPLICIT_RAISE_TEARDOWN_TEMPLATE = '''
+import sys
+import unittest
+from pathlib import Path
+
+FAKE_REAL_FILE = Path(sys.argv[1])
+_before = None
+
+
+def setUpModule():
+    global _before
+    _before = FAKE_REAL_FILE.read_bytes() if FAKE_REAL_FILE.exists() else None
+
+
+def tearDownModule():
+    after = FAKE_REAL_FILE.read_bytes() if FAKE_REAL_FILE.exists() else None
+    if after != _before:
+        raise AssertionError("guard caught a change")
+
+
+class AAAPlaceholder(unittest.TestCase):
+    def test_placeholder(self):
+        self.assertTrue(True)
+
+
+class ZZZClobber(unittest.TestCase):
+    def test_clobbers_the_guarded_file(self):
+        with open(FAKE_REAL_FILE, "ab") as f:
+            f.write(b"escaped\\n")
+
+
+if __name__ == "__main__":
+    unittest.main(argv=[sys.argv[0]])
+'''
+
+
+class ExplicitRaiseDifferentialTests(unittest.TestCase):
+    """AC1 proof (gate 1 ruling): generates both guard shapes into a
+    scratch directory, clobbers the fake 'real' file from within the
+    run, runs each as its own subprocess with and without `-O`, and
+    asserts on EXIT CODE alone -- never output text."""
+
+    def _run_pattern(self, template: str, use_dash_o: bool = False):
+        fake_root = helpers.make_empty_tmp_dir(self)
+        fake_real_file = fake_root / "fake-real-file.jsonl"
+        fake_real_file.write_bytes(b'{"seed": true}\n')
+        script = fake_root / "guard_probe.py"
+        script.write_text(template, encoding="utf-8")
+        args = [sys.executable]
+        if use_dash_o:
+            args.append("-O")
+        args += [str(script), str(fake_real_file)]
+        result = subprocess.run(args, capture_output=True, text=True)
+        return result, fake_real_file
+
+    def test_bare_assert_guard_fires_without_dash_o(self):
+        result, _ = self._run_pattern(_BARE_ASSERT_TEARDOWN_TEMPLATE)
+        self.assertNotEqual(
+            result.returncode, 0,
+            f"the bare-assert guard must still catch the write without -O -- got "
+            f"rc={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}",
+        )
+
+    def test_bare_assert_guard_is_silently_stripped_under_dash_o(self):
+        result, fake_real_file = self._run_pattern(_BARE_ASSERT_TEARDOWN_TEMPLATE, use_dash_o=True)
+        self.assertEqual(
+            result.returncode, 0,
+            f"the bare-assert guard must (wrongly) exit 0 under -O even though the guarded "
+            f"file was clobbered -- got rc={result.returncode} stdout={result.stdout!r} "
+            f"stderr={result.stderr!r}",
+        )
+        self.assertIn(
+            b"escaped", fake_real_file.read_bytes(),
+            "the fake file must actually have been mutated -- otherwise this isn't proving "
+            "an escape, just an untested no-op",
+        )
+
+    def test_explicit_raise_guard_fires_without_dash_o(self):
+        result, _ = self._run_pattern(_EXPLICIT_RAISE_TEARDOWN_TEMPLATE)
+        self.assertNotEqual(
+            result.returncode, 0,
+            f"the explicit-raise guard must catch the write without -O -- got "
+            f"rc={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}",
+        )
+
+    def test_explicit_raise_guard_still_fires_under_dash_o(self):
+        result, _ = self._run_pattern(_EXPLICIT_RAISE_TEARDOWN_TEMPLATE, use_dash_o=True)
+        self.assertNotEqual(
+            result.returncode, 0,
+            f"the explicit-raise guard must still catch the write under -O -- got "
+            f"rc={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}",
         )
 
 

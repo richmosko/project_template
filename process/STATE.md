@@ -17,13 +17,14 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | _—_ |
-| Issue | _—_ |
-| Milestone | _—_ |
-| Branch | _—_ |
-| Started | _—_ |
-| Goal | _—_ |
-| Status | _—_ |
+| Feature | tearDownModule guard in test_milestone_overhead.py uses a bare assert — stripped under python -O; raise explicitly |
+| Issue | PT-95 (cairn) |
+| Milestone | PT-0.12.1 |
+| Branch | `feature/pt-95-explicit-raise-guard` |
+| PR | https://github.com/richmosko/project_template/pull/177 |
+| Started | 2026-09-06 |
+| Goal | The module-level guard raises explicitly so it fires under python -O, proven by a subprocess test under -O. |
+| Status | In Review |
 
 ## Releases
 
