@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Real-data-file guard in test_otel_receiver_self_stop.py brackets only its own class — convert to setUpModule/tearDownModule |
-| Issue | PT-91 (cairn) |
-| Milestone | PT-0.12.1 |
-| Branch | `feature/pt-91-module-level-guard` |
-| Started | 2026-09-05 |
-| Goal | Module-level guard covering every class regardless of name order, proven by a deliberately last-sorting class; first teamed loop under the PT-94 four gates (scorecard → PT-94 AC 5). |
-| Status | In Review — PR [#176](https://github.com/richmosko/project_template/pull/176); roster: architect, qa-engineer |
+| Feature | _—_ |
+| Issue | _—_ |
+| Milestone | _—_ |
+| Branch | _—_ |
+| Started | _—_ |
+| Goal | _—_ |
+| Status | _—_ |
 
 ## Releases
 
