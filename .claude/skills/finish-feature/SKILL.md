@@ -64,6 +64,7 @@ Then `gh pr create` with:
   - `Tracker: PT-14 — process/cairn/issues/PT-14.md` (there is no auto-close integration; `/merge-pr` flips the status)
   - `## Summary` (2–4 bullets)
   - `## Test plan` (checklist of what QA validated)
+  - `## Loop scorecard` — paste the output of `scripts/cairn/cairn loop-stats <ID>` verbatim (PT-94 E16). A row marked `OVER` gets a one-line justification under the table; the caps are soft, the justification is not optional.
   - The standard footer
 
 ### 3. Update the issue
@@ -81,7 +82,10 @@ Commit this tracker edit as a final chore commit on the branch (`chore(PT-14): t
 
 Update the `## Active Feature` block: Status → "In Review", add the PR URL. (The board's in-review column shows the same fact — STATE.md keeps only the active-feature pointer, per the table dissolution ruled in `process/TRACKER.md`.)
 
-### 5. Run validation handshake
+### 5. Head-match, then the validation handshake
+
+Before the handshake, confirm the verified code is what the PR carries: `scripts/cairn/cairn gate --head <sha qa measured green>` — `PASS` means everything since that sha is docs or tracker (PT-94 C8). qa's build-green run is not repeated; no "re-verify" message is sent.
+
 
 `SendMessage` to qa-engineer: "Feature <ID> opened as PR <url>. Drive Validate." (If teammate messaging is unavailable, the qa-engineer picks up via the anchor task or a `temp/` note — see the hand-off protocol in `process/WORKFLOW.md`.)
 

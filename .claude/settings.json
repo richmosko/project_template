@@ -55,6 +55,10 @@
           {
             "type": "command",
             "command": "[ -f scripts/cairn/otel_receiver.py ] || exit 0; python3 scripts/cairn/otel_receiver.py --ensure-running --session-pid \"$PPID\" >/dev/null; exit 0"
+          },
+          {
+            "type": "command",
+            "command": "[ -d .githooks ] && git config core.hooksPath .githooks 2>/dev/null; exit 0"
           }
         ]
       }
@@ -66,6 +70,17 @@
           {
             "type": "command",
             "command": "[ -f scripts/cairn/otel_receiver.py ] || exit 0; python3 scripts/cairn/otel_receiver.py --session-ended; exit 0"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "SendMessage",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/message_cap.py"
           }
         ]
       }

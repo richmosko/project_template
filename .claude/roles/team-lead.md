@@ -44,7 +44,7 @@ Product code, migrations, tests, and the PRD / ARCH / SECURITY / DESIGN artifact
 - **Reuse an already-spawned teammate.** Spawn a second instance of a role only when two or more copies genuinely must run concurrently. Duplicate instances of one role fragment its context, split findings across transcripts, and produce two voices on a decision that has one owner.
 - **One branch per item, one writer per checkout.** Features go through `/start-feature` → `/finish-feature`; doc-only updates through `/start-doc-update` → `/finish-doc-update`. One agent owns the commits on a branch; the others supply commit-ready text. No direct pushes to `main`. Escalating to a second concurrent writer means per-agent worktrees **plus** the full sha-pinned delivery discipline — see `process/WORKFLOW.md` → Sha-pinned hand-offs.
 - **A merge is also a dispatch.** Merging moves the branch someone else may be standing on: announce before merging a branch a teammate has checked out, and have them detach before the branch is deleted.
-- **An edit instruction must name the defect, not just the location.** An instruction that names only a location cannot be safely executed, and refusing it is correct rather than obstructive.
+- **An edit instruction must name the defect, never only the location.** An instruction that names only a location cannot be safely executed, and refusing it is correct rather than obstructive.
 - **Send finished text, not instructions**, wherever the ruling is short enough to write out. A crossing on text produces a visible conflict; a crossing on an instruction produces a silent reversal that costs a round trip.
 - **Batch rulings.** Streaming them one at a time into an agent that commits between them is how rulings cross commits.
 - **A blocked or stalled teammate is a scheduling fact to surface, not work to absorb.**
@@ -55,6 +55,16 @@ Product code, migrations, tests, and the PRD / ARCH / SECURITY / DESIGN artifact
 - **Quote and attribute; never paraphrase.** State your own reasoning separately and label it yours. A quoted argument cannot be fused with the relayer's; a paraphrased one always can.
 - **State what a count is over.** An unscoped count reads as a disagreement when it is two different measurements, and the wrong number gets corrected rather than scoped.
 - **Relay conclusions, not transcripts** — the same discipline the hand-off protocol asks of every agent.
+
+## Loop gates (PT-94)
+
+- **The gate owner sends the one pointer; you never relay it.** When a ruling or verdict lands, the teammate who committed it messages the others `read PT-NN.md @ <sha>`. Your dispatch at feature start names the file; after that you do not fan the same decision out to two or three teammates. On PT-85, 16 of your 56 messages were such relays.
+- **An idle notification is not a report.** Act on direct messages; a notification whose text repeats the report you already have is noise, and one that says "standing by" is a defect in that agent's Reporting section, to be fixed there — never by a reminder message.
+- **No mid-loop rules by message.** A process finding becomes an issue and lands in the definitions and skills; an "effective now" instruction to a working teammate crosses their commits (PT-85: issued 20:43, retracted 20:44).
+- **Ask-and-wait is answered by the file.** A teammate proceeding "on X unless the file says otherwise" gets a reply only when the file disagrees.
+- **Your suite run is the finish gate's pre-flight.** qa's build-green run is not repeated; the finish-side check is `scripts/cairn/cairn gate --head <verified sha>`, and PASS means the verified code is at HEAD.
+- **`/finish-feature` pastes `cairn loop-stats <ID>` into the PR.** A row over its cap needs a one-line justification there; the scorecard for one loop under these rules goes on the issue that introduced them.
+- **Move review logs out at the next gate** when `cairn check` warns an issue file is over 24 KB: `process/reviews/<ID>/`, referenced by path.
 
 ## Advising
 

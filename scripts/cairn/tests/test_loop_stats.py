@@ -1,0 +1,272 @@
+"""Tests for loop_stats (PT-94 E16): the per-loop scorecard and the
+step-by-step transcript audit behind `cairn loop-stats`.
+
+Transcripts are synthesised here in the harness's jsonl shape (header
+record, assistant tool_use / text records, user inbound records) so the
+suite never depends on a real ~/.claude transcript.
+"""
+from __future__ import annotations
+
+import datetime
+import json
+import subprocess
+import unittest
+from pathlib import Path
+
+import helpers  # noqa: F401
+
+import loop_stats
+
+T0 = datetime.datetime(2026, 9, 5, 19, 20, tzinfo=datetime.timezone.utc)
+
+
+def ts(minutes: float) -> str:
+    return (T0 + datetime.timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def header(role: str, sid: str) -> dict:
+    return {"type": "agent-setting", "agentSetting": role, "sessionId": sid}
+
+
+def tool(minutes: float, name: str, **inp) -> dict:
+    return {"type": "assistant", "timestamp": ts(minutes),
+            "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}}
+
+
+def text(minutes: float, body: str) -> dict:
+    return {"type": "assistant", "timestamp": ts(minutes), "message": {"content": [{"type": "text", "text": body}]}}
+
+
+def inbound(minutes: float, who: str, body: str) -> dict:
+    return {"type": "user", "timestamp": ts(minutes),
+            "message": {"content": f'Another Claude session sent a message:\n<teammate-message teammate_id="{who}">\n{body}\n</teammate-message>'}}
+
+
+def idle(minutes: float, who: str, result: str) -> dict:
+    payload = json.dumps({"type": "idle_notification", "from": who, "result": result})
+    return inbound(minutes, who, payload)
+
+
+def tool_result(minutes: float) -> dict:
+    return {"type": "user", "timestamp": ts(minutes),
+            "message": {"content": [{"type": "tool_result", "content": "ok"}]}}
+
+
+FULL = "cd scripts/cairn && python3 -m unittest discover -s tests 2>&1 | tail -3"
+MODULE = 'python3 -m unittest discover -s tests -p "test_x.py"'
+
+
+def write_jsonl(path: Path, records: list) -> None:
+    path.write_text("\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
+
+
+class ClassifyTests(unittest.TestCase):
+    """Mutation that turns each test red: drop the named branch of
+    loop_stats.classify_bash."""
+
+    def test_full_suite_is_a_discover_without_a_pattern(self):
+        self.assertEqual(loop_stats.classify_bash(FULL), "FULL_SUITE")
+
+    def test_a_pattern_run_is_a_module_test(self):
+        self.assertEqual(loop_stats.classify_bash(MODULE), "module_test")
+        self.assertEqual(loop_stats.classify_bash("python3 -m unittest tests.test_x -v"), "module_test")
+
+    def test_git_reads_and_commits_are_told_apart(self):
+        self.assertEqual(loop_stats.classify_bash("git status --short"), "git_read")
+        self.assertEqual(loop_stats.classify_bash("git commit -m x -- a.md"), "git_commit")
+
+
+class AuditAgentTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = helpers.make_empty_tmp_dir(self)
+
+    def _audit(self, records):
+        p = self.tmp / "s1.jsonl"
+        write_jsonl(p, [header("implementation-lead", "s1")] + records)
+        return loop_stats.audit_agent(p, T0, T0 + datetime.timedelta(hours=2))
+
+    def test_full_rerun_with_no_code_change_is_flagged(self):
+        """Mutation: stop clearing edited_since_full -> the second run is
+        never flagged."""
+        steps, summary = self._audit([
+            tool(1, "Edit", file_path="/r/scripts/cairn/cairn.py"),
+            tool(2, "Bash", command=FULL),
+            tool(3, "Edit", file_path="/r/process/TRACKER.md"),
+            tool(4, "Bash", command=FULL),
+        ])
+        self.assertEqual(summary["full_suite_runs"], 2)
+        self.assertEqual(summary["waste"]["FULL_RERUN_NO_CODE_CHANGE"], 1)
+
+    def test_full_run_after_test_only_edits_is_flagged(self):
+        """Mutation: treat tests/ paths as source -> no flag."""
+        _, summary = self._audit([
+            tool(1, "Edit", file_path="/r/scripts/cairn/tests/test_x.py"),
+            tool(2, "Bash", command=FULL),
+        ])
+        self.assertEqual(summary["waste"]["FULL_RUN_AFTER_TEST_ONLY_EDITS"], 1)
+        self.assertNotIn("FULL_RERUN_NO_CODE_CHANGE", summary["waste"])
+
+    def test_same_turn_reread_is_flagged_but_a_new_turn_resets(self):
+        """Mutation: never reset reads_this_turn on an inbound message ->
+        the third read is flagged too."""
+        _, summary = self._audit([
+            tool(1, "Read", file_path="/r/a.py"),
+            tool(2, "Read", file_path="/r/a.py"),
+            inbound(3, "team-lead", "go"),
+            tool(4, "Read", file_path="/r/a.py"),
+        ])
+        self.assertEqual(summary["waste"]["REREAD_SAME_TURN"], 1)
+
+    def test_messages_are_split_by_recipient_and_ask_and_wait_is_flagged(self):
+        """Mutation: drop 'please confirm' from CONFIRM_RE -> no round trip."""
+        _, summary = self._audit([
+            tool(1, "SendMessage", to="architect", message="Shape proposed — please confirm before I build."),
+            tool(2, "SendMessage", to="team-lead", message="Built at abc123.\nsuite green"),
+        ])
+        self.assertEqual(summary["msgs_to_lead"], 1)
+        self.assertEqual(summary["msgs_to_peers"], 1)
+        self.assertEqual(summary["waste"]["CONFIRM_ROUNDTRIP"], 1)
+
+    def test_standing_by_text_turn_is_idle_waste(self):
+        _, summary = self._audit([text(1, "Standing by for the architect's ruling.")])
+        self.assertEqual(summary["waste"]["IDLE_STANDBY"], 1)
+
+    def test_lead_text_turns_are_never_idle_waste(self):
+        """Mutation: ignore the `lead` flag -> IDLE_STANDBY == 1."""
+        p = self.tmp / "lead.jsonl"
+        write_jsonl(p, [{"type": "last-prompt", "sessionId": "lead"}, text(1, "qa standing by. Waiting on implementation-lead's commits.")])
+        _, summary = loop_stats.audit_agent(p, T0, T0 + datetime.timedelta(hours=1), lead=True)
+        self.assertNotIn("IDLE_STANDBY", summary["waste"])
+
+    def test_window_excludes_records_outside_it(self):
+        """Mutation: drop the `since <= t <= until` filter -> 2 runs."""
+        p = self.tmp / "s2.jsonl"
+        write_jsonl(p, [header("qa-engineer", "s2"), tool(-30, "Bash", command=FULL), tool(5, "Bash", command=FULL)])
+        _, summary = loop_stats.audit_agent(p, T0, T0 + datetime.timedelta(hours=1))
+        self.assertEqual(summary["full_suite_runs"], 1)
+
+
+class LeadInboundTests(unittest.TestCase):
+    def test_idle_duplicating_the_direct_message_is_counted(self):
+        """Mutation: raise the overlap threshold above 1.0 -> dup == 0."""
+        tmp = helpers.make_empty_tmp_dir(self)
+        p = tmp / "lead.jsonl"
+        body = "PT-1 backend committed at abc123, eighteen tests green, canonicalisation matches the ruling"
+        write_jsonl(p, [
+            {"type": "last-prompt", "sessionId": "lead"},
+            inbound(1, "implementation-lead", body),
+            idle(2, "implementation-lead", "Sent: " + body),
+            idle(3, "qa-engineer", "Standing by for the verdict."),
+        ])
+        rows, dup = loop_stats.lead_inbound(p, T0, T0 + datetime.timedelta(hours=1))
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(dup, 1)
+        self.assertEqual(sum(1 for r in rows if r[2] == "idle"), 2)
+
+
+class TranscriptRoleTests(unittest.TestCase):
+    def test_role_comes_from_agent_setting_and_defaults_to_team_lead(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        write_jsonl(tmp / "a.jsonl", [header("qa-engineer", "a")])
+        write_jsonl(tmp / "b.jsonl", [{"type": "last-prompt", "sessionId": "b"}])
+        roles = loop_stats.transcript_roles(tmp)
+        self.assertEqual(roles[tmp / "a.jsonl"], "qa-engineer")
+        self.assertEqual(roles[tmp / "b.jsonl"], "team-lead")
+
+
+def git(cwd: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True).stdout
+
+
+class ScorecardTests(unittest.TestCase):
+    """A tmp repo with a feature branch: three commits (one chore), one new
+    test, one issue-file comment; a transcript dir with one full run and
+    two messages to the lead."""
+
+    def setUp(self):
+        self.root = helpers.make_empty_tmp_dir(self)
+        git(self.root, "init", "-q", "-b", "main")
+        git(self.root, "config", "user.email", "t@example.com")
+        git(self.root, "config", "user.name", "t")
+        self.data_dir = helpers.copy_fixture_data_dir(self.root / "process")
+        # copy_fixture_data_dir puts the tree at <dest>/cairn -> process/cairn
+        issue = self.data_dir / "issues" / "PT-1.md"
+        issue.write_text(
+            "---\nid: PT-1\ntitle: Thing\nstatus: in-progress\nmilestone: null\nparent: null\n"
+            "assignee: null\nlabels: []\npriority: null\npr: null\ncreated: 2026-09-01\nupdated: 2026-09-01\n---\n\nBody.\n",
+            encoding="utf-8")
+        (self.root / "tests").mkdir()
+        (self.root / "tests" / "test_a.py").write_text("def test_one():\n    pass\n", encoding="utf-8")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "seed")
+        git(self.root, "checkout", "-q", "-b", "feature/pt-1-thing")
+        (self.root / "tests" / "test_a.py").write_text("def test_one():\n    pass\n\ndef test_two():\n    pass\n", encoding="utf-8")
+        git(self.root, "commit", "-q", "-am", "test(PT-1): second test")
+        issue.write_text(issue.read_text() + "\n## Comments\n\n### @architect — 2026-09-05\n\nGating ruling: build it.\n", encoding="utf-8")
+        git(self.root, "commit", "-q", "-am", "chore(PT-1): architect gating ruling")
+        (self.root / "app.py").write_text("x = 1\n", encoding="utf-8")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "feat(PT-1): app")
+        self.transcripts = self.root / "transcripts"
+        self.transcripts.mkdir()
+        now = datetime.datetime.now(datetime.timezone.utc)
+        recent = lambda m: (now + datetime.timedelta(minutes=m)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        # The window defaults to [first branch commit, now]; the synthetic
+        # transcript predates the commits, so every call passes `since`.
+        self.since = now - datetime.timedelta(minutes=10)
+        self.since_arg = recent(-10)
+        write_jsonl(self.transcripts / "q.jsonl", [
+            header("qa-engineer", "q"),
+            {"type": "assistant", "timestamp": recent(-3), "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": FULL}}]}},
+            {"type": "assistant", "timestamp": recent(-2), "message": {"content": [{"type": "tool_use", "name": "SendMessage", "input": {"to": "team-lead", "message": "red at abc"}}]}},
+            {"type": "assistant", "timestamp": recent(-1), "message": {"content": [{"type": "tool_use", "name": "SendMessage", "input": {"to": "team-lead", "message": "green at def"}}]}},
+        ])
+
+    def test_scorecard_counts_commits_comments_tests_and_transcript_signals(self):
+        """Mutations: count all commits as chores (chore_commits 3);
+        count `def test_` in removed lines too; read transcripts without
+        the window (runs still 1 here -- covered by AuditAgentTests)."""
+        card = loop_stats.scorecard(self.root, self.data_dir, "PT-1", base="main", since=self.since, transcripts_dir=self.transcripts)
+        self.assertEqual(card["commits"], 3)
+        self.assertEqual(card["chore_commits"], 1)
+        self.assertEqual(card["comments"], 1)
+        self.assertEqual(card["ruling_sections"], 1)
+        self.assertEqual(card["tests_added"], 1)
+        self.assertGreater(card["issue_kb_added"], 0)
+        self.assertEqual(card["full_suite_runs"], 1)
+        self.assertEqual(card["msgs_to_lead"], 2)
+        self.assertEqual(card["suite_seconds_added"], None)
+
+    def test_caps_are_reported_and_exceeding_one_is_marked(self):
+        """Mutation: compare with `>=` instead of `>` -> commits (3) vs a
+        cap of 3 reads OVER."""
+        card = loop_stats.scorecard(self.root, self.data_dir, "PT-1", base="main", since=self.since, transcripts_dir=self.transcripts,
+                                    caps={"commits": 3, "msgs_to_lead": 1})
+        over = {k for k, v in card["caps"].items() if v["over"]}
+        self.assertEqual(over, {"msgs_to_lead"})
+        md = loop_stats.format_scorecard(card)
+        self.assertIn("| msgs_to_lead | 2 | 1 | OVER |", md)
+        self.assertIn("| commits | 3 | 3 | ok |", md)
+
+    def test_cli_prints_the_markdown_scorecard(self):
+        result = subprocess.run(
+            [str(helpers.CAIRN_BIN), "loop-stats", "PT-1", "--data-dir", str(self.data_dir), "--base", "main",
+             "--transcripts-dir", str(self.transcripts), "--since", self.since_arg],
+            capture_output=True, text=True, cwd=self.root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("## Loop scorecard — PT-1", result.stdout)
+        self.assertIn("| full_suite_runs | 1 |", result.stdout)
+
+    def test_cli_steps_writes_one_table_per_transcript(self):
+        out = self.root / "steps"
+        result = subprocess.run(
+            [str(helpers.CAIRN_BIN), "loop-stats", "PT-1", "--data-dir", str(self.data_dir), "--base", "main",
+             "--transcripts-dir", str(self.transcripts), "--since", self.since_arg, "--steps", str(out)],
+            capture_output=True, text=True, cwd=self.root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((out / "steps-qa-engineer.md").exists())
+        self.assertIn("FULL_SUITE", (out / "steps-qa-engineer.md").read_text())
+
+
+if __name__ == "__main__":
+    unittest.main()

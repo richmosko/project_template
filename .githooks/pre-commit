@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Foreign-hunk guard (PT-94 E15). Installed by `git config core.hooksPath .githooks`
+# (the SessionStart hook does this idempotently). Body lives in
+# `cairn guard-commit`; this shim only locates cairn.py relative to itself so
+# the same hook works from any checkout that points core.hooksPath here.
+set -u
+here="$(cd "$(dirname "$0")" && pwd)"
+cairn_py="$here/../scripts/cairn/cairn.py"
+[ -f "$cairn_py" ] || exit 0
+exec python3 "$cairn_py" guard-commit
