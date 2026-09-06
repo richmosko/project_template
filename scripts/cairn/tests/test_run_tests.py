@@ -11,15 +11,28 @@ run_tests.py's own module-level functions.
 Expected public surface of run_tests.py (this file IS the spec for gate 3):
     discover_files(tests_dir, patterns) -> List[Path]      sorted, deduped
     build_argv(python_exe, file_name) -> List[str]          exact child argv, no -t
-    parse_summary(stderr) -> (ran, failures, errors, skipped)
-    ParseError                                              raised, not swallowed
+    parse_summary(stderr, file_name=...) -> (ran, failures, errors, skipped)
+    ParseError                                              raised, not swallowed;
+                                                             a NO TESTS RAN child names
+                                                             the file ("no tests ran in
+                                                             <file>"), not a generic message
     order_by_size(files) -> List[Path]                      largest first
     default_jobs() -> int                                   min(8, os.cpu_count() or 4)
     parse_args(argv) -> argparse.Namespace                   .jobs, .pattern, .serial, .list, .json
     run_all(files, jobs, cwd, runner=subprocess.run) -> dict  wall/jobs/files/tests/failures/
                                                               errors/skipped/failed_files/times
     exit_code(agg) -> int                                    0 iff failed_files == []
-    main(argv) -> int                                        CLI entry
+    main(argv) -> int                                        CLI entry. A -p pattern
+                                                              matching zero files (run
+                                                              OR --list) prints "no test
+                                                              files matched: <patterns>"
+                                                              to stderr and exits 2 --
+                                                              distinct from 1 (red suite).
+
+Gate-4 verdict deltas (2fd2a01, blocking): the empty-pattern safety net
+(EmptyPatternSafetyTests below) and the NO-TESTS-RAN message fix
+(ParseSummaryNoTestsRanTests below) were added after the first build --
+see PT-93.md @ 8c4409e.
 """
 from __future__ import annotations
 
@@ -65,6 +78,42 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(printed, expected_names)
 
 
+class EmptyPatternSafetyTests(unittest.TestCase):
+    """Gate-4 verdict delta 1 (blocking, PT-93.md @ 8c4409e): a `-p`
+    pattern matching nothing must not silently exit 0 -- that is exactly
+    the operator-typo class the tiered rule invites (every teammate runs
+    `run_tests.py -p "test_<area>*.py"` mid-loop). Real subprocess calls
+    of the built script, both `--list` and a run: neither ever executes a
+    real test (discovery finds nothing, or narrows to one small real
+    file), so this stays inside D11."""
+
+    NONEXISTENT_PATTERN = "test_zzz_pt93_nonexistent_area*.py"
+
+    def _run(self, *args):
+        return subprocess.run(
+            [sys.executable, str(helpers.CAIRN_DIR / "run_tests.py"), *args],
+            cwd=helpers.CAIRN_DIR, capture_output=True, text=True,
+        )
+
+    def test_a_pattern_matching_nothing_exits_2_and_names_the_pattern(self):
+        result = self._run("-p", self.NONEXISTENT_PATTERN)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn(self.NONEXISTENT_PATTERN, result.stderr)
+
+    def test_list_with_a_pattern_matching_nothing_also_exits_2_and_names_the_pattern(self):
+        result = self._run("--list", "-p", self.NONEXISTENT_PATTERN)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn(self.NONEXISTENT_PATTERN, result.stderr)
+
+    def test_a_matching_pattern_still_exits_0_control(self):
+        # Control (the guard must not pass by rejecting everything): a
+        # real, narrow, matching pattern -- a small, fast, real test file
+        # that spawns nothing itself, so this run costs milliseconds, not
+        # a copy of the real suite.
+        result = self._run("-p", "test_id_sort.py")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 class ChildArgvTests(unittest.TestCase):
     """Guard threshold 2: child argv equals the ruling's list element for
     element; '-t' never appears (the measured trap: -t . drops tests/ off
@@ -102,6 +151,33 @@ class ParseSummaryTests(unittest.TestCase):
         stderr = "Traceback (most recent call last):\nImportError: no module named helpers\n"
         with self.assertRaises(run_tests.ParseError):
             run_tests.parse_summary(stderr)
+
+
+class ParseSummaryNoTestsRanTests(unittest.TestCase):
+    """Gate-4 verdict delta 2 (PT-93.md @ 8c4409e): a NO TESTS RAN child
+    (measured for real, `python3 -m unittest discover -s tests -p
+    "palette_check.py"` -> exit 5, exact stderr below) must report 'no
+    tests ran in <file>', not the generic 'unparseable unittest stderr'
+    message -- it IS parseable, just a different, nameable condition
+    (guard threshold 3 read correctly: never a silent 0, and the message
+    must say what actually happened)."""
+
+    # Captured verbatim from the real command above.
+    NO_TESTS_RAN_STDERR = (
+        "\n----------------------------------------------------------------------\n"
+        "Ran 0 tests in 0.000s\n\nNO TESTS RAN\n"
+    )
+
+    def test_no_tests_ran_still_raises_but_names_the_file(self):
+        with self.assertRaises(run_tests.ParseError) as ctx:
+            run_tests.parse_summary(self.NO_TESTS_RAN_STDERR, file_name="palette_check.py")
+        self.assertIn("no tests ran in palette_check.py", str(ctx.exception))
+
+    def test_genuinely_unparseable_stderr_is_not_lumped_in_with_no_tests_ran(self):
+        stderr = "Traceback (most recent call last):\nImportError: no module named helpers\n"
+        with self.assertRaises(run_tests.ParseError) as ctx:
+            run_tests.parse_summary(stderr, file_name="test_x.py")
+        self.assertNotIn("no tests ran", str(ctx.exception))
 
 
 class DefaultJobsTests(unittest.TestCase):
