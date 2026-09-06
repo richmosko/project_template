@@ -287,6 +287,61 @@ class RealDataFileUntouchedGuard(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------
+# PT-91, AC1: proof that a class-scoped guard only brackets its own class.
+# --------------------------------------------------------------------------
+
+class ZZZLastSortingClassProvesGuardCoversWholeModuleTests(unittest.TestCase):
+    """PT-91: this class's name is deliberately chosen to sort LAST,
+    alphabetically, among every TestCase in this module (unittest's
+    loader walks classes in that order, not definition order). Before
+    PT-91's conversion, the only guard is
+    RealDataFileUntouchedGuard's setUpClass/tearDownClass, which
+    brackets ONLY that one class -- by the time this class's test runs,
+    that guard's tearDownClass has already fired and reported green, so
+    nothing would notice a mutation made here. After PT-91 converts the
+    guard to module-level setUpModule/tearDownModule, tearDownModule is
+    unittest's own guarantee: it runs strictly after every test in the
+    module, including this one.
+
+    Never touches the real, committed token-usage.jsonl -- this proves
+    the *mechanism* (guard scope vs. class sort order) against a
+    throwaway fake copy that nothing else in the suite reads."""
+
+    def test_a_class_sorting_last_would_escape_a_class_scoped_guard_but_not_a_module_scoped_one(self):
+        # A fake copy standing in for the real data file.
+        fake_root = helpers.make_empty_tmp_dir(self)
+        fake_copy = fake_root / "token-usage.jsonl"
+        fake_copy.write_bytes(b'{"seed": true}\n')
+
+        # Simulate this class's own actions -- the same kind of write a
+        # test bug could accidentally make against the real file.
+        with open(fake_copy, "ab") as f:
+            f.write(b"mutated-by-a-trailing-class\n")
+
+        module = sys.modules[__name__]
+        guard_is_module_scoped = hasattr(module, "tearDownModule")
+
+        if not guard_is_module_scoped:
+            # AC1 unmet: the only guard in place is
+            # RealDataFileUntouchedGuard.tearDownClass, which already ran
+            # and reported green long before this deliberately-last-
+            # sorting class's test method executed -- nothing in the
+            # module would ever see this mutation. Convert to
+            # setUpModule/tearDownModule (PT-91) to close this gap.
+            self.fail(
+                "AC1 unmet: the guard is still class-scoped "
+                "(RealDataFileUntouchedGuard.setUpClass/tearDownClass), so a class "
+                "sorting after it alphabetically -- like this one -- can mutate the "
+                "guarded file completely undetected. Convert to module-level "
+                "setUpModule/tearDownModule (PT-91)."
+            )
+        # else: the guard is module-level, so tearDownModule runs after
+        # this test too and would independently catch a real mutation of
+        # the actual guarded path -- nothing further to assert here, the
+        # module fixture itself is the check.
+
+
+# --------------------------------------------------------------------------
 # Pure, socket-free session-bookkeeping functions.
 # --------------------------------------------------------------------------
 
