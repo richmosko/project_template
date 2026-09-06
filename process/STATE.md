@@ -21,9 +21,10 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Issue | PT-93 (cairn) |
 | Milestone | PT-0.12.1 |
 | Branch | `feature/pt-93-tiered-gating-parallel-runner` |
+| PR | https://github.com/richmosko/project_template/pull/178 |
 | Started | 2026-09-06 |
 | Goal | The full Python suite runs in ≤45 s via a parallel runner with identical counts, and WORKFLOW + /finish-feature name the tiered rule and the runner command. |
-| Status | In Progress |
+| Status | In Review |
 
 ## Releases
 
