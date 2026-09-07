@@ -238,6 +238,33 @@ class FlagAwareNarrowingTests(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertFalse(lines[0].get("full"), f"a --pattern run must record full=false, got: {lines[0]!r}")
 
+    def test_a_narrowed_run_with_a_gate_shaped_command_records_gate_null(self):
+        # Verdict delta 5, defence in depth (PT-97.md @ bfb1d92): the
+        # runner itself now refuses --gate + -p together (see
+        # test_run_tests.py's GateRequiresFullRunTests), but the recorder
+        # must never trust a non-null gate on a full=false record either
+        # -- belt and suspenders against any command that reaches it with
+        # both. Reproduced live against e86f163: currently records
+        # gate="green", full=false in the same line.
+        tmp = helpers.make_empty_tmp_dir(self)
+        (tmp / "process" / "cairn" / "metrics").mkdir(parents=True)
+        payload = {
+            "session_id": "s", "cwd": str(tmp), "agent_type": "architect",
+            "hook_event_name": "PostToolUse", "tool_name": "Bash",
+            "tool_input": {"command": 'python3 run_tests.py --gate green -p "test_x*.py"'},
+            "tool_response": {"stdout": "Ran 5 tests in 0.05s (1 files, 8 workers)\nOK\n", "stderr": ""},
+            "duration_ms": 60, "tool_use_id": "x",
+        }
+        env = {"CLAUDE_PROJECT_DIR": str(tmp)}
+        result = _run_hook("test_run_record.py", json.dumps(payload), env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        records_path = tmp / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        lines = [json.loads(l) for l in records_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(len(lines), 1)
+        record = lines[0]
+        self.assertFalse(record.get("full"), f"a -p run must record full=false, got: {record!r}")
+        self.assertIsNone(record.get("gate"), f"a full=false record must never carry a non-null gate, got: {record!r}")
+
 
 class RunnerSelfRecordsTests(unittest.TestCase):
     """Gate-4 verdict delta 2 (blocking): run_tests.py writes its own
