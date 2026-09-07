@@ -1,0 +1,116 @@
+{
+ "captured": "2026-09-07, live PreToolUse/PostToolUse Bash hooks on this repo",
+ "pre_tool_use_keys": [
+  "agent_type",
+  "cwd",
+  "effort",
+  "hook_event_name",
+  "permission_mode",
+  "scratchpad_dir",
+  "session_id",
+  "tool_input",
+  "tool_name",
+  "tool_use_id",
+  "transcript_path"
+ ],
+ "post_tool_use_keys": [
+  "agent_type",
+  "cwd",
+  "duration_ms",
+  "effort",
+  "hook_event_name",
+  "permission_mode",
+  "scratchpad_dir",
+  "session_id",
+  "tool_input",
+  "tool_name",
+  "tool_response",
+  "tool_use_id",
+  "transcript_path"
+ ],
+ "pre_samples": [
+  {
+   "session_id": "b35e675f-d23e-47b6-9208-b400a7ff1bde",
+   "transcript_path": "/Users/mosko/.claude/projects/-Users-mosko-Projects-project-template/b35e675f-d23e-47b6-9208-b400a7ff1bde.jsonl",
+   "cwd": "/Users/mosko/Projects/project_template",
+   "scratchpad_dir": "/private/tmp/claude-501/-Users-mosko-Projects-project-template/b35e675f-d23e-47b6-9208-b400a7ff1bde/scratchpad",
+   "permission_mode": "auto",
+   "agent_type": "architect",
+   "hook_event_name": "PreToolUse",
+   "tool_name": "Bash",
+   "tool_input": {
+    "command": "echo \"pt97-probe-marker-run\"; date +%s",
+    "description": "Trigger the hook probe"
+   },
+   "tool_use_id": "toolu_01LLgdmVTyf1LCeUixXydbnH"
+  },
+  {
+   "session_id": "b35e675f-d23e-47b6-9208-b400a7ff1bde",
+   "transcript_path": "/Users/mosko/.claude/projects/-Users-mosko-Projects-project-template/b35e675f-d23e-47b6-9208-b400a7ff1bde.jsonl",
+   "cwd": "/Users/mosko/Projects/project_template",
+   "scratchpad_dir": "/private/tmp/claude-501/-Users-mosko-Projects-project-template/b35e675f-d23e-47b6-9208-b400a7ff1bde/scratchpad",
+   "permission_mode": "auto",
+   "agent_type": "architect",
+   "hook_event_name": "PreToolUse",
+   "tool_name": "Bash",
+   "tool_input": {
+    "command": "S=/private/tmp/claude-501/-Users-mosko-Projects-project-template/b35e675f-d23e-47b6-9208-b400a7ff1bde/scratchpad/pt93; ls -la $S/hookin.jsonl $S/hookenv.txt 2>&1 | tail -3; echo \"--- env ---\"; cat $S/hookenv.txt 2>/dev/null; echo \"--- stdin keys ---\"; python3 -c \"\nimport json,sys\nfor line in open('$S/hookin.jsonl'):\n    line=line.strip()\n    if not line: continue\n    d=json.loads(line)\n    print('KEYS:', sorted(d.keys()))\n    for k,v in d.items():\n        s=json.dumps(v)\n        print(f'  {k} = {s[:220]}')\n    break\n\" 2>&1 | head -30",
+    "description": "Inspect captured hook input"
+   },
+   "tool_use_id": "toolu_015qWpuEgUHTF4cNEDyD1KfF"
+  },
+  {
+   "session_id": "9068b8bc-c7c9-490c-80b5-e8eaf94398e5",
+   "transcript_path": "/Users/mosko/.claude/projects/-Users-mosko-Projects-project-template/9068b8bc-c7c9-490c-80b5-e8eaf94398e5.jsonl",
+   "cwd": "/Users/mosko/Projects/project_template/scripts/cairn",
+   "scratchpad_dir": "/private/tmp/claude-501/-Users-mosko-Projects-project-template/9068b8bc-c7c9-490c-80b5-e8eaf94398e5/scratchpad",
+   "permission_mode": "auto",
+   "agent_type": "implementation-lead",
+   "hook_event_name": "PreToolUse",
+   "tool_name": "Bash",
+   "tool_input": {
+    "command": "ls -la /Users/mosko/Projects/project_template/process/cairn/metrics/ 2>&1; echo ---; head -3 /Users/mosko/Projects/project_template/process/cairn/metrics/token-usage.jsonl",
+    "description": "Inspect existing metrics directory structure"
+   },
+   "tool_use_id": "toolu_01YZKDSjtoCtFuL6i8Y4LpeF"
+  },
+  {
+   "session_id": "b35e675f-d23e-47b6-9208-b400a7ff1bde",
+   "transcript_path": "/Users/mosko/.claude/projects/-Users-mosko-Projects-project-template/b35e675f-d23e-47b6-9208-b400a7ff1bde.jsonl",
+   "cwd": "/Users/mosko/Projects/project_template",
+   "scratchpad_dir": "/private/tmp/claude-501/-Users-mosko-Projects-project-template/b35e675f-d23e-47b6-9208-b400a7ff1bde/scratchpad",
+   "permission_mode": "auto",
+   "agent_type": "architect",
+   "hook_event_name": "PreToolUse",
+   "tool_name": "Bash",
+   "tool_input": {
+    "command": "S=/private/tmp/claude-501/-Users-mosko-Projects-project-template/b35e675f-d23e-47b6-9208-b400a7ff1bde/scratchpad/pt93; python3 -c \"\nimport json\nfor i,line in enumerate(open('$S/hookin.jsonl')):\n    line=line.strip()\n    if not line: continue\n    d=json.loads(line)\n    print(i, d.get('agent_type'), '|', d.get('cwd'), '|', (d.get('tool_input',{}).get('command') or '')[:70])\n\"; cp $S/settings.local.json.bak .claude/settings.local.json && echo \"RESTORED\" && python3 -c \"\nimport json;d=json.load(open('.claude/settings.local.json'));print('hooks key present:', 'hooks' in d, '| size', len(open('.claude/settings.local.json').read()))\"",
+    "description": "Dump probe records and restore settings"
+   },
+   "tool_use_id": "toolu_01JUBQot1hTS6dNatBYUkkwx"
+  }
+ ],
+ "post_sample": {
+  "session_id": "b35e675f-d23e-47b6-9208-b400a7ff1bde",
+  "transcript_path": "/Users/mosko/.claude/projects/-Users-mosko-Projects-project-template/b35e675f-d23e-47b6-9208-b400a7ff1bde.jsonl",
+  "cwd": "/Users/mosko/Projects/project_template/scripts/cairn",
+  "scratchpad_dir": "/private/tmp/claude-501/-Users-mosko-Projects-project-template/b35e675f-d23e-47b6-9208-b400a7ff1bde/scratchpad",
+  "permission_mode": "auto",
+  "agent_type": "architect",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+   "command": "cd /Users/mosko/Projects/project_template/scripts/cairn && python3 run_tests.py -p \"test_yaml_parser.py\"",
+   "description": "Trigger PostToolUse probe with a real runner call"
+  },
+  "tool_response": {
+   "stdout": "Ran 29 tests in 0.079s (1 files, 8 workers)\nOK (skipped=0)",
+   "stderr": "",
+   "interrupted": false,
+   "isImage": false,
+   "noOutputExpected": false
+  },
+  "tool_use_id": "toolu_01XGf8LfnHMa5UKbhKD2FHgn",
+  "duration_ms": 157
+ }
+}
