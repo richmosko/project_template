@@ -275,5 +275,40 @@ class JsonOutputTests(unittest.TestCase):
         self.assertEqual(set(agg["times"]), {"test_a.py", "test_b.py"})
 
 
+class MainCallsRunAllTests(unittest.TestCase):
+    """PT-96 gate-1 ruling AC6 (PT-93.md @ 8c4409e, "note, no action this
+    loop", folded into PT-96): main() must call run_all() rather than
+    re-implementing its timer-plus-aggregate sequence inline -- otherwise
+    run_all's own guard tests (AggregationExitCodeTests etc.) don't cover
+    the CLI path they describe. discover_files/order_by_size/subprocess.run
+    are all patched so this never touches a real file or the real suite
+    (D11)."""
+
+    def test_main_calls_run_all_with_the_ordered_file_list_and_resolved_jobs(self):
+        fake_files = [Path("test_b.py"), Path("test_a.py")]
+        ordered = [Path("test_a.py"), Path("test_b.py")]
+        fake_agg = {
+            "wall": 0.01, "jobs": 3, "files": 2, "tests": 2, "failures": 0,
+            "errors": 0, "skipped": 0, "failed_files": [], "times": {},
+        }
+        harmless_completed = _completed(0, "Ran 1 tests in 0.01s\n\nOK\n")
+        with patch("run_tests.discover_files", return_value=fake_files), \
+             patch("run_tests.order_by_size", return_value=ordered), \
+             patch("run_tests.subprocess.run", return_value=harmless_completed), \
+             patch("run_tests.run_all", return_value=fake_agg) as mock_run_all:
+            rc = run_tests.main(["--jobs", "3"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            mock_run_all.call_count, 1,
+            "main() must call run_all() -- if this is 0, main() is still re-implementing "
+            "run_all's timer-plus-aggregate sequence inline",
+        )
+        call = mock_run_all.call_args
+        passed_files = call.args[0] if call.args else call.kwargs.get("files")
+        self.assertEqual(passed_files, ordered, "must pass the already-ordered (size-descending) file list")
+        passed_jobs = call.args[1] if len(call.args) > 1 else call.kwargs.get("jobs")
+        self.assertEqual(passed_jobs, 3, "must pass the resolved job count, not the raw --jobs string or None")
+
+
 if __name__ == "__main__":
     unittest.main()
