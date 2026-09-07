@@ -182,6 +182,33 @@ class ParseSummaryNoTestsRanTests(unittest.TestCase):
         self.assertNotIn("no tests ran", str(ctx.exception))
 
 
+class ParseSummaryTakesTheLastMatchTests(unittest.TestCase):
+    """Gate-4 verdict delta 6 (PT-97.md @ 0b44fc4): parse_summary must
+    take the LAST `Ran N tests`/`OK|FAILED` match, not the first --
+    unittest prints its own real summary last, so a leaked earlier
+    summary (e.g. a red test's own failure message embedding a nested
+    subprocess's successful child output -- exactly what happened in
+    this file, see GateRequiresFullRunTests below) must never shadow it.
+    Measured live at 84e2f32: test_run_tests.py's own child stderr
+    carried an early leaked 'OK (skipped=0)' (line 9) ahead of its real
+    'FAILED (failures=1)' (line 15) -- parse_summary's first-match
+    .search undercounted the true failure by exactly one."""
+
+    def test_a_leaked_early_summary_does_not_shadow_the_real_last_one(self):
+        stderr = (
+            "Ran 2 tests in 0.01s\n\nOK (skipped=0)\n"
+            "\n----------------------------------------------------------------------\n"
+            "Ran 28 tests in 0.5s\n\nFAILED (failures=1)\n"
+        )
+        self.assertEqual(run_tests.parse_summary(stderr), (28, 1, 0, 0))
+
+    def test_control_a_normal_single_summary_stderr_parses_identically(self):
+        # The fix cannot pass by breaking the common (single-summary)
+        # case -- this must parse the same whether first- or last-match.
+        stderr = "Ran 28 tests in 0.5s\n\nFAILED (failures=1)\n"
+        self.assertEqual(run_tests.parse_summary(stderr), (28, 1, 0, 0))
+
+
 class DefaultJobsTests(unittest.TestCase):
     """Guard threshold 5: default jobs == min(8, os.cpu_count() or 4);
     --serial => jobs 1."""
@@ -389,7 +416,15 @@ class GateRequiresFullRunTests(unittest.TestCase):
             [sys.executable, str(helpers.CAIRN_DIR / "run_tests.py"), "--gate", "green", "-p", "test_yaml_parser.py"],
             cwd=helpers.CAIRN_DIR, capture_output=True, text=True,
         )
-        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        # PT-97 delta 6: while this test is red (pre-fix, the inner call
+        # actually runs test_yaml_parser.py successfully), embedding the
+        # child's RAW stdout+stderr here would put its own "Ran N tests"/
+        # "OK" lines, real newlines and all, into THIS module's own
+        # output when some outer run_tests.py aggregates this file --
+        # exactly the leak the delta measured (test_run_tests.py line 9).
+        # repr() collapses those newlines to literal "\n" text so no
+        # MULTILINE `^(OK|FAILED)` scan can ever match inside it.
+        self.assertEqual(result.returncode, 2, repr(result.stdout + result.stderr))
         self.assertIn("-p", result.stderr)
         self.assertIn("--gate", result.stderr)
 
