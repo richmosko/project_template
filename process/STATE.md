@@ -17,14 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | cairn test --full --gate: PreToolUse hook refusing un-tiered full-suite runs, recording who/gate/sha/seconds for loop-stats |
-| Issue | PT-97 (cairn) |
+| Feature | Receiver logs its own self-stop (registry drained, grace elapsed) — today it exits silently |
+| Issue | PT-90 (cairn) |
 | Milestone | PT-0.12.1 |
-| Branch | `feature/pt-97-cairn-test-gate-hook` |
-| PR | https://github.com/richmosko/project_template/pull/180 |
+| Branch | `feature/pt-90-receiver-logs-self-stop` |
 | Started | 2026-09-07 |
-| Goal | A `cairn test` wrapper records every suite run, a PreToolUse hook refuses un-tiered full runs outside a gate, and loop-stats prints measured suite seconds and full-run counts. |
-| Status | In Review |
+| Goal | The receiver writes one log line naming the trigger at its self-stop point of no return, and one when a registration cancels an armed grace window, both asserted by the existing tests. |
+| Status | In Progress |
 
 ## Releases
 
