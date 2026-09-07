@@ -56,7 +56,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import threading
 import time
 import unittest
 import urllib.error
@@ -168,8 +167,7 @@ class FlowPayloadDegradationTests(unittest.TestCase):
         data_dir = helpers.make_tmp_data_dir(self)  # fixture copy, not a git worktree
         server = cairn.make_server(data_dir, port=0)
         port = server.server_address[1]
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
+        thread = helpers.serve_in_thread(server)
         self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join(timeout=5)))
         base_url = f"http://127.0.0.1:{port}"
         for _ in range(50):
@@ -371,8 +369,7 @@ class FlowEndpointHTTPHeadersTests(unittest.TestCase):
         self.server = cairn.make_server(data_dir, port=0)
         self.port = self.server.server_address[1]
         self.base_url = f"http://127.0.0.1:{self.port}"
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
+        self.thread = helpers.serve_in_thread(self.server)
         self.addCleanup(self._shutdown)
         self._wait_until_up()
 

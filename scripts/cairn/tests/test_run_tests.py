@@ -37,10 +37,12 @@ see PT-93.md @ 8c4409e.
 from __future__ import annotations
 
 import argparse
+import io
 import os
 import subprocess
 import sys
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -273,6 +275,104 @@ class JsonOutputTests(unittest.TestCase):
         for key in ("wall", "jobs", "files", "tests", "failures", "errors", "skipped", "failed_files", "times"):
             self.assertIn(key, agg, f"missing required key {key!r}")
         self.assertEqual(set(agg["times"]), {"test_a.py", "test_b.py"})
+
+
+class FailingOutputDiagnosticsTests(unittest.TestCase):
+    """Gate-4 verdict delta 1 (PT-96.md @ 85006ff, blocking): run_all must
+    return each failing child's captured output, and main() must print it
+    above that file's FAIL line -- restoring the PT-93 contract exactly
+    ("A failing file prints its captured stdout+stderr, then a FAIL
+    <name> (<s>s) line"). Measured regression at c36af58: run_all drops
+    the output entirely, so main has nothing to print -- a red suite
+    today names the file and nothing else. discover_files/order_by_size/
+    subprocess.run are all patched (D11); real stdout is captured, never
+    left to leak (delta 2, same batch)."""
+
+    def _main_output(self, side_effects, fake_files, argv=None):
+        buf = io.StringIO()
+        with patch("run_tests.discover_files", return_value=fake_files), \
+             patch("run_tests.order_by_size", return_value=fake_files), \
+             patch("run_tests.subprocess.run", side_effect=side_effects), \
+             redirect_stdout(buf):
+            rc = run_tests.main(argv or ["--jobs", "1"])
+        return rc, buf.getvalue()
+
+    def test_a_failing_childs_output_is_printed_above_its_fail_line(self):
+        marker = "expected-marker-pt96"
+        fake_files = [Path("test_fake_fail.py")]
+        side_effects = [_completed(
+            1, f"Traceback (most recent call last):\nAssertionError: {marker!r}\n"
+               f"Ran 1 tests in 0.01s\n\nFAILED (failures=1)\n",
+        )]
+        rc, out = self._main_output(side_effects, fake_files)
+        self.assertNotEqual(rc, 0)
+        self.assertIn(marker, out, "the failing child's captured output must appear in main()'s stdout")
+        fail_line_pos = out.find("FAIL test_fake_fail.py")
+        marker_pos = out.find(marker)
+        self.assertNotEqual(fail_line_pos, -1, f"no FAIL line printed at all -- got: {out!r}")
+        self.assertLess(
+            marker_pos, fail_line_pos,
+            "the PT-93 contract prints diagnostics ABOVE the FAIL line, not below or instead of it",
+        )
+
+    def test_a_green_run_prints_no_per_file_output(self):
+        # Control: the guard above can't pass by printing every child's
+        # output unconditionally -- a passing run must print only the one
+        # aggregate summary, never a child's own "Ran N tests"/"OK" text.
+        fake_files = [Path("test_fake_ok.py"), Path("test_fake_ok2.py")]
+        side_effects = [
+            _completed(0, "Ran 3 tests in 0.01s\n\nOK\n"),
+            _completed(0, "Ran 2 tests in 0.01s\n\nOK\n"),
+        ]
+        rc, out = self._main_output(side_effects, fake_files)
+        self.assertEqual(rc, 0)
+        self.assertNotIn("FAIL ", out, "a passing file must never print a FAIL line")
+        self.assertEqual(
+            out.count("Ran "), 1,
+            f"a green run must print only the aggregate 'Ran <N> tests' line, never a "
+            f"child's own summary too -- got: {out!r}",
+        )
+
+
+class MainCallsRunAllTests(unittest.TestCase):
+    """PT-96 gate-1 ruling AC6 (PT-93.md @ 8c4409e, "note, no action this
+    loop", folded into PT-96): main() must call run_all() rather than
+    re-implementing its timer-plus-aggregate sequence inline -- otherwise
+    run_all's own guard tests (AggregationExitCodeTests etc.) don't cover
+    the CLI path they describe. discover_files/order_by_size/subprocess.run
+    are all patched so this never touches a real file or the real suite
+    (D11)."""
+
+    def test_main_calls_run_all_with_the_ordered_file_list_and_resolved_jobs(self):
+        fake_files = [Path("test_b.py"), Path("test_a.py")]
+        ordered = [Path("test_a.py"), Path("test_b.py")]
+        fake_agg = {
+            "wall": 0.01, "jobs": 3, "files": 2, "tests": 2, "failures": 0,
+            "errors": 0, "skipped": 0, "failed_files": [], "times": {},
+        }
+        harmless_completed = _completed(0, "Ran 1 tests in 0.01s\n\nOK\n")
+        # Gate-4 verdict delta 2 (PT-96.md @ 85006ff): main() writes to
+        # real stdout -- left uncaptured here, a full `discover` run of
+        # this suite emits a stray second "Ran 2 tests"/"OK" pair after
+        # its own summary, defeating PT-93's one-summary-per-run contract
+        # that external greps rely on.
+        with patch("run_tests.discover_files", return_value=fake_files), \
+             patch("run_tests.order_by_size", return_value=ordered), \
+             patch("run_tests.subprocess.run", return_value=harmless_completed), \
+             patch("run_tests.run_all", return_value=fake_agg) as mock_run_all, \
+             redirect_stdout(io.StringIO()):
+            rc = run_tests.main(["--jobs", "3"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            mock_run_all.call_count, 1,
+            "main() must call run_all() -- if this is 0, main() is still re-implementing "
+            "run_all's timer-plus-aggregate sequence inline",
+        )
+        call = mock_run_all.call_args
+        passed_files = call.args[0] if call.args else call.kwargs.get("files")
+        self.assertEqual(passed_files, ordered, "must pass the already-ordered (size-descending) file list")
+        passed_jobs = call.args[1] if len(call.args) > 1 else call.kwargs.get("jobs")
+        self.assertEqual(passed_jobs, 3, "must pass the resolved job count, not the raw --jobs string or None")
 
 
 if __name__ == "__main__":

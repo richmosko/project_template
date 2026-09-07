@@ -376,15 +376,13 @@ class LegacyLayoutGuardTests(unittest.TestCase):
 
     def test_post_api_issue_returns_400_legacy_archive_on_a_legacy_bearing_repo(self):
         import json
-        import threading
         import urllib.error
         import urllib.request
 
         data_dir = make_legacy_repo(self)
         server = cairn.make_server(data_dir, port=0)
         port = server.server_address[1]
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
+        thread = helpers.serve_in_thread(server)
         self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join(timeout=5)))
         body = json.dumps({"title": "A new issue"}).encode("utf-8")
         req = urllib.request.Request(

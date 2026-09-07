@@ -12,7 +12,6 @@ import json
 import os
 import stat
 import subprocess
-import threading
 import time
 import unittest
 import urllib.request
@@ -310,8 +309,7 @@ class ClearedNullableFieldTests(unittest.TestCase):
     def test_cleared_milestone_via_server_patch_is_null_and_check_stays_clean(self):
         server = cairn.make_server(self.data_dir, port=0)
         port = server.server_address[1]
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
+        thread = helpers.serve_in_thread(server)
         self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join(timeout=5)))
         base_url = f"http://127.0.0.1:{port}"
         for _ in range(50):
