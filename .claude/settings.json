@@ -80,7 +80,27 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .claude/hooks/message_cap.py"
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/message_cap.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "in=$(cat); case \"$in\" in *unittest*|*run_tests*) printf %s \"$in\" | python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/test_run_guard.py\";; *) exit 0;; esac"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "in=$(cat); case \"$in\" in *unittest*|*run_tests*) printf %s \"$in\" | python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/test_run_record.py\";; *) exit 0;; esac"
           }
         ]
       }

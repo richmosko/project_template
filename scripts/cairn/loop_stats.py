@@ -20,8 +20,19 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+# PT-97 gate-4 delta 8: narrowing detection is shared with the two Bash
+# hooks (.claude/hooks/_test_run_shared.py) rather than reimplemented here
+# -- the substring bug delta 1 fixed there (`time -p` false-matching,
+# `--pattern` never matching) was still live in this module's own
+# classify_bash until this fix.
+_HOOKS_DIR = Path(__file__).resolve().parent.parent.parent / ".claude" / "hooks"
+if str(_HOOKS_DIR) not in sys.path:
+    sys.path.insert(0, str(_HOOKS_DIR))
+from _test_run_shared import find_runner_invocation, is_full_suite_run, tokenize  # noqa: E402
 
 CODE_EXT = (".py", ".js", ".mjs", ".ts", ".svelte", ".css", ".html", ".sh", ".yml", ".yaml", ".toml")
 
@@ -63,6 +74,63 @@ def records(path: Path, since: datetime.datetime, until: datetime.datetime) -> I
                 continue
             if since <= t <= until:
                 yield t, r
+
+
+def full_run_stats(path: Path, since: datetime.datetime, until: datetime.datetime) -> Dict[str, Any]:
+    """PT-97 guard 9: `full_suite_runs`/`suite_seconds_added` derived from
+    `process/cairn/metrics/test-runs.jsonl` (PostToolUse-recorded, `ts`
+    field -- distinct schema from `records()`'s transcript `timestamp`
+    field, so it is read directly rather than through that helper). A
+    missing file or a window with no `full: true` records is 0/None, never
+    a crash. `full_suite_runs` is the total record count in window,
+    independent of configuration.
+
+    `suite_seconds_added` is the last full record's `seconds` minus the
+    first's, chronologically, **within the largest `jobs` group only**
+    (gate-4 verdict delta 4, PT-97.md @ d896d8d): mixing configurations
+    reported a `--serial` run (106.5s) minus a parallel run (19.9s) of
+    IDENTICAL code as a 86.6s "regression" -- a config difference, not a
+    measurement. Undefined (None) if the winning group has under two
+    records. Rounded to 3 places (the same defect produced
+    86.55799999999999 unrounded)."""
+    full: List[Tuple[datetime.datetime, Dict[str, Any]]] = []
+    path = Path(path)
+    if path.exists():
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                ts = rec.get("ts")
+                if not ts:
+                    continue
+                try:
+                    t = parse_ts(ts)
+                except Exception:
+                    continue
+                if since <= t <= until and rec.get("full"):
+                    full.append((t, rec))
+    full.sort(key=lambda pair: pair[0])
+
+    seconds_added = None
+    if len(full) >= 2:
+        groups: Dict[Any, List[Tuple[datetime.datetime, Dict[str, Any]]]] = {}
+        for t, rec in full:
+            groups.setdefault(rec.get("jobs"), []).append((t, rec))
+        # Largest group wins; ties broken toward more workers (an
+        # arbitrary but deterministic tiebreak -- no test exercises a tie).
+        best_jobs = max(groups, key=lambda j: (len(groups[j]), j if isinstance(j, int) else -1))
+        group = groups[best_jobs]
+        if len(group) >= 2:
+            first_seconds = group[0][1].get("seconds")
+            last_seconds = group[-1][1].get("seconds")
+            if isinstance(first_seconds, (int, float)) and isinstance(last_seconds, (int, float)):
+                seconds_added = round(last_seconds - first_seconds, 3)
+    return {"full_suite_runs": len(full), "suite_seconds_added": seconds_added}
 
 
 def text_of(content: Any) -> str:
@@ -108,9 +176,20 @@ def transcript_roles(transcripts_dir: Path) -> Dict[Path, str]:
 
 def classify_bash(c: str) -> str:
     c1 = c.strip()
-    if "unittest" in c1:
-        if _FULL_RE.search(c1) and " -p " not in c1 and " -k " not in c1:
-            return "FULL_SUITE"
+    if "unittest" in c1 or "run_tests" in c1:
+        # PT-97 gate-4 delta 8: narrowing is flag-aware (shared with the
+        # hooks), not a substring scan -- the substring form false-matched
+        # `time`'s own `-p` in `/usr/bin/time -p ...` and never matched
+        # `--pattern` (run_tests.py's own long form of `-p`) at all.
+        invocation = find_runner_invocation(tokenize(c1))
+        if invocation is not None:
+            runner, _args_start = invocation
+            # PT-93 (AC2): `run_tests.py` is a full-suite shape on its
+            # own, unlike a bare `unittest <module>` -- only `unittest
+            # discover` (_FULL_RE) counts there.
+            full_shape = runner == "run_tests" or bool(_FULL_RE.search(c1))
+            if full_shape and is_full_suite_run(c1):
+                return "FULL_SUITE"
         return "module_test"
     if "node --test" in c1 or "npm test" in c1:
         return "js_suite"
@@ -466,13 +545,23 @@ def scorecard(repo_root: Path, data_dir: Path, issue_id: str, base: str = "main"
     except Exception:
         cost = None
 
+    # PT-97: process/cairn/metrics/test-runs.jsonl is authoritative when it
+    # has full-run records in this window (real seconds, not a transcript
+    # heuristic). No records in window (the file predates this issue, or
+    # this loop never hit a gate) -- fall back to the transcript-derived
+    # count above rather than reporting 0 runs that plainly happened.
+    run_stats = full_run_stats(Path(data_dir) / "metrics" / "test-runs.jsonl", since, until)
+    if run_stats["full_suite_runs"] > 0:
+        full_runs = run_stats["full_suite_runs"]
+    suite_seconds_added = run_stats["suite_seconds_added"]
+
     card: Dict[str, Any] = {
         "issue": issue_id, "base": base,
         "since": since.isoformat(), "until": until.isoformat(),
         "commits": len(commits), "chore_commits": chore,
         "comments": comments, "ruling_sections": rulings,
         "issue_kb_added": kb_added, "tests_added": tests_added,
-        "suite_seconds_added": None,
+        "suite_seconds_added": suite_seconds_added,
         "full_suite_runs": full_runs, "msgs_to_lead": msgs_to_lead,
         "idle_notifications": idle, "idle_dup_of_direct": idle_dup,
         "cost_usd": cost, "per_agent": per_agent,
@@ -492,14 +581,31 @@ def format_scorecard(card: Dict[str, Any]) -> str:
            "| metric | value | cap | status |", "|---|---|---|---|"]
     for k in ROW_ORDER:
         v = card.get(k)
-        shown = "(unmeasured — PT-93)" if k == "suite_seconds_added" and v is None else ("—" if v is None else v)
+        shown = "(no full-run records in window)" if k == "suite_seconds_added" and v is None else ("—" if v is None else v)
         if k in card["caps"]:
             c = card["caps"][k]
             out.append(f"| {k} | {shown} | {c['cap']} | {'OVER' if c['over'] else 'ok'} |")
         else:
             out.append(f"| {k} | {shown} | — | — |")
     if card.get("per_agent"):
-        out += ["", "| agent | tool calls | full-suite runs | msgs to lead | waste flags |", "|---|---|---|---|---|"]
+        # PT-97 gate-4 verdict delta 4: the per-agent breakdown is a
+        # transcript-derived heuristic, distinct from the records-based
+        # `full_suite_runs` row above -- they can legitimately disagree
+        # (real output once showed "2" and "12" for the same loop, side
+        # by side, with nothing telling a reader why). Label it whenever
+        # they do, so the table can't be misread as a second measurement
+        # of the same number.
+        per_agent_total = sum(s.get("full_suite_runs", 0) for s in card["per_agent"].values())
+        disagrees = per_agent_total != card.get("full_suite_runs")
+        col = "full-suite runs (transcript)" if disagrees else "full-suite runs"
+        out += [""]
+        if disagrees:
+            out.append(
+                f"_Per-agent full-suite runs are transcript-derived and may disagree with the "
+                f"authoritative records-based count above ({per_agent_total} vs {card.get('full_suite_runs')})._"
+            )
+            out.append("")
+        out += [f"| agent | tool calls | {col} | msgs to lead | waste flags |", "|---|---|---|---|---|"]
         for role, s in card["per_agent"].items():
             w = ", ".join(f"{k} {n}" for k, n in sorted(s["waste"].items())) or "—"
             out.append(f"| {role} | {s['tool_calls']} | {s['full_suite_runs']} | {s['msgs_to_lead']} | {w} |")

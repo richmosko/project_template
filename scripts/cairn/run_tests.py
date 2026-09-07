@@ -78,6 +78,7 @@ CLI contract:
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import re
@@ -119,9 +120,25 @@ def build_argv(python_exe: str, file_name) -> List[str]:
     return [python_exe, "-m", "unittest", "discover", "-s", "tests", "-p", str(file_name)]
 
 
+def _last_match(pattern: "re.Pattern", text: str):
+    last = None
+    for last in pattern.finditer(text):
+        pass
+    return last
+
+
 def parse_summary(stderr: str, file_name: Optional[str] = None) -> Tuple[int, int, int, int]:
-    ran_match = _RAN_RE.search(stderr)
-    summary_match = _SUMMARY_RE.search(stderr)
+    # Gate-4 verdict delta 6 (PT-97.md @ 0b44fc4, found in PT-97, recorded
+    # as a PT-93 AC1 defect on the failure axis): unittest prints its own
+    # real summary LAST. `.search` (first match) undercounts the moment
+    # anything upstream leaks an earlier "Ran N tests"/"OK|FAILED" line --
+    # measured live: this suite's own test_run_tests.py leaked an early
+    # "OK (skipped=0)" ahead of its real "FAILED (failures=1)", and the
+    # first-match parse silently dropped that one failure. `failed_files`
+    # was never wrong (it comes from the child's returncode) -- only the
+    # failure *count*, which is why PT-93's own counts-only guards missed it.
+    ran_match = _last_match(_RAN_RE, stderr)
+    summary_match = _last_match(_SUMMARY_RE, stderr)
     if not ran_match or not summary_match:
         # NO TESTS RAN is parseable -- unittest exits 5 and prints a "Ran 0
         # tests" line with no OK/FAILED summary -- and it names a real,
@@ -166,7 +183,25 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--list", dest="list", action="store_true", help="print discovered file names and exit")
     parser.add_argument("--json", dest="json", default=None, metavar="PATH",
                          help="write the machine-readable summary to PATH")
+    parser.add_argument(
+        "--gate", dest="gate", default=None, choices=("red", "green", "verdict", "finish"),
+        help="declares this as a full-suite gate run (PT-94 C9) -- required for a full run "
+             "under the PT-97 PreToolUse guard; the PostToolUse recorder reads it back out "
+             "of the command line, it is not consumed here",
+    )
     args = parser.parse_args(argv)
+    if args.gate is not None and args.pattern is not None:
+        # Gate-4 verdict delta 5 (PT-97.md @ bfb1d92): a narrowed run is
+        # not a gate run (PT-94 C9 -- the gate owner runs the full
+        # suite). Silently dropping --gate would leave the operator
+        # believing they recorded a gate that never happened; refuse
+        # instead. Checked here, before the pattern default below, so
+        # this only fires when the caller actually passed -p/--pattern.
+        parser.error(
+            "--gate is a full-suite gate run and cannot be combined with -p/--pattern "
+            "(a narrowed run is not a gate run, PT-94 C9) -- drop --gate for a tiered "
+            "mid-loop run, or drop -p/--pattern to run the full suite at this gate."
+        )
     if args.serial:
         args.jobs = 1
     elif args.jobs is None:
@@ -239,6 +274,67 @@ def exit_code(agg: Dict[str, object]) -> int:
     return 0 if not agg["failed_files"] else 1
 
 
+_RECORDS_REL = Path("process") / "cairn" / "metrics" / "test-runs.jsonl"
+# PT-97 gate-4 verdict delta 7 (PT-97.md @ f66fe09, blocking): _self_record
+# derives repo_root from this script's own __file__ location -- for a REAL
+# subprocess spawn of the real run_tests.py (several guard tests do this),
+# that location IS the real checkout, so every such spawn silently
+# appended to the committed process/cairn/metrics/test-runs.jsonl. Tests
+# that spawn the real script set this to a throwaway path instead.
+_RECORDS_PATH_ENV = "CAIRN_TEST_RUNS_FILE"
+
+
+def _run_git(repo_root: Path, *git_args: str) -> Optional[str]:
+    try:
+        result = subprocess.run(["git", "-C", str(repo_root), *git_args], capture_output=True, text=True, timeout=5)
+    except (FileNotFoundError, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _self_record(args: argparse.Namespace, agg: Dict[str, object]) -> None:
+    """Gate-4 verdict delta 2 (PT-97.md @ d896d8d, blocking): the runner
+    writes its own record -- it has the counts, seconds, jobs and gate
+    directly, in-process, so nothing needs scraping back out of stdout
+    afterward (unreliable the moment a gate owner pipes to `| tail`, per
+    the verdict's own three reproduction runs). `who` is left null: only
+    `.claude/hooks/test_run_record.py`'s `agent_type` field knows that,
+    and it patches this same line in afterward. Repo root is derived from
+    this file's own location, not $CLAUDE_PROJECT_DIR -- the runner must
+    work identically under a fake-engine-root test copy and in the real
+    checkout. Never raises: a broken recorder must not fail the run it's
+    attached to."""
+    try:
+        repo_root = SCRIPT_DIR.parent.parent
+        record = {
+            "ts": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "who": None,
+            "gate": args.gate,
+            "full": args.pattern == ["test_*.py"],
+            "runner": "run_tests",
+            "sha": _run_git(repo_root, "rev-parse", "HEAD"),
+            "branch": _run_git(repo_root, "rev-parse", "--abbrev-ref", "HEAD"),
+            "seconds": agg["wall"],
+            "harness_ms": None,
+            "jobs": args.jobs,
+            "files": agg["files"],
+            "tests": agg["tests"],
+            "skipped": agg["skipped"],
+            "ok": exit_code(agg) == 0,
+            "session": None,
+            "cmd": " ".join([sys.executable] + sys.argv)[:200],
+        }
+        override = os.environ.get(_RECORDS_PATH_ENV)
+        path = Path(override) if override else (repo_root / _RECORDS_REL)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+    except Exception:
+        pass
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
     files = discover_files(TESTS_DIR, args.pattern)
@@ -261,6 +357,17 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     files = order_by_size(files)
     agg = run_all(files, args.jobs, TESTS_DIR.parent)
+    if __name__ == "__main__":
+        # Only when this file is the actual running script (a real `python3
+        # run_tests.py ...` invocation, subprocess or direct) -- NOT when a
+        # test imports this module and calls main() in-process
+        # (test_run_tests.py's MainCallsRunAllTests mocks discover_files/
+        # order_by_size/subprocess.run/run_all, per D11, but self-recording
+        # is a side effect none of those patch, and it must never write
+        # into the real repo's process/cairn/metrics/test-runs.jsonl from
+        # a unit test run). `__name__` here is this module's own global,
+        # true regardless of who calls main() -- exactly the signal needed.
+        _self_record(args, agg)
 
     for name in agg["failed_files"]:
         output = agg["outputs"].get(name, "")

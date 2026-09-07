@@ -50,9 +50,23 @@ import helpers  # noqa: F401
 
 import run_tests
 
+REPO_ROOT = helpers.CAIRN_DIR.parent.parent  # scripts/cairn -> scripts -> repo root
+REAL_TEST_RUNS_PATH = REPO_ROOT / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+# PT-97 delta 7 seam: run_tests.py's _self_record honours this override
+# when set, writing there instead of the path it derives from its own
+# __file__ location -- which, for a REAL subprocess spawn of the real
+# script (several tests below do this), IS the real checkout.
+CAIRN_TEST_RUNS_ENV = "CAIRN_TEST_RUNS_FILE"
+
 
 def _completed(returncode: int, stderr: str) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=["x"], returncode=returncode, stdout="", stderr=stderr)
+
+
+def _env_with_test_runs_override(tmp_path) -> dict:
+    env = dict(os.environ)
+    env[CAIRN_TEST_RUNS_ENV] = str(tmp_path)
+    return env
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -92,9 +106,11 @@ class EmptyPatternSafetyTests(unittest.TestCase):
     NONEXISTENT_PATTERN = "test_zzz_pt93_nonexistent_area*.py"
 
     def _run(self, *args):
+        tmp = helpers.make_empty_tmp_dir(self)
         return subprocess.run(
             [sys.executable, str(helpers.CAIRN_DIR / "run_tests.py"), *args],
             cwd=helpers.CAIRN_DIR, capture_output=True, text=True,
+            env=_env_with_test_runs_override(tmp / "test-runs.jsonl"),
         )
 
     def test_a_pattern_matching_nothing_exits_2_and_names_the_pattern(self):
@@ -180,6 +196,33 @@ class ParseSummaryNoTestsRanTests(unittest.TestCase):
         with self.assertRaises(run_tests.ParseError) as ctx:
             run_tests.parse_summary(stderr, file_name="test_x.py")
         self.assertNotIn("no tests ran", str(ctx.exception))
+
+
+class ParseSummaryTakesTheLastMatchTests(unittest.TestCase):
+    """Gate-4 verdict delta 6 (PT-97.md @ 0b44fc4): parse_summary must
+    take the LAST `Ran N tests`/`OK|FAILED` match, not the first --
+    unittest prints its own real summary last, so a leaked earlier
+    summary (e.g. a red test's own failure message embedding a nested
+    subprocess's successful child output -- exactly what happened in
+    this file, see GateRequiresFullRunTests below) must never shadow it.
+    Measured live at 84e2f32: test_run_tests.py's own child stderr
+    carried an early leaked 'OK (skipped=0)' (line 9) ahead of its real
+    'FAILED (failures=1)' (line 15) -- parse_summary's first-match
+    .search undercounted the true failure by exactly one."""
+
+    def test_a_leaked_early_summary_does_not_shadow_the_real_last_one(self):
+        stderr = (
+            "Ran 2 tests in 0.01s\n\nOK (skipped=0)\n"
+            "\n----------------------------------------------------------------------\n"
+            "Ran 28 tests in 0.5s\n\nFAILED (failures=1)\n"
+        )
+        self.assertEqual(run_tests.parse_summary(stderr), (28, 1, 0, 0))
+
+    def test_control_a_normal_single_summary_stderr_parses_identically(self):
+        # The fix cannot pass by breaking the common (single-summary)
+        # case -- this must parse the same whether first- or last-match.
+        stderr = "Ran 28 tests in 0.5s\n\nFAILED (failures=1)\n"
+        self.assertEqual(run_tests.parse_summary(stderr), (28, 1, 0, 0))
 
 
 class DefaultJobsTests(unittest.TestCase):
@@ -373,6 +416,73 @@ class MainCallsRunAllTests(unittest.TestCase):
         self.assertEqual(passed_files, ordered, "must pass the already-ordered (size-descending) file list")
         passed_jobs = call.args[1] if len(call.args) > 1 else call.kwargs.get("jobs")
         self.assertEqual(passed_jobs, 3, "must pass the resolved job count, not the raw --jobs string or None")
+
+
+class GateRequiresFullRunTests(unittest.TestCase):
+    """Gate-4 verdict delta 5 (PT-97.md @ bfb1d92): --gate combined with
+    -p/--pattern is refused -- a narrowed run is not a gate run (PT-94
+    C9: the gate owner runs the full suite), and silently dropping the
+    tag would leave the operator believing they recorded a gate that
+    never happened. Belongs in the runner, not the hook -- the runner is
+    the only party that parses its own flags reliably (the whole lesson
+    of delta 1's substring bugs)."""
+
+    def test_gate_combined_with_pattern_is_refused(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        result = subprocess.run(
+            [sys.executable, str(helpers.CAIRN_DIR / "run_tests.py"), "--gate", "green", "-p", "test_yaml_parser.py"],
+            cwd=helpers.CAIRN_DIR, capture_output=True, text=True,
+            env=_env_with_test_runs_override(tmp / "test-runs.jsonl"),
+        )
+        # PT-97 delta 6: while this test is red (pre-fix, the inner call
+        # actually runs test_yaml_parser.py successfully), embedding the
+        # child's RAW stdout+stderr here would put its own "Ran N tests"/
+        # "OK" lines, real newlines and all, into THIS module's own
+        # output when some outer run_tests.py aggregates this file --
+        # exactly the leak the delta measured (test_run_tests.py line 9).
+        # repr() collapses those newlines to literal "\n" text so no
+        # MULTILINE `^(OK|FAILED)` scan can ever match inside it.
+        self.assertEqual(result.returncode, 2, repr(result.stdout + result.stderr))
+        self.assertIn("-p", result.stderr)
+        self.assertIn("--gate", result.stderr)
+
+    def test_gate_alone_still_parses(self):
+        # Control: the refusal is specific to the -p/--gate COMBINATION,
+        # not to --gate itself.
+        args = run_tests.parse_args(["--gate", "green"])
+        self.assertEqual(args.gate, "green")
+
+
+# --------------------------------------------------------------------------
+# PT-97 delta 7 (blocking, PT-97.md @ f66fe09): _self_record derives its
+# repo root from the SCRIPT'S OWN __file__ location -- for a real
+# subprocess spawn of the real run_tests.py (several tests above do this),
+# that IS the real checkout, so every such spawn silently appended to the
+# real process/cairn/metrics/test-runs.jsonl. This module-wide backstop
+# catches any test in this file (present or future) that spawns the real
+# script without the CAIRN_TEST_RUNS_FILE override. setUpModule/
+# tearDownModule are unittest's own guaranteed whole-module brackets (a
+# per-class setUpClass/tearDownClass only brackets its own class -- PT-91/
+# PT-84 discipline). A bare `assert` is stripped entirely under
+# `python -O` (measured, PT-91/PT-95) -- raise explicitly instead.
+# --------------------------------------------------------------------------
+
+_REAL_TEST_RUNS_BEFORE = None
+
+
+def setUpModule():
+    global _REAL_TEST_RUNS_BEFORE
+    _REAL_TEST_RUNS_BEFORE = REAL_TEST_RUNS_PATH.read_bytes() if REAL_TEST_RUNS_PATH.exists() else None
+
+
+def tearDownModule():
+    after = REAL_TEST_RUNS_PATH.read_bytes() if REAL_TEST_RUNS_PATH.exists() else None
+    if after != _REAL_TEST_RUNS_BEFORE:
+        raise AssertionError(
+            "the real, committed process/cairn/metrics/test-runs.jsonl must never be "
+            "touched by this test module -- every real run_tests.py subprocess spawn here "
+            f"must set {CAIRN_TEST_RUNS_ENV} to a throwaway path"
+        )
 
 
 if __name__ == "__main__":
