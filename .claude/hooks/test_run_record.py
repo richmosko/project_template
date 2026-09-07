@@ -165,6 +165,14 @@ def main() -> int:
         # the hook is being driven directly without a prior real
         # execution (qa's isolated hook tests). Fall back to scraping.
         record = _scrape_record(data, command, project_dir)
+        if record.get("tests") is None:
+            # Delta 3 gap: a test-shaped command (real python invocation)
+            # whose captured stdout has no parseable "Ran N tests" summary
+            # at all -- e.g. the invocation never completed (refused by
+            # the runner's own arg parsing) -- is not a run with an
+            # unknown result, it is not a result. Write nothing rather
+            # than a null-filled record.
+            return 0
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")

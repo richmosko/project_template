@@ -30,7 +30,7 @@ _NARROW_FLAGS = ("-p", "--pattern", "-k")
 _CHAIN_BREAKS = ("&&", "||", ";", "|")
 
 
-def _tokenize(command: str) -> List[str]:
+def tokenize(command: str) -> List[str]:
     try:
         return shlex.split(command, posix=True)
     except ValueError:
@@ -74,7 +74,7 @@ def is_test_invocation(command: str) -> bool:
     """Whether `command` actually invokes the runner or `-m unittest` --
     not merely mentions one of TEST_CMD_TOKENS as a substring somewhere
     (a grep pattern, a quoted filename, a diff line)."""
-    return find_runner_invocation(_tokenize(command)) is not None
+    return find_runner_invocation(tokenize(command)) is not None
 
 
 def is_full_suite_run(command: str) -> bool:
@@ -84,7 +84,7 @@ def is_full_suite_run(command: str) -> bool:
     and the scan for the runner's own flags stops at the next shell
     chain break (`&&`, `|`, `;`) so a later command's flags don't leak
     in either."""
-    tokens = _tokenize(command)
+    tokens = tokenize(command)
     found = find_runner_invocation(tokens)
     if found is None:
         return False
@@ -98,7 +98,7 @@ def is_full_suite_run(command: str) -> bool:
 
 
 def gate_of(command: str) -> Optional[str]:
-    tokens = _tokenize(command)
+    tokens = tokenize(command)
     for i, tok in enumerate(tokens):
         if tok == "--gate" and i + 1 < len(tokens) and tokens[i + 1] in ("red", "green", "verdict", "finish"):
             return tokens[i + 1]

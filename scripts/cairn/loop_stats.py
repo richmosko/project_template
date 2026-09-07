@@ -20,8 +20,19 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+# PT-97 gate-4 delta 8: narrowing detection is shared with the two Bash
+# hooks (.claude/hooks/_test_run_shared.py) rather than reimplemented here
+# -- the substring bug delta 1 fixed there (`time -p` false-matching,
+# `--pattern` never matching) was still live in this module's own
+# classify_bash until this fix.
+_HOOKS_DIR = Path(__file__).resolve().parent.parent.parent / ".claude" / "hooks"
+if str(_HOOKS_DIR) not in sys.path:
+    sys.path.insert(0, str(_HOOKS_DIR))
+from _test_run_shared import find_runner_invocation, is_full_suite_run, tokenize  # noqa: E402
 
 CODE_EXT = (".py", ".js", ".mjs", ".ts", ".svelte", ".css", ".html", ".sh", ".yml", ".yaml", ".toml")
 
@@ -166,14 +177,19 @@ def transcript_roles(transcripts_dir: Path) -> Dict[Path, str]:
 def classify_bash(c: str) -> str:
     c1 = c.strip()
     if "unittest" in c1 or "run_tests" in c1:
-        # PT-97 (AC2): PT-93's runner call (`run_tests.py`) is a full-suite
-        # shape on its own, unlike a bare `unittest <module>` -- only
-        # `unittest discover` (_FULL_RE) counts there. `run_tests` is
-        # narrowed the same way both take: -p/-k.
-        full_shape = bool(_FULL_RE.search(c1)) or "run_tests" in c1
-        narrowed = " -p " in c1 or " -k " in c1
-        if full_shape and not narrowed:
-            return "FULL_SUITE"
+        # PT-97 gate-4 delta 8: narrowing is flag-aware (shared with the
+        # hooks), not a substring scan -- the substring form false-matched
+        # `time`'s own `-p` in `/usr/bin/time -p ...` and never matched
+        # `--pattern` (run_tests.py's own long form of `-p`) at all.
+        invocation = find_runner_invocation(tokenize(c1))
+        if invocation is not None:
+            runner, _args_start = invocation
+            # PT-93 (AC2): `run_tests.py` is a full-suite shape on its
+            # own, unlike a bare `unittest <module>` -- only `unittest
+            # discover` (_FULL_RE) counts there.
+            full_shape = runner == "run_tests" or bool(_FULL_RE.search(c1))
+            if full_shape and is_full_suite_run(c1):
+                return "FULL_SUITE"
         return "module_test"
     if "node --test" in c1 or "npm test" in c1:
         return "js_suite"

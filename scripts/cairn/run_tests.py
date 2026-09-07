@@ -275,6 +275,13 @@ def exit_code(agg: Dict[str, object]) -> int:
 
 
 _RECORDS_REL = Path("process") / "cairn" / "metrics" / "test-runs.jsonl"
+# PT-97 gate-4 verdict delta 7 (PT-97.md @ f66fe09, blocking): _self_record
+# derives repo_root from this script's own __file__ location -- for a REAL
+# subprocess spawn of the real run_tests.py (several guard tests do this),
+# that location IS the real checkout, so every such spawn silently
+# appended to the committed process/cairn/metrics/test-runs.jsonl. Tests
+# that spawn the real script set this to a throwaway path instead.
+_RECORDS_PATH_ENV = "CAIRN_TEST_RUNS_FILE"
 
 
 def _run_git(repo_root: Path, *git_args: str) -> Optional[str]:
@@ -319,7 +326,8 @@ def _self_record(args: argparse.Namespace, agg: Dict[str, object]) -> None:
             "session": None,
             "cmd": " ".join([sys.executable] + sys.argv)[:200],
         }
-        path = repo_root / _RECORDS_REL
+        override = os.environ.get(_RECORDS_PATH_ENV)
+        path = Path(override) if override else (repo_root / _RECORDS_REL)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
