@@ -76,3 +76,54 @@ Command form measured against the captured payload, not reasoned about:
 | `python3 run_tests.py -p "test_x.py"` | yes | 0 | 32 ms |
 
 Exit 2 propagates through the pipe, so the block still works; the pipeline's status is python's.
+
+## Gate 4 constructions (2026-09-07, sha e86f163)
+
+### Guard branch matrix — real hook, real captured payload, `agent_type` varied
+
+| Command | agent_type | Exit | Expected |
+|---|---|---|---|
+| `python3 run_tests.py` | qa-engineer | 2 | 2 |
+| `python3 run_tests.py --gate verdict` | qa-engineer | 0 | 0 |
+| `python3 run_tests.py -p "test_x*.py"` | qa-engineer | 0 | 0 |
+| `python3 run_tests.py --pattern "test_x*.py"` | qa-engineer | **2** | **0** |
+| `python3 -m unittest discover -s tests` | qa-engineer | 2 | 2 |
+| `python3 -m unittest discover -s tests -p "test_x.py"` | qa-engineer | 0 | 0 |
+| `/usr/bin/time -p python3 -m unittest discover -s tests` | architect | **0** | **2** |
+| `python3 run_tests.py` | (absent) | 0 | 0 |
+| `python3 run_tests.py` | team-lead (unknown) | 0 | 0 |
+| `grep -n run_tests.py foo.py` | qa-engineer | 0 | 0 |
+| malformed stdin | — | 0 | 0 |
+
+Control for the `time -p` row: the identical command without the `/usr/bin/time -p` prefix
+exits 2. The prefix, not the command, is what changes the answer.
+
+### The three gate-4 verdict runs, as recorded
+
+Commanded exactly as the gate asks (`--gate verdict`, `--serial --gate verdict`, `discover`),
+each wrapped in `/usr/bin/time -p` and piped to `tail`, which is how a gate owner reads them:
+
+| ts | who | gate | full | tests | seconds |
+|---|---|---|---|---|---|
+| 06:40:43 | architect | verdict | **false** | **null** | **null** |
+| 06:42:38 | architect | verdict | **false** | **null** | **null** |
+| 06:44:25 | architect | **null** | **false** | 1433 | 102.055 |
+
+Measured truth for those same three runs: 19.82 s / 109.17 s / 102.21 s wall, all
+**1433 tests, skipped=1, OK, 85 files**. None was recorded as `full`.
+
+### Record-file noise at e86f163
+
+10 records; 4 have no parseable summary (`tests: null`). Two of those are `git` commands that
+merely name the hook files. One `git log … && git status … && git show …` command recorded
+`tests: 39, seconds: 1.163` — a git command carrying a measured-looking test result. One
+`git add …` recorded `gate: "green"` because that string appeared in its argument list.
+
+### loop-stats internal disagreement
+
+`cairn loop-stats PT-97` prints `full_suite_runs 2` in the metric table while the per-agent
+table below it, from the transcript detector, sums 12 (implementation-lead 8, architect 4) —
+in the same output. `suite_seconds_added` prints `86.55799999999999`, which is the serial run
+(106.536 s) minus the parallel run (19.978 s) of identical code: a configuration difference,
+not seconds added by the feature.
+
