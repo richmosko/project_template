@@ -217,6 +217,13 @@ def _aggregate(results: List[Dict[str, object]], jobs: int, wall: float) -> Dict
         "skipped": sum(r["skipped"] for r in results),
         "failed_files": [r["name"] for r in results if r["failed"]],
         "times": {r["name"]: round(r["seconds"], 2) for r in results},
+        # Gate-4 verdict delta (PT-96.md @ 85006ff, blocking): populated
+        # for failing files only, so a green run's aggregate stays small.
+        # main() prints each entry above that file's FAIL line -- the
+        # PT-93 contract ("a failing file prints its captured stdout+
+        # stderr, then a FAIL <name> (<s>s) line") that this dict's
+        # earlier shape silently dropped.
+        "outputs": {r["name"]: r["output"] for r in results if r["failed"]},
     }
 
 
@@ -256,6 +263,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     agg = run_all(files, args.jobs, TESTS_DIR.parent)
 
     for name in agg["failed_files"]:
+        output = agg["outputs"].get(name, "")
+        if output:
+            print(output, end="" if output.endswith("\n") else "\n")
         print(f"FAIL {name} ({agg['times'].get(name, 0.0):.2f}s)")
 
     print(f"Ran {agg['tests']} tests in {agg['wall']:.3f}s ({agg['files']} files, {agg['jobs']} workers)")
