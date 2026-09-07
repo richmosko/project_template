@@ -65,6 +65,46 @@ def records(path: Path, since: datetime.datetime, until: datetime.datetime) -> I
                 yield t, r
 
 
+def full_run_stats(path: Path, since: datetime.datetime, until: datetime.datetime) -> Dict[str, Any]:
+    """PT-97 guard 9: `full_suite_runs`/`suite_seconds_added` derived from
+    `process/cairn/metrics/test-runs.jsonl` (PostToolUse-recorded, `ts`
+    field -- distinct schema from `records()`'s transcript `timestamp`
+    field, so it is read directly rather than through that helper). A
+    missing file or a window with no `full: true` records is 0/None, never
+    a crash. `suite_seconds_added` is the last full record's `seconds`
+    minus the first's, chronologically -- undefined (None) below two
+    records, since there is nothing to subtract from."""
+    full: List[Tuple[datetime.datetime, Dict[str, Any]]] = []
+    path = Path(path)
+    if path.exists():
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                ts = rec.get("ts")
+                if not ts:
+                    continue
+                try:
+                    t = parse_ts(ts)
+                except Exception:
+                    continue
+                if since <= t <= until and rec.get("full"):
+                    full.append((t, rec))
+    full.sort(key=lambda pair: pair[0])
+    seconds_added = None
+    if len(full) >= 2:
+        first_seconds = full[0][1].get("seconds")
+        last_seconds = full[-1][1].get("seconds")
+        if isinstance(first_seconds, (int, float)) and isinstance(last_seconds, (int, float)):
+            seconds_added = last_seconds - first_seconds
+    return {"full_suite_runs": len(full), "suite_seconds_added": seconds_added}
+
+
 def text_of(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -108,8 +148,14 @@ def transcript_roles(transcripts_dir: Path) -> Dict[Path, str]:
 
 def classify_bash(c: str) -> str:
     c1 = c.strip()
-    if "unittest" in c1:
-        if _FULL_RE.search(c1) and " -p " not in c1 and " -k " not in c1:
+    if "unittest" in c1 or "run_tests" in c1:
+        # PT-97 (AC2): PT-93's runner call (`run_tests.py`) is a full-suite
+        # shape on its own, unlike a bare `unittest <module>` -- only
+        # `unittest discover` (_FULL_RE) counts there. `run_tests` is
+        # narrowed the same way both take: -p/-k.
+        full_shape = bool(_FULL_RE.search(c1)) or "run_tests" in c1
+        narrowed = " -p " in c1 or " -k " in c1
+        if full_shape and not narrowed:
             return "FULL_SUITE"
         return "module_test"
     if "node --test" in c1 or "npm test" in c1:
@@ -466,13 +512,23 @@ def scorecard(repo_root: Path, data_dir: Path, issue_id: str, base: str = "main"
     except Exception:
         cost = None
 
+    # PT-97: process/cairn/metrics/test-runs.jsonl is authoritative when it
+    # has full-run records in this window (real seconds, not a transcript
+    # heuristic). No records in window (the file predates this issue, or
+    # this loop never hit a gate) -- fall back to the transcript-derived
+    # count above rather than reporting 0 runs that plainly happened.
+    run_stats = full_run_stats(Path(data_dir) / "metrics" / "test-runs.jsonl", since, until)
+    if run_stats["full_suite_runs"] > 0:
+        full_runs = run_stats["full_suite_runs"]
+    suite_seconds_added = run_stats["suite_seconds_added"]
+
     card: Dict[str, Any] = {
         "issue": issue_id, "base": base,
         "since": since.isoformat(), "until": until.isoformat(),
         "commits": len(commits), "chore_commits": chore,
         "comments": comments, "ruling_sections": rulings,
         "issue_kb_added": kb_added, "tests_added": tests_added,
-        "suite_seconds_added": None,
+        "suite_seconds_added": suite_seconds_added,
         "full_suite_runs": full_runs, "msgs_to_lead": msgs_to_lead,
         "idle_notifications": idle, "idle_dup_of_direct": idle_dup,
         "cost_usd": cost, "per_agent": per_agent,
@@ -492,7 +548,7 @@ def format_scorecard(card: Dict[str, Any]) -> str:
            "| metric | value | cap | status |", "|---|---|---|---|"]
     for k in ROW_ORDER:
         v = card.get(k)
-        shown = "(unmeasured — PT-93)" if k == "suite_seconds_added" and v is None else ("—" if v is None else v)
+        shown = "(no full-run records in window)" if k == "suite_seconds_added" and v is None else ("—" if v is None else v)
         if k in card["caps"]:
             c = card["caps"][k]
             out.append(f"| {k} | {shown} | {c['cap']} | {'OVER' if c['over'] else 'ok'} |")

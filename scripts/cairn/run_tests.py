@@ -166,6 +166,12 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--list", dest="list", action="store_true", help="print discovered file names and exit")
     parser.add_argument("--json", dest="json", default=None, metavar="PATH",
                          help="write the machine-readable summary to PATH")
+    parser.add_argument(
+        "--gate", dest="gate", default=None, choices=("red", "green", "verdict", "finish"),
+        help="declares this as a full-suite gate run (PT-94 C9) -- required for a full run "
+             "under the PT-97 PreToolUse guard; the PostToolUse recorder reads it back out "
+             "of the command line, it is not consumed here",
+    )
     args = parser.parse_args(argv)
     if args.serial:
         args.jobs = 1
