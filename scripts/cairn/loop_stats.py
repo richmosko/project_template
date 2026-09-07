@@ -71,9 +71,17 @@ def full_run_stats(path: Path, since: datetime.datetime, until: datetime.datetim
     field -- distinct schema from `records()`'s transcript `timestamp`
     field, so it is read directly rather than through that helper). A
     missing file or a window with no `full: true` records is 0/None, never
-    a crash. `suite_seconds_added` is the last full record's `seconds`
-    minus the first's, chronologically -- undefined (None) below two
-    records, since there is nothing to subtract from."""
+    a crash. `full_suite_runs` is the total record count in window,
+    independent of configuration.
+
+    `suite_seconds_added` is the last full record's `seconds` minus the
+    first's, chronologically, **within the largest `jobs` group only**
+    (gate-4 verdict delta 4, PT-97.md @ d896d8d): mixing configurations
+    reported a `--serial` run (106.5s) minus a parallel run (19.9s) of
+    IDENTICAL code as a 86.6s "regression" -- a config difference, not a
+    measurement. Undefined (None) if the winning group has under two
+    records. Rounded to 3 places (the same defect produced
+    86.55799999999999 unrounded)."""
     full: List[Tuple[datetime.datetime, Dict[str, Any]]] = []
     path = Path(path)
     if path.exists():
@@ -96,12 +104,21 @@ def full_run_stats(path: Path, since: datetime.datetime, until: datetime.datetim
                 if since <= t <= until and rec.get("full"):
                     full.append((t, rec))
     full.sort(key=lambda pair: pair[0])
+
     seconds_added = None
     if len(full) >= 2:
-        first_seconds = full[0][1].get("seconds")
-        last_seconds = full[-1][1].get("seconds")
-        if isinstance(first_seconds, (int, float)) and isinstance(last_seconds, (int, float)):
-            seconds_added = last_seconds - first_seconds
+        groups: Dict[Any, List[Tuple[datetime.datetime, Dict[str, Any]]]] = {}
+        for t, rec in full:
+            groups.setdefault(rec.get("jobs"), []).append((t, rec))
+        # Largest group wins; ties broken toward more workers (an
+        # arbitrary but deterministic tiebreak -- no test exercises a tie).
+        best_jobs = max(groups, key=lambda j: (len(groups[j]), j if isinstance(j, int) else -1))
+        group = groups[best_jobs]
+        if len(group) >= 2:
+            first_seconds = group[0][1].get("seconds")
+            last_seconds = group[-1][1].get("seconds")
+            if isinstance(first_seconds, (int, float)) and isinstance(last_seconds, (int, float)):
+                seconds_added = round(last_seconds - first_seconds, 3)
     return {"full_suite_runs": len(full), "suite_seconds_added": seconds_added}
 
 
@@ -555,7 +572,24 @@ def format_scorecard(card: Dict[str, Any]) -> str:
         else:
             out.append(f"| {k} | {shown} | — | — |")
     if card.get("per_agent"):
-        out += ["", "| agent | tool calls | full-suite runs | msgs to lead | waste flags |", "|---|---|---|---|---|"]
+        # PT-97 gate-4 verdict delta 4: the per-agent breakdown is a
+        # transcript-derived heuristic, distinct from the records-based
+        # `full_suite_runs` row above -- they can legitimately disagree
+        # (real output once showed "2" and "12" for the same loop, side
+        # by side, with nothing telling a reader why). Label it whenever
+        # they do, so the table can't be misread as a second measurement
+        # of the same number.
+        per_agent_total = sum(s.get("full_suite_runs", 0) for s in card["per_agent"].values())
+        disagrees = per_agent_total != card.get("full_suite_runs")
+        col = "full-suite runs (transcript)" if disagrees else "full-suite runs"
+        out += [""]
+        if disagrees:
+            out.append(
+                f"_Per-agent full-suite runs are transcript-derived and may disagree with the "
+                f"authoritative records-based count above ({per_agent_total} vs {card.get('full_suite_runs')})._"
+            )
+            out.append("")
+        out += [f"| agent | tool calls | {col} | msgs to lead | waste flags |", "|---|---|---|---|---|"]
         for role, s in card["per_agent"].items():
             w = ", ".join(f"{k} {n}" for k, n in sorted(s["waste"].items())) or "—"
             out.append(f"| {role} | {s['tool_calls']} | {s['full_suite_runs']} | {s['msgs_to_lead']} | {w} |")

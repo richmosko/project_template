@@ -1,37 +1,39 @@
 #!/usr/bin/env python3
 """PreToolUse hook on Bash (PT-97): refuses a teammate's un-tiered
 full-suite run -- `scripts/cairn/run_tests.py` or `python -m unittest
-discover -s tests`, either one, with no `-p`/`-k` narrowing -- unless it
-carries `--gate {red,green,verdict,finish}`. Everything unrecognised
-(malformed stdin, a non-Bash tool, a missing/unknown `agent_type`, a
-narrowed or already-gated run) exits 0: that fail-open list is what keeps
-this off a human's shell and off the main session's own commands, since
-there is no `.claude/agents/team-lead.md` for `agent_type` to match.
+discover -s tests`, either one, with no `-p`/`--pattern`/`-k` narrowing --
+unless it carries `--gate {red,green,verdict,finish}`. Everything
+unrecognised (malformed stdin, a non-Bash tool, a missing/unknown
+`agent_type`, a narrowed or already-gated run) exits 0: that fail-open
+list is what keeps this off a human's shell and off the main session's
+own commands, since there is no `.claude/agents/team-lead.md` for
+`agent_type` to match.
 
 Registered behind a shell `case` glob prefilter in `.claude/settings.json`
 (measured ~6 ms on a miss vs. 29 ms unconditional -- process/reviews/
-PT-97/measurements.md) matched against `TEST_CMD_TOKENS` below; the two
-must never drift apart.
+PT-97/measurements.md) matched against `TEST_CMD_TOKENS`; the two must
+never drift apart.
+
+Invocation and narrowing detection live in `_test_run_shared.py` (gate-4
+verdict delta 1), shared with `test_run_record.py` -- a naive substring
+scan for the two directions this used to get wrong: `--pattern` doesn't
+contain the literal ` -p `, and `/usr/bin/time -p ...` does (time's own
+flag, not the runner's).
 """
 from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 from pathlib import Path
 
-# The shell prefilter in settings.json globs on these same tokens
-# (`*<token>*`) before ever spawning python -- keep the two in lockstep.
-TEST_CMD_TOKENS = ("unittest", "run_tests")
-
-# A token match alone is too broad: `grep -n run_tests.py foo.py` mentions
-# the string without invoking it, and would otherwise be refused as a
-# "full run" (hit live while building this hook). Require an actual
-# python invocation in the same command before treating a token match as
-# a real run.
-_PYTHON_RE = re.compile(r"\bpython3?\b")
-_GATE_RE = re.compile(r"--gate\s+(red|green|verdict|finish)\b")
+# _test_run_shared.py lives alongside this file, but this script can be
+# loaded two ways: `python3 test_run_guard.py` (subprocess -- Python
+# already puts the script's own dir on sys.path[0]) and
+# importlib.util.spec_from_file_location (qa's ShellPrefilterCouplingTests,
+# which does NOT). Make both work.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _test_run_shared import TEST_CMD_TOKENS, gate_of, is_full_suite_run  # noqa: E402,F401
 
 _MESSAGE = (
     "test_run_guard: refusing an un-tiered full-suite run. Mid-loop, narrow it: "
@@ -53,16 +55,6 @@ def _is_known_agent(agent_type, project_dir: Path) -> bool:
     return agent_type in _known_agent_stems(project_dir)
 
 
-def _is_full_suite_run(command: str) -> bool:
-    if not _PYTHON_RE.search(command):
-        return False
-    if not any(token in command for token in TEST_CMD_TOKENS):
-        return False
-    if " -p " in command or " -k " in command:
-        return False
-    return True
-
-
 def main() -> int:
     try:
         data = json.load(sys.stdin)
@@ -80,9 +72,9 @@ def main() -> int:
     if not isinstance(command, str):
         return 0
 
-    if not _is_full_suite_run(command):
+    if not is_full_suite_run(command):
         return 0
-    if _GATE_RE.search(command):
+    if gate_of(command) is not None:
         return 0
 
     sys.stderr.write(_MESSAGE)
