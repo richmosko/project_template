@@ -85,6 +85,23 @@ class ClassifyTests(unittest.TestCase):
     def test_a_narrowed_run_tests_py_call_is_a_module_test(self):
         self.assertEqual(loop_stats.classify_bash('python3 run_tests.py -p "test_x*.py"'), "module_test")
 
+    def test_narrowing_is_flag_aware_not_a_substring_scan(self):
+        # PT-97 gate-4 delta 8 (PT-97.md @ f66fe09, non-blocking): the
+        # very substring bug delta 1 fixed in the hooks (" -p " matches
+        # inside `time -p`; `--pattern` doesn't match " -p " at all) is
+        # still live in classify_bash -- confirmed live: `time -p
+        # python3 run_tests.py` -> "module_test" (wrong, should be
+        # FULL_SUITE) and `--pattern "test_x*.py"` -> "FULL_SUITE" (wrong,
+        # should be module_test).
+        self.assertEqual(
+            loop_stats.classify_bash("/usr/bin/time -p python3 run_tests.py"), "FULL_SUITE",
+            "time's own -p flag must not be mistaken for run_tests.py's narrowing flag",
+        )
+        self.assertEqual(
+            loop_stats.classify_bash('python3 run_tests.py --pattern "test_x*.py"'), "module_test",
+            "--pattern is run_tests.py's own long form of -p and must be recognised as narrowing",
+        )
+
 
 class AuditAgentTests(unittest.TestCase):
     def setUp(self):
@@ -246,6 +263,36 @@ class ScorecardTests(unittest.TestCase):
         self.assertEqual(card["full_suite_runs"], 1)
         self.assertEqual(card["msgs_to_lead"], 2)
         self.assertEqual(card["suite_seconds_added"], None)
+
+    def test_the_per_agent_cross_check_agrees_with_the_authoritative_count_on_a_consistent_fixture(self):
+        # PT-97 gate-4 delta 8 (PT-97.md @ f66fe09, non-blocking): on a
+        # fixture built so the two sources SHOULD agree -- one full-suite
+        # Bash call in the transcript, one matching full record in
+        # test-runs.jsonl -- they must actually agree, proving the
+        # cross-check math is sound (not just its labelling on the
+        # disagreeing case above). Depends on classify_bash's flag-aware
+        # narrowing fix landing correctly for the `run_tests.py` shape
+        # too, not just the plain `unittest discover` shape this
+        # particular fixture happens to use.
+        metrics_dir = self.data_dir / "metrics"
+        metrics_dir.mkdir()
+        now = datetime.datetime.now(datetime.timezone.utc)
+        record = {
+            "ts": (now + datetime.timedelta(minutes=-3)).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "who": "qa-engineer", "gate": "red", "full": True, "runner": "unittest",
+            "sha": "abc123", "branch": "feature/pt-1-thing", "seconds": 20.0,
+            "harness_ms": 20029, "jobs": 8, "files": 84, "tests": 1408, "skipped": 1,
+            "ok": True, "session": "q", "cmd": FULL,
+        }
+        write_jsonl(metrics_dir / "test-runs.jsonl", [record])
+        card = loop_stats.scorecard(self.root, self.data_dir, "PT-1", base="main", since=self.since, transcripts_dir=self.transcripts)
+        self.assertEqual(card["full_suite_runs"], 1)
+        per_agent_sum = sum(s["full_suite_runs"] for s in card["per_agent"].values())
+        self.assertEqual(
+            per_agent_sum, 1,
+            f"the transcript-derived per-agent sum must agree with the authoritative "
+            f"records count on this fixture -- got {per_agent_sum!r} vs {card['full_suite_runs']!r}",
+        )
 
     def test_caps_are_reported_and_exceeding_one_is_marked(self):
         """Mutation: compare with `>=` instead of `>` -> commits (3) vs a

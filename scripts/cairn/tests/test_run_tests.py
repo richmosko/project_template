@@ -50,9 +50,23 @@ import helpers  # noqa: F401
 
 import run_tests
 
+REPO_ROOT = helpers.CAIRN_DIR.parent.parent  # scripts/cairn -> scripts -> repo root
+REAL_TEST_RUNS_PATH = REPO_ROOT / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+# PT-97 delta 7 seam: run_tests.py's _self_record honours this override
+# when set, writing there instead of the path it derives from its own
+# __file__ location -- which, for a REAL subprocess spawn of the real
+# script (several tests below do this), IS the real checkout.
+CAIRN_TEST_RUNS_ENV = "CAIRN_TEST_RUNS_FILE"
+
 
 def _completed(returncode: int, stderr: str) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=["x"], returncode=returncode, stdout="", stderr=stderr)
+
+
+def _env_with_test_runs_override(tmp_path) -> dict:
+    env = dict(os.environ)
+    env[CAIRN_TEST_RUNS_ENV] = str(tmp_path)
+    return env
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -92,9 +106,11 @@ class EmptyPatternSafetyTests(unittest.TestCase):
     NONEXISTENT_PATTERN = "test_zzz_pt93_nonexistent_area*.py"
 
     def _run(self, *args):
+        tmp = helpers.make_empty_tmp_dir(self)
         return subprocess.run(
             [sys.executable, str(helpers.CAIRN_DIR / "run_tests.py"), *args],
             cwd=helpers.CAIRN_DIR, capture_output=True, text=True,
+            env=_env_with_test_runs_override(tmp / "test-runs.jsonl"),
         )
 
     def test_a_pattern_matching_nothing_exits_2_and_names_the_pattern(self):
@@ -412,9 +428,11 @@ class GateRequiresFullRunTests(unittest.TestCase):
     of delta 1's substring bugs)."""
 
     def test_gate_combined_with_pattern_is_refused(self):
+        tmp = helpers.make_empty_tmp_dir(self)
         result = subprocess.run(
             [sys.executable, str(helpers.CAIRN_DIR / "run_tests.py"), "--gate", "green", "-p", "test_yaml_parser.py"],
             cwd=helpers.CAIRN_DIR, capture_output=True, text=True,
+            env=_env_with_test_runs_override(tmp / "test-runs.jsonl"),
         )
         # PT-97 delta 6: while this test is red (pre-fix, the inner call
         # actually runs test_yaml_parser.py successfully), embedding the
@@ -433,6 +451,38 @@ class GateRequiresFullRunTests(unittest.TestCase):
         # not to --gate itself.
         args = run_tests.parse_args(["--gate", "green"])
         self.assertEqual(args.gate, "green")
+
+
+# --------------------------------------------------------------------------
+# PT-97 delta 7 (blocking, PT-97.md @ f66fe09): _self_record derives its
+# repo root from the SCRIPT'S OWN __file__ location -- for a real
+# subprocess spawn of the real run_tests.py (several tests above do this),
+# that IS the real checkout, so every such spawn silently appended to the
+# real process/cairn/metrics/test-runs.jsonl. This module-wide backstop
+# catches any test in this file (present or future) that spawns the real
+# script without the CAIRN_TEST_RUNS_FILE override. setUpModule/
+# tearDownModule are unittest's own guaranteed whole-module brackets (a
+# per-class setUpClass/tearDownClass only brackets its own class -- PT-91/
+# PT-84 discipline). A bare `assert` is stripped entirely under
+# `python -O` (measured, PT-91/PT-95) -- raise explicitly instead.
+# --------------------------------------------------------------------------
+
+_REAL_TEST_RUNS_BEFORE = None
+
+
+def setUpModule():
+    global _REAL_TEST_RUNS_BEFORE
+    _REAL_TEST_RUNS_BEFORE = REAL_TEST_RUNS_PATH.read_bytes() if REAL_TEST_RUNS_PATH.exists() else None
+
+
+def tearDownModule():
+    after = REAL_TEST_RUNS_PATH.read_bytes() if REAL_TEST_RUNS_PATH.exists() else None
+    if after != _REAL_TEST_RUNS_BEFORE:
+        raise AssertionError(
+            "the real, committed process/cairn/metrics/test-runs.jsonl must never be "
+            "touched by this test module -- every real run_tests.py subprocess spawn here "
+            f"must set {CAIRN_TEST_RUNS_ENV} to a throwaway path"
+        )
 
 
 if __name__ == "__main__":

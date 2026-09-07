@@ -40,6 +40,9 @@ REPO_ROOT = helpers.CAIRN_DIR.parent.parent  # scripts/cairn -> scripts -> repo 
 HOOKS_DIR = REPO_ROOT / ".claude" / "hooks"
 SETTINGS_PATH = REPO_ROOT / ".claude" / "settings.json"
 HOOK_PAYLOADS_PATH = REPO_ROOT / "process" / "reviews" / "PT-97" / "hook-payloads.json"
+REAL_TEST_RUNS_PATH = REPO_ROOT / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+# PT-97 delta 7 seam -- see test_run_tests.py's identical constant.
+CAIRN_TEST_RUNS_ENV = "CAIRN_TEST_RUNS_FILE"
 
 
 def _pre_payload(command: str, agent_type="qa-engineer", **overrides) -> dict:
@@ -359,6 +362,49 @@ class RecorderIgnoresNonRunNoiseTests(unittest.TestCase):
                           "a git log/show is not a run -- a diff line that merely LOOKS like a summary must never be recorded")
 
 
+class RealRunTestsRecordsUnderOverrideTests(unittest.TestCase):
+    """Gate-4 verdict delta 7 (blocking, PT-97.md @ f66fe09): _self_record
+    derives repo_root from the SCRIPT'S OWN __file__ location, so a
+    subprocess spawn of the REAL run_tests.py (as several tests here and
+    in test_run_tests.py do) writes into the REAL
+    process/cairn/metrics/test-runs.jsonl -- reproduced live twice at
+    f7d1eba. The fix is an explicit override (CAIRN_TEST_RUNS_FILE) the
+    real script must honour when set. This snapshots the real file BEFORE
+    spawning and restores it in cleanup regardless of outcome (belt and
+    suspenders alongside the module-wide guard below) -- while red, the
+    unfixed script writes into the real file exactly once."""
+
+    def test_a_real_spawn_with_the_override_set_writes_under_tmp_not_the_real_file(self):
+        before = REAL_TEST_RUNS_PATH.read_bytes() if REAL_TEST_RUNS_PATH.exists() else None
+
+        def _restore():
+            if before is None:
+                REAL_TEST_RUNS_PATH.unlink(missing_ok=True)
+            else:
+                REAL_TEST_RUNS_PATH.write_bytes(before)
+        self.addCleanup(_restore)
+
+        tmp = helpers.make_empty_tmp_dir(self)
+        override_path = tmp / "test-runs.jsonl"
+        env = dict(os.environ)
+        env[CAIRN_TEST_RUNS_ENV] = str(override_path)
+        result = subprocess.run(
+            [sys.executable, str(helpers.CAIRN_DIR / "run_tests.py"), "-p", "test_id_sort.py"],
+            cwd=helpers.CAIRN_DIR, capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        after = REAL_TEST_RUNS_PATH.read_bytes() if REAL_TEST_RUNS_PATH.exists() else None
+        self.assertEqual(
+            before, after,
+            "the real records file must be byte-identical before and after a spawn with "
+            f"{CAIRN_TEST_RUNS_ENV} set",
+        )
+        self.assertTrue(
+            override_path.exists(),
+            f"with {CAIRN_TEST_RUNS_ENV} set, the real run_tests.py must write there instead",
+        )
+
+
 def _load_hook_module(script: str):
     # .claude/hooks/ is outside the normal package path -- load by file
     # location rather than adding it to sys.path. Safe against triggering
@@ -459,6 +505,32 @@ class SettingsAnchoringTests(unittest.TestCase):
         settings = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
         cmds = _hook_commands(settings)
         self.assertGreaterEqual(len(cmds), 1, "scan found zero .claude/hooks/ commands -- pattern or path is broken")
+
+
+# --------------------------------------------------------------------------
+# PT-97 delta 7 (blocking, PT-97.md @ f66fe09): module-wide backstop, same
+# construction as test_run_tests.py's identical guard -- see that file's
+# comment for the full rationale. setUpModule/tearDownModule are
+# unittest's own guaranteed whole-module brackets; a bare `assert` is
+# stripped under `python -O` (PT-91/PT-95) -- raise explicitly instead.
+# --------------------------------------------------------------------------
+
+_REAL_TEST_RUNS_BEFORE = None
+
+
+def setUpModule():
+    global _REAL_TEST_RUNS_BEFORE
+    _REAL_TEST_RUNS_BEFORE = REAL_TEST_RUNS_PATH.read_bytes() if REAL_TEST_RUNS_PATH.exists() else None
+
+
+def tearDownModule():
+    after = REAL_TEST_RUNS_PATH.read_bytes() if REAL_TEST_RUNS_PATH.exists() else None
+    if after != _REAL_TEST_RUNS_BEFORE:
+        raise AssertionError(
+            "the real, committed process/cairn/metrics/test-runs.jsonl must never be "
+            "touched by this test module -- every real run_tests.py subprocess spawn here "
+            f"must set {CAIRN_TEST_RUNS_ENV} to a throwaway path"
+        )
 
 
 if __name__ == "__main__":
