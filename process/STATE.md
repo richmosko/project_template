@@ -17,14 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Test suite: tiered gating, parallel runner, and fixture reuse — the Python suite costs ~155 s per run and runs 15–20× per loop |
-| Issue | PT-93 (cairn) |
+| Feature | Test suite: fixture reuse and consolidation — cut the 23 s critical-path file and the top-seven subprocess cost |
+| Issue | PT-96 (cairn) |
 | Milestone | PT-0.12.1 |
-| Branch | `feature/pt-93-tiered-gating-parallel-runner` |
-| PR | https://github.com/richmosko/project_template/pull/178 |
+| Branch | `feature/pt-96-fixture-reuse-consolidation` |
 | Started | 2026-09-06 |
-| Goal | The full Python suite runs in ≤45 s via a parallel runner with identical counts, and WORKFLOW + /finish-feature name the tiered rule and the runner command. |
-| Status | In Review |
+| Goal | No test file exceeds 8 s and the suite runs in ≤15 s at default jobs with identical counts, via per-module fixture reuse and sliver-file consolidation. |
+| Status | In Progress |
 
 ## Releases
 
