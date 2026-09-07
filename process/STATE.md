@@ -21,9 +21,10 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Issue | PT-96 (cairn) |
 | Milestone | PT-0.12.1 |
 | Branch | `feature/pt-96-fixture-reuse-consolidation` |
+| PR | https://github.com/richmosko/project_template/pull/179 |
 | Started | 2026-09-06 |
 | Goal | No test file exceeds 8 s and the suite runs in ≤15 s at default jobs with identical counts, via per-module fixture reuse and sliver-file consolidation. |
-| Status | In Progress |
+| Status | In Review |
 
 ## Releases
 
