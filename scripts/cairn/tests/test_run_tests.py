@@ -375,5 +375,30 @@ class MainCallsRunAllTests(unittest.TestCase):
         self.assertEqual(passed_jobs, 3, "must pass the resolved job count, not the raw --jobs string or None")
 
 
+class GateRequiresFullRunTests(unittest.TestCase):
+    """Gate-4 verdict delta 5 (PT-97.md @ bfb1d92): --gate combined with
+    -p/--pattern is refused -- a narrowed run is not a gate run (PT-94
+    C9: the gate owner runs the full suite), and silently dropping the
+    tag would leave the operator believing they recorded a gate that
+    never happened. Belongs in the runner, not the hook -- the runner is
+    the only party that parses its own flags reliably (the whole lesson
+    of delta 1's substring bugs)."""
+
+    def test_gate_combined_with_pattern_is_refused(self):
+        result = subprocess.run(
+            [sys.executable, str(helpers.CAIRN_DIR / "run_tests.py"), "--gate", "green", "-p", "test_yaml_parser.py"],
+            cwd=helpers.CAIRN_DIR, capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("-p", result.stderr)
+        self.assertIn("--gate", result.stderr)
+
+    def test_gate_alone_still_parses(self):
+        # Control: the refusal is specific to the -p/--gate COMBINATION,
+        # not to --gate itself.
+        args = run_tests.parse_args(["--gate", "green"])
+        self.assertEqual(args.gate, "green")
+
+
 if __name__ == "__main__":
     unittest.main()
