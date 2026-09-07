@@ -75,6 +75,16 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(loop_stats.classify_bash("git status --short"), "git_read")
         self.assertEqual(loop_stats.classify_bash("git commit -m x -- a.md"), "git_commit")
 
+    def test_a_bare_run_tests_py_call_is_full_suite(self):
+        # PT-97 AC2: on PT-96, classify_bash scored 0 full_suite_runs even
+        # though the runner ran the full suite at every gate -- it only
+        # matched `unittest discover`, never `run_tests.py`.
+        self.assertEqual(loop_stats.classify_bash("cd scripts/cairn && python3 run_tests.py"), "FULL_SUITE")
+        self.assertEqual(loop_stats.classify_bash("python3 run_tests.py --gate green"), "FULL_SUITE")
+
+    def test_a_narrowed_run_tests_py_call_is_a_module_test(self):
+        self.assertEqual(loop_stats.classify_bash('python3 run_tests.py -p "test_x*.py"'), "module_test")
+
 
 class AuditAgentTests(unittest.TestCase):
     def setUp(self):
@@ -266,6 +276,89 @@ class ScorecardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue((out / "steps-qa-engineer.md").exists())
         self.assertIn("FULL_SUITE", (out / "steps-qa-engineer.md").read_text())
+
+
+class FullRunStatsFromRecordsTests(unittest.TestCase):
+    """PT-97 guard 9: loop_stats derives full_suite_runs/suite_seconds_added
+    from process/cairn/metrics/test-runs.jsonl records -- never
+    (unmeasured). Mutation: return None -> both fields lose their real
+    numbers."""
+
+    def _write(self, tmp, records):
+        p = tmp / "test-runs.jsonl"
+        write_jsonl(p, records)
+        return p
+
+    def _record(self, minutes, seconds, full=True, who="architect", gate="red"):
+        return {
+            "ts": ts(minutes), "who": who, "gate": gate, "full": full,
+            "runner": "run_tests", "sha": "abc123", "branch": "feature/pt-97",
+            "seconds": seconds, "harness_ms": int(seconds * 1000) + 29,
+            "files": 84, "tests": 1408, "skipped": 1, "ok": True,
+            "session": "s1", "cmd": "python3 run_tests.py",
+        }
+
+    def test_two_or_more_full_records_in_window_give_numeric_stats(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        path = self._write(tmp, [self._record(2, 26.4), self._record(5, 19.5)])
+        stats = loop_stats.full_run_stats(path, T0, T0 + datetime.timedelta(hours=1))
+        self.assertEqual(stats["full_suite_runs"], 2)
+        self.assertAlmostEqual(stats["suite_seconds_added"], 19.5 - 26.4, places=2)
+
+    def test_fewer_than_two_full_records_gives_no_seconds_but_still_counts(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        path = self._write(tmp, [self._record(2, 26.4)])
+        stats = loop_stats.full_run_stats(path, T0, T0 + datetime.timedelta(hours=1))
+        self.assertEqual(stats["full_suite_runs"], 1)
+        self.assertIsNone(stats["suite_seconds_added"])
+
+    def test_non_full_records_and_records_outside_the_window_are_excluded(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        records = [
+            self._record(2, 26.4, full=False),
+            self._record(-30, 99.0),
+            self._record(3, 20.1),
+            self._record(6, 19.5),
+        ]
+        path = self._write(tmp, records)
+        stats = loop_stats.full_run_stats(path, T0, T0 + datetime.timedelta(hours=1))
+        self.assertEqual(stats["full_suite_runs"], 2)
+        self.assertAlmostEqual(stats["suite_seconds_added"], 19.5 - 20.1, places=2)
+
+    def test_missing_records_file_gives_zero_not_a_crash(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        stats = loop_stats.full_run_stats(tmp / "nonexistent.jsonl", T0, T0 + datetime.timedelta(hours=1))
+        self.assertEqual(stats["full_suite_runs"], 0)
+        self.assertIsNone(stats["suite_seconds_added"])
+
+
+class ScorecardRenderingNeverPrintsUnmeasuredTests(unittest.TestCase):
+    """PT-97 AC2: format_scorecard prints numbers or '(no full-run
+    records in window)' -- never the old '(unmeasured — PT-93)' tag."""
+
+    def _min_card(self, **overrides):
+        card = {
+            "issue": "PT-1", "base": "main",
+            "since": "2026-09-06T00:00:00+00:00", "until": "2026-09-06T01:00:00+00:00",
+            "commits": 1, "chore_commits": 0, "comments": 0, "ruling_sections": 0,
+            "issue_kb_added": 0.0, "tests_added": 0,
+            "suite_seconds_added": None, "full_suite_runs": 0, "msgs_to_lead": 0,
+            "idle_notifications": 0, "idle_dup_of_direct": 0, "cost_usd": None,
+            "per_agent": {},
+        }
+        card.update(overrides)
+        card["caps"] = {k: {"cap": v, "value": card.get(k), "over": False} for k, v in loop_stats.DEFAULT_CAPS.items()}
+        return card
+
+    def test_no_full_run_records_renders_the_new_tag_not_unmeasured(self):
+        rendered = loop_stats.format_scorecard(self._min_card(full_suite_runs=1, suite_seconds_added=None))
+        self.assertNotIn("unmeasured", rendered)
+        self.assertIn("no full-run records in window", rendered)
+
+    def test_a_real_measurement_renders_the_number(self):
+        rendered = loop_stats.format_scorecard(self._min_card(full_suite_runs=2, suite_seconds_added=-6.9))
+        self.assertNotIn("unmeasured", rendered)
+        self.assertIn("-6.9", rendered)
 
 
 if __name__ == "__main__":
