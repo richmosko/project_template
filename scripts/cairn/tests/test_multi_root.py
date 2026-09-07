@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import json
 import socket
-import threading
 import time
 import unittest
 import urllib.error
@@ -585,8 +584,7 @@ class MultiRootServerTestCase(unittest.TestCase):
         self.server = cairn.make_server(self.primary_dir, port=0, roots=self.roots)
         self.port = self.server.server_address[1]
         self.base_url = f"http://127.0.0.1:{self.port}"
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
+        self.thread = helpers.serve_in_thread(self.server)
         self.addCleanup(self._shutdown)
         self._wait_until_up()
 

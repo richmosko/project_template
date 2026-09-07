@@ -35,7 +35,6 @@ holds" for board-logic.js itself, regardless of how/whether PT-55 embeds it.
 from __future__ import annotations
 
 import re
-import threading
 import time
 import unittest
 import urllib.request
@@ -103,8 +102,7 @@ class EmbedQueryParamRoutingTests(unittest.TestCase):
         self.server = cairn.make_server(self.data_dir, port=0)
         self.port = self.server.server_address[1]
         self.base_url = f"http://127.0.0.1:{self.port}"
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
+        self.thread = helpers.serve_in_thread(self.server)
         self.addCleanup(self._shutdown)
         self._wait_until_up()
 
@@ -229,8 +227,7 @@ class DashboardIframeEmbedTests(unittest.TestCase):
         server = cairn.make_server(data_dir, port=0)
         port = server.server_address[1]
         base_url = f"http://127.0.0.1:{port}"
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
+        thread = helpers.serve_in_thread(server)
 
         def _shutdown():
             server.shutdown()

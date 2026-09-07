@@ -47,7 +47,6 @@ import html.parser
 import json
 import re
 import subprocess
-import threading
 import time
 import unittest
 import unittest.mock
@@ -149,8 +148,7 @@ class _RunningServer:
         self.server = cairn.make_server(data_dir, port=0, **kwargs)
         self.port = self.server.server_address[1]
         self.base_url = f"http://127.0.0.1:{self.port}"
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
+        self.thread = helpers.serve_in_thread(self.server)
         self.addCleanup(self._shutdown)
         self._wait_until_up()
 

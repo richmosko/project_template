@@ -54,7 +54,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import threading
 import time
 import unittest
 import urllib.request
@@ -308,8 +307,7 @@ class TokensDegradationTests(unittest.TestCase):
         (data_dir / "config.yml").write_text("prefix: PT\nport: 8766\n", encoding="utf-8")
         server = cairn.make_server(data_dir, port=0)
         port = server.server_address[1]
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
+        thread = helpers.serve_in_thread(server)
         try:
             for _ in range(50):
                 try:
@@ -402,8 +400,7 @@ class TokensEndpointNotOnDashboardTests(unittest.TestCase):
         ])
         self.server = cairn.make_server(self.data_dir, port=0)
         self.port = self.server.server_address[1]
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
+        self.thread = helpers.serve_in_thread(self.server)
         self.addCleanup(self._shutdown)
         for _ in range(50):
             try:

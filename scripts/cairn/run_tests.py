@@ -253,17 +253,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     files = order_by_size(files)
-    t0 = time.time()
-    results = _run_files(files, TESTS_DIR.parent, args.jobs, subprocess.run)
-    wall = time.time() - t0
-    agg = _aggregate(results, args.jobs, wall)
+    agg = run_all(files, args.jobs, TESTS_DIR.parent)
 
-    for result in results:
-        if result["failed"]:
-            output = result["output"]
-            if output:
-                print(output, end="" if output.endswith("\n") else "\n")
-            print(f"FAIL {result['name']} ({result['seconds']:.2f}s)")
+    for name in agg["failed_files"]:
+        print(f"FAIL {name} ({agg['times'].get(name, 0.0):.2f}s)")
 
     print(f"Ran {agg['tests']} tests in {agg['wall']:.3f}s ({agg['files']} files, {agg['jobs']} workers)")
     if exit_code(agg) == 0:

@@ -9,6 +9,7 @@ from __future__ import annotations
 import shutil
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 TESTS_DIR = Path(__file__).resolve().parent
@@ -50,3 +51,22 @@ def make_empty_tmp_dir(testcase) -> Path:
     tmp = tempfile.mkdtemp(prefix="cairn-test-empty-")
     testcase.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
     return Path(tmp)
+
+
+# PT-96 gate-1 ruling (process/cairn/issues/PT-96.md @ fed43a4): the
+# measured suite cost was never fixture construction (3.8-7.2 ms) -- it is
+# socketserver.BaseServer.serve_forever()'s default poll_interval=0.5,
+# which shutdown() blocks on (measured 501 ms at the default, 11.1 ms at
+# 0.01). Every test that serves a cairn server in a background thread
+# routes through this helper instead of hand-rolling
+# threading.Thread(target=server.serve_forever, daemon=True) with no
+# interval. Starts only -- existing _shutdown/addCleanup/self.thread
+# teardown at each call site is untouched; converting teardown too would
+# double-shutdown.
+SERVE_POLL_INTERVAL = 0.01
+
+
+def serve_in_thread(server, poll_interval: float = SERVE_POLL_INTERVAL) -> threading.Thread:
+    thread = threading.Thread(target=server.serve_forever, args=(poll_interval,), daemon=True)
+    thread.start()
+    return thread

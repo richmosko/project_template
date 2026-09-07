@@ -38,7 +38,6 @@ substring genuinely absent -- never an import error.
 from __future__ import annotations
 
 import re
-import threading
 import time
 import unittest
 import urllib.error
@@ -157,8 +156,7 @@ class VendorFontFilesHTTPTests(unittest.TestCase):
         self.server = cairn.make_server(self.data_dir, port=0)
         self.port = self.server.server_address[1]
         self.base_url = f"http://127.0.0.1:{self.port}"
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
+        self.thread = helpers.serve_in_thread(self.server)
         self.addCleanup(self._shutdown)
         self._wait_until_up()
 
