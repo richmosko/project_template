@@ -187,6 +187,151 @@ class RecorderTests(unittest.TestCase):
         self.assertEqual(records_path.read_text(encoding="utf-8"), "", "a non-test Bash call must never append a record")
 
 
+class FlagAwareNarrowingTests(unittest.TestCase):
+    """Gate-4 verdict delta 1 (PT-97.md @ d896d8d, blocking): narrowing
+    must be detected from the runner's own tokenised arguments, not a
+    substring scan of the whole command line -- the substring approach
+    breaks in both directions:
+    - `--pattern` (run_tests.py's own long form of `-p`) doesn't contain
+      the literal substring ` -p `, so it was wrongly treated as NOT
+      narrowed and refused.
+    - `/usr/bin/time -p ...` DOES contain the literal substring ` -p `
+      (time's own flag), so a bare full run was wrongly treated as
+      narrowed and let through.
+    Reproduced live against e86f163 before writing these (see the
+    conversation record, not restated here)."""
+
+    def test_long_form_pattern_flag_passes_the_guard(self):
+        result = _run_hook("test_run_guard.py", json.dumps(
+            _pre_payload('python3 run_tests.py --pattern "test_x*.py"')))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_time_wrapped_bare_full_run_is_still_refused(self):
+        result = _run_hook("test_run_guard.py", json.dumps(
+            _pre_payload("/usr/bin/time -p python3 -m unittest discover -s tests")))
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("-p", result.stderr)
+        self.assertIn("--gate", result.stderr)
+
+    def test_control_the_same_command_without_the_time_prefix_is_also_refused(self):
+        # Proves the PREFIX is what changes the (wrong) answer above, not
+        # the underlying command -- this one must already pass today.
+        result = _run_hook("test_run_guard.py", json.dumps(
+            _pre_payload("python3 -m unittest discover -s tests")))
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+
+    def test_long_form_pattern_flag_is_recorded_as_narrowed_not_full(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        (tmp / "process" / "cairn" / "metrics").mkdir(parents=True)
+        payload = {
+            "session_id": "s", "cwd": str(tmp), "agent_type": "architect",
+            "hook_event_name": "PostToolUse", "tool_name": "Bash",
+            "tool_input": {"command": 'python3 run_tests.py --pattern "test_x*.py"'},
+            "tool_response": {"stdout": "Ran 5 tests in 0.05s (1 files, 8 workers)\nOK\n", "stderr": ""},
+            "duration_ms": 60, "tool_use_id": "x",
+        }
+        env = {"CLAUDE_PROJECT_DIR": str(tmp)}
+        result = _run_hook("test_run_record.py", json.dumps(payload), env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        records_path = tmp / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        lines = [json.loads(l) for l in records_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(len(lines), 1)
+        self.assertFalse(lines[0].get("full"), f"a --pattern run must record full=false, got: {lines[0]!r}")
+
+
+class RunnerSelfRecordsTests(unittest.TestCase):
+    """Gate-4 verdict delta 2 (blocking): run_tests.py writes its own
+    record -- counts, seconds, jobs, gate are all in-process there, so
+    scraping them back out of a possibly-piped stdout (every gate owner
+    reads a 100-line result through `| tail`, per the verdict's own three
+    reproduction runs) cannot be made reliable. The hook's only remaining
+    job is filling in `who` (the one field the CLI cannot know).
+
+    Uses the established fake-engine-root technique (PT-77/PT-80,
+    test_milestone_overhead.py's with_engine_copy): copies run_tests.py
+    into a throwaway root with a tiny, fast, synthetic tests/ dir -- so
+    this drives the REAL CLI path end to end without paying for (or
+    touching) the real 84-file suite."""
+
+    def _fake_engine_root(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        engine_dir = tmp / "scripts" / "cairn"
+        engine_dir.mkdir(parents=True)
+        engine_dir.joinpath("run_tests.py").write_bytes((helpers.CAIRN_DIR / "run_tests.py").read_bytes())
+        tests_dir = engine_dir / "tests"
+        tests_dir.mkdir()
+        tests_dir.joinpath("test_fake_ok.py").write_text(
+            "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_one(self):\n        self.assertTrue(True)\n",
+            encoding="utf-8",
+        )
+        return tmp, engine_dir
+
+    def test_a_run_with_stdout_fully_discarded_still_yields_a_complete_record(self):
+        tmp, engine_dir = self._fake_engine_root()
+        # Piped through `> /dev/null` -- exactly the shape every gate
+        # owner's `| tail` reduces to for this purpose: nothing of the
+        # runner's own stdout survives to be scraped afterward.
+        result = subprocess.run(
+            f'cd "{engine_dir}" && {sys.executable} run_tests.py --gate red > /dev/null',
+            shell=True, capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        records_path = tmp / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        self.assertTrue(records_path.exists(), "run_tests.py itself must write the record -- no hook was involved in this test at all")
+        lines = [json.loads(l) for l in records_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(len(lines), 1)
+        record = lines[0]
+        self.assertEqual(record.get("tests"), 1)
+        self.assertIsNotNone(record.get("seconds"))
+        self.assertIsNotNone(record.get("jobs"))
+        self.assertEqual(record.get("gate"), "red")
+        self.assertTrue(record.get("full"))
+
+
+class RecorderIgnoresNonRunNoiseTests(unittest.TestCase):
+    """Gate-4 verdict delta 3 (blocking): record only a run. No parseable
+    result and no runner exit => write nothing; `gate` never comes from a
+    substring match against arbitrary command text. Reproduced live
+    against e86f163 (see the conversation record): both payloads below
+    currently produce a noise record with tests=None or a hallucinated
+    gate/count scraped out of unrelated git output."""
+
+    def test_a_git_add_whose_path_text_mentions_gate_green_writes_nothing(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        (tmp / "process" / "cairn" / "metrics").mkdir(parents=True)
+        records_path = tmp / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        payload = {
+            "session_id": "s", "cwd": str(tmp), "agent_type": "architect",
+            "hook_event_name": "PostToolUse", "tool_name": "Bash",
+            "tool_input": {"command": 'git add -- "notes/python3 run_tests.py --gate green.md"'},
+            "tool_response": {"stdout": "", "stderr": ""},
+            "duration_ms": 12, "tool_use_id": "x1",
+        }
+        result = _run_hook("test_run_record.py", json.dumps(payload), env={"CLAUDE_PROJECT_DIR": str(tmp)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(records_path.exists() and records_path.read_text(encoding="utf-8").strip(),
+                          "a git add is not a run -- it must never write a record, gate=green or otherwise")
+
+    def test_a_git_log_whose_diff_text_mentions_a_fake_summary_writes_nothing(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        (tmp / "process" / "cairn" / "metrics").mkdir(parents=True)
+        records_path = tmp / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        payload = {
+            "session_id": "s", "cwd": str(tmp), "agent_type": "architect",
+            "hook_event_name": "PostToolUse", "tool_name": "Bash",
+            "tool_input": {"command": "git log --oneline | grep run_tests && python3 --version && git show HEAD"},
+            "tool_response": {
+                "stdout": "commit abc123\n+    # measured: Ran 39 tests in 1.163s (was previously logged)\n",
+                "stderr": "",
+            },
+            "duration_ms": 12, "tool_use_id": "x2",
+        }
+        result = _run_hook("test_run_record.py", json.dumps(payload), env={"CLAUDE_PROJECT_DIR": str(tmp)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(records_path.exists() and records_path.read_text(encoding="utf-8").strip(),
+                          "a git log/show is not a run -- a diff line that merely LOOKS like a summary must never be recorded")
+
+
 def _load_hook_module(script: str):
     # .claude/hooks/ is outside the normal package path -- load by file
     # location rather than adding it to sys.path. Safe against triggering

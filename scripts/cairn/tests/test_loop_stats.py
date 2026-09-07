@@ -289,11 +289,11 @@ class FullRunStatsFromRecordsTests(unittest.TestCase):
         write_jsonl(p, records)
         return p
 
-    def _record(self, minutes, seconds, full=True, who="architect", gate="red"):
+    def _record(self, minutes, seconds, full=True, who="architect", gate="red", jobs=8):
         return {
             "ts": ts(minutes), "who": who, "gate": gate, "full": full,
             "runner": "run_tests", "sha": "abc123", "branch": "feature/pt-97",
-            "seconds": seconds, "harness_ms": int(seconds * 1000) + 29,
+            "seconds": seconds, "harness_ms": int(seconds * 1000) + 29, "jobs": jobs,
             "files": 84, "tests": 1408, "skipped": 1, "ok": True,
             "session": "s1", "cmd": "python3 run_tests.py",
         }
@@ -331,6 +331,37 @@ class FullRunStatsFromRecordsTests(unittest.TestCase):
         self.assertEqual(stats["full_suite_runs"], 0)
         self.assertIsNone(stats["suite_seconds_added"])
 
+    def test_seconds_added_is_computed_within_the_largest_jobs_group_only(self):
+        # Gate-4 verdict delta 4 (PT-97.md @ d896d8d, blocking): mixing
+        # configurations gave 86.55799999999999 -- the serial run (106.5s)
+        # minus the parallel run (19.9s) of IDENTICAL code, a config
+        # difference reported as a feature-caused change. Three records
+        # at jobs=8 (an unambiguous majority group) and one at jobs=1
+        # (a --serial control run) -- only the jobs=8 group may be used.
+        tmp = helpers.make_empty_tmp_dir(self)
+        records = [
+            self._record(1, 26.386, jobs=8),
+            self._record(2, 999.0, jobs=1),
+            self._record(3, 22.111, jobs=8),
+            self._record(4, 19.978, jobs=8),
+        ]
+        path = self._write(tmp, records)
+        stats = loop_stats.full_run_stats(path, T0, T0 + datetime.timedelta(hours=1))
+        self.assertEqual(stats["full_suite_runs"], 4, "the total full-record count is independent of jobs grouping")
+        self.assertEqual(
+            stats["suite_seconds_added"], round(19.978 - 26.386, 3),
+            f"the jobs=1 control run must not enter the delta -- got {stats['suite_seconds_added']!r}",
+        )
+
+    def test_suite_seconds_added_is_rounded_to_three_places(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        path = self._write(tmp, [self._record(1, 106.536, jobs=1), self._record(2, 19.978, jobs=1)])
+        stats = loop_stats.full_run_stats(path, T0, T0 + datetime.timedelta(hours=1))
+        self.assertEqual(stats["suite_seconds_added"], round(19.978 - 106.536, 3))
+        # Exact float-noise reproduction from the verdict: unrounded this
+        # is 86.55799999999999 (sign flipped here since first > last).
+        self.assertNotIn("99999", repr(stats["suite_seconds_added"]))
+
 
 class ScorecardRenderingNeverPrintsUnmeasuredTests(unittest.TestCase):
     """PT-97 AC2: format_scorecard prints numbers or '(no full-run
@@ -359,6 +390,22 @@ class ScorecardRenderingNeverPrintsUnmeasuredTests(unittest.TestCase):
         rendered = loop_stats.format_scorecard(self._min_card(full_suite_runs=2, suite_seconds_added=-6.9))
         self.assertNotIn("unmeasured", rendered)
         self.assertIn("-6.9", rendered)
+
+    def test_per_agent_table_is_labelled_when_it_disagrees_with_the_authoritative_count(self):
+        # Gate-4 verdict delta 4: the real output printed "full_suite_runs
+        # 2" in the metric table and a per-agent table beneath it summing
+        # to 12, in the SAME output, with no indication they come from
+        # different sources (records vs. transcript heuristic). Records
+        # are authoritative (card["full_suite_runs"]); the per-agent
+        # breakdown must say so when it disagrees, not sit there silently
+        # implying it should add up to the same number.
+        card = self._min_card(full_suite_runs=2, suite_seconds_added=-6.9)
+        card["per_agent"] = {
+            "architect": {"tool_calls": 10, "full_suite_runs": 4, "msgs_to_lead": 1, "waste": {}},
+            "implementation-lead": {"tool_calls": 20, "full_suite_runs": 8, "msgs_to_lead": 2, "waste": {}},
+        }
+        rendered = loop_stats.format_scorecard(card)
+        self.assertIn("transcript", rendered.lower(), "a disagreeing per-agent breakdown must be labelled as transcript-derived, not left unlabelled")
 
 
 if __name__ == "__main__":
