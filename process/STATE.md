@@ -21,9 +21,10 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Issue | PT-97 (cairn) |
 | Milestone | PT-0.12.1 |
 | Branch | `feature/pt-97-cairn-test-gate-hook` |
+| PR | https://github.com/richmosko/project_template/pull/180 |
 | Started | 2026-09-07 |
 | Goal | A `cairn test` wrapper records every suite run, a PreToolUse hook refuses un-tiered full runs outside a gate, and loop-stats prints measured suite seconds and full-run counts. |
-| Status | In Progress |
+| Status | In Review |
 
 ## Releases
 
