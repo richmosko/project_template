@@ -1641,7 +1641,11 @@ def serve(
     # own -- see TRANSCRIPTS_DIR_MARKER_NAME's own comment.
     (sessions_dir / TRANSCRIPTS_DIR_MARKER_NAME).write_text(str(transcripts_dir), encoding="utf-8")
 
-    def _do_flush() -> None:
+    def _do_flush() -> int:
+        """Returns the number of lines this flush wrote (PT-90) -- `0` on
+        a no-op flush (nothing accrued) and on a refused flush (it wrote
+        nothing, so `flushed 0 lines` at the self-stop log line is true,
+        not a guess)."""
         branch = _current_branch(branch_repo_root)
         hint = _issue_hint_from_datapoints(state.series_meta.values())
         # PT-84 §5: built once for THIS flush (one `git log` per
@@ -1649,8 +1653,9 @@ def serve(
         # resolution and the line-sort below rather than computed twice.
         milestone_windows_table = cairn.milestone_windows(branch_repo_root)
         issue = resolve_issue(branch, prefix, hint, milestone_windows_table=milestone_windows_table)
+        lines_written = 0
         try:
-            flush(state, out_path, issue, _now_iso(), roster=roster, transcripts_dir=transcripts_dir, milestone_windows_table=milestone_windows_table)
+            lines_written = len(flush(state, out_path, issue, _now_iso(), roster=roster, transcripts_dir=transcripts_dir, milestone_windows_table=milestone_windows_table))
         except (ReceiverError, backfill_tokens.BackfillError) as e:
             print(f"otel_receiver: flush refused: {e}", file=sys.stderr)
         # Addendum §3: the liveness probe also runs "at each flush" -- an
@@ -1658,6 +1663,7 @@ def serve(
         # where EVERY session that ever registered crashed without ever
         # calling `--session-ended`.
         reap_dead_sessions(sessions_dir, is_alive=session_is_alive)
+        return lines_written
 
     def _on_export() -> None:
         # Runs on EVERY export, not per flush -- §5's "never per
@@ -1799,6 +1805,13 @@ def serve(
                     last_periodic_reap = time.monotonic()
             if live_session_ids(sessions_dir):
                 ever_nonempty = True
+                # PT-90 AC2: log only when a deadline is actually armed --
+                # this branch runs on EVERY ordinary tick (most of which
+                # have no grace window pending at all), so an unconditional
+                # print here would flood the log once per
+                # WATCHDOG_TICK_SECONDS forever.
+                if shutdown_deadline is not None:
+                    print(f"grace-window cancelled: registry non-empty at {_now_iso()}, session registered, staying up", file=sys.stderr)
                 shutdown_deadline = None
                 continue
             if not ever_nonempty:
@@ -1816,6 +1829,10 @@ def serve(
             # brand new session may have registered between ticks.
             reap_dead_sessions(sessions_dir, is_alive=session_is_alive)
             if live_session_ids(sessions_dir):
+                # PT-90 AC2: a race window, not deterministically
+                # triggerable by a test -- logged per the ruling anyway.
+                if shutdown_deadline is not None:
+                    print(f"grace-window cancelled: registry non-empty at {_now_iso()}, session proved alive at the pre-exit probe, staying up", file=sys.stderr)
                 shutdown_deadline = None
                 continue
             # The point of no return (addendum §B): exclusive-create
@@ -1831,6 +1848,10 @@ def serve(
                     closing_marker.unlink()
                 except OSError:
                     pass
+                # PT-90 AC2: a race window, not deterministically
+                # triggerable by a test -- logged per the ruling anyway.
+                if shutdown_deadline is not None:
+                    print(f"grace-window cancelled: registry non-empty at {_now_iso()}, session registered during the closing race, staying up", file=sys.stderr)
                 shutdown_deadline = None
                 continue
             # Nothing after this aborts. §5 ordering: socket closed
@@ -1848,7 +1869,12 @@ def serve(
             # `server_close()` there afterward is a harmless no-op.
             httpd.shutdown()
             httpd.server_close()
-            _do_flush()
+            flushed = _do_flush()
+            # PT-90 AC1: the point of no return -- nothing past this can
+            # abort, so this is the one place the trigger can be named
+            # with certainty. After the flush, not before: `<k>` is only
+            # known once it returns.
+            print(f"self-stop: registry drained at {_now_iso()}, grace {grace_period_seconds}s elapsed, flushed {flushed} lines, exiting", file=sys.stderr)
             _compare_and_delete_pidfile(pidfile, my_pid)
             try:
                 closing_marker.unlink()
