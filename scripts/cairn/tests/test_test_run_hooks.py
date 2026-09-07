@@ -361,6 +361,28 @@ class RecorderIgnoresNonRunNoiseTests(unittest.TestCase):
         self.assertFalse(records_path.exists() and records_path.read_text(encoding="utf-8").strip(),
                           "a git log/show is not a run -- a diff line that merely LOOKS like a summary must never be recorded")
 
+    def test_a_test_shaped_command_with_unparseable_stdout_writes_nothing(self):
+        # implementation-lead's re-read: delta 3's "record only a run"
+        # left a gap -- a command that DOES look like a real run
+        # (python3 + run_tests token, so _is_test_run passes) but whose
+        # captured stdout has no parseable "Ran N tests" summary at all
+        # currently still writes a record, with tests/seconds left null
+        # instead of writing nothing. Reproduced live against f66fe09.
+        tmp = helpers.make_empty_tmp_dir(self)
+        (tmp / "process" / "cairn" / "metrics").mkdir(parents=True)
+        records_path = tmp / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        payload = {
+            "session_id": "s", "cwd": str(tmp), "agent_type": "architect",
+            "hook_event_name": "PostToolUse", "tool_name": "Bash",
+            "tool_input": {"command": 'python3 run_tests.py -p "test_x*.py"'},
+            "tool_response": {"stdout": "some garbage output with no summary line at all\n", "stderr": ""},
+            "duration_ms": 60, "tool_use_id": "x3",
+        }
+        result = _run_hook("test_run_record.py", json.dumps(payload), env={"CLAUDE_PROJECT_DIR": str(tmp)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(records_path.exists() and records_path.read_text(encoding="utf-8").strip(),
+                          "unparseable stdout from a test-shaped command must write nothing, not a null-filled record")
+
 
 class RealRunTestsRecordsUnderOverrideTests(unittest.TestCase):
     """Gate-4 verdict delta 7 (blocking, PT-97.md @ f66fe09): _self_record
