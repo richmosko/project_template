@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | tearDownModule guard in test_milestone_overhead.py uses a bare assert — stripped under python -O; raise explicitly |
-| Issue | PT-95 (cairn) |
+| Feature | Test suite: tiered gating, parallel runner, and fixture reuse — the Python suite costs ~155 s per run and runs 15–20× per loop |
+| Issue | PT-93 (cairn) |
 | Milestone | PT-0.12.1 |
-| Branch | `feature/pt-95-explicit-raise-guard` |
-| PR | https://github.com/richmosko/project_template/pull/177 |
+| Branch | `feature/pt-93-tiered-gating-parallel-runner` |
+| PR | https://github.com/richmosko/project_template/pull/178 |
 | Started | 2026-09-06 |
-| Goal | The module-level guard raises explicitly so it fires under python -O, proven by a subprocess test under -O. |
+| Goal | The full Python suite runs in ≤45 s via a parallel runner with identical counts, and WORKFLOW + /finish-feature name the tiered rule and the runner command. |
 | Status | In Review |
 
 ## Releases
