@@ -154,6 +154,17 @@ def _out_path(fake_root: Path) -> Path:
     return fake_root / "process" / "cairn" / "metrics" / "token-usage.jsonl"
 
 
+def _log_path(fake_root: Path) -> Path:
+    # PT-90: otel_receiver.py's own LOGFILE_REL -- the daemon's stderr,
+    # detached onto this file by --ensure-running.
+    return fake_root / "process" / "cairn" / "metrics" / "otel_receiver.log"
+
+
+def _log_lines(fake_root: Path) -> list[str]:
+    path = _log_path(fake_root)
+    return path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+
+
 def _stop_fake_receiver(fake_root: Path, env: dict) -> None:
     """Cleanup safety net: a test that fails mid-assertion must never
     leak a detached background process into the rest of the suite run."""
@@ -641,6 +652,20 @@ class LastSessionSelfStopTests(unittest.TestCase):
         )
         self.assertFalse(_pidfile_path(fake_root).exists(), "the pidfile must be removed on self-stop")
 
+        # PT-90 AC1: the self-stop line at the point of no return, naming
+        # the trigger -- measured baseline (architect, gate-1 ruling) was
+        # 0 lines here before this feature, so exactly 1 is asserted as
+        # equality, not "contains".
+        log_lines = _log_lines(fake_root)
+        self.assertEqual(
+            len(log_lines), 1,
+            f"expected exactly one self-stop log line -- got {log_lines!r}",
+        )
+        self.assertRegex(
+            log_lines[0],
+            r"^self-stop: registry drained at \S+, grace [\d.]+s elapsed, flushed \d+ lines, exiting$",
+        )
+
     def test_two_starts_one_end_still_running(self):
         port = _free_port()
         fake_root = make_fake_engine_root(self, otel_port=port)
@@ -676,6 +701,14 @@ class LastSessionSelfStopTests(unittest.TestCase):
         self.assertIn("sessions: 1", status.stdout, status.stdout)
 
     def test_a_start_during_the_grace_window_cancels_the_exit(self):
+        """PT-90 AC2: asserts the cancel line for the ordinary-tick cancel
+        site (registry non-empty at the top of a tick) -- the only one of
+        the three cancel sites this scenario deterministically triggers.
+        The other two (a pre-exit re-probe finding life; a session
+        registering during the .closing race) are genuine race windows
+        with no deterministic trigger; the ruling has them logged, not
+        tested here, and this docstring is that record, not a silent
+        gap."""
         port = _free_port()
         fake_root = make_fake_engine_root(self, otel_port=port)
         env = _base_env(port)
@@ -709,6 +742,18 @@ class LastSessionSelfStopTests(unittest.TestCase):
             f"{status.stdout!r} {status.stderr!r}",
         )
         self.assertIn("sessions: 1", status.stdout, status.stdout)
+
+        # PT-90 AC2: the cancel line -- same measured-0-baseline
+        # discipline as AC1, equality not "contains".
+        log_lines = _log_lines(fake_root)
+        self.assertEqual(
+            len(log_lines), 1,
+            f"expected exactly one grace-window-cancelled log line -- got {log_lines!r}",
+        )
+        self.assertRegex(
+            log_lines[0],
+            r"^grace-window cancelled: registry non-empty at \S+, [^,]+, staying up$",
+        )
 
 
 class LivenessReapTests(unittest.TestCase):
