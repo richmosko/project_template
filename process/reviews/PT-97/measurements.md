@@ -62,3 +62,17 @@ for why it is not taken.
 Scan of every `hooks[*].hooks[*].command` in `.claude/settings.json` referencing
 `.claude/hooks/`: **1 command, 1 unanchored** — `python3 .claude/hooks/message_cap.py`. The
 scan finds the known offender, so an empty result after the fix means something.
+
+## Prefilter, as shipped (addendum 1, verified end to end)
+
+Command form measured against the captured payload, not reasoned about:
+
+    in=$(cat); case "$in" in *unittest*|*run_tests*) printf %s "$in" | python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/test_run_guard.py";; *) exit 0;; esac
+
+| Case | python spawned | Exit | Per call (20 runs) |
+|---|---|---|---|
+| `git status`-shaped payload (glob miss) | no | 0 | **~6 ms** (0.13 s / 20 incl. one extra `sh -c` of harness; 0.08 s / 20 for the prefilter alone) |
+| `cd scripts/cairn && python3 run_tests.py` | yes | **2** | 32 ms (0.64 s / 20) |
+| `python3 run_tests.py -p "test_x.py"` | yes | 0 | 32 ms |
+
+Exit 2 propagates through the pipe, so the block still works; the pipeline's status is python's.
