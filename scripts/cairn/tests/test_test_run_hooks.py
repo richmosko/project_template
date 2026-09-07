@@ -26,6 +26,7 @@ file (new), tests/test_loop_stats.py, and the settings-anchoring guard
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -184,6 +185,78 @@ class RecorderTests(unittest.TestCase):
         result = _run_hook("test_run_record.py", json.dumps(payload), env=self._env(tmp))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(records_path.read_text(encoding="utf-8"), "", "a non-test Bash call must never append a record")
+
+
+def _load_hook_module(script: str):
+    # .claude/hooks/ is outside the normal package path -- load by file
+    # location rather than adding it to sys.path. Safe against triggering
+    # the hook's own main(): spec_from_file_location gives it a module
+    # name other than "__main__", so `if __name__ == "__main__":` at the
+    # bottom of the hook never fires.
+    spec = importlib.util.spec_from_file_location(f"pt97_{script[:-3]}", HOOKS_DIR / script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _find_hook_command(settings: dict, event: str, name_substring: str) -> str | None:
+    for entry in settings.get("hooks", {}).get(event, []):
+        for h in entry.get("hooks", []):
+            cmd = h.get("command", "")
+            if name_substring in cmd:
+                return cmd
+    return None
+
+
+class ShellPrefilterCouplingTests(unittest.TestCase):
+    """Ruling addendum 1 (PT-97.md @ d691d19): the real guard lives behind
+    a shell `case` prefilter in settings.json (measured: ~6ms on a glob
+    miss vs 29ms unconditional), matched on
+    `test_run_guard.TEST_CMD_TOKENS`. Two coupling risks the prior tests
+    (which call test_run_guard.py directly, bypassing the prefilter
+    entirely) cannot catch: the glob and the token tuple drifting apart,
+    and a narrowed glob silently never spawning python at all. Named
+    mutation (addendum 1): narrow the glob to `*unittest*` only, feed the
+    real prefilter a bare `python3 run_tests.py` command -- python is
+    not spawned, the run is not blocked, and this must go red on exactly
+    that."""
+
+    def test_test_cmd_tokens_each_have_a_glob_alternative_in_settings_json(self):
+        module = _load_hook_module("test_run_guard.py")
+        tokens = module.TEST_CMD_TOKENS
+        settings_text = SETTINGS_PATH.read_text(encoding="utf-8")
+        missing = [t for t in tokens if f"*{t}*" not in settings_text]
+        self.assertEqual(
+            missing, [],
+            f"settings.json's shell prefilter glob is missing a *<token>* alternative for: "
+            f"{missing!r} -- it and TEST_CMD_TOKENS must never drift apart",
+        )
+
+    def test_a_bare_run_tests_py_command_is_blocked_through_the_real_prefilter(self):
+        settings = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+        cmd = _find_hook_command(settings, "PreToolUse", "test_run_guard.py")
+        self.assertIsNotNone(cmd, "no PreToolUse hook command in settings.json references test_run_guard.py yet")
+        env = dict(os.environ)
+        env["CLAUDE_PROJECT_DIR"] = str(REPO_ROOT)
+        result = subprocess.run(
+            ["sh", "-c", cmd], input=json.dumps(_pre_payload("cd scripts/cairn && python3 run_tests.py")),
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("-p", result.stderr)
+        self.assertIn("--gate", result.stderr)
+
+    def test_a_narrowed_pattern_command_passes_through_the_real_prefilter(self):
+        settings = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+        cmd = _find_hook_command(settings, "PreToolUse", "test_run_guard.py")
+        self.assertIsNotNone(cmd, "no PreToolUse hook command in settings.json references test_run_guard.py yet")
+        env = dict(os.environ)
+        env["CLAUDE_PROJECT_DIR"] = str(REPO_ROOT)
+        result = subprocess.run(
+            ["sh", "-c", cmd], input=json.dumps(_pre_payload('python3 run_tests.py -p "test_x*.py"')),
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 def _hook_commands(settings: dict) -> list[str]:
