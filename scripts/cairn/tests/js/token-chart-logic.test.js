@@ -585,7 +585,12 @@ test("formatCaption chronological has no still-open clause when every issue is c
   assert.doesNotMatch(caption, /still open/, `got ${JSON.stringify(caption)}`);
 });
 
-test("formatCaption chronological names the still-open issue count when any issue is open", () => {
+test("formatCaption chronological names the still-open issue count (plural control) when more than one issue is open", () => {
+  // Control for the singular test below -- the PLURAL branch was
+  // already correct in the merged build (verdict delta 1, PT-102.md @
+  // 663eb0a: only the singular case pluralized wrongly), so this stays
+  // green throughout and proves the fix didn't break the plural case
+  // while adding the singular one.
   const mod = loadTokenChartLogic();
   const payload = samplePayload([
     withClosedAt(sampleIssue("PT-1", 10, 0.1), "2026-09-01"),
@@ -596,5 +601,28 @@ test("formatCaption chronological names the still-open issue count when any issu
   assert.match(
     caption, /2 issues are still open and are shown last\./,
     `got ${JSON.stringify(caption)}`,
+  );
+});
+
+test("formatCaption chronological singularizes the still-open sentence when exactly one issue is open", () => {
+  // Verdict delta 1 (PT-102.md @ 663eb0a): the live board showed "1
+  // issues are still open and are shown last." -- the architect's own
+  // ruling supplied that unpluralized string verbatim, so this is a
+  // ruling fix, not a build defect. Red at HEAD: the merged
+  // implementation still emits the unpluralized `${openCount} issues
+  // ... are shown last.` for every count including 1.
+  const mod = loadTokenChartLogic();
+  const payload = samplePayload([
+    withClosedAt(sampleIssue("PT-1", 10, 0.1), "2026-09-01"),
+    sampleIssue("PT-2", 10, 0.1), // the one open issue
+  ]);
+  const caption = mod.formatCaption(payload, "tokens", 2, 2, "chronological");
+  assert.match(
+    caption, /\b1 issue is still open and is shown last\./,
+    `expected the SINGULAR form ("1 issue is ... is shown") -- got ${JSON.stringify(caption)}`,
+  );
+  assert.doesNotMatch(
+    caption, /1 issues are still open/,
+    `must not still emit the unpluralized plural form -- got ${JSON.stringify(caption)}`,
   );
 });
