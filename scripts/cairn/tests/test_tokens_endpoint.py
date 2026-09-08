@@ -57,6 +57,7 @@ import json
 import time
 import unittest
 import urllib.request
+from unittest import mock
 from pathlib import Path
 from typing import Optional
 
@@ -677,6 +678,40 @@ class ClosedAtGitDegradationTests(unittest.TestCase):
             entry.get("closed_at"),
             f"with git unavailable, closed_at must degrade to null, never raise -- got "
             f"{entry.get('closed_at')!r}",
+        )
+
+
+class ClosedAtReusesTheMemoizedFlowWrapperTests(unittest.TestCase):
+    """PT-102 addendum 1 (architect, process/cairn/issues/PT-102.md @
+    bd45b78, decided line (a2)/qa test 9): `build_tokens_payload` must
+    call `build_flow_payload` (the MEMOIZED wrapper), never
+    `_compute_flow_payload` (the raw, unmemoized git walk) directly --
+    measured cold = 278.3 ms, warm = 0.10-0.25 ms, and a wrapper-bypass
+    produces BYTE-IDENTICAL output (nothing else in this test file can
+    catch it). Mutation (ruling): call `_compute_flow_payload` directly
+    from `build_tokens_payload` -- the counter reads 2 instead of 1."""
+
+    def test_two_calls_at_an_unchanged_head_walk_git_history_only_once(self):
+        data_dir = make_flow_git_repo(self)
+        repo_root = data_dir.parent.parent
+        _flow_write_issue(data_dir, id="PT-1", status="todo")
+        _flow_commit_at(repo_root, "create PT-1", "2026-08-10 10:00:00 +0000")
+
+        (data_dir / "metrics").mkdir(parents=True, exist_ok=True)
+        write_token_usage_jsonl(data_dir / "metrics" / "token-usage.jsonl", [
+            token_line("PT-1", "team-lead", "claude-sonnet-5", input=10),
+        ])
+
+        with mock.patch("cairn._compute_flow_payload", wraps=cairn._compute_flow_payload) as spy:
+            _call_build_tokens_payload(data_dir, prices=SONNET_PRICE)
+            _call_build_tokens_payload(data_dir, prices=SONNET_PRICE)
+        self.assertEqual(
+            spy.call_count, 1,
+            f"build_tokens_payload must reach closed_at through the MEMOIZED build_flow_payload "
+            f"wrapper, not _compute_flow_payload directly -- two calls at an UNCHANGED HEAD must "
+            f"walk git history only once (the second call is a cache hit). Got "
+            f"{spy.call_count} raw-walk calls: a wrapper-bypass silently turns a ~0.2ms probe "
+            f"into a ~278ms git walk on every poll, and the JSON output would look identical.",
         )
 
 
