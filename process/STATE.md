@@ -17,14 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | loop-stats crashes on a structured SendMessage body (dict) in the transcript audit |
-| Issue | PT-108 (cairn) |
+| Feature | Worktree teammates' narrowed (-p) runs record twice in the test-run ledger |
+| Issue | PT-107 (cairn) |
 | Milestone | PT-0.12.2 |
-| Branch | `feature/pt-108-loop-stats-dict-body` |
+| Branch | `feature/pt-107-worktree-run-double-record` |
 | Started | 2026-09-08 |
-| Goal | `cairn loop-stats` survives protocol (dict-bodied) SendMessage records; one regression test. |
-| PR | https://github.com/richmosko/project_template/pull/195 |
-| Status | In Review |
+| Goal | One ledger record per run from a linked worktree, narrowed or gated, with the feature branch as `branch`. |
+| Status | In Progress |
 
 ## Releases
 
