@@ -17,14 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Test suite: the last two >8 s files (daemon timing margins, subprocess-per-test) and sliver-file consolidation |
-| Issue | PT-98 (cairn) |
+| Feature | Every teammate in its own git worktree; one branch per issue is the sole integration point |
+| Issue | PT-82 (cairn) |
 | Milestone | PT-0.12.1 |
-| Branch | `feature/pt-98-last-slow-files-consolidation` |
-| PR | https://github.com/richmosko/project_template/pull/188 |
+| Branch | `feature/pt-82-teammate-worktrees` |
 | Started | 2026-09-08 |
-| Goal | The two slowest test files lose their deterministic-replaceable slack without weakening the daemon's timing contract or the CLI boundary; sliver files consolidate by subject; every retirement is named. |
-| Status | In Review |
+| Goal | A spike proves a fresh teammate can work from its own worktree at the feature tip with messaging, tasks, hooks, and hand-offs intact; the protocol lands in agent definitions, settings, and skills with the one-branch-one-PR invariant enforced. |
+| Status | In Progress |
 
 ## Releases
 
