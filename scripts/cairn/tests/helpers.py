@@ -303,3 +303,63 @@ def assert_real_state_untouched(snapshot: Dict[str, Any]) -> None:
     findings = diagnose_real_state(snapshot)
     if findings:
         raise AssertionError("real state guard tripped:\n" + "\n".join(findings))
+
+
+# --------------------------------------------------------------------------
+# PT-82 (architect's ruling, re-issued whole, PT-82.md @ 69e9664, item
+# (c2), "unchanged from addendum 1"): a teammate's worktree carries TWO
+# `process/cairn/metrics/token-usage.jsonl` copies -- its own git-tracked
+# one and the main checkout's, which the live daemon actually writes.
+# Resolving the guard to only ONE of them (via `real_metrics_dir()`
+# alone) would reintroduce a false positive: watch only the main
+# checkout and a stray write to the WORKTREE's own copy goes unwatched;
+# watch only the worktree copy (the pre-PT-82 default) and it is
+# watching a file the daemon never touches at all. The guard therefore
+# snapshots BOTH, at two different tolerances: the worktree's own copy
+# BYTE-EXACT (nothing legitimately writes it once a gated run's records
+# redirect to the main checkout -- PT-82's records-path discriminator --
+# so any diff there, however "backed" the added line's issue id, is a
+# stray write), and the main checkout's copy under PT-100's EXISTING
+# containment tolerance (a daemon flush re-sorts and adds; that stays
+# silent). `pidfile_path`/`sessions_dir` are main-checkout-only state --
+# a worktree carries no counterpart to watch.
+# --------------------------------------------------------------------------
+
+
+def snapshot_real_state_both_trees(
+    worktree_token_usage_path: Path,
+    main_token_usage_path: Path,
+    pidfile_path: Path,
+    sessions_dir: Path,
+    data_dir: Path,
+) -> Dict[str, Any]:
+    return {
+        "worktree_token_usage_path": Path(worktree_token_usage_path),
+        "worktree_lines": _read_jsonl_lines(worktree_token_usage_path),
+        "main": snapshot_real_state(main_token_usage_path, pidfile_path, sessions_dir, data_dir),
+    }
+
+
+def diagnose_real_state_both_trees(snapshot: Dict[str, Any]) -> List[str]:
+    """`[]` iff BOTH trees are untouched, or the main tree's change
+    classifies as a tolerated daemon flush (PT-100's containment,
+    unchanged, covering token-usage.jsonl, `.receiver.pid`, and
+    `.sessions/`). The worktree's own tracked copy gets NO containment
+    tolerance -- any change at all, even a single backed-issue addition
+    PT-100's own rule would silently pass, is a finding."""
+    findings: List[str] = list(diagnose_real_state(snapshot["main"]))
+    current_worktree_lines = _read_jsonl_lines(snapshot["worktree_token_usage_path"])
+    if current_worktree_lines != snapshot["worktree_lines"]:
+        findings.append(
+            f"worktree's own tracked token-usage.jsonl changed -- byte-exact, no tolerance: "
+            f"before {len(snapshot['worktree_lines'])} line(s), now {len(current_worktree_lines)} -- "
+            f"nothing legitimately writes this file once a gated run redirects to the main "
+            f"checkout (PT-82); any change here is a stray write."
+        )
+    return findings
+
+
+def assert_real_state_untouched_both_trees(snapshot: Dict[str, Any]) -> None:
+    findings = diagnose_real_state_both_trees(snapshot)
+    if findings:
+        raise AssertionError("real state guard (both trees) tripped:\n" + "\n".join(findings))
