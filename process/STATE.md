@@ -23,7 +23,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-107-worktree-run-double-record` |
 | Started | 2026-09-08 |
 | Goal | One ledger record per run from a linked worktree, narrowed or gated, with the feature branch as `branch`. |
-| Status | In Progress |
+| PR | https://github.com/richmosko/project_template/pull/196 |
+| Status | In Review |
 
 ## Releases
 
