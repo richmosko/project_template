@@ -116,5 +116,191 @@ class PreCommitHookTests(GuardTestBase):
         self.assertIn("PT-1.md", r.stderr)
 
 
+# --------------------------------------------------------------------------
+# PT-109 (architect's gate-1 brief, process/cairn/issues/PT-109.md): a real
+# `cairn archive` move (issues/X.md -> archive/issues/X.md, via `git mv`)
+# diffs as 100% added lines without rename detection, so every HISTORICAL
+# comment author trips E15 -- 16 false refusals on the PT-0.12.1 close.
+# Real git throughout: `git mv` stages an actual rename, never a synthetic
+# name-status stand-in.
+# --------------------------------------------------------------------------
+
+
+class RenameAwareGuardCommitTests(GuardTestBase):
+    def _archive_dest(self) -> Path:
+        archive_dir = self.data_dir / "archive" / "issues"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        return archive_dir / self.issue.name
+
+    def _append_comment(self, path: Path, author: str, body: str) -> None:
+        # Direct file write, not the `cairn comment` CLI -- the CLI's own
+        # foreign-uncommitted-comment guard is a different layer
+        # (CommentRefusesForeignUncommittedTests above) and irrelevant to
+        # what `guard-commit` sees in the staged diff.
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"\n### @{author} — 2026-09-08\n\n{body}\n")
+
+    def test_a_pure_rename_of_a_multi_author_issue_passes(self):
+        """Mutation: drop the -M/R100-skip fix -> the guard sees the whole
+        moved file as newly added and refuses on architect+qa-engineer's
+        HISTORICAL (already-committed) comments -- exactly PT-0.12.1's 16
+        false refusals."""
+        self.comment("architect", "ruling")
+        git(self.root, "commit", "-q", "-m", "ruling", "--", str(self.issue))
+        self.comment("qa-engineer", "assertion")
+        git(self.root, "commit", "-q", "-m", "assertion", "--", str(self.issue))
+
+        dest = self._archive_dest()
+        git(self.root, "mv", str(self.issue), str(dest))
+
+        r = subprocess.run([str(helpers.CAIRN_BIN), "guard-commit"], cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, f"a pure rename must carry no new hunk -- {r.stdout!r} {r.stderr!r}")
+
+    def test_a_partial_rename_with_one_newly_added_comment_passes(self):
+        """The rename source has ONE historical author (architect); the
+        move also appends a single NEW comment by a DIFFERENT author
+        (qa-engineer). Diffed against the rename source, only
+        qa-engineer's comment is genuinely added -- one author, passes.
+        Mutation: diff the moved file against nothing (full-add) instead
+        of the rename source -> both architect (stale) and qa-engineer
+        (real) count as added, len==2, wrongly refused."""
+        self.comment("architect", "ruling")
+        git(self.root, "commit", "-q", "-m", "ruling", "--", str(self.issue))
+
+        dest = self._archive_dest()
+        git(self.root, "mv", str(self.issue), str(dest))
+        self._append_comment(dest, "qa-engineer", "moved and re-triaged")
+        git(self.root, "add", "--", str(dest))
+
+        r = subprocess.run([str(helpers.CAIRN_BIN), "guard-commit"], cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(
+            r.returncode, 0,
+            f"one genuinely new comment on a partial rename must pass -- {r.stdout!r} {r.stderr!r}",
+        )
+
+    def test_a_partial_rename_with_two_newly_added_comments_by_different_authors_refuses(self):
+        """Same construction as above, but TWO new comments by two
+        different authors land in the same staged change -- the rename
+        must not become a blanket bypass for a genuine multi-author
+        violation. Mutation: skip every R<100 entry outright (not just
+        diff it against its source) -> this wrongly passes too.
+
+        Load-bearing per the ruling (PT-109.md @ 6831854, guard 3): the
+        refusal must name EXACTLY the two genuinely new authors, not the
+        historical one -- proving the fix narrowed the guard rather than
+        disabling it. Mutation: diff the whole file instead of pairing
+        against the rename source -> 'architect' (stale) appears in the
+        message too."""
+        self.comment("architect", "ruling")
+        git(self.root, "commit", "-q", "-m", "ruling", "--", str(self.issue))
+
+        dest = self._archive_dest()
+        git(self.root, "mv", str(self.issue), str(dest))
+        self._append_comment(dest, "qa-engineer", "moved and re-triaged")
+        self._append_comment(dest, "seceng", "flagging for a security pass")
+        git(self.root, "add", "--", str(dest))
+
+        r = subprocess.run([str(helpers.CAIRN_BIN), "guard-commit"], cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, f"two new authors on a partial rename must still refuse -- {r.stdout!r} {r.stderr!r}")
+        self.assertIn("qa-engineer", r.stderr)
+        self.assertIn("seceng", r.stderr)
+        self.assertNotIn(
+            "architect", r.stderr,
+            f"the refusal must name only the genuinely NEW authors, not the historical (unchanged) one -- {r.stderr!r}",
+        )
+
+    def test_ordinary_non_rename_modification_with_two_authors_still_refuses(self):
+        """Ruling guard 4: regression control for the untouched (non-
+        rename) path -- an ordinary same-path modification adding two
+        authors must still refuse, exactly as PreCommitHookTests already
+        covers. Restated here so PT-109's whole guard set lives in one
+        place; not a new behaviour."""
+        self.comment("architect", "ruling", "--allow-foreign")
+        self.comment("qa-engineer", "assertion", "--allow-foreign")
+        git(self.root, "add", "--", str(self.issue))
+        r = subprocess.run([str(helpers.CAIRN_BIN), "guard-commit"], cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, f"{r.stdout!r} {r.stderr!r}")
+
+    def test_a_staged_path_containing_a_space_is_still_evaluated(self):
+        """Ruling guard 5: the only thing keeping the `-z` NUL-separated
+        name-status parser honest. Mutation: split the name-status output
+        on whitespace instead of NUL -- a path with a space breaks the
+        field boundaries and the guard silently skips the file (goes
+        blind) rather than refusing or erroring."""
+        spaced_issue = self.data_dir / "issues" / "PT-1 spaced.md"
+        spaced_issue.write_text(self.issue.read_text(encoding="utf-8"), encoding="utf-8")
+        git(self.root, "add", "--", str(spaced_issue))
+        git(self.root, "commit", "-q", "-m", "seed spaced issue")
+
+        self._append_comment(spaced_issue, "architect", "ruling")
+        self._append_comment(spaced_issue, "qa-engineer", "assertion")
+        git(self.root, "add", "--", str(spaced_issue))
+
+        r = subprocess.run([str(helpers.CAIRN_BIN), "guard-commit"], cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(
+            r.returncode, 1,
+            f"a spaced path must still be evaluated (refused here, two new authors), not silently skipped -- "
+            f"{r.stdout!r} {r.stderr!r}",
+        )
+        self.assertIn("PT-1 spaced.md", r.stderr)
+
+    def test_a_pt_0_12_1_shaped_archive_commit_passes_the_real_hook_with_no_flag(self):
+        """Ruling brief item (3), acceptance: `cairn archive` stays the
+        sanctioned path and `--no-verify` stops being part of it -- a
+        real `git commit` (no bypass flag) through the REAL
+        `.githooks/pre-commit` -> `cairn guard-commit` hook, on a
+        multi-author archive move, must succeed. This is the end-to-end
+        path the other guards test only via the CLI directly; PT-0.12.1
+        needed --no-verify here and that is the regression this pins."""
+        self.comment("architect", "ruling")
+        git(self.root, "commit", "-q", "-m", "ruling", "--", str(self.issue))
+        self.comment("qa-engineer", "assertion")
+        git(self.root, "commit", "-q", "-m", "assertion", "--", str(self.issue))
+
+        dest = self._archive_dest()
+        git(self.root, "mv", str(self.issue), str(dest))
+
+        r = git(self.root, "commit", "-q", "-m", "archive", "--", str(dest), check=False)
+        self.assertEqual(
+            r.returncode, 0,
+            f"a PT-0.12.1-shaped archive commit must pass the real pre-commit hook with NO flag -- "
+            f"{r.stdout!r} {r.stderr!r}",
+        )
+
+    def test_rename_plus_new_comments_by_authors_already_in_history_still_refuses(self):
+        """Gate-4 NO-GO (architect, PT-109.md @ 5a680b1): a set difference
+        over AUTHOR NAMES (rather than a Counter difference over header
+        LINES) lets an author already anywhere in the file's history add
+        an unlimited number of fresh comments without ever registering as
+        added -- two such authors ride in together on a rename and the
+        commit silently succeeds (measured against 7a459fa: PASSED).
+        Both architect and qa-engineer already have a HISTORICAL,
+        committed comment here; the rename ALSO carries one fresh comment
+        from each -- genuinely new content, same author names. Real hook,
+        real `git commit -- <dest>`, no bypass flag, matching the
+        preceding no-flag acceptance test's shape. Mutation: restore the
+        set-difference comparison -> this commit is made and the
+        violation ships silently."""
+        self.comment("architect", "ruling")
+        git(self.root, "commit", "-q", "-m", "ruling", "--", str(self.issue))
+        self.comment("qa-engineer", "assertion")
+        git(self.root, "commit", "-q", "-m", "assertion", "--", str(self.issue))
+
+        dest = self._archive_dest()
+        git(self.root, "mv", str(self.issue), str(dest))
+        self._append_comment(dest, "architect", "a second, fresh comment -- same author as history")
+        self._append_comment(dest, "qa-engineer", "a second, fresh comment -- same author as history")
+        git(self.root, "add", "--", str(dest))
+
+        r = git(self.root, "commit", "-q", "-m", "archive", "--", str(dest), check=False)
+        self.assertNotEqual(
+            r.returncode, 0,
+            f"two fresh comments by authors already in history must still refuse, not ride in silently -- "
+            f"{r.stdout!r} {r.stderr!r}",
+        )
+        self.assertIn("architect", r.stderr)
+        self.assertIn("qa-engineer", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
