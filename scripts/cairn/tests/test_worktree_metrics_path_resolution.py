@@ -30,6 +30,7 @@ imported from the worktree copy, with `CLAUDE_PROJECT_DIR` pointed at
 the main checkout, must resolve to the MAIN CHECKOUT's path."""
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -38,6 +39,9 @@ import unittest
 from pathlib import Path
 
 import helpers  # noqa: F401
+
+REPO_ROOT = helpers.CAIRN_DIR.parent.parent  # scripts/cairn -> scripts -> repo root
+HOOKS_DIR = REPO_ROOT / ".claude" / "hooks"
 
 _PROBE_TEMPLATE = """
 import os
@@ -397,6 +401,151 @@ class RecordsPathDiscriminatorTests(unittest.TestCase):
         self.assertTrue(own_records.is_file(), "context 4 (outside any repo): the fake root's own tree must still gain the record")
         lines = own_records.read_text(encoding="utf-8").splitlines()
         self.assertEqual(len(lines), 1, f"expected exactly one record -- got {lines!r}")
+
+
+# --------------------------------------------------------------------------
+# PT-107 gate-1 ruling (architect, process/cairn/issues/PT-107.md @
+# 1aa5a71): the `args.gate and` clause guarding _resolve_worktree_main_
+# checkout's use in _self_record is a leftover of the superseded PT-82
+# ruling -- the `--git-dir != --git-common-dir` discriminator IS the
+# safety property, with no `--gate` condition needed. Deleting the
+# clause makes a NARROWED (`-p`) run from a linked worktree also record
+# to the main checkout, and (since the runner's own null-who line is now
+# the ledger's last line) the PostToolUse hook PATCHES it instead of
+# falling back to its scrape-and-append path -- one record per run, not
+# two. `branch`/`sha` are resolved from the main checkout throughout, so
+# no record can ever carry a `worktree-*` branch. Real git, real
+# subprocesses, no stand-ins.
+# --------------------------------------------------------------------------
+
+
+class NarrowedWorktreeRunRecordsOnceInTheMainCheckoutTests(unittest.TestCase):
+    def test_a_narrowed_run_from_a_real_worktree_writes_only_the_main_checkout(self):
+        """Mutation: restore `args.gate and` -- the main checkout gains no
+        file at all, and the worktree's own tracked copy gains a line
+        (`who=null`, `branch=worktree-x`) instead."""
+        main_root, worktree_path = _make_main_checkout_with_worktree(self)
+        worktree_run_tests_py = worktree_path / "scripts" / "cairn" / "run_tests.py"
+
+        env = dict(os.environ)
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        env.pop("CAIRN_TEST_RUNS_FILE", None)
+        result = subprocess.run(
+            [sys.executable, str(worktree_run_tests_py), "-p", "test_trivial.py"],
+            cwd=str(worktree_run_tests_py.parent), capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(result.returncode, 0, f"the narrowed run itself must succeed -- {result.stdout!r} {result.stderr!r}")
+
+        main_records = main_root / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        worktree_records = worktree_path / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+
+        self.assertTrue(
+            main_records.is_file(),
+            "a narrowed (-p) run from the linked worktree must still record to the MAIN checkout",
+        )
+        main_lines = [l for l in main_records.read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(len(main_lines), 1, f"expected exactly one record -- got {main_lines!r}")
+        rec = json.loads(main_lines[0])
+        self.assertFalse(rec["full"], f"a -p run must record full=false -- got {rec!r}")
+        self.assertIsNone(rec["gate"], f"a -p run must record gate=null -- got {rec!r}")
+
+        main_branch = subprocess.run(
+            ["git", "-C", str(main_root), "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, env=_git_env(),
+        ).stdout.strip()
+        self.assertEqual(
+            rec["branch"], main_branch,
+            f"branch must resolve to the MAIN checkout's own branch, not the worktree's -- got {rec!r}",
+        )
+
+        self.assertFalse(
+            worktree_records.exists(),
+            f"the worktree's own tracked copy must gain ZERO lines -- got "
+            f"{worktree_records.read_text(encoding='utf-8') if worktree_records.exists() else None!r}",
+        )
+
+
+class NoRecordCarriesAWorktreePrefixedBranchTests(unittest.TestCase):
+    def test_narrowed_and_gated_runs_from_the_worktree_never_record_a_worktree_prefixed_branch(self):
+        """Standing invariant across both the narrowed and gated cases --
+        cheap, and catches any future re-resolution from the worktree's
+        own root rather than the main checkout."""
+        main_root, worktree_path = _make_main_checkout_with_worktree(self)
+        worktree_run_tests_py = worktree_path / "scripts" / "cairn" / "run_tests.py"
+        env = dict(os.environ)
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        env.pop("CAIRN_TEST_RUNS_FILE", None)
+
+        for extra_args in (["-p", "test_trivial.py"], ["--gate", "red"]):
+            result = subprocess.run(
+                [sys.executable, str(worktree_run_tests_py), *extra_args],
+                cwd=str(worktree_run_tests_py.parent), capture_output=True, text=True, env=env,
+            )
+            self.assertEqual(result.returncode, 0, f"{extra_args} -- {result.stdout!r} {result.stderr!r}")
+
+        main_records = main_root / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        worktree_records = worktree_path / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        all_lines = []
+        for p in (main_records, worktree_records):
+            if p.exists():
+                all_lines += [l for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertTrue(all_lines, "expected at least one record across the two files")
+        for line in all_lines:
+            rec = json.loads(line)
+            self.assertFalse(
+                (rec.get("branch") or "").startswith("worktree-"),
+                f"no record, in either file, may carry a worktree-prefixed branch -- got {rec!r}",
+            )
+
+
+class HookPatchesTheNarrowedWorktreeRunsRecordTests(unittest.TestCase):
+    def test_the_post_hook_patches_who_in_place_rather_than_appending_a_second_record(self):
+        """This is the "one record per run" property itself -- the
+        preceding test proves the runner's own line lands in the main
+        checkout, but not that the hook leaves it alone. Mutation: the
+        hook appends instead of patching (its pre-PT-82 scrape-and-append
+        fallback) -- 2 lines, the second `who=null`."""
+        main_root, worktree_path = _make_main_checkout_with_worktree(self)
+        worktree_run_tests_py = worktree_path / "scripts" / "cairn" / "run_tests.py"
+
+        env = dict(os.environ)
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        env.pop("CAIRN_TEST_RUNS_FILE", None)
+        command = f"{sys.executable} {worktree_run_tests_py} -p test_trivial.py"
+        result = subprocess.run(
+            [sys.executable, str(worktree_run_tests_py), "-p", "test_trivial.py"],
+            cwd=str(worktree_run_tests_py.parent), capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(result.returncode, 0, f"{result.stdout!r} {result.stderr!r}")
+
+        main_records = main_root / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        self.assertEqual(
+            len([l for l in main_records.read_text(encoding="utf-8").splitlines() if l.strip()]), 1,
+            "precondition: the runner's own record must already be the ledger's last line",
+        )
+
+        hook_payload = {
+            "session_id": "pt107-hook-leg", "cwd": str(worktree_run_tests_py.parent),
+            "agent_type": "architect", "hook_event_name": "PostToolUse", "tool_name": "Bash",
+            "tool_input": {"command": command},
+            "tool_response": {"stdout": "Ran 1 tests in 0.010s (1 files, 1 workers)\nOK\n", "stderr": "", "interrupted": False},
+            "duration_ms": 42, "tool_use_id": "pt107-toolu",
+        }
+        hook_env = dict(os.environ)
+        hook_env["CLAUDE_PROJECT_DIR"] = str(main_root)
+        hook_result = subprocess.run(
+            [sys.executable, str(HOOKS_DIR / "test_run_record.py")],
+            input=json.dumps(hook_payload), capture_output=True, text=True, env=hook_env,
+        )
+        self.assertEqual(hook_result.returncode, 0, f"{hook_result.stdout!r} {hook_result.stderr!r}")
+
+        main_lines = [l for l in main_records.read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(
+            len(main_lines), 1,
+            f"the hook must PATCH the runner's own line, not append a second one -- got {main_lines!r}",
+        )
+        rec = json.loads(main_lines[0])
+        self.assertEqual(rec["who"], "architect", f"the patched line must carry the hook's agent_type -- got {rec!r}")
 
 
 if __name__ == "__main__":
