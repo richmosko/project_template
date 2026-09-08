@@ -21,9 +21,10 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Issue | PT-88 (cairn) |
 | Milestone | PT-0.12.1 |
 | Branch | `feature/pt-88-token-chart-chronological-toggle` |
+| PR | https://github.com/richmosko/project_template/pull/184 |
 | Started | 2026-09-08 |
 | Goal | The token/cost chart offers a Ranked / Chronological toggle; chronological shows every issue in id order with a caption saying so, browser-verified in both themes. |
-| Status | In Progress |
+| Status | In Review |
 
 ## Releases
 
