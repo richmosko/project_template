@@ -15,7 +15,16 @@
 
 A feature = one cairn issue = one PR = one Implement→Validate loop. Exists only during Implement phase. This is a pointer — the issue file (`process/cairn/issues/<ID>.md`) is the record.
 
-_None — between loops. PT-0.12.1's last issue (PT-92) merged as #190 on 2026-09-08; milestone close pending Mosko's approval._
+| Field | Value |
+|---|---|
+| Feature | loop-stats crashes on a structured SendMessage body (dict) in the transcript audit |
+| Issue | PT-108 (cairn) |
+| Milestone | PT-0.12.2 |
+| Branch | `feature/pt-108-loop-stats-dict-body` |
+| Started | 2026-09-08 |
+| Goal | `cairn loop-stats` survives protocol (dict-bodied) SendMessage records; one regression test. |
+| PR | https://github.com/richmosko/project_template/pull/195 |
+| Status | In Review |
 
 ## Releases
 

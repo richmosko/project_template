@@ -48,6 +48,28 @@ _CONFIRM_RE = re.compile(
 _STANDBY_RE = re.compile(r"(dropping (it )?silently|no reply needed|already (claimed|known)|standing by|"
                          r"waiting (for|on) (the )?(architect|suite|ruling|verdict|lead|merge|teardown)|nothing to do)", re.I)
 _ECHO_RE = re.compile(r"^(claimed|task (claimed|updated|marked)|marked .* (done|complete)|noted\.?$)", re.I)
+
+# PT-108: shutdown/plan-approval protocol messages carry a JSON object, not
+# prose -- they must not reach the prose-shaped accounting below.
+_PROTOCOL_MESSAGE_TYPES = {
+    "shutdown_request", "shutdown_response",
+    "plan_approval_request", "plan_approval_response",
+}
+
+
+def _message_body(inp: Dict[str, Any]) -> Optional[str]:
+    """A SendMessage `message` input, normalised for the prose-shaped
+    accounting below. `str` is returned unchanged. A protocol dict (a
+    shutdown/plan-approval handshake) returns None -- it is a machine
+    handshake, not a message to count. Any other non-string is coerced via
+    `json.dumps`: fail toward counting, a real message must never be
+    silently dropped."""
+    body = inp.get("message", "") or ""
+    if isinstance(body, str):
+        return body
+    if isinstance(body, dict) and body.get("type") in _PROTOCOL_MESSAGE_TYPES:
+        return None
+    return json.dumps(body, sort_keys=True)
 _NARRATE_RE = re.compile(r"^(now|next|let'?s|let me|running|i'?ll|checking|good[,. ]|ok[,. ])", re.I)
 _CROSS_RE = re.compile(r"cross(ed|ing)", re.I)
 _RULING_RE = re.compile(r"\b(ruling|addendum|correction|verdict)\b", re.I)
@@ -339,16 +361,22 @@ def audit_agent(path: Path, since: datetime.datetime, until: datetime.datetime, 
                     edited_since_full = []
             elif cls == "message":
                 to = inp.get("to", "") or ""
-                body = inp.get("message", "") or ""
-                detail = "→%s: %s" % (to, (inp.get("summary") or body)[:90].replace("\n", " "))
-                if _CONFIRM_RE.search(body):
-                    flags.append("CONFIRM_ROUNDTRIP")
-                if _CROSS_RE.search(body):
-                    flags.append("mentions_crossing")
-                lines = body.count("\n") + 1
-                if lines > 8:
-                    flags.append("long(%d lines)" % lines)
-                msgs.append((t, to, lines))
+                raw = inp.get("message", "") or ""
+                body = _message_body(inp)
+                if body is None:
+                    cls = "message_protocol"
+                    raw_type = raw.get("type") if isinstance(raw, dict) else ""
+                    detail = "→%s: %s" % (to, raw_type)
+                else:
+                    detail = "→%s: %s" % (to, (inp.get("summary") or body)[:90].replace("\n", " "))
+                    if _CONFIRM_RE.search(body):
+                        flags.append("CONFIRM_ROUNDTRIP")
+                    if _CROSS_RE.search(body):
+                        flags.append("mentions_crossing")
+                    lines = body.count("\n") + 1
+                    if lines > 8:
+                        flags.append("long(%d lines)" % lines)
+                    msgs.append((t, to, lines))
             elif cls == "git_read":
                 cmd = inp.get("command", "") or ""
                 detail = cmd[:110].replace("\n", " ")

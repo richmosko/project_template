@@ -154,6 +154,43 @@ class AuditAgentTests(unittest.TestCase):
         self.assertEqual(summary["msgs_to_peers"], 1)
         self.assertEqual(summary["waste"]["CONFIRM_ROUNDTRIP"], 1)
 
+    def test_protocol_dict_body_with_summary_is_skipped_not_crashed(self):
+        """PT-108. A shutdown/plan-approval SendMessage carries a JSON
+        object, not prose. Mutation: drop the skip -> CONFIRM_ROUNDTRIP/long
+        flags and msgs_to_lead return (json.dumps coercion still appends to
+        msgs); this must count as message_protocol with nothing counted."""
+        _, summary = self._audit([
+            tool(1, "SendMessage", to="team-lead",
+                 message={"type": "shutdown_response", "request_id": "r1", "approve": True},
+                 summary="teardown ack"),
+        ])
+        self.assertEqual(summary["messages"], 0)
+        self.assertEqual(summary["msgs_to_lead"], 0)
+        self.assertEqual(summary["msg_lines_total"], 0)
+        self.assertEqual(summary["by_class"]["message_protocol"], 1)
+
+    def test_protocol_dict_body_without_summary_does_not_crash(self):
+        """PT-108. `detail = (inp.get("summary") or body)[:90]` crashes at
+        loop_stats.py:343 before the regex line whenever `summary` is
+        absent -- the guard must sit above `detail`, not just at the
+        regex."""
+        _, summary = self._audit([
+            tool(1, "SendMessage", to="architect",
+                 message={"type": "shutdown_request", "reason": "idle"}),
+        ])
+        self.assertEqual(summary["messages"], 0)
+        self.assertEqual(summary["by_class"]["message_protocol"], 1)
+
+    def test_non_protocol_dict_body_is_coerced_and_counted(self):
+        """PT-108. Mutation: skip every dict body regardless of `type` ->
+        messages == 0. A dict without a protocol `type` is a real message
+        and must be counted, not dropped."""
+        _, summary = self._audit([
+            tool(1, "SendMessage", to="architect", message={"note": "custom payload", "id": 7}),
+        ])
+        self.assertEqual(summary["messages"], 1)
+        self.assertNotIn("message_protocol", summary["by_class"])
+
     def test_standing_by_text_turn_is_idle_waste(self):
         _, summary = self._audit([text(1, "Standing by for the architect's ruling.")])
         self.assertEqual(summary["waste"]["IDLE_STANDBY"], 1)
