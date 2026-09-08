@@ -6,9 +6,13 @@
 # pattern does NOT reach inside it; the directory must be named explicitly.
 # Measured, not guessed — do not "simplify" this back to `**/node_modules/**`.
 scripts/cairn/dashboard/node_modules/**
-# Spike delta 1 (process/reviews/PT-82/spike.md @ 1d25274): the package
-# tree alone isn't enough -- `node_modules/.bin/` (a dot-directory) was
-# NOT delivered by the pattern above, so `vite` (installed only as a
-# `.bin/` symlink) was unresolvable in the fresh worktree. Named
-# explicitly, same reasoning as the parent directory above.
-scripts/cairn/dashboard/node_modules/.bin/**
+# Spike delta 1, then delta 3 (process/reviews/PT-82/spike.md @ 1d25274,
+# 643dd89): `node_modules/.bin/` is a dot-directory of SYMLINKS -- naming
+# it explicitly here (as this comment used to) still did not deliver it
+# on a repeat, measured twice. The worktree-copy mechanism does not
+# preserve this dot-directory of symlinks, so this is NOT a pattern
+# problem to keep chasing. Fix moved to the build itself instead:
+# package.json's `build` script invokes vite directly
+# (`node ./node_modules/vite/bin/vite.js build`), which needs only the
+# `vite` package directory (delivered by the pattern above), never the
+# `.bin/` symlink.
