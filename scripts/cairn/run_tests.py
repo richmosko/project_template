@@ -294,6 +294,39 @@ def _run_git(repo_root: Path, *git_args: str) -> Optional[str]:
     return result.stdout.strip() or None
 
 
+def _resolve_worktree_main_checkout(repo_root: Path) -> Optional[Path]:
+    """PT-82 (architect's ruling, re-issued, PT-82.md @ 69e9664): the
+    MAIN checkout's root, iff `repo_root` is a LINKED worktree --
+    discriminated by `--git-dir != --git-common-dir`. Measured, four
+    contexts: a linked worktree is the ONLY one where they differ
+    (`--git-dir` = `.git/worktrees/<name>`, `--git-common-dir` = the
+    main `.git`); the main checkout and a fake engine root NESTED INSIDE
+    this repo both report the same value for both -- so common-dir alone
+    is not a safe signal, and using it unconditionally would redirect a
+    fake-engine-root test copy's self-record into the real
+    `test-runs.jsonl`. `None` for every other case (main checkout, a
+    fake root inside or outside a repo, git unavailable) -- callers fall
+    back to the pre-existing default. Never raises."""
+    try:
+        git_dir = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--git-dir"],
+            capture_output=True, text=True, timeout=5,
+        )
+        common_dir = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (FileNotFoundError, OSError):
+        return None
+    if git_dir.returncode != 0 or common_dir.returncode != 0:
+        return None
+    git_dir_path = (repo_root / git_dir.stdout.strip()).resolve()
+    common_dir_path = (repo_root / common_dir.stdout.strip()).resolve()
+    if git_dir_path == common_dir_path:
+        return None  # main checkout, or a fake root nested inside the repo
+    return common_dir_path.parent
+
+
 def _self_record(args: argparse.Namespace, agg: Dict[str, object]) -> None:
     """Gate-4 verdict delta 2 (PT-97.md @ d896d8d, blocking): the runner
     writes its own record -- it has the counts, seconds, jobs and gate
@@ -307,28 +340,42 @@ def _self_record(args: argparse.Namespace, agg: Dict[str, object]) -> None:
     checkout. Never raises: a broken recorder must not fail the run it's
     attached to.
 
-    PT-82 (architect's ruling, PT-82.md @ 6316a9b/b0287db, item (c)):
-    from a teammate's worktree, `repo_root` above resolves to the
-    WORKTREE's own checkout (a full clone, same file layout), so a gate
-    run recorded there never reaches the main checkout's
-    `test-runs.jsonl` -- `cairn loop-stats` and the PostToolUse hook both
-    read the main checkout's copy, and the hook's own fallback then
-    mis-attributes `who` onto a stale, unrelated record there (measured,
-    addendum 1). `CAIRN_TEST_RUNS_FILE` (the existing override) wins if
-    set; otherwise, ONLY when `--gate` is present (never for an
-    un-gated/fake-engine-root run, which must keep self-recording to its
-    own tree), `$CLAUDE_PROJECT_DIR` -- set by Claude Code to the main
-    checkout, never a worktree -- is preferred for the records path."""
+    PT-82 (architect's ruling, re-issued whole, PT-82.md @ 69e9664,
+    superseding @6316a9b and its addenda, item (c)): from a teammate's
+    worktree, `repo_root` above resolves to the WORKTREE's own checkout
+    (a linked worktree, same file layout), so a gate run recorded there
+    never reaches the main checkout's `test-runs.jsonl` -- `cairn
+    loop-stats` and the PostToolUse hook both read the main checkout's
+    copy. `$CLAUDE_PROJECT_DIR` is unset in a teammate's own Bash tool
+    calls (only set for hook shells), so it cannot be the discriminator
+    (measured, spike step 9's correction). `CAIRN_TEST_RUNS_FILE` (the
+    existing override) wins if set; otherwise, ONLY when `--gate` is
+    present, `_resolve_worktree_main_checkout` below is tried: it uses
+    `git rev-parse --git-common-dir` (cwd-based, no environment
+    dependency, follows the worktree) -- but ONLY when `--git-dir !=
+    --git-common-dir`, which is true SOLELY in a linked worktree.
+    Measured: both compare equal in the main checkout AND in a fake
+    engine root nested inside this repo, so common-dir alone is not a
+    safe signal -- unguarded, it would redirect a fake-engine-root test
+    copy's self-record into the REAL `test-runs.jsonl`, exactly the
+    regression the file-location default exists to prevent. Every other
+    case (main checkout, fake root inside or outside a repo, git
+    unavailable) falls back to today's `repo_root` default."""
     try:
         repo_root = SCRIPT_DIR.parent.parent
+        records_repo_root = repo_root
+        if args.gate and not os.environ.get(_RECORDS_PATH_ENV):
+            main_checkout = _resolve_worktree_main_checkout(repo_root)
+            if main_checkout is not None:
+                records_repo_root = main_checkout
         record = {
             "ts": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
             "who": None,
             "gate": args.gate,
             "full": args.pattern == ["test_*.py"],
             "runner": "run_tests",
-            "sha": _run_git(repo_root, "rev-parse", "HEAD"),
-            "branch": _run_git(repo_root, "rev-parse", "--abbrev-ref", "HEAD"),
+            "sha": _run_git(records_repo_root, "rev-parse", "HEAD"),
+            "branch": _run_git(records_repo_root, "rev-parse", "--abbrev-ref", "HEAD"),
             "seconds": agg["wall"],
             "harness_ms": None,
             "jobs": args.jobs,
@@ -340,11 +387,7 @@ def _self_record(args: argparse.Namespace, agg: Dict[str, object]) -> None:
             "cmd": " ".join([sys.executable] + sys.argv)[:200],
         }
         override = os.environ.get(_RECORDS_PATH_ENV)
-        if not override and args.gate:
-            project_dir = os.environ.get("CLAUDE_PROJECT_DIR")
-            if project_dir:
-                override = str(Path(project_dir) / _RECORDS_REL)
-        path = Path(override) if override else (repo_root / _RECORDS_REL)
+        path = Path(override) if override else (records_repo_root / _RECORDS_REL)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
