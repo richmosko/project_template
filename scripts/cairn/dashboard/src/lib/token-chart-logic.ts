@@ -104,6 +104,55 @@ export function tickEveryNth(barCount: number, plotWidthPx: number, labelWidthPx
 	return Math.max(1, Math.ceil(neededWidth / perBarWidth));
 }
 
+// PT-101 gate-1 ruling, RE-ISSUED (PT-101.md @ d7f7d3a, superseding
+// @3b42f3c): a sub-pixel column (a total that renders under 1 px on the
+// shared y-scale) is present in the DOM but invisible to a human --
+// indistinguishable from a zero-total issue. Rejected mechanism, measured:
+// a value floor (raising the row's own data) would make the tooltip lie
+// about the true total, so the fix is an OVERLAY the component draws on
+// top of the unmodified bars -- this function only REPORTS which columns
+// need one; it never touches chart data, the y-scale, or the stack.
+export const MIN_BAR_PX = 1;
+
+export type SubPixelColumn = { issue: string; heightPx: number; topSeriesKey: string };
+
+// Pure and DOM-free (unit-tested in node, no layerchart/browser dependency)
+// -- `yMax`/`plotHeightPx` are numbers the component measures/computes
+// itself (yMax from the same stacked totals that feed the y-scale,
+// plotHeightPx from the existing measureChart ResizeObserver), never
+// read from a layerchart context here, so this stays testable without a
+// DOM. `rows` is chartData's own row shape: `{ issue, kind, <seriesKey>:
+// number, ... }`.
+export function subPixelColumns(
+	rows: Array<Record<string, string | number>>,
+	seriesKeys: string[],
+	yMax: number,
+	plotHeightPx: number,
+	minPx: number = MIN_BAR_PX,
+): SubPixelColumn[] {
+	if (yMax <= 0 || plotHeightPx <= 0) return [];
+	const result: SubPixelColumn[] = [];
+	for (const row of rows) {
+		const total = seriesKeys.reduce((sum, k) => sum + (Number(row[k]) || 0), 0);
+		if (total === 0) continue; // decided line (c): a zero total stays at a true 0px, never reported
+		const heightPx = (total / yMax) * plotHeightPx;
+		if (heightPx >= minPx) continue;
+		// `topSeriesKey`: the stack-top series (last in `seriesKeys`, matching
+		// stacking order) WITH A NON-ZERO VALUE -- a trailing zero-valued
+		// series must not be reported as the segment the overlay borrows its
+		// colour from.
+		let topSeriesKey = seriesKeys[seriesKeys.length - 1];
+		for (let i = seriesKeys.length - 1; i >= 0; i--) {
+			if (Number(row[seriesKeys[i]]) > 0) {
+				topSeriesKey = seriesKeys[i];
+				break;
+			}
+		}
+		result.push({ issue: row.issue as string, heightPx, topSeriesKey });
+	}
+	return result;
+}
+
 // PT-84 §6/§7: milestone bars get `main`'s existing treatment -- excluded
 // from the top-N ranking cut applied to real issues, never re-ranked by
 // their own value (they stay in PAYLOAD order, i.e. the server's own

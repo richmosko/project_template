@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { scaleBand } from 'd3-scale';
-	import { BarChart } from 'layerchart';
+	import { BarChart, Bars } from 'layerchart';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Chart from '$lib/components/ui/chart/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -14,6 +14,8 @@
 		ROLE_TOKEN_ORDER,
 		roleTokenSeries,
 		tickEveryNth,
+		subPixelColumns,
+		MIN_BAR_PX,
 		type Metric,
 		type Order,
 	} from '$lib/token-chart-logic';
@@ -195,6 +197,7 @@
 	// 3-row constant so there's no layout jump before the first
 	// measurement lands (typically within a frame of mount).
 	let containerWidth = $state(600);
+	let containerHeight = $state(300);
 	let legendHeight = $state(92);
 
 	function measureChart(node: HTMLElement) {
@@ -202,6 +205,7 @@
 			for (const entry of entries) {
 				if (entry.target === node) {
 					containerWidth = entry.contentRect.width;
+					containerHeight = entry.contentRect.height;
 				} else {
 					const h = entry.contentRect.height;
 					if (h > 0) legendHeight = Math.ceil(h);
@@ -295,6 +299,29 @@
 		return ids.filter((id, i) => i % step === 0 || id === 'main');
 	});
 
+	// PT-101 gate-1 ruling, re-issued (PT-101.md @ d7f7d3a): the overlay's
+	// two inputs, both measured/computed independently of layerchart's own
+	// context so `subPixelColumns` stays pure and DOM-free. `yMax` is the
+	// same stacked total every row is scaled against (the y-scale's own
+	// domain max, recomputed here rather than read off `context` -- the
+	// two must agree by construction since both sum the same `series`
+	// keys over the same `chartData`). `plotHeightPx` comes from the
+	// EXISTING `measureChart` observer (now also tracking height), never
+	// a constant derived from the `h-[300px]` class, which would rot
+	// silently the day that class changes.
+	const yMax = $derived(
+		Math.max(0, ...chartData.map((row) => series.reduce((sum, s) => sum + (Number(row[s.key]) || 0), 0))),
+	);
+	const plotHeightPx = $derived(Math.max(containerHeight - CHART_PADDING.top - CHART_PADDING.bottom, 0));
+	const subPixelCols = $derived(
+		subPixelColumns(
+			chartData,
+			series.map((s) => s.key),
+			yMax,
+			plotHeightPx,
+		),
+	);
+
 	function onBarClick(_event: MouseEvent, detail: { data: Record<string, string | number> }): void {
 		const issue = detail.data.issue as string;
 		// Ruling § 4: main "must not look clickable" -- no drawer link.
@@ -344,6 +371,55 @@
 		if (!tokens) return '';
 		return formatCaption(tokens, mode, shownCount, realCount, order);
 	});
+
+	// Named (not inline in the `<BarChart>` tag) so the copied `marks`
+	// snippet body below -- which references `props.bars` verbatim, exactly
+	// as layerchart's own default body does -- resolves against the SAME
+	// object `<BarChart props={props}>` receives, not a second copy.
+	const props = $derived({
+		xAxis: {
+			ticks: xAxisTicks,
+		},
+		yAxis: {
+			format: (v: number) => (mode === 'cost' ? formatUsd(v) : formatTokens(v)),
+		},
+		bars: {
+			// Browser-verified defect (team-lead's re-check on
+			// b934262): a top-level fillOpacity prop directly on
+			// BarChart is not a real prop of the component --
+			// BarChart.base.svelte spreads unrecognized props onto
+			// Chart via restProps, never down into Bars/Bar, so it
+			// never reached a rendered rect (every computed
+			// fillOpacity read back as 1). This props.bars nesting
+			// IS spread onto each Bars instance by
+			// BarChart.base.svelte's marks snippet, which forwards
+			// unrecognized props straight through to Bar via
+			// extractLayerProps -- see Bars.base.svelte -- and Bar
+			// explicitly supports fillOpacity as a per-datum
+			// accessor via resolveStyleProp -- this is the layer
+			// that actually reaches the rect.
+			// PT-84 §4: milestone bars get main's existing muted
+			// treatment too -- "a muted variant, like main today".
+			fillOpacity: (d: Record<string, string | number>) => (d.kind === 'main' || d.kind === 'milestone' ? 0.55 : 1),
+		},
+	});
+
+	// PT-101 gate-1 ruling, re-issued (PT-101.md @ d7f7d3a): local stand-ins
+	// for the values BarChart.base.svelte's own script derives internally
+	// (`valueAxis`, `isGroupSeries`, `stackPadding`, `restProps`, `xProp`,
+	// `yProp`) -- our `marks` override sits OUTSIDE that component, so the
+	// copied default body below cannot see its internal derivations; these
+	// mirror the exact values our own `<BarChart>` invocation produces
+	// (`orientation` unset -> 'vertical' -> valueAxis 'y'; `seriesLayout`
+	// is always 'stack', never 'group'; no `x1`/`y1`/`stackPadding` passed
+	// to `<BarChart>`) so the copied body renders IDENTICALLY to what
+	// BarChart's own default marks would have produced.
+	const valueAxis: 'x' | 'y' = 'y';
+	const isGroupSeries = false;
+	const stackPadding = 0;
+	const xProp = 'issue' as const;
+	const yProp = undefined;
+	const restProps: { x1?: unknown; y1?: unknown } = {};
 </script>
 
 <!-- PT-79: the token/cost block named in the AC -- one bar per issue (plus
@@ -413,34 +489,59 @@
 						{onBarClick}
 						tooltipContext={{ onclick: onTooltipClick }}
 						padding={CHART_PADDING}
-						props={{
-							xAxis: {
-								ticks: xAxisTicks,
-							},
-							yAxis: {
-								format: (v: number) => (mode === 'cost' ? formatUsd(v) : formatTokens(v)),
-							},
-							bars: {
-								// Browser-verified defect (team-lead's re-check on
-								// b934262): a top-level fillOpacity prop directly on
-								// BarChart is not a real prop of the component --
-								// BarChart.base.svelte spreads unrecognized props onto
-								// Chart via restProps, never down into Bars/Bar, so it
-								// never reached a rendered rect (every computed
-								// fillOpacity read back as 1). This props.bars nesting
-								// IS spread onto each Bars instance by
-								// BarChart.base.svelte's marks snippet, which forwards
-								// unrecognized props straight through to Bar via
-								// extractLayerProps -- see Bars.base.svelte -- and Bar
-								// explicitly supports fillOpacity as a per-datum
-								// accessor via resolveStyleProp -- this is the layer
-								// that actually reaches the rect.
-								// PT-84 §4: milestone bars get main's existing muted
-								// treatment too -- "a muted variant, like main today".
-								fillOpacity: (d: Record<string, string | number>) => (d.kind === 'main' || d.kind === 'milestone' ? 0.55 : 1),
-							},
-						}}
+						{props}
 					>
+						{#snippet marks({ context }: { context: any })}
+							<!-- PT-101 gate-1 ruling, re-issued (PT-101.md @ d7f7d3a): a
+							     VERBATIM copy of layerchart 2.3.1's default `marks` body
+							     (BarChart.base.svelte -- there is no children/aboveMarks/
+							     belowMarks snippet to layer onto instead, measured) plus
+							     one appended overlay layer. The bars below render EXACTLY
+							     as layerchart's own default would; nothing here changes a
+							     value, the y-scale, or the stack. qa's fork-guard test
+							     pins layerchart's installed version and this body's text
+							     against the upstream source -- a version bump that changes
+							     the default body must fail that guard, not drift silently.
+							-->
+							{#each context.series.visibleSeries as s, i (s.key)}
+								<Bars
+									seriesKey={s.key}
+									x1={valueAxis === 'y' && isGroupSeries && restProps.x1 == null
+										? (d: any) => s.value ?? s.key
+										: undefined}
+									y1={(valueAxis as string) === 'x' && isGroupSeries && restProps.y1 == null
+										? (d: any) => s.value ?? s.key
+										: undefined}
+									rounded={context.series.stackLayout != null
+										? (d: any) => (context.series.isStackTop(s.key, d) ? 'edge' : 'none')
+										: Array.isArray(xProp) || Array.isArray(yProp)
+											? 'all'
+											: 'edge'}
+									radius={4}
+									strokeWidth={1}
+									{stackPadding}
+									opacity={(d: any) =>
+										context.series.isHighlighted(context.cKey(d) ?? s.key, true) ? 1 : 0.1}
+									onBarClick={(e: MouseEvent, detail: any) => onBarClick(e, { ...detail, series: s })}
+									{...props.bars}
+									{...s.props}
+								/>
+							{/each}
+							<!-- The overlay: one MIN_BAR_PX-tall rect at the baseline per
+							     sub-pixel column, positioned on the SAME band scale the
+							     real bars use and coloured by that column's own top
+							     series -- no data changed, no domain changed, the tooltip
+							     still reads the real (unmodified) row underneath. -->
+							{#each subPixelCols as col (col.issue)}
+								<rect
+									x={context.xScale(col.issue)}
+									y={context.yScale(0) - MIN_BAR_PX}
+									width={context.xScale.bandwidth?.() ?? 0}
+									height={MIN_BAR_PX}
+									fill={chartConfig[col.topSeriesKey]?.color ?? 'currentColor'}
+								/>
+							{/each}
+						{/snippet}
 						{#snippet tooltip()}
 							<Chart.Tooltip
 								indicator="line"
