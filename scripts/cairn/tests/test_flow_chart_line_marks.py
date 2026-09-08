@@ -1,36 +1,42 @@
 """PT-92 gate-1 ruling (architect, process/cairn/issues/PT-92.md @
 15fe9b6, item (c)): red tests 2-4. Test 1 (the existing distinctness
 guard, `test_flow_series_distinctness.py`, re-run against ux-designer's
-FINAL token values) is deferred -- it waits on ux-designer's decision
-commit landing on this branch (architect, verbatim: "Test 1 waits on
-ux-designer's values landing on the branch"). That file needs no code
-changes for this ticket; its own hue-floor math already fails a
-same-value mutation (distance 0 < the 60-degree floor), so re-running it
-once the final values land is the whole job.
+FINAL token values) is DONE, no code change needed -- 4/4 green against
+the values ux-designer landed at 069b8db.
 
-**Assumed seam** (the ruling fixes the OUTCOME -- no Bars, each series
-individually identifiable via a marker or dash pattern -- not the exact
-Svelte shape; flag to the architect/implementation-lead/ux-designer if
-the real shape diverges): three `<Spline>` (or `<Points>`-companioned)
-marks inside the `marks` snippet, one per opened/closed/wip -- ruling
-item (a), verbatim: "three Splines on the same scale is the existing
-arrangement generalised, not a new rendering path" (the WIP Spline
-already there is the precedent). Each carries `stroke={SERIES_COLOR.
-<key>}` (or a bracket-form equivalent) plus ONE of: a dash-pattern prop
-(`stroke-dasharray`/`strokeDasharray`, or a `class` naming "dash") or a
-companion per-series `<Points seriesKey="...">` marker mark. ux-designer
-picks which per the ruling's own framing ("the mechanism is ux-
-designer's call") -- this file accepts EITHER, checked independently
-per series, so it does not prescribe one treatment over the other.
+**Ratified spec** (ux-designer, PT-92.md @ 069b8db, "Line treatment
+(binding on implementation-lead)"; precision from architect's addendum 1
+@ f1b76c6): NOT an assumed shape any more -- these are the landed,
+binding numbers.
+- **Stroke, bottom-to-top z-order:** `opened` solid 2px (no dasharray),
+  `closed` dashed 2px `stroke-dasharray="6,4"`, `wip` dotted 2.5px
+  `stroke-dasharray="2,4"` -- each drawn ON TOP of the previous, so
+  document/paint order must be opened, then closed, then wip.
+- **Markers, same relative z-order:** a filled circle at every vertex,
+  per series, graduated radius -- `opened` r=5, `closed` r=3.5, `wip`
+  r=2 with a 1px `--card`-colored outline ring.
+- **Addendum 1, the precision that matters for the config-level test:**
+  at the actual measured coincidence (2026-09-07, a single shared
+  vertex, opened=closed=3, not a run) the paths CROSS rather than run
+  together, so a dash gap is not guaranteed to fall there -- "the
+  markers carry that case, not the dashes". This file's coincidence
+  test therefore requires MARKERS specifically on opened/closed, not
+  "a dash pattern or a marker, either one" (the looser check an earlier
+  draft of this file used before the spec landed).
+- **Legend:** FIXED order Opened, Closed, WIP (token declaration order
+  = semantic reading order) -- not just "all three present", the order
+  itself is binding.
+- **Caption/tooltip:** name all three series, same fixed order.
 
 Nothing under test exists in its final form yet: IssueFlowChart.svelte
-still renders opened/closed as grouped `<Bars>` (test 2's own subject,
+still renders opened/closed as grouped `<Bars>` (test's own subject,
 L229) -- every red test below is expected to fail loudly on that shape,
 not silently skip."""
 from __future__ import annotations
 
 import re
 import unittest
+from typing import Optional
 
 import helpers  # noqa: F401
 from test_flow_series_distinctness import FLOW_CHART_SVELTE, _series_color_tokens  # noqa: F401
@@ -44,6 +50,16 @@ SPLINE_ELEMENT_RE = re.compile(r"<Spline\b.*?/>", re.DOTALL)
 POINTS_ELEMENT_RE = re.compile(r"<Points\b.*?/>", re.DOTALL)
 
 SERIES_KEYS = ("opened", "closed", "wip")
+SERIES_ORDER = ("opened", "closed", "wip")  # bottom-to-top z-order AND legend order (same sequence)
+
+# ux-designer's ratified spec (PT-92.md @ 069b8db, "Line treatment"):
+# dasharray per series -- `None` for opened means "no dasharray at all"
+# (solid), not "dasharray declared as empty".
+SERIES_DASHARRAY = {"opened": None, "closed": "6,4", "wip": "2,4"}
+SERIES_MARKER_RADIUS = {"opened": "5", "closed": "3.5", "wip": "2"}
+# Loose match: "6,4", "6, 4", "6 4" are all the same dasharray to an SVG
+# renderer -- this file does not pin one whitespace/separator style.
+_DASH_VALUE_RE_TMPL = r"{a}\s*[, ]\s*{b}"
 
 
 class ExtractionError(AssertionError):
@@ -143,6 +159,40 @@ def _has_distinguishing_treatment(elements) -> bool:
     return has_points_mark or has_dash
 
 
+def _points_elements(elements):
+    return [el for el in elements if el.strip().startswith("<Points")]
+
+
+def _spline_elements(elements):
+    return [el for el in elements if el.strip().startswith("<Spline")]
+
+
+def _dasharray_matches(el: str, value: Optional[str]) -> bool:
+    """`value` is a "a,b" pair (or None for "no dasharray at all")."""
+    if value is None:
+        return not re.search(r"stroke-dasharray|strokeDasharray", el)
+    a, b = value.split(",")
+    pattern = _DASH_VALUE_RE_TMPL.format(a=re.escape(a.strip()), b=re.escape(b.strip()))
+    return bool(re.search(rf"(?:stroke-dasharray|strokeDasharray)\s*[=:]\s*[\"'{{]*{pattern}", el))
+
+
+def _radius_matches(el: str, radius: str) -> bool:
+    return bool(re.search(rf"\br\s*=\s*[\"'{{]*{re.escape(radius)}\b", el))
+
+
+def _first_index_referencing_key(region: str, elements, key: str) -> Optional[int]:
+    """The region's own start-index of the FIRST element (by document
+    order) among `elements` that references `key` -- used to check
+    relative z-order (document/paint order == the ratified bottom-to-top
+    order) without needing exact element boundaries region-wide."""
+    for el in elements:
+        if re.search(rf"SERIES_COLOR\.{key}\b", el) or re.search(rf"SERIES_COLOR\[['\"]{key}['\"]\]", el) or re.search(rf"seriesKey\s*=\s*[\"'{{]*{key}\b", el):
+            idx = region.find(el)
+            if idx != -1:
+                return idx
+    return None
+
+
 class NoFlowSeriesRendersAsBarsTests(unittest.TestCase):
     """Ruling item (c)(2), first half. Mutation: revert one series to
     `<Bars`."""
@@ -158,20 +208,19 @@ class NoFlowSeriesRendersAsBarsTests(unittest.TestCase):
 
 
 class EachSeriesDeclaresALineMarkWithADistinguishingTreatmentTests(unittest.TestCase):
-    """Ruling item (c)(2), second half: each series declares the chosen
-    distinguishability property (marker or dash) -- the mechanism is
-    ux-designer's call (PT-92.md @ 15fe9b6: per-series point markers or
-    per-series dash patterns; NOT draw-order/opacity, NOT a vertical
-    offset). Checked per series independently -- a series with neither
-    fails, regardless of whether its SIBLINGS have one."""
+    """Ruling item (c)(2), second half, tightened to ux-designer's landed
+    spec (PT-92.md @ 069b8db): each series' STROKE carries its own exact
+    dasharray (opened solid/none, closed "6,4", wip "2,4"), each series
+    has its own MARKER at the exact graduated radius (5 / 3.5 / 2), and
+    document order (paint/z-order) is opened, then closed, then wip for
+    both strokes and markers."""
 
-    def test_each_series_has_its_own_line_mark_and_a_distinguishing_treatment(self):
+    def test_each_series_has_its_own_line_mark(self):
         source = _load_component_source()
         region = extract_marks_region(source)
         splines = SPLINE_ELEMENT_RE.findall(region)
         points = POINTS_ELEMENT_RE.findall(region)
         by_key = _elements_by_series_key(splines + points)
-
         missing_mark = [k for k in SERIES_KEYS if not by_key[k]]
         self.assertEqual(
             missing_mark, [],
@@ -179,17 +228,83 @@ class EachSeriesDeclaresALineMarkWithADistinguishingTreatmentTests(unittest.Test
             f"a mark for: {missing_mark} (marks region: {region!r})",
         )
 
-        missing_treatment = [k for k in SERIES_KEYS if not _has_distinguishing_treatment(by_key[k])]
+    def test_each_series_strokes_the_exact_ratified_dasharray(self):
+        source = _load_component_source()
+        region = extract_marks_region(source)
+        splines = SPLINE_ELEMENT_RE.findall(region)
+        by_key = _elements_by_series_key(splines)
+        wrong = []
+        for key in SERIES_KEYS:
+            strokes = _spline_elements(by_key[key])
+            if not strokes or not any(_dasharray_matches(el, SERIES_DASHARRAY[key]) for el in strokes):
+                wrong.append((key, SERIES_DASHARRAY[key]))
         self.assertEqual(
-            missing_treatment, [],
-            f"every flow series must declare a distinguishing treatment beyond color -- a dash "
-            f"pattern or a companion Points marker (this test accepts either; ux-designer picks "
-            f"which) -- missing for: {missing_treatment} (marks region: {region!r})",
+            wrong, [],
+            f"each series must stroke the exact ratified dasharray (opened=solid/none, "
+            f"closed='6,4', wip='2,4') -- wrong or missing for: {wrong!r} (region: {region!r})",
+        )
+
+    def test_each_series_markers_the_exact_ratified_radius(self):
+        source = _load_component_source()
+        region = extract_marks_region(source)
+        points = POINTS_ELEMENT_RE.findall(region)
+        by_key = _elements_by_series_key(points)
+        wrong = []
+        for key in SERIES_KEYS:
+            markers = _points_elements(by_key[key])
+            if not markers or not any(_radius_matches(el, SERIES_MARKER_RADIUS[key]) for el in markers):
+                wrong.append((key, SERIES_MARKER_RADIUS[key]))
+        self.assertEqual(
+            wrong, [],
+            f"each series must have its own marker at the exact ratified graduated radius "
+            f"(opened=5, closed=3.5, wip=2) -- wrong or missing for: {wrong!r} (region: {region!r})",
+        )
+
+    def test_wip_marker_carries_a_card_colored_outline_ring(self):
+        source = _load_component_source()
+        region = extract_marks_region(source)
+        points = POINTS_ELEMENT_RE.findall(region)
+        by_key = _elements_by_series_key(points)
+        wip_markers = _points_elements(by_key["wip"])
+        self.assertTrue(wip_markers, f"'wip' must have its own marker (region: {region!r})")
+        has_ring = any(re.search(r"stroke\s*=\s*[\"'{]*(?:var\()?--card\b", el) for el in wip_markers)
+        self.assertTrue(
+            has_ring,
+            f"wip's marker must carry a 1px --card-colored outline ring (ux-designer's spec, "
+            f"069b8db) so the smaller top marker stays visible nested inside a larger one at a "
+            f"coincidence -- got {wip_markers!r}",
+        )
+
+    def test_strokes_and_markers_paint_bottom_to_top_opened_closed_wip(self):
+        source = _load_component_source()
+        region = extract_marks_region(source)
+        splines = SPLINE_ELEMENT_RE.findall(region)
+        points = POINTS_ELEMENT_RE.findall(region)
+
+        stroke_indices = [_first_index_referencing_key(region, splines, k) for k in SERIES_ORDER]
+        marker_indices = [_first_index_referencing_key(region, points, k) for k in SERIES_ORDER]
+
+        self.assertNotIn(None, stroke_indices, f"could not locate every series' stroke element in document order -- {stroke_indices!r} (region: {region!r})")
+        self.assertNotIn(None, marker_indices, f"could not locate every series' marker element in document order -- {marker_indices!r} (region: {region!r})")
+
+        self.assertEqual(
+            stroke_indices, sorted(stroke_indices),
+            f"strokes must paint bottom-to-top in the ratified order opened, closed, wip -- got "
+            f"document positions {dict(zip(SERIES_ORDER, stroke_indices))}",
+        )
+        self.assertEqual(
+            marker_indices, sorted(marker_indices),
+            f"markers must paint in the SAME relative z-order as the strokes (opened, closed, "
+            f"wip) -- got document positions {dict(zip(SERIES_ORDER, marker_indices))}",
         )
 
 
 class LegendAndCaptionNameAllThreeSeriesTests(unittest.TestCase):
-    """Ruling item (c)(3). Mutation: drop one from the legend list."""
+    """Ruling item (c)(3), tightened to ux-designer's landed spec
+    (069b8db): "fixed order Opened, Closed, WIP (token declaration
+    order = semantic reading order)" -- the ORDER itself is binding, not
+    just presence. Mutation: drop one from the legend list, or reorder
+    it."""
 
     def test_legend_items_list_all_three_series_keys(self):
         source = _load_component_source()
@@ -198,6 +313,21 @@ class LegendAndCaptionNameAllThreeSeriesTests(unittest.TestCase):
         self.assertEqual(
             missing, [],
             f"legendItems must list all three series -- missing: {missing} (region: {region!r})",
+        )
+
+    def test_legend_items_are_in_the_ratified_fixed_order(self):
+        source = _load_component_source()
+        region = extract_legend_items_region(source)
+        key_positions = []
+        for key in SERIES_ORDER:
+            m = re.search(rf"key\s*:\s*['\"]{key}['\"]", region)
+            self.assertIsNotNone(m, f"legendItems has no '{key}' entry (region: {region!r})")
+            key_positions.append(m.start())
+        self.assertEqual(
+            key_positions, sorted(key_positions),
+            f"legendItems must list Opened, Closed, WIP in that FIXED order (ux-designer's spec, "
+            f"069b8db: 'token declaration order = semantic reading order') -- got document "
+            f"positions {dict(zip(SERIES_ORDER, key_positions))}",
         )
 
     def test_caption_text_names_opened_closed_and_wip(self):
@@ -248,26 +378,27 @@ class CoincidentValuesStillResolveToIndependentMarksTests(unittest.TestCase):
             f"silently drop one series' mark -- found: {offending!r}",
         )
 
-    def test_opened_and_closed_each_have_an_independent_mark_with_a_distinguishing_treatment(self):
-        # Same structural claim as the general per-series test above,
-        # scoped explicitly to the two series the measured coincidence
-        # involves -- grounding this feature's own motivating defect in
-        # the mark-set check directly, not just inheriting it implicitly.
+    def test_opened_and_closed_each_have_their_own_marker_not_just_any_treatment(self):
+        # Addendum 1 (architect, PT-92.md @ f1b76c6): 2026-09-07 is a
+        # SINGLE shared vertex, not a run -- the paths cross rather than
+        # overlap, so a dash gap is not guaranteed to fall exactly there.
+        # "The markers carry that case, not the dashes." A series with a
+        # dash pattern but no marker would pass the looser check this
+        # file used before the spec landed, but NOT this one -- markers
+        # specifically are required for the two series the measured
+        # coincidence involves.
         source = _load_component_source()
         region = extract_marks_region(source)
-        splines = SPLINE_ELEMENT_RE.findall(region)
         points = POINTS_ELEMENT_RE.findall(region)
-        by_key = _elements_by_series_key(splines + points)
-        for key in ("opened", "closed"):
-            with self.subTest(series=key):
-                elements = by_key[key]
-                self.assertTrue(elements, f"'{key}' must have its own mark in the mark set (region: {region!r})")
-                self.assertTrue(
-                    _has_distinguishing_treatment(elements),
-                    f"'{key}' must declare a distinguishing treatment (marker or dash), so it "
-                    f"remains identifiable even when its value coincides with another series' -- "
-                    f"got {elements!r}",
-                )
+        by_key = _elements_by_series_key(points)
+        missing = [k for k in ("opened", "closed") if not _points_elements(by_key[k])]
+        self.assertEqual(
+            missing, [],
+            f"'opened' and 'closed' must each have their own MARKER (not merely a dash pattern) "
+            f"-- at a single-vertex coincidence a dash gap is not guaranteed to land there, so "
+            f"the marker is what keeps them identifiable (addendum 1, f1b76c6) -- missing marker "
+            f"for: {missing} (region: {region!r})",
+        )
 
 
 if __name__ == "__main__":
