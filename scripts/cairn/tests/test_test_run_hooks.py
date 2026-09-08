@@ -40,7 +40,10 @@ REPO_ROOT = helpers.CAIRN_DIR.parent.parent  # scripts/cairn -> scripts -> repo 
 HOOKS_DIR = REPO_ROOT / ".claude" / "hooks"
 SETTINGS_PATH = REPO_ROOT / ".claude" / "settings.json"
 HOOK_PAYLOADS_PATH = REPO_ROOT / "process" / "reviews" / "PT-97" / "hook-payloads.json"
-REAL_TEST_RUNS_PATH = REPO_ROOT / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+REAL_METRICS_DIR = REPO_ROOT / "process" / "cairn" / "metrics"
+REAL_TEST_RUNS_PATH = REAL_METRICS_DIR / "test-runs.jsonl"
+REAL_RECEIVER_PIDFILE = REAL_METRICS_DIR / ".receiver.pid"
+REAL_SESSIONS_DIR = REAL_METRICS_DIR / ".sessions"
 # PT-97 delta 7 seam -- see test_run_tests.py's identical constant.
 CAIRN_TEST_RUNS_ENV = "CAIRN_TEST_RUNS_FILE"
 
@@ -537,22 +540,24 @@ class SettingsAnchoringTests(unittest.TestCase):
 # stripped under `python -O` (PT-91/PT-95) -- raise explicitly instead.
 # --------------------------------------------------------------------------
 
-_REAL_TEST_RUNS_BEFORE = None
+_REAL_STATE_SNAPSHOT = None
 
 
 def setUpModule():
-    global _REAL_TEST_RUNS_BEFORE
-    _REAL_TEST_RUNS_BEFORE = REAL_TEST_RUNS_PATH.read_bytes() if REAL_TEST_RUNS_PATH.exists() else None
+    # PT-100 (architect's re-issued ruling, PT-100.md @ 0487f33): ported
+    # onto the shared, self-diagnosing snapshot -- see test_run_tests.py's
+    # identical guard for the full rationale (raw-line multiset
+    # containment; this file's records carry no `issue` field so any
+    # added line is treated as unbacked, preserving the original
+    # byte-exact-on-any-write intent).
+    global _REAL_STATE_SNAPSHOT
+    _REAL_STATE_SNAPSHOT = helpers.snapshot_real_state(
+        REAL_TEST_RUNS_PATH, REAL_RECEIVER_PIDFILE, REAL_SESSIONS_DIR, REAL_METRICS_DIR.parent,
+    )
 
 
 def tearDownModule():
-    after = REAL_TEST_RUNS_PATH.read_bytes() if REAL_TEST_RUNS_PATH.exists() else None
-    if after != _REAL_TEST_RUNS_BEFORE:
-        raise AssertionError(
-            "the real, committed process/cairn/metrics/test-runs.jsonl must never be "
-            "touched by this test module -- every real run_tests.py subprocess spawn here "
-            f"must set {CAIRN_TEST_RUNS_ENV} to a throwaway path"
-        )
+    helpers.assert_real_state_untouched(_REAL_STATE_SNAPSHOT)
 
 
 if __name__ == "__main__":

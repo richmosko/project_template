@@ -88,6 +88,30 @@ import helpers  # noqa: F401
 SCRIPT_PATH = helpers.CAIRN_DIR / "otel_receiver.py"
 FIXTURES = helpers.FIXTURES_DIR / "otlp"
 
+# PT-100 gate-4 verdict delta 1 (architect, process/cairn/issues/PT-100.md
+# @ ef22d56): this module drives the real receiver as a subprocess across
+# --repo-root and cwd variations more than any other (L126, L503, L588,
+# L626) and had NO module-level guard at all -- more exposure, not less,
+# and the exact shape (--out-file passed everywhere, never the
+# unspecified default) that also looked safe on test_otel_receiver_
+# self_stop.py before PT-90 caught it.
+REAL_METRICS_DIR = helpers.TESTS_DIR.parent.parent.parent / "process" / "cairn" / "metrics"
+REAL_TOKEN_USAGE_PATH = REAL_METRICS_DIR / "token-usage.jsonl"
+REAL_RECEIVER_PIDFILE = REAL_METRICS_DIR / ".receiver.pid"
+REAL_SESSIONS_DIR = REAL_METRICS_DIR / ".sessions"
+_REAL_STATE_SNAPSHOT = None
+
+
+def setUpModule():
+    global _REAL_STATE_SNAPSHOT
+    _REAL_STATE_SNAPSHOT = helpers.snapshot_real_state(
+        REAL_TOKEN_USAGE_PATH, REAL_RECEIVER_PIDFILE, REAL_SESSIONS_DIR, REAL_METRICS_DIR.parent,
+    )
+
+
+def tearDownModule():
+    helpers.assert_real_state_untouched(_REAL_STATE_SNAPSHOT)
+
 # The 12-key allow-list, addendum's own verbatim order.
 ALLOWED_LINE_KEYS_ORDERED = (
     "source", "generated", "window_start", "window_end",
@@ -711,6 +735,58 @@ class RoleResolutionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         roles = {l["role"] for l in read_jsonl(out_path)}
         self.assertEqual(roles, {"team-lead"}, roles)
+
+
+# --------------------------------------------------------------------------
+# PT-100 gate-4 verdict delta 1: proof that this module's own guard
+# construction actually fires -- same technique test_real_state_guard.py
+# uses for the helper itself (synthetic tmp fixtures, never the real
+# committed files), scoped here to THIS module's wiring specifically.
+# --------------------------------------------------------------------------
+
+class RealStateGuardConstructionTests(unittest.TestCase):
+    def _fixture(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        data_dir = helpers.copy_fixture_data_dir(tmp)
+        token_usage_path = tmp / "token-usage.jsonl"
+        pidfile_path = tmp / ".receiver.pid"
+        sessions_dir = tmp / ".sessions"
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+        return token_usage_path, pidfile_path, sessions_dir, data_dir
+
+    def test_a_fake_root_write_elsewhere_does_not_trip_the_guard(self):
+        # The exact shape every OTHER test in this file already relies
+        # on: a real receiver invocation with --repo-root/--out-file
+        # pointed at a throwaway fake root. Simulated directly here (no
+        # subprocess needed to prove the GUARD's own indifference to it)
+        # -- a write to a DIFFERENT, unrelated path never touches the
+        # snapshot taken over the real guarded paths.
+        token_usage_path, pidfile_path, sessions_dir, data_dir = self._fixture()
+        token_usage_path.write_text('{"issue":"PT-1","role":"team-lead"}\n', encoding="utf-8")
+        snap = helpers.snapshot_real_state(token_usage_path, pidfile_path, sessions_dir, data_dir)
+
+        fake_root_elsewhere = helpers.make_empty_tmp_dir(self) / "fake-root-token-usage.jsonl"
+        fake_root_elsewhere.parent.mkdir(parents=True, exist_ok=True)
+        fake_root_elsewhere.write_text('{"issue":"PT-3","role":"qa-engineer"}\n', encoding="utf-8")
+
+        findings = helpers.diagnose_real_state(snap)
+        self.assertEqual(
+            findings, [],
+            f"a write to an unrelated fake-root path must never trip the guard over the real "
+            f"guarded paths -- got {findings!r}",
+        )
+
+    def test_a_synthetic_write_to_the_guarded_path_pattern_trips_the_guard(self):
+        # A write DIRECTLY to the same path the snapshot was taken over
+        # -- the shape a genuine seam mistake (an unresolved --repo-root
+        # falling through to the real checkout) would produce.
+        token_usage_path, pidfile_path, sessions_dir, data_dir = self._fixture()
+        token_usage_path.write_text('{"issue":"PT-1","role":"team-lead"}\n', encoding="utf-8")
+        snap = helpers.snapshot_real_state(token_usage_path, pidfile_path, sessions_dir, data_dir)
+
+        token_usage_path.write_text("", encoding="utf-8")  # truncated in place
+        with self.assertRaises(AssertionError):
+            helpers.assert_real_state_untouched(snap)
 
 
 if __name__ == "__main__":

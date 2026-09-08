@@ -85,7 +85,7 @@ import io
 import json
 import unittest
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 import helpers  # noqa: F401
 
@@ -106,40 +106,25 @@ REAL_TOKEN_USAGE_PATH = REAL_METRICS_DIR / "token-usage.jsonl"
 REAL_RECEIVER_PIDFILE = REAL_METRICS_DIR / ".receiver.pid"
 REAL_SESSIONS_DIR = REAL_METRICS_DIR / ".sessions"
 
-_REAL_TOKEN_USAGE_BEFORE: Optional[bytes] = None
-_REAL_PIDFILE_BEFORE: Optional[bytes] = None
-_REAL_SESSIONS_BEFORE: Optional[list] = None
-
-
-def _snapshot_real_sessions_registry():
-    if not REAL_SESSIONS_DIR.is_dir():
-        return None
-    return sorted((p.name, p.read_bytes()) for p in REAL_SESSIONS_DIR.iterdir() if p.is_file())
+_REAL_STATE_SNAPSHOT = None
 
 
 def setUpModule():
-    global _REAL_TOKEN_USAGE_BEFORE, _REAL_PIDFILE_BEFORE, _REAL_SESSIONS_BEFORE
-    _REAL_TOKEN_USAGE_BEFORE = REAL_TOKEN_USAGE_PATH.read_bytes() if REAL_TOKEN_USAGE_PATH.exists() else None
-    _REAL_PIDFILE_BEFORE = REAL_RECEIVER_PIDFILE.read_bytes() if REAL_RECEIVER_PIDFILE.exists() else None
-    _REAL_SESSIONS_BEFORE = _snapshot_real_sessions_registry()
+    # PT-100 (architect's re-issued ruling, PT-100.md @ 0487f33): ported
+    # onto the shared, self-diagnosing snapshot -- raw-line multiset
+    # containment for token-usage.jsonl, a live-pid check for
+    # .receiver.pid, additions-only for .sessions/. Also fixes this
+    # module's own bare `assert` below (PT-91 Amendment 1: stripped
+    # entirely under `python -O`) -- the exact defect this ruling exists
+    # to catch everywhere, found here while porting.
+    global _REAL_STATE_SNAPSHOT
+    _REAL_STATE_SNAPSHOT = helpers.snapshot_real_state(
+        REAL_TOKEN_USAGE_PATH, REAL_RECEIVER_PIDFILE, REAL_SESSIONS_DIR, REAL_METRICS_DIR.parent,
+    )
 
 
 def tearDownModule():
-    after_data = REAL_TOKEN_USAGE_PATH.read_bytes() if REAL_TOKEN_USAGE_PATH.exists() else None
-    assert after_data == _REAL_TOKEN_USAGE_BEFORE, (
-        "the real, committed process/cairn/metrics/token-usage.jsonl must never be "
-        "touched by this test module -- every test must use a scratch out_path"
-    )
-    after_pidfile = REAL_RECEIVER_PIDFILE.read_bytes() if REAL_RECEIVER_PIDFILE.exists() else None
-    assert after_pidfile == _REAL_PIDFILE_BEFORE, (
-        "the real process/cairn/metrics/.receiver.pid must never be touched by this "
-        "test module -- these tests call fold()/flush()/_status() directly, never a "
-        "CLI flag that touches the pidfile/sessions registry"
-    )
-    assert _snapshot_real_sessions_registry() == _REAL_SESSIONS_BEFORE, (
-        "the real process/cairn/metrics/.sessions/ registry must never be touched by "
-        "this test module"
-    )
+    helpers.assert_real_state_untouched(_REAL_STATE_SNAPSHOT)
 
 
 # --------------------------------------------------------------------------

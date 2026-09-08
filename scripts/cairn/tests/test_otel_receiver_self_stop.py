@@ -284,16 +284,8 @@ def read_jsonl(path: Path) -> list[dict]:
 # AC4: the real, committed data file must never move.
 # --------------------------------------------------------------------------
 
-_REAL_TOKEN_USAGE_BEFORE: Optional[bytes] = None
-_REAL_PIDFILE_BEFORE: Optional[bytes] = None
-_REAL_SESSIONS_BEFORE: Optional[list] = None
+_REAL_STATE_SNAPSHOT = None
 _GUARD_ARMED = False
-
-
-def _snapshot_real_sessions_registry():
-    if not REAL_SESSIONS_DIR.is_dir():
-        return None
-    return sorted((p.name, p.read_bytes()) for p in REAL_SESSIONS_DIR.iterdir() if p.is_file())
 
 
 def setUpModule():
@@ -310,13 +302,16 @@ def setUpModule():
     # test_milestone_overhead.py's identical pattern for the sessions
     # registry).
     #
-    # PT-91 architect ruling (Amendment 2): the runtime state beside the
-    # data file -- .receiver.pid and .sessions/ -- must be snapshotted
-    # too, not just token-usage.jsonl (the Ask names both).
-    global _REAL_TOKEN_USAGE_BEFORE, _REAL_PIDFILE_BEFORE, _REAL_SESSIONS_BEFORE, _GUARD_ARMED
-    _REAL_TOKEN_USAGE_BEFORE = REAL_TOKEN_USAGE_PATH.read_bytes() if REAL_TOKEN_USAGE_PATH.exists() else None
-    _REAL_PIDFILE_BEFORE = REAL_RECEIVER_PIDFILE.read_bytes() if REAL_RECEIVER_PIDFILE.exists() else None
-    _REAL_SESSIONS_BEFORE = _snapshot_real_sessions_registry()
+    # PT-100 (architect's re-issued ruling, PT-100.md @ 0487f33): all
+    # three real-file guards (token-usage.jsonl, .receiver.pid,
+    # .sessions/) now go through ONE shared, self-diagnosing snapshot --
+    # raw-line multiset containment for token-usage.jsonl (never an
+    # identity-keyed dict, PT-91's original mistake), a live-pid check
+    # for the pidfile, additions-only for the sessions registry.
+    global _REAL_STATE_SNAPSHOT, _GUARD_ARMED
+    _REAL_STATE_SNAPSHOT = helpers.snapshot_real_state(
+        REAL_TOKEN_USAGE_PATH, REAL_RECEIVER_PIDFILE, REAL_SESSIONS_DIR, REAL_METRICS_DIR.parent,
+    )
     # PT-91 Amendment 3, part 1: a sentinel ZZZGuardCoverageProbeTests
     # (sorts last in this module) checks was actually armed before it
     # ran -- proof that setUpModule really executed ahead of every test,
@@ -332,27 +327,11 @@ def tearDownModule():
     #
     # PT-91 architect ruling (Amendment 1): a bare `assert` is stripped
     # entirely under `python -O` (measured) -- a guard whose firing
-    # depends on an interpreter flag is not a guard. Raise explicitly
-    # instead.
-    after_token_usage = REAL_TOKEN_USAGE_PATH.read_bytes() if REAL_TOKEN_USAGE_PATH.exists() else None
-    if after_token_usage != _REAL_TOKEN_USAGE_BEFORE:
-        raise AssertionError(
-            "the real, committed process/cairn/metrics/token-usage.jsonl must never be "
-            "touched by this test module -- every test must point --out-file at a fake root"
-        )
-    after_pidfile = REAL_RECEIVER_PIDFILE.read_bytes() if REAL_RECEIVER_PIDFILE.exists() else None
-    if after_pidfile != _REAL_PIDFILE_BEFORE:
-        raise AssertionError(
-            "the real, live process/cairn/metrics/.receiver.pid must never be touched by "
-            "this test module -- every otel_receiver.py invocation here must use a fake "
-            "--repo-root, never the real one"
-        )
-    if _snapshot_real_sessions_registry() != _REAL_SESSIONS_BEFORE:
-        raise AssertionError(
-            "the real, live process/cairn/metrics/.sessions/ registry must never be "
-            "touched by this test module -- every otel_receiver.py invocation here must "
-            "use a fake --repo-root, never the real one"
-        )
+    # depends on an interpreter flag is not a guard.
+    # `assert_real_state_untouched` raises explicitly, classifies a
+    # tolerated daemon flush from a real seam defect (PT-100), and
+    # never needs this module's own byte-equality checks again.
+    helpers.assert_real_state_untouched(_REAL_STATE_SNAPSHOT)
 
 
 # --------------------------------------------------------------------------

@@ -84,6 +84,7 @@ OTEL_SCRIPT = helpers.CAIRN_DIR / "otel_receiver.py"
 OTLP_FIXTURES = helpers.FIXTURES_DIR / "otlp"
 
 REAL_METRICS_DIR = helpers.TESTS_DIR.parent.parent.parent / "process" / "cairn" / "metrics"
+REAL_TOKEN_USAGE_PATH = REAL_METRICS_DIR / "token-usage.jsonl"
 REAL_RECEIVER_PIDFILE = REAL_METRICS_DIR / ".receiver.pid"
 REAL_SESSIONS_DIR = REAL_METRICS_DIR / ".sessions"
 
@@ -671,14 +672,7 @@ class BackfillMilestoneAttributionTests(unittest.TestCase):
         )
 
 
-def _snapshot_real_sessions_registry():
-    if not REAL_SESSIONS_DIR.is_dir():
-        return None
-    return sorted((p.name, p.read_bytes()) for p in REAL_SESSIONS_DIR.iterdir() if p.is_file())
-
-
-_REAL_PIDFILE_BEFORE: Optional[bytes] = None
-_REAL_SESSIONS_BEFORE: Optional[list] = None
+_REAL_STATE_SNAPSHOT = None
 
 
 def setUpModule():
@@ -690,9 +684,16 @@ def setUpModule():
     # touch the real files, AFTER this guard's tearDownClass already
     # passed. setUpModule/tearDownModule are unittest's own guaranteed
     # whole-module brackets and don't have that gap.
-    global _REAL_PIDFILE_BEFORE, _REAL_SESSIONS_BEFORE
-    _REAL_PIDFILE_BEFORE = REAL_RECEIVER_PIDFILE.read_bytes() if REAL_RECEIVER_PIDFILE.exists() else None
-    _REAL_SESSIONS_BEFORE = _snapshot_real_sessions_registry()
+    #
+    # PT-100 (architect's re-issued ruling, PT-100.md @ 0487f33): ported
+    # onto the shared, self-diagnosing snapshot -- raw-line multiset
+    # containment for token-usage.jsonl (this module never guarded it
+    # directly before; the shared helper covers all three together), a
+    # live-pid check for .receiver.pid, additions-only for .sessions/.
+    global _REAL_STATE_SNAPSHOT
+    _REAL_STATE_SNAPSHOT = helpers.snapshot_real_state(
+        REAL_TOKEN_USAGE_PATH, REAL_RECEIVER_PIDFILE, REAL_SESSIONS_DIR, REAL_METRICS_DIR.parent,
+    )
 
 
 def tearDownModule():
@@ -711,20 +712,9 @@ def tearDownModule():
     # guard exists so a FUTURE test in this file that adds one of those
     # flags without a fake engine root fails HERE, not in production.
     # PT-95 (gate 1 ruling): a bare `assert` is stripped entirely under
-    # `python -O` (measured on PT-91) -- raise explicitly instead.
-    pidfile_after = REAL_RECEIVER_PIDFILE.read_bytes() if REAL_RECEIVER_PIDFILE.exists() else None
-    if pidfile_after != _REAL_PIDFILE_BEFORE:
-        raise AssertionError(
-            "the real, live process/cairn/metrics/.receiver.pid must never be touched by "
-            "this test module -- every otel_receiver.py invocation here must be --ingest-only "
-            "(never --ensure-running/--session-ended/--flush-now/--stop) with --repo-root "
-            "pointed at a fake root"
-        )
-    if _snapshot_real_sessions_registry() != _REAL_SESSIONS_BEFORE:
-        raise AssertionError(
-            "the real, live process/cairn/metrics/.sessions/ registry must never be touched "
-            "by this test module -- see tearDownModule's comment for why --ingest alone is safe"
-        )
+    # `python -O` (measured on PT-91) -- `assert_real_state_untouched`
+    # raises explicitly (PT-100).
+    helpers.assert_real_state_untouched(_REAL_STATE_SNAPSHOT)
 
 
 class ReceiverMilestoneAttributionTests(unittest.TestCase):

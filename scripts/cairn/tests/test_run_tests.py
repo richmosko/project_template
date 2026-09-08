@@ -51,7 +51,10 @@ import helpers  # noqa: F401
 import run_tests
 
 REPO_ROOT = helpers.CAIRN_DIR.parent.parent  # scripts/cairn -> scripts -> repo root
-REAL_TEST_RUNS_PATH = REPO_ROOT / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+REAL_METRICS_DIR = REPO_ROOT / "process" / "cairn" / "metrics"
+REAL_TEST_RUNS_PATH = REAL_METRICS_DIR / "test-runs.jsonl"
+REAL_RECEIVER_PIDFILE = REAL_METRICS_DIR / ".receiver.pid"
+REAL_SESSIONS_DIR = REAL_METRICS_DIR / ".sessions"
 # PT-97 delta 7 seam: run_tests.py's _self_record honours this override
 # when set, writing there instead of the path it derives from its own
 # __file__ location -- which, for a REAL subprocess spawn of the real
@@ -467,22 +470,25 @@ class GateRequiresFullRunTests(unittest.TestCase):
 # `python -O` (measured, PT-91/PT-95) -- raise explicitly instead.
 # --------------------------------------------------------------------------
 
-_REAL_TEST_RUNS_BEFORE = None
+_REAL_STATE_SNAPSHOT = None
 
 
 def setUpModule():
-    global _REAL_TEST_RUNS_BEFORE
-    _REAL_TEST_RUNS_BEFORE = REAL_TEST_RUNS_PATH.read_bytes() if REAL_TEST_RUNS_PATH.exists() else None
+    # PT-100 (architect's re-issued ruling, PT-100.md @ 0487f33): ported
+    # onto the shared, self-diagnosing snapshot -- raw-line multiset
+    # containment for test-runs.jsonl (this file's records carry no
+    # `issue` field, so the helper's issue-backing check treats any
+    # added line as unbacked, preserving this guard's original
+    # byte-exact-on-any-write intent); pidfile/sessions come along for
+    # free even though this module never spawns a receiver.
+    global _REAL_STATE_SNAPSHOT
+    _REAL_STATE_SNAPSHOT = helpers.snapshot_real_state(
+        REAL_TEST_RUNS_PATH, REAL_RECEIVER_PIDFILE, REAL_SESSIONS_DIR, REAL_METRICS_DIR.parent,
+    )
 
 
 def tearDownModule():
-    after = REAL_TEST_RUNS_PATH.read_bytes() if REAL_TEST_RUNS_PATH.exists() else None
-    if after != _REAL_TEST_RUNS_BEFORE:
-        raise AssertionError(
-            "the real, committed process/cairn/metrics/test-runs.jsonl must never be "
-            "touched by this test module -- every real run_tests.py subprocess spawn here "
-            f"must set {CAIRN_TEST_RUNS_ENV} to a throwaway path"
-        )
+    helpers.assert_real_state_untouched(_REAL_STATE_SNAPSHOT)
 
 
 if __name__ == "__main__":
