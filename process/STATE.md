@@ -21,9 +21,10 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Issue | PT-98 (cairn) |
 | Milestone | PT-0.12.1 |
 | Branch | `feature/pt-98-last-slow-files-consolidation` |
+| PR | https://github.com/richmosko/project_template/pull/188 |
 | Started | 2026-09-08 |
 | Goal | The two slowest test files lose their deterministic-replaceable slack without weakening the daemon's timing contract or the CLI boundary; sliver files consolidate by subject; every retirement is named. |
-| Status | In Progress |
+| Status | In Review |
 
 ## Releases
 
