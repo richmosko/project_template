@@ -17,14 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Token chart: chronological mode orders by when tokens were spent, not by issue id — 'in the order worked' |
-| Issue | PT-102 (cairn) |
+| Feature | Token chart: minimum 1 px bar height — sub-pixel issues read as absent in chronological mode |
+| Issue | PT-101 (cairn) |
 | Milestone | PT-0.12.1 |
-| Branch | `feature/pt-102-chronological-by-time-worked` |
-| PR | https://github.com/richmosko/project_template/pull/185 |
+| Branch | `feature/pt-101-minimum-bar-height` |
 | Started | 2026-09-08 |
-| Goal | Chronological mode orders issues by first token activity so PT-88 renders at the right edge, with the caption 'in the order worked'; browser-verified. |
-| Status | In Review |
+| Goal | Any non-zero issue total renders at least 1 px tall in the token chart so 'tiny' is distinguishable from 'absent'; browser-verified. |
+| Status | In Progress |
 
 ## Releases
 
