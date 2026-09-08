@@ -23,7 +23,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-108-loop-stats-dict-body` |
 | Started | 2026-09-08 |
 | Goal | `cairn loop-stats` survives protocol (dict-bodied) SendMessage records; one regression test. |
-| Status | In Progress |
+| PR | https://github.com/richmosko/project_template/pull/195 |
+| Status | In Review |
 
 ## Releases
 
