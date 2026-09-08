@@ -12,12 +12,17 @@ copy-paste it is a live footgun, not a style nit -- renaming
 `scripts/cairn/tests/js/helpers.js` fixes nothing and is explicitly
 out of scope (ruling item (d)); this test never reads that file.
 
-Scope: the two files the ruling names as carrying this command --
-`.claude/skills/finish-feature/SKILL.md` (the finish-feature gate) and
-`scripts/cairn/tests/js/INTERFACE.md` (`## Running the suite`) -- not the
-full PT-99 33-file ratified-text set (`test_gate_leg_naming.py`'s own
-scope), since this is JS-runner-specific, not general agent-facing
-prose.
+Scope: the three files the ruling (addendum 1) names as recording this
+command -- `.claude/skills/finish-feature/SKILL.md` (the finish-feature
+gate), `scripts/cairn/tests/js/INTERFACE.md` (`## Running the suite`),
+and `process/WORKFLOW.md` (the tiered-gating bullet's new JS-suite
+sentence) -- not the full PT-99 33-file ratified-text set
+(`test_gate_leg_naming.py`'s own scope) as a whole, since this predicate
+(a bare-directory `node --test` argument) is JS-runner-specific, not
+general agent-facing prose. WORKFLOW.md happens to already sit inside
+that 33-file set for PT-99's own (unrelated) `unittest`-token predicate;
+that's incidental overlap, not a reason to skip listing it here too --
+this file's predicate is different and needs its own explicit scope.
 
 Red at HEAD (measured): `scripts/cairn/tests/js/INTERFACE.md:197` carries
 `` `node --test scripts/cairn/tests/js` `` -- a bare directory path with
@@ -42,10 +47,12 @@ import helpers  # noqa: F401
 
 REPO_ROOT = helpers.CAIRN_DIR.parent.parent
 
-# The ruling's own two-file scope for the JS-runner command.
+# The ruling's own three-file scope for the JS-runner command (addendum 1
+# added process/WORKFLOW.md as a third recording site).
 RATIFIED_FILES = [
     REPO_ROOT / ".claude" / "skills" / "finish-feature" / "SKILL.md",
     REPO_ROOT / "scripts" / "cairn" / "tests" / "js" / "INTERFACE.md",
+    REPO_ROOT / "process" / "WORKFLOW.md",
 ]
 
 FENCED_BLOCK_RE = re.compile(r"```[a-zA-Z]*\n(.*?)```", re.DOTALL)
