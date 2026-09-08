@@ -191,16 +191,20 @@ the function itself is correct, only a hypothetical bad call site wouldn't be.
 ## Running the suite
 
 ```
-node --test scripts/cairn/tests/js/*.test.js
+node --test "scripts/cairn/tests/js/**/*.test.js"
 ```
 
-From the repo root. **The glob is required** — `node --test scripts/cairn/tests/js`
-(a bare directory path, no glob) does NOT auto-discover files in this Node version
-(26.5.1, verified) despite Node's docs suggesting directory args recurse; only an
-explicit `*.test.js` glob (or `**/*.test.js` if subdirectories are ever added)
-reliably picks up every file here. Confirmed empirically while writing this suite
-— re-verify against whatever Node version CI/`finish-feature` actually runs before
-wiring PT-24's gate to a bare-directory invocation.
+From the repo root, quoted so node — not the shell — expands the pattern; the `**`
+covers a future subdirectory. **The glob is required.** Measured at node 26.7.0
+(PT-83, PT-83.md @ 0c79168 item (d)): passing this directory as a bare, glob-less
+positional argument (with or without a trailing dot for "here") is not a discovery
+root at all; node resolves it as a module entry point and fails with
+MODULE_NOT_FOUND before any file is considered — deliberately left out of a code
+span here, since a span naming that form is still ratified text handing a teammate
+something to copy. `helpers.js` is not the cause and is not renamed or excluded.
+Only the quoted glob above, or a bare `node --test` with no path argument
+(cwd-relative recursion), reliably discovers every file here — re-verify against
+whatever Node version CI/`finish-feature` actually runs if this ever changes again.
 
 No `package.json`, no `node_modules` — `node:test` and `node:assert` are Node's
 stdlib (Node 18+). Skips with a notice (not a failure) when `node` isn't on `PATH`

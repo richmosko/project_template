@@ -166,10 +166,11 @@ from __future__ import annotations
 
 import math
 import re
-import sys
 import unittest
 
 import helpers  # noqa: F401
+
+import palette_check
 
 REPO_ROOT = helpers.CAIRN_DIR.parent.parent
 BOARD_TOKENS_CSS = helpers.CAIRN_DIR / "board" / "tokens.css"
@@ -177,9 +178,6 @@ BOARD_VARIANTS_CSS = helpers.CAIRN_DIR / "board" / "variants.css"
 BOARD_CSS = helpers.CAIRN_DIR / "board" / "board.css"
 BOARD_JS = helpers.CAIRN_DIR / "board" / "board.js"
 DASHBOARD_SRC = helpers.CAIRN_DIR / "dashboard" / "src"
-
-sys.path.insert(0, str(helpers.TESTS_DIR))
-from test_dashboard_chart_ramp import _oklch_to_hex, _find_validator_module  # noqa: E402
 
 WCAG_NORMAL_TEXT = 4.5           # WCAG 1.4.3, normal text
 WCAG_LARGE_TEXT_OR_GRAPHICAL = 3.0  # WCAG 1.4.3 large text (>=24px/>=18.66px bold) or 1.4.11 non-text/graphical
@@ -191,10 +189,12 @@ WCAG_LARGE_TEXT_OR_GRAPHICAL = 3.0  # WCAG 1.4.3 large text (>=24px/>=18.66px bo
 # with the generator's (and this file's, until now) by ~0.8% on the
 # already-"fixed" values -- not rounding noise, two different-but-both-
 # correct models: hers computes on CONTINUOUS sRGB; the generator's (and
-# this file's `_oklch_to_hex` + `module.contrast`) rounds through 8-bit
-# hex first. Dark destructive ink sits at 4.4955 (float) / 4.5268
-# (quantized), with the 4.5 floor INSIDE that gap -- so which model you
-# ask determines whether it passes. This file shared the generator's
+# this file's -- now `palette_check.linear_to_hex(palette_check.
+# oklch_to_linear_srgb(...))` + `palette_check.contrast_hex`, PT-83 vendored
+# in place of the external `_oklch_to_hex` + `module.contrast`) rounds
+# through 8-bit hex first. Dark destructive ink sits at 4.4955 (float) /
+# 4.5268 (quantized), with the 4.5 floor INSIDE that gap -- so which model
+# you ask determines whether it passes. This file shared the generator's
 # color bridge, so it certified exactly the values that bridge liked and
 # could not see its own bias -- "a guard that reuses the implementation
 # it's guarding tests self-consistency, not correctness" (architect,
@@ -238,17 +238,19 @@ def _contrast_float(lum_a: float, lum_b: float) -> float:
     return (hi + 0.05) / (lo + 0.05)
 
 
-def _dual_model_contrast(fg_oklch, bg_oklch, module):
+def _dual_model_contrast(fg_oklch, bg_oklch):
     """(min(quantized, float), quantized, float) for one fg/bg OKLCH
     pair. `quantized` is the pre-existing model (round-trip through
-    `_oklch_to_hex` + the validator's own `contrast()`); `float` is the
+    `palette_check.linear_to_hex(palette_check.oklch_to_linear_srgb(...))`
+    + `palette_check.contrast_hex` -- PT-83 vendored in place of the
+    retired external `_oklch_to_hex` + `module.contrast`); `float` is the
     continuous model above. The gate asserts against the MIN -- a pair
     that either model alone would fail is a real failure; a pair only ONE
     model happens to clear is exactly the straddling case this exists to
     catch, so it must not pass on that model's say-so alone."""
-    fg_hex = _oklch_to_hex(*fg_oklch, module.lin2s)
-    bg_hex = _oklch_to_hex(*bg_oklch, module.lin2s)
-    quantized = module.contrast(fg_hex, bg_hex)
+    fg_hex = palette_check.linear_to_hex(palette_check.oklch_to_linear_srgb(*fg_oklch))
+    bg_hex = palette_check.linear_to_hex(palette_check.oklch_to_linear_srgb(*bg_oklch))
+    quantized = palette_check.contrast_hex(fg_hex, bg_hex)
 
     fg_rgb = _oklch_to_linear_rgb_clamped(*fg_oklch)
     bg_rgb = _oklch_to_linear_rgb_clamped(*bg_oklch)
@@ -555,7 +557,7 @@ def _derive_cross_dimension_pairs(board_css_source: str, dashboard_haystack: str
     return cross
 
 
-def _run_cross_dimension_gate(testcase, module):
+def _run_cross_dimension_gate(testcase):
     board_css_source = BOARD_CSS.read_text(encoding="utf-8") if BOARD_CSS.is_file() else ""
     dashboard_parts = []
     if DASHBOARD_SRC.is_dir():
@@ -586,7 +588,7 @@ def _run_cross_dimension_gate(testcase, module):
                     values_bg = modes_bg.get(mode, {})
                     if fg not in values_fg or bg not in values_bg:
                         continue
-                    ratio, quantized, float_ratio = _dual_model_contrast(values_fg[fg], values_bg[bg], module)
+                    ratio, quantized, float_ratio = _dual_model_contrast(values_fg[fg], values_bg[bg])
                     if ratio < floor:
                         failures.append(
                             f"{fg} ({dim_fg} '{name_fg}') on {bg} ({dim_bg} '{name_bg}'), {mode} "
@@ -610,7 +612,13 @@ def _run_cross_dimension_gate(testcase, module):
     )
 
 
-def _run_gate(testcase, dim_label: str, dim_key: str, module):
+def _run_gate(testcase, dim_label: str, dim_key: str, variants=None):
+    """`variants`, when given, REPLACES the usage-derived
+    `_collect_variants(dim_key)` call -- PT-83's GateDecisivenessTests
+    passes a synthetic map with one gated pair pushed below its floor, to
+    prove this gate genuinely fails a bad value rather than always
+    passing regardless of input. `module` (the external validator) is
+    gone -- vendored into `_dual_model_contrast` (PT-83)."""
     board_css_source = BOARD_CSS.read_text(encoding="utf-8") if BOARD_CSS.is_file() else ""
     dashboard_parts = []
     if DASHBOARD_SRC.is_dir():
@@ -629,7 +637,8 @@ def _run_gate(testcase, dim_label: str, dim_key: str, module):
         f"(check the derivation mechanism, not just accept the vacuous pass).",
     )
 
-    variants = _collect_variants(dim_key)
+    if variants is None:
+        variants = _collect_variants(dim_key)
     if not variants:
         testcase.skipTest(f"no {dim_label} variants found yet (board/tokens.css or board/variants.css missing)")
 
@@ -640,7 +649,7 @@ def _run_gate(testcase, dim_label: str, dim_key: str, module):
                 if fg not in values or bg not in values:
                     failures.append(f"{dim_label} '{name}' ({mode}): missing {fg} or {bg} entirely")
                     continue
-                ratio, quantized, float_ratio = _dual_model_contrast(values[fg], values[bg], module)
+                ratio, quantized, float_ratio = _dual_model_contrast(values[fg], values[bg])
                 if ratio < floor:
                     failures.append(
                         f"{dim_label} '{name}' ({mode}): {fg} on {bg} is {ratio:.4f}:1 (min of "
@@ -684,7 +693,7 @@ def _run_gate(testcase, dim_label: str, dim_key: str, module):
 MARGIN_EARLY_WARNING_THRESHOLD = 0.05
 
 
-def _collect_margins(dim_key: str, module):
+def _collect_margins(dim_key: str):
     """[(margin, label), ...] for every currently-gated (variant, mode,
     pair) combination in `dim_key` that PASSES its floor -- margin =
     min(quantized, float) ratio minus the floor. Failing combinations are
@@ -707,7 +716,7 @@ def _collect_margins(dim_key: str, module):
             for fg, bg, floor, _role in gated_pairs:
                 if fg not in values or bg not in values:
                     continue
-                ratio, _quantized, _float_ratio = _dual_model_contrast(values[fg], values[bg], module)
+                ratio, _quantized, _float_ratio = _dual_model_contrast(values[fg], values[bg])
                 if ratio >= floor:
                     margins.append((ratio - floor, f"{dim_key} '{name}' ({mode}): {fg} on {bg}"))
     return margins
@@ -715,18 +724,12 @@ def _collect_margins(dim_key: str, module):
 
 class BaseVariantContrastGateTests(unittest.TestCase):
     def test_every_base_variant_clears_its_role_appropriate_floor_on_every_rendered_pair(self):
-        module = _find_validator_module()
-        if module is None:
-            self.skipTest("dataviz validate_palette.py not found on this harness")
-        _run_gate(self, "Base", "base", module)
+        _run_gate(self, "Base", "base")
 
 
 class ThemeVariantContrastGateTests(unittest.TestCase):
     def test_every_theme_variant_clears_its_role_appropriate_floor_on_every_rendered_pair(self):
-        module = _find_validator_module()
-        if module is None:
-            self.skipTest("dataviz validate_palette.py not found on this harness")
-        _run_gate(self, "Theme", "theme", module)
+        _run_gate(self, "Theme", "theme")
 
 
 class ThinMarginEarlyWarningTests(unittest.TestCase):
@@ -742,10 +745,7 @@ class ThinMarginEarlyWarningTests(unittest.TestCase):
     never lower this test's bar."""
 
     def test_minimum_margin_across_base_and_theme_is_not_dangerously_thin(self):
-        module = _find_validator_module()
-        if module is None:
-            self.skipTest("dataviz validate_palette.py not found on this harness")
-        margins = _collect_margins("base", module) + _collect_margins("theme", module)
+        margins = _collect_margins("base") + _collect_margins("theme")
         if not margins:
             self.skipTest("no gated Base/Theme pairs found yet")
         worst_margin, worst_label = min(margins, key=lambda m: m[0])
@@ -770,10 +770,7 @@ class CrossDimensionContrastGateTests(unittest.TestCase):
     variants instead."""
 
     def test_no_cross_dimension_co_occurring_pair_is_below_its_floor(self):
-        module = _find_validator_module()
-        if module is None:
-            self.skipTest("dataviz validate_palette.py not found on this harness")
-        _run_cross_dimension_gate(self, module)
+        _run_cross_dimension_gate(self)
 
 
 class NoCrossDimensionCoOccurrenceExistsTests(unittest.TestCase):
@@ -1012,22 +1009,86 @@ class UsageDerivationSelfTests(unittest.TestCase):
 
 class ContrastGateHelperSelfTests(unittest.TestCase):
     def test_a_genuinely_low_contrast_pair_is_caught(self):
-        module = _find_validator_module()
-        if module is None:
-            self.skipTest("dataviz validate_palette.py not found on this harness")
         light_gray = (0.6, 0.0, 0.0)
         slightly_darker_gray = (0.58, 0.0, 0.0)
-        fg_hex = _oklch_to_hex(*light_gray, module.lin2s)
-        bg_hex = _oklch_to_hex(*slightly_darker_gray, module.lin2s)
-        ratio = module.contrast(fg_hex, bg_hex)
+        fg_hex = palette_check.linear_to_hex(palette_check.oklch_to_linear_srgb(*light_gray))
+        bg_hex = palette_check.linear_to_hex(palette_check.oklch_to_linear_srgb(*slightly_darker_gray))
+        ratio = palette_check.contrast_hex(fg_hex, bg_hex)
         self.assertLess(ratio, WCAG_NORMAL_TEXT)
 
     def test_black_on_white_clears_the_floor(self):
-        module = _find_validator_module()
-        if module is None:
-            self.skipTest("dataviz validate_palette.py not found on this harness")
-        ratio = module.contrast("#000000", "#ffffff")
+        ratio = palette_check.contrast_hex("#000000", "#ffffff")
         self.assertGreaterEqual(ratio, WCAG_NORMAL_TEXT)
+
+
+class ContrastHexAnchorsTests(unittest.TestCase):
+    """New (architect's gate-1 ruling, PT-83.md @ 0c79168, item (f)(1)):
+    `palette_check.contrast_hex` pinned against fixed hex literals --
+    deliberately NOT round-tripped through the OKLCH bridge at test-run
+    time, so this test isolates `contrast_hex`'s OWN hex-to-linear decode
+    (`v/12.92` / `((v+0.055)/1.055)**2.4`) from `oklch_to_linear_srgb`'s
+    separate encode matrix (that one's covered by `_SelfCheckTests` in
+    test_dashboard_chart_ramp.py). The two PT-61 anchor hex values below
+    (`#ffdf20`, `#f0b100`) were computed once via
+    `palette_check.linear_to_hex(palette_check.oklch_to_linear_srgb(...))`
+    from the ruling's own OKLCH figures (0.905, 0.182, 98.111) and
+    (0.795, 0.184, 86.047) -- reproduced here as literals. Red mutation
+    (ruling): sRGB decode exponent 2.4 -> 2.2 inside `contrast_hex`
+    changes the PT-61 anchors (black/white's decode is exponent-invariant
+    at the 0/1 endpoints, so that anchor alone can't catch this)."""
+
+    def test_black_on_white_is_exactly_21(self):
+        self.assertAlmostEqual(palette_check.contrast_hex("#000000", "#ffffff"), 21.0, places=6)
+
+    def test_pt61_light_end_anchors(self):
+        # chart-1 (0.905, 0.182, 98.111) and chart-2 (0.795, 0.184,
+        # 86.047) on a pure-white light-mode --card, PT-61's own reported
+        # failure figures, reproduced exactly (architect's ruling: delta
+        # 0.00e+00 against the external module).
+        self.assertAlmostEqual(palette_check.contrast_hex("#ffdf20", "#ffffff"), 1.326769, places=6)
+        self.assertAlmostEqual(palette_check.contrast_hex("#f0b100", "#ffffff"), 1.910149, places=6)
+
+
+class GateDecisivenessTests(unittest.TestCase):
+    """New (ruling item (f)(4)): `_run_gate`'s `module` parameter is gone,
+    replaced by an optional `variants=None` -- proves the gate genuinely
+    FAILS a real gated pair pushed below its floor, not just "always
+    passes regardless of input." Uses a REAL usage-derived base pair list
+    (so this isn't testing a pair nothing renders) with a SYNTHETIC
+    variants map substituted in place of the real CSS values.
+
+    Every OTHER gated pair is given an obviously-passing black-on-white
+    value in the same synthetic map -- isolating the failure to the ONE
+    pair actually pushed below its floor, so this can't go green for the
+    wrong reason (e.g. a "missing token" failure from some other pair
+    this test didn't mean to exercise)."""
+
+    def test_gate_fails_when_a_gated_pair_is_pushed_below_its_floor(self):
+        board_css_source = BOARD_CSS.read_text(encoding="utf-8") if BOARD_CSS.is_file() else ""
+        dashboard_parts = []
+        if DASHBOARD_SRC.is_dir():
+            dashboard_parts = [
+                p.read_text(encoding="utf-8")
+                for p in DASHBOARD_SRC.rglob("*")
+                if p.is_file() and p.suffix in (".svelte", ".ts")
+            ]
+        dashboard_haystack = "\n".join(dashboard_parts)
+        gated_pairs, _dead, _held = _derive_gated_pairs("base", board_css_source, dashboard_haystack)
+        self.assertTrue(gated_pairs, "need at least one real gated 'base' pair to construct this test")
+
+        # Everyone passes (pure black text on pure white, 21:1) except the
+        # target pair, pushed to near-identical near-black fg/bg (~1:1,
+        # below any real WCAG floor this gate uses).
+        target_fg, target_bg, _floor, _role = gated_pairs[0]
+        values = {}
+        for fg, bg, _floor, _role in gated_pairs:
+            values.setdefault(fg, (0.0, 0.0, 0.0))
+            values.setdefault(bg, (1.0, 0.0, 0.0))
+        values[target_fg] = (0.10, 0.0, 0.0)
+        values[target_bg] = (0.11, 0.0, 0.0)
+        bad_variants = {"synthetic": {"light": values}}
+        with self.assertRaises(AssertionError):
+            _run_gate(self, "Base", "base", variants=bad_variants)
 
 
 class DualModelContrastSelfTests(unittest.TestCase):
@@ -1040,9 +1101,6 @@ class DualModelContrastSelfTests(unittest.TestCase):
     4.5268 quantized, the 4.5 floor sitting inside that 0.03 gap)."""
 
     def test_quantized_and_float_are_not_the_same_computation(self):
-        module = _find_validator_module()
-        if module is None:
-            self.skipTest("dataviz validate_palette.py not found on this harness")
         # A value chosen to actually straddle in this codebase (verified
         # against the real board/tokens.css dark --destructive pairing
         # while this gate was being built) -- if these two ever come back
@@ -1051,7 +1109,7 @@ class DualModelContrastSelfTests(unittest.TestCase):
         # this ruling exists to prevent recurring.
         fg = (0.2985, 0.01, 17.0)
         bg = (0.704, 0.191, 22.216)
-        _min_ratio, quantized, float_ratio = _dual_model_contrast(fg, bg, module)
+        _min_ratio, quantized, float_ratio = _dual_model_contrast(fg, bg)
         self.assertNotEqual(
             round(quantized, 6), round(float_ratio, 6),
             "quantized and float contrast came back identical -- the two models must be "
@@ -1060,9 +1118,6 @@ class DualModelContrastSelfTests(unittest.TestCase):
         )
 
     def test_min_based_gate_fails_when_only_the_float_model_misses_the_floor(self):
-        module = _find_validator_module()
-        if module is None:
-            self.skipTest("dataviz validate_palette.py not found on this harness")
         # Search a small neighborhood for a real straddling case in THIS
         # OKLCH bridge, rather than asserting on a hardcoded pair that
         # might not straddle under a future matrix/rounding tweak --
@@ -1072,7 +1127,7 @@ class DualModelContrastSelfTests(unittest.TestCase):
         straddle_found = False
         for tenth_milli in range(2500, 3500):  # L from 0.2500 to 0.3499, 0.0001 steps
             fg = (tenth_milli / 10000.0, 0.01, 17.0)
-            min_ratio, quantized, float_ratio = _dual_model_contrast(fg, bg, module)
+            min_ratio, quantized, float_ratio = _dual_model_contrast(fg, bg)
             if float_ratio < WCAG_NORMAL_TEXT <= quantized:
                 straddle_found = True
                 self.assertLess(

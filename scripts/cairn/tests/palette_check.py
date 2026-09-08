@@ -98,6 +98,29 @@ def contrast_ratio(a: Tuple[float, float, float], b: Tuple[float, float, float])
     return (hi + 0.05) / (lo + 0.05)
 
 
+def hex_to_srgb(h: str) -> Tuple[float, float, float]:
+    h = h.strip().lstrip("#")
+    return tuple(int(h[i : i + 2], 16) / 255 for i in (0, 2, 4))  # type: ignore[return-value]
+
+
+def srgb_to_linear(v: float) -> float:
+    return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+
+
+def contrast_hex(fg_hex: str, bg_hex: str) -> float:
+    """WCAG contrast ratio between two 8-bit sRGB hex colors (PT-83).
+    Vendored in place of the external dataviz skill's `module.contrast` +
+    `hex2srgb`/`s2lin` -- decodes hex to linear sRGB and reuses this
+    module's own `contrast_ratio`, so there is exactly one contrast-ratio
+    implementation in this file. Architect's ruling (PT-83.md @ 0c79168
+    item (b)): measured byte-identical (delta 0.00e+00) to the external
+    module across black/white (21.0), PT-61's anchors (1.326769 /
+    1.910149), and the dual-model straddle pair (4.791117)."""
+    fg = tuple(srgb_to_linear(c) for c in hex_to_srgb(fg_hex))
+    bg = tuple(srgb_to_linear(c) for c in hex_to_srgb(bg_hex))
+    return contrast_ratio(fg, bg)  # type: ignore[arg-type]
+
+
 def oklab_delta_e(t1: Tuple[float, float, float], t2: Tuple[float, float, float]) -> float:
     """Euclidean distance in OKLab. ~0.02 is the rule-of-thumb JND."""
     return math.dist(oklch_to_oklab(*t1), oklch_to_oklab(*t2))

@@ -23,25 +23,21 @@ Two independent things this file checks, in two classes:
   else entirely, this class's token-count test still passes (it doesn't
   anchor on specific names, only the `--chart-` prefix + count), but
   update this docstring's assumption note if that naming diverges.
-- `ChartRampOrdinalValidationTests` is NUMERIC -- it re-runs the actual
-  check that produced this ruling (the dataviz skill's ordinal-ramp
-  validator: monotone lightness, visible adjacent gaps, single hue, and
-  the light-end contrast floor against the surface) against whatever 6
-  oklch values land in app.css, in BOTH modes, so a *future* edit to
-  these specific tokens can't silently drop back below the floor the way
-  the original `--chart-1..5` did. The OKLCH-to-hex bridge this class
-  needs (the validator takes hex) is verified against the ruling's own
-  reported numbers before being trusted -- see `_SelfCheckTests` below,
-  which reproduces the ruling's exact 1.33:1/1.91:1 figures for the
-  UNFIXED `--chart-1`/`--chart-2` values as a sanity check on the
-  conversion math, not on anything PT-61 changes.
+- `_SelfCheckTests` sanity-checks the OKLCH bridge every gated contrast
+  pair still runs through -- reproducing PT-61's own reported
+  1.33:1/1.91:1 light-end figures for the UNFIXED `--chart-1`/`--chart-2`
+  values. PT-83 ported this off the external dataviz skill's
+  `validate_palette.py` onto the vendored `palette_check.py`
+  (`linear_to_hex(oklch_to_linear_srgb(...))` + `contrast_hex`) so it
+  never skips; the assertions themselves are unchanged.
 
-Per team-lead's explicit instruction, the validator's bundled-skill path
-can move across harness versions -- `_find_validator_module` searches for
-it rather than hardcoding one path, and every test in
-`ChartRampOrdinalValidationTests` skips (not fails, not errors) if it
-truly can't be found, so a harness upgrade that relocates the skill can't
-silently red the whole suite over an unrelated path change.
+PT-85 (architect ruling 586af1f) retired PT-61's ordinal `--chart-flow-*`
+ramp entirely, so the NUMERIC `ChartRampOrdinalValidationTests` class
+that used to re-run the dataviz skill's ordinal-ramp validator against it
+is gone (see the comment near the bottom of this file for the full
+record) -- `_SelfCheckTests` is the only thing left that needs the OKLCH
+bridge, and it survives because that bridge is still what every gated
+contrast pair in test_base_theme_contrast_gate.py runs through.
 
 Nothing under test exists yet: app.css has exactly the 5 base
 `--chart-1..5` tokens per mode and nothing else `--chart-`-prefixed.
@@ -50,13 +46,12 @@ construct, never an import error.
 """
 from __future__ import annotations
 
-import glob
-import importlib.util
-import math
 import re
 import unittest
 
 import helpers  # noqa: F401
+
+import palette_check
 
 REPO_ROOT = helpers.CAIRN_DIR.parent.parent
 APP_CSS = helpers.CAIRN_DIR / "dashboard" / "src" / "app.css"
@@ -64,27 +59,6 @@ DASHBOARD_SRC = helpers.CAIRN_DIR / "dashboard" / "src"
 
 BASE_CHART_NAMES = {f"--chart-{i}" for i in range(1, 6)}
 CHART_VAR_RE = re.compile(r"(--chart-[\w-]+)\s*:\s*oklch\(([^)]*)\)")
-
-_VALIDATOR_GLOB_CANDIDATES = [
-    "/private/tmp/claude-*/bundled-skills/*/*/dataviz/scripts/validate_palette.py",
-    "/tmp/claude-*/bundled-skills/*/*/dataviz/scripts/validate_palette.py",
-]
-
-
-def _find_validator_module():
-    """Locates and imports the dataviz skill's validate_palette.py by
-    search, not a hardcoded path (team-lead: 'bundled path, may move
-    across harness versions'). Returns the imported module, or None if
-    it genuinely can't be found anywhere searched."""
-    for pattern in _VALIDATOR_GLOB_CANDIDATES:
-        matches = sorted(glob.glob(pattern))
-        if matches:
-            path = matches[-1]  # newest harness version, if more than one
-            spec = importlib.util.spec_from_file_location("validate_palette", path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)  # type: ignore[union-attr]
-            return module
-    return None
 
 
 def _read_app_css() -> str:
@@ -129,49 +103,30 @@ def _derived_chart_vars(block_text: str) -> dict:
     return {name: v for name, v in _chart_vars_in_block(block_text).items() if name.startswith("--chart-flow-")}
 
 
-# -- OKLCH -> hex bridge, published Björn Ottosson OKLab<->linear-sRGB
-# matrices (https://bottosson.github.io/posts/oklab/) -- the forward half
-# is already in the skill's own validate_palette.py (lin2oklab); this is
-# just its published inverse, needed because the skill's CLI/functions
-# take hex, and app.css declares oklch(). Verified against the ruling's
-# own reported numbers in _SelfCheckTests below, not trusted blind.
-def _oklch_to_hex(l: float, c: float, h_deg: float, lin2s) -> str:
-    h = math.radians(h_deg)
-    a = c * math.cos(h)
-    b = c * math.sin(h)
-    l_ = l + 0.3963377774 * a + 0.2158037573 * b
-    m_ = l - 0.1055613458 * a - 0.0638541728 * b
-    s_ = l - 0.0894841775 * a - 1.2914855480 * b
-    ll, mm, ss = l_**3, m_**3, s_**3
-    r = 4.0767416621 * ll - 3.3077115913 * mm + 0.2309699292 * ss
-    g = -1.2684380046 * ll + 2.6097574011 * mm - 0.3413193965 * ss
-    bb = -0.0041960863 * ll - 0.7034186147 * mm + 1.7076147010 * ss
-    rs, gs, bs = lin2s(r), lin2s(g), lin2s(bb)
-
-    def to255(x: float) -> int:
-        return max(0, min(255, round(x * 255)))
-
-    return "#%02x%02x%02x" % (to255(rs), to255(gs), to255(bs))
-
-
 class _SelfCheckTests(unittest.TestCase):
-    """Sanity-checks the OKLCH->hex bridge above against the ruling's own
-    reported figures for the UNCHANGED preset ramp, before that bridge is
-    trusted to validate anything PT-61 actually derives. If this test
-    ever goes red, the bug is in this file's color math, not in app.css."""
+    """Sanity-checks the vendored OKLCH->hex bridge (`palette_check.
+    linear_to_hex(palette_check.oklch_to_linear_srgb(...))`) against the
+    ruling's own reported figures for the UNCHANGED preset ramp, before
+    that bridge is trusted to validate anything PT-61 actually derived.
+    If this test ever goes red, the bug is in the bridge's color math,
+    not in app.css.
+
+    PT-83 (architect's ruling, PT-83.md @ 0c79168 item (c)/(f)(3)): PORTED
+    off the external dataviz skill's `validate_palette.py`
+    (`_oklch_to_hex` + `module.contrast`, both retired) onto the vendored
+    `palette_check.py` -- the two assertions are unchanged, and this test
+    no longer skips. Red mutation (ruling): drop the `0.2158037573` term
+    from `palette_check.oklch_to_linear_srgb`'s OKLab->LMS matrix."""
 
     def test_reproduces_the_rulings_reported_light_end_contrast_failures(self):
-        module = _find_validator_module()
-        if module is None:
-            self.skipTest("dataviz validate_palette.py not found on this harness")
         # --card in :root (light mode surface) is oklch(1 0 0) = pure
-        # white -- the ruling's "light card surface", not the script's
-        # generic default surface.
+        # white -- the ruling's "light card surface", not a generic
+        # default surface.
         surface = "#ffffff"
-        chart_1 = _oklch_to_hex(0.905, 0.182, 98.111, module.lin2s)
-        chart_2 = _oklch_to_hex(0.795, 0.184, 86.047, module.lin2s)
-        self.assertAlmostEqual(module.contrast(chart_1, surface), 1.33, places=2)
-        self.assertAlmostEqual(module.contrast(chart_2, surface), 1.91, places=2)
+        chart_1 = palette_check.linear_to_hex(palette_check.oklch_to_linear_srgb(0.905, 0.182, 98.111))
+        chart_2 = palette_check.linear_to_hex(palette_check.oklch_to_linear_srgb(0.795, 0.184, 86.047))
+        self.assertAlmostEqual(palette_check.contrast_hex(chart_1, surface), 1.33, places=2)
+        self.assertAlmostEqual(palette_check.contrast_hex(chart_2, surface), 1.91, places=2)
 
 
 class ChartLocalTokenContractTests(unittest.TestCase):
@@ -237,10 +192,13 @@ class ChartLocalTokenContractTests(unittest.TestCase):
 # ruling: "what replaces it (if anything) is a contrast/distinctness
 # assertion over the three series, which is qa's call" -- not silently
 # dropped, this comment is the record of what was here (a two-mode
-# validate_ordinal() run, `_oklch_to_hex`/`_find_validator_module`
-# helpers above still present and reusable for a categorical
-# replacement, e.g. validate_palette.js/py's own categorical checks
-# already used elsewhere in this repo, see PT-69/PT-79's palette_check.py).
+# validate_ordinal() run against the external dataviz skill). PT-83
+# later retired the `_oklch_to_hex`/`_find_validator_module` helpers that
+# ran it -- `_SelfCheckTests` above still needs an OKLCH->hex bridge, but
+# gets it from the vendored `palette_check.py` now, never the external
+# script; a categorical replacement for THIS ramp, if ever built, should
+# use `palette_check`'s own categorical checks (PT-69/PT-79), not rebuild
+# either retired helper.
 
 
 if __name__ == "__main__":
