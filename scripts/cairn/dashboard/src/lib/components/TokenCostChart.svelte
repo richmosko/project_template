@@ -15,6 +15,7 @@
 		roleTokenSeries,
 		tickEveryNth,
 		type Metric,
+		type Order,
 	} from '$lib/token-chart-logic';
 
 	// PT-79 (architect ruling): /api/tokens is a SEPARATE data source from
@@ -27,6 +28,12 @@
 	let tokensError = $state<string | null>(null);
 	let mode = $state<Metric>('tokens');
 	let showAll = $state(false);
+	// PT-88 gate-1 ruling (item (b)): component $state, matching `mode`/
+	// `showAll` -- no URL param, no localStorage. This component is
+	// mounted once with no `{#key}` and `subscribeTokens` replaces
+	// `tokens` in place, so the choice already survives every poll the
+	// same way `mode` does.
+	let order = $state<Order>('ranked');
 
 	const unsubscribe = subscribeTokens(
 		(payload) => {
@@ -120,7 +127,7 @@
 	// lie about how many real issues are on screen.
 	const allIssues = $derived(tokens?.issues ?? []);
 	const realCount = $derived(allIssues.filter((i) => i.kind === 'issue').length);
-	const displayedIssues = $derived(selectBars(allIssues, mode, DEFAULT_BAR_LIMIT, showAll));
+	const displayedIssues = $derived(selectBars(allIssues, mode, DEFAULT_BAR_LIMIT, showAll, order));
 	const shownCount = $derived(displayedIssues.filter((i) => i.kind === 'issue').length);
 
 	// Cost view's role set is open-ended -- folded through roleTokenSeries
@@ -335,7 +342,7 @@
 
 	const captionText = $derived.by(() => {
 		if (!tokens) return '';
-		return formatCaption(tokens, mode, shownCount, realCount);
+		return formatCaption(tokens, mode, shownCount, realCount, order);
 	});
 </script>
 
@@ -359,7 +366,17 @@
 					<Button variant={mode === 'cost' ? 'default' : 'outline'} size="sm" onclick={() => (mode = 'cost')}>
 						Estimated cost
 					</Button>
-					{#if realCount > DEFAULT_BAR_LIMIT}
+					<Button variant={order === 'ranked' ? 'default' : 'outline'} size="sm" onclick={() => (order = 'ranked')}>
+						Ranked
+					</Button>
+					<Button
+						variant={order === 'chronological' ? 'default' : 'outline'}
+						size="sm"
+						onclick={() => (order = 'chronological')}
+					>
+						Chronological
+					</Button>
+					{#if realCount > DEFAULT_BAR_LIMIT && order === 'ranked'}
 						<Button variant="outline" size="sm" onclick={() => (showAll = !showAll)}>
 							{showAll ? `Show top ${DEFAULT_BAR_LIMIT}` : 'Show all'}
 						</Button>
