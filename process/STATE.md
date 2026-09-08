@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | PT-91 real-data-file guard trips intermittently in tearDownModule and cannot say what changed |
-| Issue | PT-100 (cairn) |
+| Feature | Test suite: the last two >8 s files (daemon timing margins, subprocess-per-test) and sliver-file consolidation |
+| Issue | PT-98 (cairn) |
 | Milestone | PT-0.12.1 |
-| Branch | `feature/pt-100-self-diagnosing-real-file-guard` |
-| PR | https://github.com/richmosko/project_template/pull/187 |
+| Branch | `feature/pt-98-last-slow-files-consolidation` |
+| PR | https://github.com/richmosko/project_template/pull/188 |
 | Started | 2026-09-08 |
-| Goal | Every real-file test guard reports what changed (append vs rewrite, first differing line) through one shared helper, and any tolerance is justified by a constructed mechanism, not a run battery. |
+| Goal | The two slowest test files lose their deterministic-replaceable slack without weakening the daemon's timing contract or the CLI boundary; sliver files consolidate by subject; every retirement is named. |
 | Status | In Review |
 
 ## Releases

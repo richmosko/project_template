@@ -258,3 +258,45 @@ semantics changed — `git diff --diff-filter=D --name-only b0cc8bd..c36af58` is
 | `test_serve_in_thread.py` | — (new) | 0.12 | — |
 
 Sum 176.6 s → 102.5 s across 83 → 84 files.
+
+## PT-98 — the two remaining >8 s files, and consolidation
+
+Same machine. "Before" is the architect's gate-1 ruling measurement at 398ee14
+(`run_tests.py -p … --json`, isolated single-file run); "after" is the same
+single-file invocation post-conversion.
+
+| File | Before (s) | After (s) | Δ | What converted |
+|---|---|---|---|---|
+| `test_otel_receiver_self_stop.py` | 18.94 | 15.93 | -3.01 | one positive wait (`sleep(PERIODIC_REAP * 6)`, L1435) → poll for a canary session's reap, same deadline; both `sleep(GRACE + 1.0)` negative waits (L687, L729) kept unchanged, per the ruling's item (a) |
+| `test_backfill_tokens.py` | 11.70 | 8.05 | -3.65 | ~35 of 40 tests converted `run_backfill` (real subprocess) → `run_backfill_in_process` (`backfill_tokens.main()` called directly, stdout/stderr captured via redirect); 5 kept as real subprocesses, one per distinct argv shape (enumerated on PT-98's issue thread) |
+
+Both beat the ruling's honest, no-8s-ceiling targets (~16.4 s / ~9.8 s projected) —
+the backfill conversion went further than the ruling's own "~25 of 40" estimate
+(architect: "not by a count," argv-shape coverage is the actual constraint) because
+every test sharing the bare `--transcripts-dir`/`--out-file` shape converts once that
+shape has one real-subprocess representative.
+
+### Consolidation
+
+`test_gate_leg_naming.py` (2 tests) + `test_js_runner_canonical_form.py` (6 tests,
+one a duplicate of the other file's own spanless-extraction test) merged into
+`test_ratified_text_scanners.py` (7 tests, the shared `extract_code_spans`/
+`ExtractionError`/regexes de-duplicated to one copy) — the architect's ruling's
+"clean case," the two ratified-text scanners being one subject. No other sliver
+file merged or retired; `test_dashboard_chart_ramp.py`'s five tests guard PT-92's
+live categorical tokens, not a retired rule (the PT-85 ramp guard retirement the
+Ask named already happened, at PT-83).
+
+### Suite wall, default jobs
+
+| Run | Wall | Tests | Files | Skipped | Result |
+|---|---|---|---|---|---|
+| parallel, default jobs, at 04270d0 (before this loop's changes) | — | — | 88 | — | not separately measured; see per-file table above for the ruling's own file-level baseline |
+| parallel, default jobs, after this loop | 18.96 s | 1483 | 87 | 1 | OK |
+
+File count: -1 net (the PT-98 merge; several unrelated feature loops landed
+between PT-96's close and this measurement, so the file/test counts above are
+not a clean two-point comparison the way PT-96's own before/after rows are --
+the merge's own delta is exactly -1 file / -1 test, verified directly:
+`test_gate_leg_naming.py` (2 tests) + `test_js_runner_canonical_form.py` (6
+tests) → `test_ratified_text_scanners.py` (7 tests).
