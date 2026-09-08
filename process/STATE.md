@@ -21,9 +21,10 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Issue | PT-83 (cairn) |
 | Milestone | PT-0.12.1 |
 | Branch | `feature/pt-83-vendor-contrast-gate-js-runner` |
+| PR | https://github.com/richmosko/project_template/pull/183 |
 | Started | 2026-09-07 |
 | Goal | No chart-palette test skips for want of the external validator, and both JS runner forms agree. |
-| Status | In Progress |
+| Status | In Review |
 
 ## Releases
 
