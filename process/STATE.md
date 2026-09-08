@@ -21,9 +21,10 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Issue | PT-99 (cairn) |
 | Milestone | PT-0.12.1 |
 | Branch | `feature/pt-99-gate-guard-discover-leg` |
+| PR | https://github.com/richmosko/project_template/pull/182 |
 | Started | 2026-09-07 |
 | Goal | A teammate can issue every leg of a gate-4 verdict under the guard, and each leg is recorded as a gate run. |
-| Status | In Progress |
+| Status | In Review |
 
 ## Releases
 
