@@ -626,3 +626,232 @@ test("formatCaption chronological singularizes the still-open sentence when exac
     `must not still emit the unpluralized plural form -- got ${JSON.stringify(caption)}`,
   );
 });
+
+// --------------------------------------------------------------------------
+// PT-101 gate-1 ruling, RE-ISSUED WHOLE (architect, process/cairn/issues/
+// PT-101.md @ d7f7d3a, superseding @3b42f3c per the builder's measured
+// objection -- my earlier floorRowForRender/trueTotalFor draft is
+// discarded here, never a subject of any commit past this one). A
+// sub-pixel column (0.712 px, 0.114 px, ...) renders present but
+// invisible in chronological mode. The mechanism is now an OVERLAY, not
+// a value floor: nothing floors a row's data -- `TokenCostChart.svelte`
+// overrides layerchart's `marks` snippet with a verbatim copy of its
+// default body plus one extra layer drawing a `MIN_BAR_PX`-tall Rect at
+// the baseline for each sub-pixel column. The y-scale, the stack and the
+// tooltip are untouched by construction, so there is no floored row to
+// assert against and no `trueTotalFor` -- do not resurrect either.
+//
+// `subPixelColumns(rows, seriesKeys, yMax, plotHeightPx, minPx =
+// MIN_BAR_PX): Array<{ issue, heightPx, topSeriesKey }>` REPORTS which
+// columns need the overlay; `heightPx` is the TRUE (auditable) height,
+// `topSeriesKey` the stack-top series with a non-zero value (the
+// overlay borrows that column's own colour). Row shape unchanged from
+// PT-88/PT-102: `{ issue, kind, <seriesKey>: number, ... }`.
+// --------------------------------------------------------------------------
+
+const SERIES_KEYS = ["input", "cache_write", "cache_read", "output"];
+
+test("subPixelColumns returns only columns rendering below the floor", () => {
+  const mod = loadTokenChartLogic();
+  const rows = [
+    { issue: "PT-1", kind: "issue", input: 1, cache_write: 0, cache_read: 0, output: 0 }, // total 1 -> 0.25px, below floor
+    { issue: "PT-2", kind: "issue", input: 100, cache_write: 0, cache_read: 0, output: 0 }, // total 100 -> 25px, at/above floor
+  ];
+  // yMax=1000, plotHeightPx=250, default minPx (1).
+  const result = mod.subPixelColumns(rows, SERIES_KEYS, 1000, 250);
+  const ids = result.map((c) => c.issue);
+  assert.deepEqual(ids, ["PT-1"], `expected only the below-floor column (PT-1) -- got ${JSON.stringify(ids)}`);
+});
+
+test("subPixelColumns excludes a zero-total column even though it renders below the floor", () => {
+  const mod = loadTokenChartLogic();
+  const rows = [{ issue: "PT-1", kind: "issue", input: 0, cache_write: 0, cache_read: 0, output: 0 }];
+  const result = mod.subPixelColumns(rows, SERIES_KEYS, 1000, 250);
+  assert.deepEqual(
+    result, [],
+    `a zero-total column renders at a true 0px by design and must never be reported as `
+    + `sub-pixel -- got ${JSON.stringify(result)}`,
+  );
+});
+
+test("subPixelColumns returns [] (never divides) when yMax or plotHeightPx is non-positive", () => {
+  const mod = loadTokenChartLogic();
+  const rows = [{ issue: "PT-1", kind: "issue", input: 1, cache_write: 0, cache_read: 0, output: 0 }];
+  assert.deepEqual(mod.subPixelColumns(rows, SERIES_KEYS, 0, 250), [], "yMax = 0 must return []");
+  assert.deepEqual(mod.subPixelColumns(rows, SERIES_KEYS, 1000, 0), [], "plotHeightPx = 0 must return []");
+});
+
+test("subPixelColumns' topSeriesKey is the stack-top series with a non-zero value, skipping a zero-valued last series", () => {
+  const mod = loadTokenChartLogic();
+  // SERIES_KEYS' LAST entry ("output", the stack-top POSITION) is
+  // deliberately zero here -- "cache_read" is the true topmost
+  // non-zero segment. Distinguishes "stack-top position" from
+  // "stack-top position with a non-zero value": a mutation that
+  // unconditionally returns the last key would report "output".
+  const rows = [{ issue: "PT-1", kind: "issue", input: 1, cache_write: 1, cache_read: 1, output: 0 }];
+  const result = mod.subPixelColumns(rows, SERIES_KEYS, 1000, 250);
+  assert.equal(result.length, 1, `expected exactly one sub-pixel column -- got ${JSON.stringify(result)}`);
+  assert.equal(
+    result[0].topSeriesKey, "cache_read",
+    `expected the stack-top NON-ZERO series (cache_read), not the last seriesKeys entry `
+    + `(output, zero here) -- got ${JSON.stringify(result[0])}`,
+  );
+});
+
+test("subPixelColumns' heightPx is the true, auditable sub-pixel height -- not the floor value", () => {
+  const mod = loadTokenChartLogic();
+  // total = 1, yMax = 1000, plotHeightPx = 250 -> true heightPx = 0.25.
+  const rows = [{ issue: "PT-1", kind: "issue", input: 1, cache_write: 0, cache_read: 0, output: 0 }];
+  const result = mod.subPixelColumns(rows, SERIES_KEYS, 1000, 250);
+  assert.equal(result.length, 1);
+  assert.equal(
+    result[0].heightPx, 0.25,
+    `expected the TRUE sub-pixel height (0.25), not MIN_BAR_PX (1) -- the overlay's own audit `
+    + `trail depends on this being the real number -- got ${result[0].heightPx}`,
+  );
+});
+
+// --------------------------------------------------------------------------
+// Fork guard (ruling item (e)6). TokenCostChart.svelte carries a
+// VERBATIM COPY of layerchart's default `marks` body (there is no
+// children/aboveMarks/belowMarks snippet to layer onto instead --
+// measured, BarChart.base.svelte exposes only `marks`). A minor bump can
+// change that body under an unchanged copy with NO rendering symptom --
+// the bars keep drawing, just silently missing whatever upstream
+// changed.
+//
+// VERDICT DELTA 1 (PT-101.md @ f3e4ef0): the first version of this guard
+// compared node_modules against a constant TRANSCRIBED INTO THE TEST --
+// it caught a layerchart upgrade but nothing about our own copy: a
+// construction test (inserting `data-drifted="yes"` into the component's
+// copied block) left the suite green, and no test in this file read
+// TokenCostChart.svelte at all. Fixed: read the component's OWN copy out
+// of the source file and compare it, three-way, against upstream and the
+// pinned constant.
+// --------------------------------------------------------------------------
+
+const fs = require("node:fs");
+
+const LAYERCHART_PACKAGE_JSON = path.join(__dirname, "..", "..", "dashboard", "node_modules", "layerchart", "package.json");
+const LAYERCHART_BARCHART_BASE = path.join(
+  __dirname, "..", "..", "dashboard", "node_modules", "layerchart", "dist", "components", "charts", "BarChart", "BarChart.base.svelte",
+);
+const TOKEN_COST_CHART_SVELTE = path.join(
+  __dirname, "..", "..", "dashboard", "src", "lib", "components", "TokenCostChart.svelte",
+);
+
+// Pinned at the moment TokenCostChart.svelte's marks override copied
+// this body verbatim (architect's ruling, PT-101.md @ d7f7d3a).
+const PINNED_LAYERCHART_VERSION = "2.3.1";
+const PINNED_DEFAULT_MARKS_BODY = `      {#each context.series.visibleSeries as s, i (s.key)}
+        <Bars
+          seriesKey={s.key}
+          x1={valueAxis === 'y' && isGroupSeries && restProps.x1 == null
+            ? (d: any) => s.value ?? s.key
+            : undefined}
+          y1={valueAxis === 'x' && isGroupSeries && restProps.y1 == null
+            ? (d: any) => s.value ?? s.key
+            : undefined}
+          rounded={context.series.stackLayout != null
+            ? // Per row rather than per series: a sub-band or a gap in the data can leave the
+              // later series out, making an earlier one the top of *that* stack
+              (d: any) => (context.series.isStackTop(s.key, d) ? 'edge' : 'none')
+            : Array.isArray(xProp) || Array.isArray(yProp)
+              ? 'all'
+              : 'edge'}
+          radius={4}
+          strokeWidth={1}
+          {stackPadding}
+          opacity={(d: any) =>
+            context.series.isHighlighted(context.cKey(d) ?? s.key, true) ? 1 : 0.1}
+          onBarClick={(e: MouseEvent, detail: any) => onBarClick(e, { ...detail, series: s })}
+          {...props.bars}
+          {...s.props}
+        />
+      {/each}`;
+
+const MARKS_BODY_ANCHOR_RE = /\{#each context\.series\.visibleSeries as s, i \(s\.key\)\}[\s\S]*?\{\/each\}/;
+const OVERLAY_BLOCK_ANCHOR_RE = /\{#each subPixelCols as col \(col\.issue\)\}[\s\S]*?\{\/each\}/;
+
+function extractBlock(source, anchorRe, label) {
+  const match = source.match(anchorRe);
+  if (!match) {
+    throw new Error(
+      `could not find the expected {#each ...}{/each} block in ${label} -- the anchor text `
+      + `itself may have moved; update this guard's extraction, don't relax the comparison`,
+    );
+  }
+  return match[0];
+}
+
+// Line-level compare, indentation-insensitive (the component uses tabs,
+// node_modules 2-space) with exactly ONE substitution reverted: Token
+// CostChart.svelte's own `valueAxis` is typed narrower than layerchart's
+// prop, so Svelte's TS checker needs an explicit `as string` cast on
+// this one comparison that upstream's looser typing doesn't need. This
+// is the ONLY normalization applied -- any other line-level difference
+// (a paraphrase, a dropped prop, a lost comment) is real drift and must
+// fail.
+function normalizeMarksBodyLines(text) {
+  return text
+    .replace("(valueAxis as string) === 'x'", "valueAxis === 'x'")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+test("layerchart is still the pinned version our copied marks body was taken from", () => {
+  const pkg = JSON.parse(fs.readFileSync(LAYERCHART_PACKAGE_JSON, "utf8"));
+  assert.equal(
+    pkg.version, PINNED_LAYERCHART_VERSION,
+    `layerchart's installed version (${pkg.version}) no longer matches the version our copied `
+    + `marks body was taken from (${PINNED_LAYERCHART_VERSION}) -- re-verify (and if needed `
+    + `re-copy) TokenCostChart.svelte's marks override against the new upstream body before `
+    + `trusting it still renders the same as the library's own default`,
+  );
+});
+
+test("TokenCostChart.svelte's marks override is a verbatim copy of layerchart's default body -- three-way: upstream, the pinned constant, and the component's own copy", () => {
+  const upstreamBlock = extractBlock(
+    fs.readFileSync(LAYERCHART_BARCHART_BASE, "utf8"), MARKS_BODY_ANCHOR_RE, "layerchart's BarChart.base.svelte",
+  );
+  const componentBlock = extractBlock(
+    fs.readFileSync(TOKEN_COST_CHART_SVELTE, "utf8"), MARKS_BODY_ANCHOR_RE, "TokenCostChart.svelte",
+  );
+  const upstream = normalizeMarksBodyLines(upstreamBlock);
+  const pinned = normalizeMarksBodyLines(PINNED_DEFAULT_MARKS_BODY);
+  const component = normalizeMarksBodyLines(componentBlock);
+
+  assert.deepEqual(
+    upstream, pinned,
+    "layerchart's upstream default marks body no longer matches the pinned constant in this "
+    + "test -- the vendored library changed its default rendering under an unchanged version "
+    + "pin (or the version-pin test above already caught a bump); re-verify TokenCostChart."
+    + "svelte's marks override against the new upstream body before trusting either.",
+  );
+  assert.deepEqual(
+    component, pinned,
+    "TokenCostChart.svelte's OWN copied marks override no longer matches layerchart's default "
+    + "body (normalized only for the one documented `(valueAxis as string)` TS cast) -- a "
+    + "paraphrase, a dropped prop or comment, or a lost accessor is a silent divergence from "
+    + "what layerchart itself renders, and this is the only check that reads the component's "
+    + "actual text rather than trusting it was copied correctly (verdict delta 1, PT-101.md @ "
+    + "f3e4ef0: a `data-drifted=\"yes\"` construction left the previous version of this guard "
+    + "green because nothing here read the .svelte file at all).",
+  );
+});
+
+// Verdict delta 1, "Note, not a delta" (PT-101.md @ f3e4ef0): the
+// overlay rects carried no class/data-testid/aria marker, so the lead's
+// visual leg could only count them because they happened to be exactly
+// 1.00px tall -- nothing guaranteed that, and a genuine 1px-tall real
+// bar would have been indistinguishable. Red at HEAD: the overlay <rect>
+// in TokenCostChart.svelte carries no such attribute yet.
+test("every sub-pixel overlay rect carries a marker attribute, so it can be counted without relying on an exact 1.00px height", () => {
+  const source = fs.readFileSync(TOKEN_COST_CHART_SVELTE, "utf8");
+  const overlayBlock = extractBlock(source, OVERLAY_BLOCK_ANCHOR_RE, "TokenCostChart.svelte's overlay block");
+  assert.match(
+    overlayBlock, /data-subpixel-overlay/,
+    `expected the overlay <rect> to carry a data-subpixel-overlay marker attribute -- got:\n${overlayBlock}`,
+  );
+});
