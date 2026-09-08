@@ -289,10 +289,23 @@ export type TokenCounters = {
 
 export type TokenRoleTotal = TokenCounters & { role: string };
 
+// PT-84 §7: server-computed, never string-sniffed here -- the chart must
+// not infer a bar's kind by parsing the `milestone:` prefix off `issue`
+// itself (exactly the coupling §7 rejects; see build_tokens_payload's
+// _token_bucket_kind).
+export type TokenKind = 'issue' | 'milestone' | 'main';
+
 export type TokenIssueTotal = {
 	issue: string;
+	kind: TokenKind;
 	total: TokenCounters;
 	roles: TokenRoleTotal[];
+	// PT-102 (amended ruling, PT-102.md @ ccd4f48, item (a)): the
+	// status->done transition date, server-computed by reusing the
+	// throughput chart's own git-history derivation -- never re-derived
+	// here. The emitter writes the key unconditionally -- `null`, never
+	// absent, for an issue not yet done ("open").
+	closed_at: string | null;
 };
 
 export type TokensPayload = {
@@ -307,6 +320,11 @@ export type TokensPayload = {
 		unpriced_models: string[];
 	};
 	warning: string | null;
+	// PT-84 §7: one-clause explanation of what milestone bars are, null
+	// when the payload carries no milestone bucket -- server-composed
+	// (cairn.py's build_tokens_payload), appended VERBATIM by
+	// token-chart-logic.ts's formatCaption, never recomposed client-side.
+	milestone_caption: string | null;
 };
 
 export async function fetchTokens(): Promise<TokensPayload> {

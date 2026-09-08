@@ -549,8 +549,16 @@
 							<Chart.Tooltip
 								indicator="line"
 								class="z-50 bg-popover text-popover-foreground ring-1 ring-border"
-								formatter={(v: number) => (mode === 'cost' ? formatUsd(v) : formatTokens(v))}
-							/>
+							>
+								<!-- PT-104: `formatter` is a Snippet (rendered via
+								     `{@render formatter(...)}` in chart-tooltip.svelte),
+								     not a plain `(value) => string` callback -- `value`
+								     arrives `unknown` there, narrowed here since this
+								     chart's own series are always numeric. -->
+								{#snippet formatter({ value }: { value: unknown })}
+									{mode === 'cost' ? formatUsd(value as number) : formatTokens(value as number)}
+								{/snippet}
+							</Chart.Tooltip>
 						{/snippet}
 					</BarChart>
 				</Chart.Container>

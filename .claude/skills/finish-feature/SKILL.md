@@ -32,6 +32,18 @@ else
   echo "NOTE: board.js JS suite skipped (Node absent or no *.test.js files) — Python suite is the hard gate."
 fi
 
+# 2b. Dashboard type-checks — HARD GATE (PT-104: the dashboard-api.ts /
+#     token-chart-logic.ts wire-type duplicate survived three loops
+#     (PT-88, PT-101, PT-102) undetected because nothing ran svelte-check
+#     until now; a gate that cannot pass is not a gate, so every error it
+#     finds is in scope, not just the one this loop introduced).
+if [ -d scripts/cairn/dashboard/node_modules ]; then
+  ( cd scripts/cairn/dashboard && node ./node_modules/svelte-check/bin/svelte-check --tsconfig ./tsconfig.app.json ) \
+    || { echo "GATE FAIL: dashboard svelte-check is red — do not proceed"; exit 1; }
+else
+  echo "NOTE: dashboard svelte-check skipped (scripts/cairn/dashboard/node_modules absent) — a local install must run this before merge."
+fi
+
 # 3. Dashboard dist/ is not stale relative to its committed source — HARD GATE
 #    (PT-58: committed dist/ used to rely on PR discipline alone; this makes it
 #    checked. Git-aware, not mtime — mtimes lie after a clone/checkout. Only
