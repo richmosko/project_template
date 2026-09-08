@@ -137,5 +137,89 @@ class MetricsPathResolutionPrefersClaudeProjectDirTests(unittest.TestCase):
         )
 
 
+# --------------------------------------------------------------------------
+# Spike finding (team-lead, process/reviews/PT-82/spike.md @ 1d25274, step
+# 9): from a real worktree, a gated `run_tests.py` run wrote a record into
+# BOTH the resolved (main checkout) test-runs.jsonl AND the script-local
+# (worktree) copy -- the worktree's own copy gained a stray `who: null`
+# line, dirtying a git-tracked file in every teammate worktree and
+# inviting a bad commit. `run_tests.py:_self_record` (PT-82.md @
+# 6316a9b/b0287db, item (c)) is supposed to write to exactly ONE path --
+# the resolved `override` when `--gate` + `CLAUDE_PROJECT_DIR` make one
+# available, else the script-local default -- never both. Mutation: write
+# both (append to the script-local path unconditionally, in addition to
+# the resolved one).
+#
+# Real subprocess of the REAL run_tests.py (no local imports beyond
+# stdlib, so a minimal two-file copy -- run_tests.py + one trivial test
+# file -- is a legitimate, self-contained "worktree" for this purpose;
+# no need to copy the whole scripts/cairn tree).
+# --------------------------------------------------------------------------
+
+_TRIVIAL_TEST_FILE = """
+import unittest
+
+
+class TrivialPassingTests(unittest.TestCase):
+    def test_trivial(self):
+        self.assertTrue(True)
+"""
+
+
+def _make_worktree_run_tests_copy(testcase):
+    """(worktree_root, run_tests_py_path) -- a minimal, self-contained
+    copy of run_tests.py plus one trivial test file, laid out at
+    <worktree_root>/scripts/cairn/{run_tests.py,tests/test_trivial.py}
+    so `SCRIPT_DIR.parent.parent` inside it resolves to `worktree_root`,
+    matching the real repo's own scripts/cairn -> scripts -> root shape."""
+    worktree_root = helpers.make_empty_tmp_dir(testcase)
+    cairn_dir = worktree_root / "scripts" / "cairn"
+    tests_dir = cairn_dir / "tests"
+    tests_dir.mkdir(parents=True)
+    real_run_tests_py = helpers.CAIRN_DIR / "run_tests.py"
+    shutil.copy(real_run_tests_py, cairn_dir / "run_tests.py")
+    (tests_dir / "test_trivial.py").write_text(_TRIVIAL_TEST_FILE, encoding="utf-8")
+    return worktree_root, cairn_dir / "run_tests.py"
+
+
+class GatedRunFromAWorktreeWritesExactlyOneRecordTests(unittest.TestCase):
+    def test_the_script_local_copy_is_untouched_when_the_resolved_path_differs(self):
+        worktree_root, run_tests_py = _make_worktree_run_tests_copy(self)
+        main_root = helpers.make_empty_tmp_dir(self)
+
+        # Pre-seed the worktree's own local records file, as a real
+        # git-tracked copy would already have committed content --
+        # "byte-identical before/after" is a meaningful claim only
+        # against a file that already exists with real bytes in it.
+        local_records_path = worktree_root / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        local_records_path.parent.mkdir(parents=True)
+        seed_bytes = b'{"ts":"2026-01-01T00:00:00.000Z","who":null,"gate":null,"seed":true}\n'
+        local_records_path.write_bytes(seed_bytes)
+
+        resolved_records_path = main_root / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        self.assertFalse(resolved_records_path.exists(), "sanity: the resolved path must start absent")
+
+        env = dict(os.environ)
+        env["CLAUDE_PROJECT_DIR"] = str(main_root)
+        env.pop("CAIRN_TEST_RUNS_FILE", None)
+        result = subprocess.run(
+            [sys.executable, str(run_tests_py), "--gate", "green"],
+            cwd=str(run_tests_py.parent), capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(result.returncode, 0, f"the gated run itself must succeed (one trivial passing test) -- {result.stdout!r} {result.stderr!r}")
+
+        self.assertTrue(resolved_records_path.is_file(), "the resolved (main checkout) records file must gain the record")
+        resolved_lines = resolved_records_path.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(resolved_lines), 1, f"expected exactly one new record in the resolved file -- got {resolved_lines!r}")
+
+        after_bytes = local_records_path.read_bytes()
+        self.assertEqual(
+            after_bytes, seed_bytes,
+            f"the script-local (worktree) copy must be BYTE-IDENTICAL before and after a gated "
+            f"run whose resolved path differs -- it must never also gain a line -- got "
+            f"{after_bytes!r}, seeded with {seed_bytes!r}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
