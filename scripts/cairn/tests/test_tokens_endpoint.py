@@ -64,6 +64,14 @@ import helpers  # noqa: F401
 
 import cairn
 
+# PT-102 gate-1 ruling, amended and re-issued (architect, process/cairn/
+# issues/PT-102.md @ ccd4f48, item (a)/(e)): closed_at reuses the
+# throughput chart's OWN status->done transition detection -- so its
+# tests reuse THAT test file's own fixture pattern (real git commits, not
+# synthetic timestamps), per the ruling's explicit instruction, rather
+# than a second hand-rolled git-fixture helper that could drift from it.
+from test_flow_throughput import make_flow_git_repo, _write_issue as _flow_write_issue, _commit_at as _flow_commit_at  # noqa: E402
+
 REPO_ROOT = helpers.CAIRN_DIR.parent.parent
 REAL_TOKEN_USAGE_PATH = REPO_ROOT / "process" / "cairn" / "metrics" / "token-usage.jsonl"
 
@@ -534,6 +542,141 @@ class TokensPayloadIssueOrderingTests(unittest.TestCase):
             f"kind:'issue' bars must come out numerically id-ascending regardless of input line "
             f"order or lexicographic traps -- got {issue_ids!r}. PT-88's chronological chart mode "
             "trusts this server-side order and does no client-side re-sort of its own.",
+        )
+
+
+class ClosedAtFromGitHistoryTests(unittest.TestCase):
+    """PT-102 gate-1 ruling, amended and re-issued (architect,
+    process/cairn/issues/PT-102.md @ ccd4f48, item (a)/(e)/1): `closed_at`
+    reuses the throughput chart's own `status -> done` transition
+    detection (`_compute_flow_payload`, cairn.py ~L3152: `if status ==
+    "done" and previous_status != "done"`) -- never a second git walk,
+    never the issue's frontmatter `created:` date. Fixture built with
+    test_flow_throughput.py's own pattern (make_flow_git_repo /
+    _write_issue / _commit_at): real commits, not synthetic timestamps.
+    Mutation (ruling): read frontmatter `created:` instead of the
+    transition -- ISSUE_TMPL's fixed `created: 2026-08-01` is nowhere
+    near either commit date below, so that mutation is unmissable."""
+
+    def test_closed_at_equals_the_status_to_done_commit_date_not_the_created_date(self):
+        data_dir = make_flow_git_repo(self)
+        repo_root = data_dir.parent.parent
+
+        _flow_write_issue(data_dir, id="PT-1", status="todo")
+        _flow_commit_at(repo_root, "create PT-1", "2026-08-10 10:00:00 +0000")
+        _flow_write_issue(data_dir, id="PT-1", status="done")
+        _flow_commit_at(repo_root, "PT-1 -> done", "2026-08-15 10:00:00 +0000")
+
+        (data_dir / "metrics").mkdir(parents=True, exist_ok=True)
+        write_token_usage_jsonl(data_dir / "metrics" / "token-usage.jsonl", [
+            token_line("PT-1", "team-lead", "claude-sonnet-5", input=10),
+        ])
+
+        payload = _call_build_tokens_payload(data_dir, prices=SONNET_PRICE)
+        entry = next(e for e in payload["issues"] if e["issue"] == "PT-1")
+        self.assertEqual(
+            entry.get("closed_at"), "2026-08-15",
+            f"closed_at must equal the status->done TRANSITION date (2026-08-15), never the "
+            f"issue's frontmatter created: date (2026-08-01, ISSUE_TMPL's fixed default) -- "
+            f"got {entry.get('closed_at')!r}",
+        )
+
+    def test_a_reopened_then_reclosed_issue_reports_the_later_close_date(self):
+        data_dir = make_flow_git_repo(self)
+        repo_root = data_dir.parent.parent
+
+        _flow_write_issue(data_dir, id="PT-2", status="todo")
+        _flow_commit_at(repo_root, "create PT-2", "2026-08-10 10:00:00 +0000")
+        _flow_write_issue(data_dir, id="PT-2", status="done")
+        _flow_commit_at(repo_root, "PT-2 -> done (first close)", "2026-08-12 10:00:00 +0000")
+        _flow_write_issue(data_dir, id="PT-2", status="in-progress")
+        _flow_commit_at(repo_root, "PT-2 reopened", "2026-08-13 10:00:00 +0000")
+        _flow_write_issue(data_dir, id="PT-2", status="done")
+        _flow_commit_at(repo_root, "PT-2 -> done (second close)", "2026-08-20 10:00:00 +0000")
+
+        (data_dir / "metrics").mkdir(parents=True, exist_ok=True)
+        write_token_usage_jsonl(data_dir / "metrics" / "token-usage.jsonl", [
+            token_line("PT-2", "team-lead", "claude-sonnet-5", input=10),
+        ])
+
+        payload = _call_build_tokens_payload(data_dir, prices=SONNET_PRICE)
+        entry = next(e for e in payload["issues"] if e["issue"] == "PT-2")
+        self.assertEqual(
+            entry.get("closed_at"), "2026-08-20",
+            f"a reopened-then-reclosed issue must report the LATER close date -- a `setdefault` "
+            f"(keep-the-first-close) implementation would wrongly report 2026-08-12 -- got "
+            f"{entry.get('closed_at')!r}",
+        )
+
+
+class ClosedAtOpenIssueAndPayloadOrderTests(unittest.TestCase):
+    """PT-102 ruling item (e)/3: an open issue's closed_at is null, and
+    the payload's own order stays id-ascending -- PT-88's pinned client
+    contract dies quietly if issues_out is ever sorted by closed_at
+    server-side. Fixture deliberately gives the LATEST closed_at to the
+    LOWEST id (and vice versa), so a closed_at-based sort produces a
+    VISIBLY different order from the correct id-ascending one -- mutation
+    (ruling): sort issues_out by closed_at."""
+
+    def test_an_open_issues_closed_at_is_null_and_payload_order_stays_id_ascending(self):
+        data_dir = make_flow_git_repo(self)
+        repo_root = data_dir.parent.parent
+
+        _flow_write_issue(data_dir, id="PT-1", status="todo")
+        _flow_commit_at(repo_root, "create PT-1", "2026-08-10 10:00:00 +0000")
+        _flow_write_issue(data_dir, id="PT-1", status="done")
+        _flow_commit_at(repo_root, "PT-1 -> done", "2026-08-20 10:00:00 +0000")
+
+        _flow_write_issue(data_dir, id="PT-2", status="todo")
+        _flow_commit_at(repo_root, "create PT-2", "2026-08-10 10:00:00 +0000")
+        _flow_write_issue(data_dir, id="PT-2", status="done")
+        _flow_commit_at(repo_root, "PT-2 -> done", "2026-08-11 10:00:00 +0000")
+
+        _flow_write_issue(data_dir, id="PT-3", status="in-progress")
+        _flow_commit_at(repo_root, "create PT-3", "2026-08-10 10:00:00 +0000")
+
+        (data_dir / "metrics").mkdir(parents=True, exist_ok=True)
+        write_token_usage_jsonl(data_dir / "metrics" / "token-usage.jsonl", [
+            token_line("PT-1", "team-lead", "claude-sonnet-5", input=10),
+            token_line("PT-2", "team-lead", "claude-sonnet-5", input=10),
+            token_line("PT-3", "team-lead", "claude-sonnet-5", input=10),
+        ])
+
+        payload = _call_build_tokens_payload(data_dir, prices=SONNET_PRICE)
+        by_id = {e["issue"]: e for e in payload["issues"] if e.get("kind") == "issue"}
+        self.assertIsNone(
+            by_id["PT-3"].get("closed_at"),
+            f"an open issue's closed_at must be null -- got {by_id['PT-3'].get('closed_at')!r}",
+        )
+        issue_ids = [e["issue"] for e in payload["issues"] if e.get("kind") == "issue"]
+        self.assertEqual(
+            issue_ids, ["PT-1", "PT-2", "PT-3"],
+            f"payload order must stay id-ascending regardless of closed_at (PT-88's pinned "
+            f"contract) -- got {issue_ids!r}. This fixture's closed_at values are reversed "
+            f"relative to id order (PT-1 closes latest, PT-2 earliest) specifically so a "
+            f"closed_at-based sort can't coincidentally produce the same output.",
+        )
+
+
+class ClosedAtGitDegradationTests(unittest.TestCase):
+    """PT-102 ruling item (a)/(e)/4: `build_tokens_payload` gains a git
+    dependency it never had before (via `closed_at`). When git is
+    unavailable (data_dir isn't inside a worktree -- `make_tokens_data_dir`
+    is exactly that, the fixture every OTHER test in this file already
+    uses), every issue's closed_at must degrade to null and the call must
+    still never raise -- `build_tokens_payload`'s existing, unchanged
+    contract. Mutation (ruling): let the flow warning path propagate."""
+
+    def test_a_non_git_data_dir_degrades_to_all_null_closed_at_without_raising(self):
+        data_dir = make_tokens_data_dir(self, [
+            token_line("PT-1", "team-lead", "claude-sonnet-5", input=10),
+        ])
+        payload = _call_build_tokens_payload(data_dir, prices=SONNET_PRICE)
+        entry = next(e for e in payload["issues"] if e["issue"] == "PT-1")
+        self.assertIsNone(
+            entry.get("closed_at"),
+            f"with git unavailable, closed_at must degrade to null, never raise -- got "
+            f"{entry.get('closed_at')!r}",
         )
 
 

@@ -57,6 +57,19 @@ function sampleIssue(issue, tokensTotal, costTotal, kind) {
   };
 }
 
+// PT-102's amended, re-issued gate-1 ruling (process/cairn/issues/
+// PT-102.md @ ccd4f48, item (a)): `closed_at` is a new sibling key on
+// each issues_out entry (ISO date | null -- null for an issue not yet
+// done), server-computed by reusing the throughput chart's own
+// status->done transition detection, never re-derived client-side. A
+// separate helper rather than a new sampleIssue() parameter -- every
+// PRE-EXISTING sampleIssue() call site stays untouched (closed_at simply
+// absent, i.e. undefined, which the ordering/caption logic must treat
+// the same as an explicit null -- "open").
+function withClosedAt(issue, closedAt) {
+  return { ...issue, closed_at: closedAt };
+}
+
 function samplePayload(issueList) {
   return {
     issues: issueList,
@@ -455,17 +468,23 @@ test("formatCaption's ranked branch is byte-identical whether or not order is pa
   );
 });
 
-test("formatCaption for chronological mode states 'in the order opened' and never appends milestone_caption verbatim", () => {
+test("formatCaption for chronological mode states 'in the order closed' and never appends milestone_caption verbatim", () => {
+  // PT-102's amended, re-issued ruling (process/cairn/issues/PT-102.md
+  // @ ccd4f48, item (d)) SUPERSEDES PT-88's "in the order opened"
+  // phrasing a second time -- ordering is now by close date, not by
+  // filing date, and the caption says so. PT-1 is given an explicit
+  // closed_at so this test (about milestone/main omission, not the
+  // still-open clause) doesn't spuriously trip it.
   const mod = loadTokenChartLogic();
   const payload = samplePayload([
-    sampleIssue("PT-1", 300, 3.0),
+    withClosedAt(sampleIssue("PT-1", 300, 3.0), "2026-09-01"),
     sampleIssue("milestone:PT-0.4", 50, 0.5, "milestone"),
     sampleIssue("main", 999, 9.0),
   ]);
   payload.milestone_caption = "Milestone bars are main-branch work attributed to whichever milestone was active at the time.";
   const caption = mod.formatCaption(payload, "tokens", 68, 68, "chronological");
   assert.match(
-    caption, /Showing all 68 issues in the order opened, by tokens\./,
+    caption, /Showing all 68 issues in the order closed, by tokens\./,
     `expected the ruled chronological middle sentence -- got ${JSON.stringify(caption)}`,
   );
   assert.match(
@@ -480,10 +499,102 @@ test("formatCaption for chronological mode states 'in the order opened' and neve
 
 test("formatCaption for chronological mode omits the omission sentence when the payload has no non-issue buckets", () => {
   const mod = loadTokenChartLogic();
-  const payload = samplePayload([sampleIssue("PT-1", 300, 3.0)]);
+  const payload = samplePayload([withClosedAt(sampleIssue("PT-1", 300, 3.0), "2026-09-01")]);
   const caption = mod.formatCaption(payload, "tokens", 1, 1, "chronological");
   assert.doesNotMatch(
     caption, /omitted here/,
     `no non-issue bucket in this payload -- the omission sentence must not appear -- got ${JSON.stringify(caption)}`,
+  );
+});
+
+// --------------------------------------------------------------------------
+// PT-102's amended, re-issued gate-1 ruling (process/cairn/issues/
+// PT-102.md @ ccd4f48): chronological mode's sort key is `closed_at`
+// (the status->done transition date), NOT `first_active` (my superseded
+// draft against the retired @14cc804 ruling was discarded, never
+// committed). Closed issues sort by `closed_at` ascending; open issues
+// (no `closed_at`) sort after every closed one, in payload order (the
+// id tie-break, obtained for free from a stable sort over an
+// id-ascending payload -- the client never parses an id, which PT-88
+// forbade).
+// --------------------------------------------------------------------------
+
+test("chronological mode orders closed issues by closed_at ascending", () => {
+  const mod = loadTokenChartLogic();
+  const issues = [
+    withClosedAt(sampleIssue("PT-3", 10, 0.1), "2026-09-03"),
+    withClosedAt(sampleIssue("PT-1", 10, 0.1), "2026-09-01"),
+    withClosedAt(sampleIssue("PT-2", 10, 0.1), "2026-09-02"),
+  ];
+  const selected = mod.selectBars(issues, "tokens", 12, false, "chronological").map((e) => e.issue);
+  assert.deepEqual(
+    selected, ["PT-1", "PT-2", "PT-3"],
+    `expected closed_at-ascending order -- got ${JSON.stringify(selected)}`,
+  );
+});
+
+test("open issues (no closed_at) sort after every closed issue, regardless of id", () => {
+  const mod = loadTokenChartLogic();
+  // Deliberately reversed relative to id order: PT-1 (lowest id) is
+  // OPEN and must land LAST; PT-9 (highest id) closed LATER than PT-2
+  // but must still precede PT-1.
+  const issues = [
+    sampleIssue("PT-1", 10, 0.1), // open -- no closed_at at all
+    withClosedAt(sampleIssue("PT-9", 10, 0.1), "2026-09-05"),
+    withClosedAt(sampleIssue("PT-2", 10, 0.1), "2026-09-01"),
+  ];
+  const selected = mod.selectBars(issues, "tokens", 12, false, "chronological").map((e) => e.issue);
+  assert.deepEqual(
+    selected, ["PT-2", "PT-9", "PT-1"],
+    `closed issues (by closed_at ascending) must come first, the open issue (PT-1, lowest id) `
+    + `must be LAST -- got ${JSON.stringify(selected)}`,
+  );
+});
+
+test("chronological mode is a stable sort: same-closed-date issues and open issues each keep payload order", () => {
+  const mod = loadTokenChartLogic();
+  // Payload order deliberately NOT id-ascending within either group, so
+  // "payload order" and "id order" can't be confused for one another.
+  const issues = [
+    withClosedAt(sampleIssue("PT-9", 10, 0.1), "2026-09-01"),
+    withClosedAt(sampleIssue("PT-3", 10, 0.1), "2026-09-01"),
+    withClosedAt(sampleIssue("PT-5", 10, 0.1), "2026-09-01"),
+    sampleIssue("PT-7", 10, 0.1), // open
+    sampleIssue("PT-2", 10, 0.1), // open
+  ];
+  const selected = mod.selectBars(issues, "tokens", 12, false, "chronological").map((e) => e.issue);
+  assert.deepEqual(
+    selected, ["PT-9", "PT-3", "PT-5", "PT-7", "PT-2"],
+    `same-closed-date issues must keep payload order among themselves, and open issues must `
+    + `keep payload order among themselves (both groups, after the closed block) -- got `
+    + `${JSON.stringify(selected)}`,
+  );
+});
+
+test("formatCaption chronological has no still-open clause when every issue is closed", () => {
+  const mod = loadTokenChartLogic();
+  const payload = samplePayload([
+    withClosedAt(sampleIssue("PT-1", 10, 0.1), "2026-09-01"),
+    withClosedAt(sampleIssue("PT-2", 10, 0.1), "2026-09-02"),
+  ]);
+  const caption = mod.formatCaption(payload, "tokens", 2, 2, "chronological");
+  assert.match(
+    caption, /Showing all 2 issues in the order closed, by tokens\./,
+    `got ${JSON.stringify(caption)}`,
+  );
+  assert.doesNotMatch(caption, /still open/, `got ${JSON.stringify(caption)}`);
+});
+
+test("formatCaption chronological names the still-open issue count when any issue is open", () => {
+  const mod = loadTokenChartLogic();
+  const payload = samplePayload([
+    withClosedAt(sampleIssue("PT-1", 10, 0.1), "2026-09-01"),
+    sampleIssue("PT-2", 10, 0.1), // open
+    sampleIssue("PT-3", 10, 0.1), // open
+  ]);
+  const caption = mod.formatCaption(payload, "tokens", 3, 3, "chronological");
+  assert.match(
+    caption, /2 issues are still open and are shown last\./,
+    `got ${JSON.stringify(caption)}`,
   );
 });
