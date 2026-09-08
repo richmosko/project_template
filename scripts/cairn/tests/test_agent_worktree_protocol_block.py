@@ -119,6 +119,47 @@ class SharedWorktreeProtocolBlockIsIdenticalTests(unittest.TestCase):
         )
 
 
+FRONTMATTER_TOOLS_LINE_RE = re.compile(r"^tools:\s*(.+)$", re.MULTILINE)
+
+
+def extract_tools_list(source: str, label: str = "<source>") -> list:
+    """The comma-separated `tools:` frontmatter line, split into
+    individual tool names (whitespace-trimmed). Raises ExtractionError
+    if the file carries no `tools:` line at all -- every agent
+    definition has one; a file that doesn't is a structural break, not
+    a legitimate "no tools" state."""
+    match = FRONTMATTER_TOOLS_LINE_RE.search(source)
+    if not match:
+        raise ExtractionError(f"found no frontmatter `tools:` line in {label}")
+    return [name.strip() for name in match.group(1).split(",") if name.strip()]
+
+
+class EveryAgentGrantsEnterWorktreeTests(unittest.TestCase):
+    """Pre-spike defect, found at PT-82.md @ 98d6cdb: the shared block's
+    own first instruction is `EnterWorktree`, but tool grants bind at
+    spawn (agent-teams.md) -- a teammate whose frontmatter `tools:`
+    allowlist omits `EnterWorktree` cannot call it at all, no matter what
+    the prose block says to do first. Every agent file carrying the
+    worktree protocol block must list `EnterWorktree` in its own
+    `tools:` line. Mutation: remove it from one file's `tools:` line."""
+
+    def test_every_agent_files_tools_line_grants_enterworktree(self):
+        self.assertTrue(AGENT_FILES, f"expected agent definitions under {AGENTS_DIR}")
+        missing = []
+        for path in AGENT_FILES:
+            source = path.read_text(encoding="utf-8")
+            tools = extract_tools_list(source, label=str(path))
+            if "EnterWorktree" not in tools:
+                missing.append(str(path))
+        self.assertEqual(
+            missing, [],
+            f"every agent file carrying the worktree protocol block must grant `EnterWorktree` "
+            f"in its own frontmatter `tools:` line (grants bind at spawn -- a prose instruction "
+            f"to call a tool the allowlist doesn't grant is a dead instruction) -- missing from: "
+            f"{missing}",
+        )
+
+
 class ExtractionRaisesWhenTheMarkerIsAbsentTests(unittest.TestCase):
     def test_extraction_raises_on_a_source_with_no_marker(self):
         with self.assertRaises(ExtractionError):
