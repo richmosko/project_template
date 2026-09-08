@@ -267,6 +267,40 @@ class RenameAwareGuardCommitTests(GuardTestBase):
             f"{r.stdout!r} {r.stderr!r}",
         )
 
+    def test_rename_plus_new_comments_by_authors_already_in_history_still_refuses(self):
+        """Gate-4 NO-GO (architect, PT-109.md @ 5a680b1): a set difference
+        over AUTHOR NAMES (rather than a Counter difference over header
+        LINES) lets an author already anywhere in the file's history add
+        an unlimited number of fresh comments without ever registering as
+        added -- two such authors ride in together on a rename and the
+        commit silently succeeds (measured against 7a459fa: PASSED).
+        Both architect and qa-engineer already have a HISTORICAL,
+        committed comment here; the rename ALSO carries one fresh comment
+        from each -- genuinely new content, same author names. Real hook,
+        real `git commit -- <dest>`, no bypass flag, matching the
+        preceding no-flag acceptance test's shape. Mutation: restore the
+        set-difference comparison -> this commit is made and the
+        violation ships silently."""
+        self.comment("architect", "ruling")
+        git(self.root, "commit", "-q", "-m", "ruling", "--", str(self.issue))
+        self.comment("qa-engineer", "assertion")
+        git(self.root, "commit", "-q", "-m", "assertion", "--", str(self.issue))
+
+        dest = self._archive_dest()
+        git(self.root, "mv", str(self.issue), str(dest))
+        self._append_comment(dest, "architect", "a second, fresh comment -- same author as history")
+        self._append_comment(dest, "qa-engineer", "a second, fresh comment -- same author as history")
+        git(self.root, "add", "--", str(dest))
+
+        r = git(self.root, "commit", "-q", "-m", "archive", "--", str(dest), check=False)
+        self.assertNotEqual(
+            r.returncode, 0,
+            f"two fresh comments by authors already in history must still refuse, not ride in silently -- "
+            f"{r.stdout!r} {r.stderr!r}",
+        )
+        self.assertIn("architect", r.stderr)
+        self.assertIn("qa-engineer", r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
