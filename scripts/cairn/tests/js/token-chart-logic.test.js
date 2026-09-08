@@ -628,96 +628,156 @@ test("formatCaption chronological singularizes the still-open sentence when exac
 });
 
 // --------------------------------------------------------------------------
-// PT-101 gate-1 ruling (architect, process/cairn/issues/PT-101.md @
-// 3b42f3c): a sub-pixel column (0.712 px, 0.114 px, ...) renders present
-// but invisible in chronological mode -- indistinguishable from a
-// zero-total issue. `floorRowForRender(row, seriesKeys, yMax,
-// plotHeightPx, minPx = MIN_BAR_PX)` raises a below-floor row's SUM to
-// exactly `minValue = yMax * minPx / plotHeightPx`, the shortfall going
-// to the single LARGEST segment only (every other segment untouched, so
-// stacking stays honest) -- never expressible as a layerchart prop
-// (measured: `height`/`insets` are scalar, not per-datum; `Bar.shared.
-// svelte.js` re-centres a floored scalar height off the baseline).
-// `trueTotalFor(payload, issue, metric)` is the honesty condition: the
-// tooltip must resolve the REAL total from `tokens.issues`, never from
-// this floored row, or the feature trades an invisible bar for a wrong
-// number.
+// PT-101 gate-1 ruling, RE-ISSUED WHOLE (architect, process/cairn/issues/
+// PT-101.md @ d7f7d3a, superseding @3b42f3c per the builder's measured
+// objection -- my earlier floorRowForRender/trueTotalFor draft is
+// discarded here, never a subject of any commit past this one). A
+// sub-pixel column (0.712 px, 0.114 px, ...) renders present but
+// invisible in chronological mode. The mechanism is now an OVERLAY, not
+// a value floor: nothing floors a row's data -- `TokenCostChart.svelte`
+// overrides layerchart's `marks` snippet with a verbatim copy of its
+// default body plus one extra layer drawing a `MIN_BAR_PX`-tall Rect at
+// the baseline for each sub-pixel column. The y-scale, the stack and the
+// tooltip are untouched by construction, so there is no floored row to
+// assert against and no `trueTotalFor` -- do not resurrect either.
 //
-// Row shape, verified against TokenCostChart.svelte's own `rowFor`:
-// `{ issue, kind, <seriesKey>: number, ... }` -- `seriesKeys` is the
-// array of numeric-value keys to sum/floor (TOKEN_TYPE_KEYS in tokens
-// mode, the folded role series in cost mode); `issue`/`kind` are never
-// touched by the floor.
+// `subPixelColumns(rows, seriesKeys, yMax, plotHeightPx, minPx =
+// MIN_BAR_PX): Array<{ issue, heightPx, topSeriesKey }>` REPORTS which
+// columns need the overlay; `heightPx` is the TRUE (auditable) height,
+// `topSeriesKey` the stack-top series with a non-zero value (the
+// overlay borrows that column's own colour). Row shape unchanged from
+// PT-88/PT-102: `{ issue, kind, <seriesKey>: number, ... }`.
 // --------------------------------------------------------------------------
 
 const SERIES_KEYS = ["input", "cache_write", "cache_read", "output"];
 
-test("floorRowForRender raises a below-floor row's total to exactly minValue", () => {
+test("subPixelColumns returns only columns rendering below the floor", () => {
   const mod = loadTokenChartLogic();
-  // yMax=1000, plotHeightPx=250, default minPx (1) -> minValue = 4.
-  const row = { issue: "PT-95", kind: "issue", input: 1, cache_write: 0, cache_read: 0, output: 0 };
-  const floored = mod.floorRowForRender(row, SERIES_KEYS, 1000, 250);
-  const total = SERIES_KEYS.reduce((sum, k) => sum + floored[k], 0);
-  assert.equal(total, 4, `expected the row's total raised to exactly minValue (4) -- got ${total}`);
+  const rows = [
+    { issue: "PT-1", kind: "issue", input: 1, cache_write: 0, cache_read: 0, output: 0 }, // total 1 -> 0.25px, below floor
+    { issue: "PT-2", kind: "issue", input: 100, cache_write: 0, cache_read: 0, output: 0 }, // total 100 -> 25px, at/above floor
+  ];
+  // yMax=1000, plotHeightPx=250, default minPx (1).
+  const result = mod.subPixelColumns(rows, SERIES_KEYS, 1000, 250);
+  const ids = result.map((c) => c.issue);
+  assert.deepEqual(ids, ["PT-1"], `expected only the below-floor column (PT-1) -- got ${JSON.stringify(ids)}`);
 });
 
-test("floorRowForRender's shortfall lands on the single largest segment only; every other segment is byte-identical", () => {
+test("subPixelColumns excludes a zero-total column even though it renders below the floor", () => {
   const mod = loadTokenChartLogic();
-  // total = 4 (1 + 2 + 0.5 + 0.5); yMax=2500, plotHeightPx=250 ->
-  // minValue = 10, shortfall = 6. cache_write (2) is the clear largest.
-  const row = { issue: "PT-1", kind: "issue", input: 1, cache_write: 2, cache_read: 0.5, output: 0.5 };
-  const floored = mod.floorRowForRender(row, SERIES_KEYS, 2500, 250);
-  assert.equal(floored.cache_write, 8, `expected the largest segment (cache_write, 2) to carry the +6 shortfall -- got ${floored.cache_write}`);
-  assert.equal(floored.input, 1, `a non-largest segment must be byte-identical to the input row, not evenly redistributed -- got ${floored.input}`);
-  assert.equal(floored.cache_read, 0.5, `a non-largest segment must be byte-identical to the input row, not evenly redistributed -- got ${floored.cache_read}`);
-  assert.equal(floored.output, 0.5, `a non-largest segment must be byte-identical to the input row, not evenly redistributed -- got ${floored.output}`);
-  const total = SERIES_KEYS.reduce((sum, k) => sum + floored[k], 0);
-  assert.equal(total, 10, `segments must still sum to minValue (10) after flooring -- got ${total}`);
+  const rows = [{ issue: "PT-1", kind: "issue", input: 0, cache_write: 0, cache_read: 0, output: 0 }];
+  const result = mod.subPixelColumns(rows, SERIES_KEYS, 1000, 250);
+  assert.deepEqual(
+    result, [],
+    `a zero-total column renders at a true 0px by design and must never be reported as `
+    + `sub-pixel -- got ${JSON.stringify(result)}`,
+  );
 });
 
-test("floorRowForRender leaves a zero-total row at zero, even when zero is below the floor", () => {
+test("subPixelColumns returns [] (never divides) when yMax or plotHeightPx is non-positive", () => {
   const mod = loadTokenChartLogic();
-  const row = { issue: "PT-2", kind: "issue", input: 0, cache_write: 0, cache_read: 0, output: 0 };
-  const floored = mod.floorRowForRender(row, SERIES_KEYS, 1000, 250); // minValue = 4, well above 0
-  const total = SERIES_KEYS.reduce((sum, k) => sum + floored[k], 0);
-  assert.equal(total, 0, `a zero-total issue must stay at zero rendered height by design -- got ${total}`);
+  const rows = [{ issue: "PT-1", kind: "issue", input: 1, cache_write: 0, cache_read: 0, output: 0 }];
+  assert.deepEqual(mod.subPixelColumns(rows, SERIES_KEYS, 0, 250), [], "yMax = 0 must return []");
+  assert.deepEqual(mod.subPixelColumns(rows, SERIES_KEYS, 1000, 0), [], "plotHeightPx = 0 must return []");
 });
 
-test("floorRowForRender returns a row already at or above the floor unchanged", () => {
+test("subPixelColumns' topSeriesKey is the stack-top series with a non-zero value, skipping a zero-valued last series", () => {
   const mod = loadTokenChartLogic();
-  // total = 100, minValue (yMax=1000, plotHeightPx=250) = 4 -- well
-  // above the floor already.
-  const row = { issue: "PT-3", kind: "issue", input: 100, cache_write: 0, cache_read: 0, output: 0 };
-  const floored = mod.floorRowForRender(row, SERIES_KEYS, 1000, 250);
-  assert.deepEqual(floored, row, `a row already >= the floor must come back UNCHANGED (every field) -- got ${JSON.stringify(floored)}`);
+  // SERIES_KEYS' LAST entry ("output", the stack-top POSITION) is
+  // deliberately zero here -- "cache_read" is the true topmost
+  // non-zero segment. Distinguishes "stack-top position" from
+  // "stack-top position with a non-zero value": a mutation that
+  // unconditionally returns the last key would report "output".
+  const rows = [{ issue: "PT-1", kind: "issue", input: 1, cache_write: 1, cache_read: 1, output: 0 }];
+  const result = mod.subPixelColumns(rows, SERIES_KEYS, 1000, 250);
+  assert.equal(result.length, 1, `expected exactly one sub-pixel column -- got ${JSON.stringify(result)}`);
+  assert.equal(
+    result[0].topSeriesKey, "cache_read",
+    `expected the stack-top NON-ZERO series (cache_read), not the last seriesKeys entry `
+    + `(output, zero here) -- got ${JSON.stringify(result[0])}`,
+  );
 });
 
-test("floorRowForRender returns the row unchanged (never divides) when plotHeightPx or yMax is non-positive", () => {
+test("subPixelColumns' heightPx is the true, auditable sub-pixel height -- not the floor value", () => {
   const mod = loadTokenChartLogic();
-  const row = { issue: "PT-4", kind: "issue", input: 1, cache_write: 0, cache_read: 0, output: 0 };
-  const zeroPlotHeight = mod.floorRowForRender(row, SERIES_KEYS, 1000, 0);
-  assert.deepEqual(zeroPlotHeight, row, `plotHeightPx = 0 must return the row unchanged, never divide by zero -- got ${JSON.stringify(zeroPlotHeight)}`);
-  const zeroYMax = mod.floorRowForRender(row, SERIES_KEYS, 0, 250);
-  assert.deepEqual(zeroYMax, row, `yMax = 0 must return the row unchanged, never divide -- got ${JSON.stringify(zeroYMax)}`);
+  // total = 1, yMax = 1000, plotHeightPx = 250 -> true heightPx = 0.25.
+  const rows = [{ issue: "PT-1", kind: "issue", input: 1, cache_write: 0, cache_read: 0, output: 0 }];
+  const result = mod.subPixelColumns(rows, SERIES_KEYS, 1000, 250);
+  assert.equal(result.length, 1);
+  assert.equal(
+    result[0].heightPx, 0.25,
+    `expected the TRUE sub-pixel height (0.25), not MIN_BAR_PX (1) -- the overlay's own audit `
+    + `trail depends on this being the real number -- got ${result[0].heightPx}`,
+  );
 });
 
-test("trueTotalFor resolves the payload's real total for an issue, independent of any floored row", () => {
-  const mod = loadTokenChartLogic();
-  // A tiny real total (1 token) -- exactly the shape that gets floored
-  // for rendering.
-  const payload = samplePayload([sampleIssue("PT-95", 1, 0.01)]);
-  const trueTotal = mod.trueTotalFor(payload, "PT-95", "tokens");
-  assert.equal(trueTotal, 1, `expected the payload's real total (1) -- got ${trueTotal}`);
+// --------------------------------------------------------------------------
+// Fork guard (ruling item (e)6): TokenCostChart.svelte carries a
+// VERBATIM COPY of layerchart's default `marks` body (there is no
+// children/aboveMarks/belowMarks snippet to layer onto instead --
+// measured, BarChart.base.svelte exposes only `marks`). A minor bump can
+// change that body under an unchanged copy with NO rendering symptom --
+// the bars keep drawing, just silently missing whatever upstream
+// changed. This guard is the only thing that would catch that drift.
+// --------------------------------------------------------------------------
 
-  // The SAME issue's chart row, floored for rendering -- its total must
-  // NOT equal trueTotalFor's answer, or the tooltip would inherit the
-  // floor and lie about the real count.
-  const row = { issue: "PT-95", kind: "issue", input: 1, cache_write: 0, cache_read: 0, output: 0 };
-  const floored = mod.floorRowForRender(row, SERIES_KEYS, 1000, 250); // minValue = 4
-  const flooredTotal = SERIES_KEYS.reduce((sum, k) => sum + floored[k], 0);
-  assert.notEqual(
-    flooredTotal, trueTotal,
-    `trueTotalFor (${trueTotal}) must differ from the floored row's total (${flooredTotal}) -- if `
-    + `they matched, the tooltip could not be trusted to show the real count for a floored column`,
+const fs = require("node:fs");
+
+const LAYERCHART_PACKAGE_JSON = path.join(__dirname, "..", "..", "dashboard", "node_modules", "layerchart", "package.json");
+const LAYERCHART_BARCHART_BASE = path.join(
+  __dirname, "..", "..", "dashboard", "node_modules", "layerchart", "dist", "components", "charts", "BarChart", "BarChart.base.svelte",
+);
+
+// Pinned at the moment TokenCostChart.svelte's marks override copied
+// this body verbatim (architect's ruling, PT-101.md @ d7f7d3a).
+const PINNED_LAYERCHART_VERSION = "2.3.1";
+const PINNED_DEFAULT_MARKS_BODY = `      {#each context.series.visibleSeries as s, i (s.key)}
+        <Bars
+          seriesKey={s.key}
+          x1={valueAxis === 'y' && isGroupSeries && restProps.x1 == null
+            ? (d: any) => s.value ?? s.key
+            : undefined}
+          y1={valueAxis === 'x' && isGroupSeries && restProps.y1 == null
+            ? (d: any) => s.value ?? s.key
+            : undefined}
+          rounded={context.series.stackLayout != null
+            ? // Per row rather than per series: a sub-band or a gap in the data can leave the
+              // later series out, making an earlier one the top of *that* stack
+              (d: any) => (context.series.isStackTop(s.key, d) ? 'edge' : 'none')
+            : Array.isArray(xProp) || Array.isArray(yProp)
+              ? 'all'
+              : 'edge'}
+          radius={4}
+          strokeWidth={1}
+          {stackPadding}
+          opacity={(d: any) =>
+            context.series.isHighlighted(context.cKey(d) ?? s.key, true) ? 1 : 0.1}
+          onBarClick={(e: MouseEvent, detail: any) => onBarClick(e, { ...detail, series: s })}
+          {...props.bars}
+          {...s.props}
+        />
+      {/each}`;
+
+test("layerchart is still the pinned version our copied marks body was taken from", () => {
+  const pkg = JSON.parse(fs.readFileSync(LAYERCHART_PACKAGE_JSON, "utf8"));
+  assert.equal(
+    pkg.version, PINNED_LAYERCHART_VERSION,
+    `layerchart's installed version (${pkg.version}) no longer matches the version our copied `
+    + `marks body was taken from (${PINNED_LAYERCHART_VERSION}) -- re-verify (and if needed `
+    + `re-copy) TokenCostChart.svelte's marks override against the new upstream body before `
+    + `trusting it still renders the same as the library's own default`,
+  );
+});
+
+test("layerchart's upstream default marks body still matches the text copied into TokenCostChart.svelte", () => {
+  const source = fs.readFileSync(LAYERCHART_BARCHART_BASE, "utf8");
+  assert.ok(
+    source.includes(PINNED_DEFAULT_MARKS_BODY),
+    "layerchart's BarChart.base.svelte default marks body (the {#each context.series."
+    + "visibleSeries...}{/each} block) no longer matches the text pinned in this test -- the "
+    + "vendored library changed its default rendering under an unchanged version pin (or the "
+    + "version-pin test above already caught a bump); TokenCostChart.svelte's copied marks "
+    + "override must be re-verified against the new upstream body before merging any dependency "
+    + "update, or the overlay silently renders on top of a body missing whatever changed.",
   );
 });
