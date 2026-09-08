@@ -1870,12 +1870,16 @@ def serve(
             httpd.shutdown()
             httpd.server_close()
             flushed = _do_flush()
-            # PT-90 AC1: the point of no return -- nothing past this can
-            # abort, so this is the one place the trigger can be named
-            # with certainty. After the flush, not before: `<k>` is only
-            # known once it returns.
-            print(f"self-stop: registry drained at {_now_iso()}, grace {grace_period_seconds}s elapsed, flushed {flushed} lines, exiting", file=sys.stderr)
             _compare_and_delete_pidfile(pidfile, my_pid)
+            # PT-90 AC1 (gate-4 verdict delta 1, PT-90.md @ 390c07e): the
+            # point of no return was passed at the `.closing` marker, not
+            # at the pidfile, so everything this line reports is equally
+            # true here -- and placing it after the pidfile removal takes
+            # this buffered file write out of the window
+            # `_wait_for_status_not_running` races between
+            # `server_close()` and the pidfile actually being gone
+            # (measured: 1-in-9 flake with the line inside that window).
+            print(f"self-stop: registry drained at {_now_iso()}, grace {grace_period_seconds}s elapsed, flushed {flushed} lines, exiting", file=sys.stderr)
             try:
                 closing_marker.unlink()
             except OSError:
