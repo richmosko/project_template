@@ -18,7 +18,8 @@
 
 	// PT-85 (architect ruling 409d310, shape pinned 2f8eba0): replaces
 	// PT-61's cumulative status-stack area chart with a throughput view --
-	// opened/closed bars plus a WIP line, day/week toggle, milestone scope
+	// opened, closed and wip (PT-92: all three drawn as lines, each with
+	// its own stroke/marker treatment), day/week toggle, milestone scope
 	// control. Same /api/flow data source, own poll, own three-state
 	// error/skeleton/content shape (PT-61's own precedent, unchanged).
 	let flow = $state<FlowPayload | null>(null);
@@ -79,16 +80,18 @@
 	// legend entry -- a flat WIP baseline with no legend is
 	// indistinguishable from a rendering artifact. layerchart's own
 	// series-based Legend derives its items from the `series` prop passed
-	// to BarChart (`context.series.series`), which ALSO drives grouped-bar
-	// band width -- adding `wip` there would reserve a third, empty band
-	// per bar group and visually compress opened/closed for no reason,
-	// since wip is a line, not a bar. A small custom legend row below the
-	// chart instead, covering all three series explicitly, keeps bar
-	// layout untouched by a legend-only entry.
+	// to BarChart (`context.series.series`), which lists only opened/
+	// closed (kept for the band-scale/tooltip machinery BarChart still
+	// owns) -- so layerchart's own legend would stay partial regardless.
+	// A small custom legend row below the chart instead, covering all
+	// three series explicitly with their OWN stroke style and marker (not
+	// just a colour chip), is what teaches the non-colour channel a
+	// reader needs at a coincident point (PT-92, ux-designer's binding
+	// spec).
 	const legendItems = [
-		{ key: 'opened', label: SERIES_LABEL.opened, color: SERIES_COLOR.opened },
-		{ key: 'closed', label: SERIES_LABEL.closed, color: SERIES_COLOR.closed },
-		{ key: 'wip', label: SERIES_LABEL.wip, color: SERIES_COLOR.wip },
+		{ key: 'opened', label: SERIES_LABEL.opened, color: SERIES_COLOR.opened, strokeWidth: 2, dasharray: undefined, r: 5, ring: false },
+		{ key: 'closed', label: SERIES_LABEL.closed, color: SERIES_COLOR.closed, strokeWidth: 2, dasharray: '6,4', r: 3.5, ring: false },
+		{ key: 'wip', label: SERIES_LABEL.wip, color: SERIES_COLOR.wip, strokeWidth: 2.5, dasharray: '2,4', r: 2, ring: true },
 	];
 
 	// Selection order: scope first (server-native, per-point), THEN period
@@ -102,19 +105,20 @@
 	const captionText = $derived(flow ? formatFlowCaption(flow, period, scope ?? ALL_MILESTONES_SCOPE) : '');
 
 	// yDomain must cover all three plotted values -- BarChart's own
-	// auto-domain only considers the declared bar series (opened/closed);
-	// the WIP line, drawn as an extra Spline mark sharing the same scale,
-	// would clip silently at the bars' own max otherwise.
+	// auto-domain only considers the `series` prop's declared series
+	// (opened/closed); wip, drawn as an extra Spline mark sharing the
+	// same scale, would clip silently at that narrower max otherwise.
 	const yMax = $derived(
 		displayedSeries.reduce((max, p) => Math.max(max, p.opened, p.closed, p.wip), 0),
 	);
 	const yDomain = $derived([0, yMax === 0 ? 1 : yMax] as [number, number]);
 </script>
 
-<!-- PT-85: throughput view -- issues opened/closed per period (bars),
-     issues in flight at period end (WIP line), scoped to one milestone
-     or all. Replaces PT-61's cumulative status-stack chart entirely
-     (architect's ruling §7: retired, not toggled). -->
+<!-- PT-85: throughput view -- issues opened/closed per period, issues in
+     flight at period end (WIP), all three drawn as lines with their own
+     stroke/marker treatment (PT-92), scoped to one milestone or all.
+     Replaces PT-61's cumulative status-stack chart entirely (architect's
+     ruling §7: retired, not toggled). -->
 <section aria-label="Issue throughput over time">
 	<Card.Root class="[--card-spacing:1.5rem]">
 		<Card.Header class="flex flex-wrap items-center justify-between gap-2 space-y-0">
@@ -315,11 +319,27 @@
 				<ul class="mt-2 flex flex-wrap items-center gap-4 text-xs text-muted-foreground" aria-label="Legend">
 					{#each legendItems as item (item.key)}
 						<li class="flex items-center gap-1.5">
-							<span
-								class="inline-block h-2.5 w-2.5 shrink-0 rounded-sm"
-								style={`background-color: ${item.color}`}
-								aria-hidden="true"
-							></span>
+							<!-- PT-92 gate-4 delta 1 (ux-designer's binding spec): each
+							     swatch previews the series' OWN stroke style (solid /
+							     6,4 / 2,4) with its marker at centre, not a plain
+							     colour chip -- a colour-only swatch teaches "these two
+							     coincide" but not "which one is the dashed line",
+							     which is the exact non-colour channel this feature
+							     depends on at a coincident point. -->
+							<svg width="28" height="14" viewBox="0 0 28 14" class="shrink-0" aria-hidden="true">
+								<line
+									x1="0" y1="7" x2="28" y2="7"
+									stroke={item.color}
+									stroke-width={item.strokeWidth}
+									stroke-dasharray={item.dasharray}
+								/>
+								<circle
+									cx="14" cy="7" r={item.r}
+									fill={item.color}
+									stroke={item.ring ? 'var(--card)' : undefined}
+									stroke-width={item.ring ? 1 : undefined}
+								/>
+							</svg>
 							{item.label}
 						</li>
 					{/each}

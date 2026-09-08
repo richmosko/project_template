@@ -147,7 +147,7 @@ function scopeLabel(payload: FlowPayload, scope: string): string {
 export function formatFlowCaption(payload: FlowPayload, period: Period, scope: string): string {
 	const periodWord = period === 'week' ? 'week' : 'day';
 	const parts = [
-		`Bars show issues opened and closed per ${periodWord}, scoped to ${scopeLabel(payload, scope)}.`,
+		`Lines show issues opened and closed per ${periodWord}, scoped to ${scopeLabel(payload, scope)}.`,
 		`The WIP line is a point-in-time count (in-progress + in-review) at the END of each ${periodWord}, not an activity count -- it reads near zero whenever work opens and closes within the same ${periodWord}.`,
 	];
 	if (period === 'week') {
