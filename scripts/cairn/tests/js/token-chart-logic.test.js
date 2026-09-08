@@ -626,3 +626,98 @@ test("formatCaption chronological singularizes the still-open sentence when exac
     `must not still emit the unpluralized plural form -- got ${JSON.stringify(caption)}`,
   );
 });
+
+// --------------------------------------------------------------------------
+// PT-101 gate-1 ruling (architect, process/cairn/issues/PT-101.md @
+// 3b42f3c): a sub-pixel column (0.712 px, 0.114 px, ...) renders present
+// but invisible in chronological mode -- indistinguishable from a
+// zero-total issue. `floorRowForRender(row, seriesKeys, yMax,
+// plotHeightPx, minPx = MIN_BAR_PX)` raises a below-floor row's SUM to
+// exactly `minValue = yMax * minPx / plotHeightPx`, the shortfall going
+// to the single LARGEST segment only (every other segment untouched, so
+// stacking stays honest) -- never expressible as a layerchart prop
+// (measured: `height`/`insets` are scalar, not per-datum; `Bar.shared.
+// svelte.js` re-centres a floored scalar height off the baseline).
+// `trueTotalFor(payload, issue, metric)` is the honesty condition: the
+// tooltip must resolve the REAL total from `tokens.issues`, never from
+// this floored row, or the feature trades an invisible bar for a wrong
+// number.
+//
+// Row shape, verified against TokenCostChart.svelte's own `rowFor`:
+// `{ issue, kind, <seriesKey>: number, ... }` -- `seriesKeys` is the
+// array of numeric-value keys to sum/floor (TOKEN_TYPE_KEYS in tokens
+// mode, the folded role series in cost mode); `issue`/`kind` are never
+// touched by the floor.
+// --------------------------------------------------------------------------
+
+const SERIES_KEYS = ["input", "cache_write", "cache_read", "output"];
+
+test("floorRowForRender raises a below-floor row's total to exactly minValue", () => {
+  const mod = loadTokenChartLogic();
+  // yMax=1000, plotHeightPx=250, default minPx (1) -> minValue = 4.
+  const row = { issue: "PT-95", kind: "issue", input: 1, cache_write: 0, cache_read: 0, output: 0 };
+  const floored = mod.floorRowForRender(row, SERIES_KEYS, 1000, 250);
+  const total = SERIES_KEYS.reduce((sum, k) => sum + floored[k], 0);
+  assert.equal(total, 4, `expected the row's total raised to exactly minValue (4) -- got ${total}`);
+});
+
+test("floorRowForRender's shortfall lands on the single largest segment only; every other segment is byte-identical", () => {
+  const mod = loadTokenChartLogic();
+  // total = 4 (1 + 2 + 0.5 + 0.5); yMax=2500, plotHeightPx=250 ->
+  // minValue = 10, shortfall = 6. cache_write (2) is the clear largest.
+  const row = { issue: "PT-1", kind: "issue", input: 1, cache_write: 2, cache_read: 0.5, output: 0.5 };
+  const floored = mod.floorRowForRender(row, SERIES_KEYS, 2500, 250);
+  assert.equal(floored.cache_write, 8, `expected the largest segment (cache_write, 2) to carry the +6 shortfall -- got ${floored.cache_write}`);
+  assert.equal(floored.input, 1, `a non-largest segment must be byte-identical to the input row, not evenly redistributed -- got ${floored.input}`);
+  assert.equal(floored.cache_read, 0.5, `a non-largest segment must be byte-identical to the input row, not evenly redistributed -- got ${floored.cache_read}`);
+  assert.equal(floored.output, 0.5, `a non-largest segment must be byte-identical to the input row, not evenly redistributed -- got ${floored.output}`);
+  const total = SERIES_KEYS.reduce((sum, k) => sum + floored[k], 0);
+  assert.equal(total, 10, `segments must still sum to minValue (10) after flooring -- got ${total}`);
+});
+
+test("floorRowForRender leaves a zero-total row at zero, even when zero is below the floor", () => {
+  const mod = loadTokenChartLogic();
+  const row = { issue: "PT-2", kind: "issue", input: 0, cache_write: 0, cache_read: 0, output: 0 };
+  const floored = mod.floorRowForRender(row, SERIES_KEYS, 1000, 250); // minValue = 4, well above 0
+  const total = SERIES_KEYS.reduce((sum, k) => sum + floored[k], 0);
+  assert.equal(total, 0, `a zero-total issue must stay at zero rendered height by design -- got ${total}`);
+});
+
+test("floorRowForRender returns a row already at or above the floor unchanged", () => {
+  const mod = loadTokenChartLogic();
+  // total = 100, minValue (yMax=1000, plotHeightPx=250) = 4 -- well
+  // above the floor already.
+  const row = { issue: "PT-3", kind: "issue", input: 100, cache_write: 0, cache_read: 0, output: 0 };
+  const floored = mod.floorRowForRender(row, SERIES_KEYS, 1000, 250);
+  assert.deepEqual(floored, row, `a row already >= the floor must come back UNCHANGED (every field) -- got ${JSON.stringify(floored)}`);
+});
+
+test("floorRowForRender returns the row unchanged (never divides) when plotHeightPx or yMax is non-positive", () => {
+  const mod = loadTokenChartLogic();
+  const row = { issue: "PT-4", kind: "issue", input: 1, cache_write: 0, cache_read: 0, output: 0 };
+  const zeroPlotHeight = mod.floorRowForRender(row, SERIES_KEYS, 1000, 0);
+  assert.deepEqual(zeroPlotHeight, row, `plotHeightPx = 0 must return the row unchanged, never divide by zero -- got ${JSON.stringify(zeroPlotHeight)}`);
+  const zeroYMax = mod.floorRowForRender(row, SERIES_KEYS, 0, 250);
+  assert.deepEqual(zeroYMax, row, `yMax = 0 must return the row unchanged, never divide -- got ${JSON.stringify(zeroYMax)}`);
+});
+
+test("trueTotalFor resolves the payload's real total for an issue, independent of any floored row", () => {
+  const mod = loadTokenChartLogic();
+  // A tiny real total (1 token) -- exactly the shape that gets floored
+  // for rendering.
+  const payload = samplePayload([sampleIssue("PT-95", 1, 0.01)]);
+  const trueTotal = mod.trueTotalFor(payload, "PT-95", "tokens");
+  assert.equal(trueTotal, 1, `expected the payload's real total (1) -- got ${trueTotal}`);
+
+  // The SAME issue's chart row, floored for rendering -- its total must
+  // NOT equal trueTotalFor's answer, or the tooltip would inherit the
+  // floor and lie about the real count.
+  const row = { issue: "PT-95", kind: "issue", input: 1, cache_write: 0, cache_read: 0, output: 0 };
+  const floored = mod.floorRowForRender(row, SERIES_KEYS, 1000, 250); // minValue = 4
+  const flooredTotal = SERIES_KEYS.reduce((sum, k) => sum + floored[k], 0);
+  assert.notEqual(
+    flooredTotal, trueTotal,
+    `trueTotalFor (${trueTotal}) must differ from the floored row's total (${flooredTotal}) -- if `
+    + `they matched, the tooltip could not be trusted to show the real count for a floored column`,
+  );
+});
