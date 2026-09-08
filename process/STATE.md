@@ -15,16 +15,7 @@
 
 A feature = one cairn issue = one PR = one Implement→Validate loop. Exists only during Implement phase. This is a pointer — the issue file (`process/cairn/issues/<ID>.md`) is the record.
 
-| Field | Value |
-|---|---|
-| Feature | Ratify or replace the interim --chart-flow-opened/closed/wip tokens against the design system; throughput chart as three overlapping lines |
-| Issue | PT-92 (cairn) |
-| Milestone | PT-0.12.1 |
-| Branch | `feature/pt-92-chart-flow-tokens-lines` |
-| Started | 2026-09-08 |
-| Goal | ux-designer ratifies or replaces the three flow tokens; the throughput chart draws opened/closed/WIP as three always-visible lines in distinct colours; browser-verified in two variants, light and dark. |
-| PR | https://github.com/richmosko/project_template/pull/190 |
-| Status | In Review |
+_None — between loops. PT-0.12.1's last issue (PT-92) merged as #190 on 2026-09-08; milestone close pending Mosko's approval._
 
 ## Releases
 
