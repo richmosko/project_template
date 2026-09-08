@@ -21,9 +21,10 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Issue | PT-90 (cairn) |
 | Milestone | PT-0.12.1 |
 | Branch | `feature/pt-90-receiver-logs-self-stop` |
+| PR | https://github.com/richmosko/project_template/pull/181 |
 | Started | 2026-09-07 |
 | Goal | The receiver writes one log line naming the trigger at its self-stop point of no return, and one when a registration cancels an armed grace window, both asserted by the existing tests. |
-| Status | In Progress |
+| Status | In Review |
 
 ## Releases
 
