@@ -17,14 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Token chart order toggle: chronological (by issue sequence) alongside the ranked-by-usage default, so creep over time is visible |
-| Issue | PT-88 (cairn) |
+| Feature | Token chart: chronological mode orders by when tokens were spent, not by issue id — 'in the order worked' |
+| Issue | PT-102 (cairn) |
 | Milestone | PT-0.12.1 |
-| Branch | `feature/pt-88-token-chart-chronological-toggle` |
-| PR | https://github.com/richmosko/project_template/pull/184 |
+| Branch | `feature/pt-102-chronological-by-time-worked` |
 | Started | 2026-09-08 |
-| Goal | The token/cost chart offers a Ranked / Chronological toggle; chronological shows every issue in id order with a caption saying so, browser-verified in both themes. |
-| Status | In Review |
+| Goal | Chronological mode orders issues by first token activity so PT-88 renders at the right edge, with the caption 'in the order worked'; browser-verified. |
+| Status | In Progress |
 
 ## Releases
 
