@@ -21,9 +21,10 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Issue | PT-101 (cairn) |
 | Milestone | PT-0.12.1 |
 | Branch | `feature/pt-101-minimum-bar-height` |
+| PR | https://github.com/richmosko/project_template/pull/186 |
 | Started | 2026-09-08 |
 | Goal | Any non-zero issue total renders at least 1 px tall in the token chart so 'tiny' is distinguishable from 'absent'; browser-verified. |
-| Status | In Progress |
+| Status | In Review |
 
 ## Releases
 
