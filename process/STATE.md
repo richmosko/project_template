@@ -23,7 +23,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-109-guard-commit-renames` |
 | Started | 2026-09-08 |
 | Goal | `cairn guard-commit` is rename-aware: an archive move of a multi-author issue commits without --no-verify; genuinely added foreign comments are still refused. |
-| Status | In Progress |
+| PR | https://github.com/richmosko/project_template/pull/198 |
+| Status | In Review |
 
 ## Releases
 
