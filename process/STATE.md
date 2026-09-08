@@ -17,14 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Token chart: minimum 1 px bar height — sub-pixel issues read as absent in chronological mode |
-| Issue | PT-101 (cairn) |
+| Feature | PT-91 real-data-file guard trips intermittently in tearDownModule and cannot say what changed |
+| Issue | PT-100 (cairn) |
 | Milestone | PT-0.12.1 |
-| Branch | `feature/pt-101-minimum-bar-height` |
-| PR | https://github.com/richmosko/project_template/pull/186 |
+| Branch | `feature/pt-100-self-diagnosing-real-file-guard` |
 | Started | 2026-09-08 |
-| Goal | Any non-zero issue total renders at least 1 px tall in the token chart so 'tiny' is distinguishable from 'absent'; browser-verified. |
-| Status | In Review |
+| Goal | Every real-file test guard reports what changed (append vs rewrite, first differing line) through one shared helper, and any tolerance is justified by a constructed mechanism, not a run battery. |
+| Status | In Progress |
 
 ## Releases
 
