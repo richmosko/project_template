@@ -70,6 +70,15 @@ Then `gh pr create` with:
   - `## Loop scorecard` — paste the output of `scripts/cairn/cairn loop-stats <ID>` verbatim (PT-94 E16). A row marked `OVER` gets a one-line justification under the table; the caps are soft, the justification is not optional.
   - The standard footer
 
+**Invariant check — HARD GATE (PT-82).** Now that the PR exists, confirm origin holds exactly what this feature is supposed to produce:
+
+```bash
+python3 scripts/cairn/check_feature_branch_invariant.py \
+  || { echo "GATE FAIL: origin does not hold exactly one feature/<id>-* branch, zero worktree-* branches, and one open PR — a teammate's worktree-* branch may have reached origin"; exit 1; }
+```
+
+A pushed `worktree-*` branch is the failure that matters — it is what would produce a second PR for this issue. Do not proceed past a failure; find and delete the stray branch on origin, then re-run.
+
 ### 3. Update the issue
 
 ```bash

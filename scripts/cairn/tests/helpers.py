@@ -27,6 +27,28 @@ if str(CAIRN_DIR) not in sys.path:
     sys.path.insert(0, str(CAIRN_DIR))
 
 
+def real_metrics_dir() -> Path:
+    """`process/cairn/metrics/` of the MAIN checkout -- PT-82 (architect's
+    ruling, PT-82.md @ 6316a9b, item (c2)): every real-file-guard caller
+    used to derive this from `TESTS_DIR` (this file's own on-disk
+    location), which resolves to a teammate's WORKTREE when `helpers.py`
+    is imported from one -- a full clone with its own copy of this same
+    file at a different path. The live otel receiver only ever writes the
+    MAIN checkout's tree (started by the SessionStart hook from
+    `$CLAUDE_PROJECT_DIR`), so a worktree-resolved guard would watch a
+    file nothing touches and pass vacuously while the real one goes
+    unwatched. `$CLAUDE_PROJECT_DIR` is set by Claude Code to the main
+    checkout for every hook and, by inheritance, every teammate's tool
+    calls -- never a worktree -- so it is preferred here when set;
+    otherwise this falls back to the pre-existing TESTS_DIR-relative
+    derivation (correct for the main checkout itself, where the two
+    coincide)."""
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR")
+    if project_dir:
+        return Path(project_dir) / "process" / "cairn" / "metrics"
+    return CAIRN_DIR.parent.parent / "process" / "cairn" / "metrics"
+
+
 def copy_fixture_data_dir(dest_root: Path) -> Path:
     """Copy the checked-in fixtures/process/cairn tree into dest_root.
 

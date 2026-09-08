@@ -305,7 +305,20 @@ def _self_record(args: argparse.Namespace, agg: Dict[str, object]) -> None:
     this file's own location, not $CLAUDE_PROJECT_DIR -- the runner must
     work identically under a fake-engine-root test copy and in the real
     checkout. Never raises: a broken recorder must not fail the run it's
-    attached to."""
+    attached to.
+
+    PT-82 (architect's ruling, PT-82.md @ 6316a9b/b0287db, item (c)):
+    from a teammate's worktree, `repo_root` above resolves to the
+    WORKTREE's own checkout (a full clone, same file layout), so a gate
+    run recorded there never reaches the main checkout's
+    `test-runs.jsonl` -- `cairn loop-stats` and the PostToolUse hook both
+    read the main checkout's copy, and the hook's own fallback then
+    mis-attributes `who` onto a stale, unrelated record there (measured,
+    addendum 1). `CAIRN_TEST_RUNS_FILE` (the existing override) wins if
+    set; otherwise, ONLY when `--gate` is present (never for an
+    un-gated/fake-engine-root run, which must keep self-recording to its
+    own tree), `$CLAUDE_PROJECT_DIR` -- set by Claude Code to the main
+    checkout, never a worktree -- is preferred for the records path."""
     try:
         repo_root = SCRIPT_DIR.parent.parent
         record = {
@@ -327,6 +340,10 @@ def _self_record(args: argparse.Namespace, agg: Dict[str, object]) -> None:
             "cmd": " ".join([sys.executable] + sys.argv)[:200],
         }
         override = os.environ.get(_RECORDS_PATH_ENV)
+        if not override and args.gate:
+            project_dir = os.environ.get("CLAUDE_PROJECT_DIR")
+            if project_dir:
+                override = str(Path(project_dir) / _RECORDS_REL)
         path = Path(override) if override else (repo_root / _RECORDS_REL)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as f:

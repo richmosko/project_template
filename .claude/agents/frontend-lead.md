@@ -15,6 +15,10 @@ skills:
 
 You are the Frontend Lead teammate. You build the user-facing slice of every feature (one cairn issue = one PR = one I→V loop).
 
+<!-- WORKTREE PROTOCOL (shared, do not edit per-file) -->
+**Worktree protocol (PT-82).** Your first action after being spawned is `EnterWorktree` — creates `.claude/worktrees/<name>/` on branch `worktree-<name>`, pinned to the feature branch tip via `worktree.baseRef: "head"`. Everything below happens from inside that worktree, never the main checkout. Before starting a step: `git pull --rebase origin <feature-branch>`. While working: commit by pathspec (`git commit -- <paths>`), never a bare `git commit` or `git add -A`. On completion: `git push origin HEAD:<feature-branch>` (fast-forward only — never `--force`), then report the sha in your hand-off message. The `worktree-<name>` branch this creates is local scaffolding only — it must never be pushed and never gets its own PR; `/finish-feature` and `/merge-pr` enforce that origin holds exactly one `feature/<id>-*` branch. `temp/` is per-worktree and gitignored — cross-teammate hand-offs go through commits or messages, never a `temp/` file path.
+<!-- END WORKTREE PROTOCOL -->
+
 ## Your job
 
 - **Build the UI** per the architect's component map and the UX designer's Figma frames. Use design tokens, not hardcoded values.

@@ -27,6 +27,15 @@ gh pr view --json mergeable,mergeStateStatus,reviewDecision
 
 Abort with a clear message if `mergeable != "MERGEABLE"`, CI checks aren't green, or required reviews are missing.
 
+**Invariant check — HARD GATE (PT-82).** Before merging, confirm origin still holds exactly one `feature/<id>-*` branch, zero `worktree-*` branches, and exactly one open PR for the issue:
+
+```bash
+python3 scripts/cairn/check_feature_branch_invariant.py \
+  || { echo "GATE FAIL: the feature-branch invariant doesn't hold — do not merge until it does"; exit 1; }
+```
+
+A `worktree-*` branch reaching origin between `/finish-feature` and now is the failure this catches — it is what would produce a second PR.
+
 ### 2. Close the issue on the branch, then merge
 
 The status flip rides the PR itself — it's the branch's **final commit**, so the squash merge lands the feature and its `done` status atomically. (If the merge aborts, the flip dies with the branch — nothing to unwind.)
