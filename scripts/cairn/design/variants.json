@@ -388,7 +388,7 @@
             "chart-4": "oklch(0.555 0.163 48.998)",
             "chart-5": "oklch(0.473 0.137 46.201)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -411,7 +411,7 @@
             "chart-4": "oklch(0.488 0.243 264.376)",
             "chart-5": "oklch(0.424 0.199 265.638)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -434,7 +434,7 @@
             "chart-4": "oklch(0.52 0.105 223.128)",
             "chart-5": "oklch(0.45 0.085 224.283)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -457,7 +457,7 @@
             "chart-4": "oklch(0.508 0.118 165.612)",
             "chart-5": "oklch(0.432 0.095 166.913)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -480,7 +480,7 @@
             "chart-4": "oklch(0.518 0.253 323.949)",
             "chart-5": "oklch(0.452 0.211 324.591)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -503,7 +503,7 @@
             "chart-4": "oklch(0.527 0.154 150.069)",
             "chart-5": "oklch(0.448 0.119 151.328)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -526,7 +526,7 @@
             "chart-4": "oklch(0.457 0.24 277.023)",
             "chart-5": "oklch(0.398 0.195 277.366)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -549,7 +549,7 @@
             "chart-4": "oklch(0.532 0.157 131.589)",
             "chart-5": "oklch(0.453 0.124 130.933)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -572,7 +572,7 @@
             "chart-4": "oklch(0.364 0.029 323.89)",
             "chart-5": "oklch(0.263 0.024 320.12)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -595,7 +595,7 @@
             "chart-4": "oklch(0.378 0.015 216)",
             "chart-5": "oklch(0.275 0.011 216.9)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -618,7 +618,7 @@
             "chart-4": "oklch(0.371 0 0)",
             "chart-5": "oklch(0.269 0 0)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -641,7 +641,7 @@
             "chart-4": "oklch(0.394 0.023 107.4)",
             "chart-5": "oklch(0.286 0.016 107.4)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -664,7 +664,7 @@
             "chart-4": "oklch(0.553 0.195 38.402)",
             "chart-5": "oklch(0.47 0.157 37.304)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -687,7 +687,7 @@
             "chart-4": "oklch(0.525 0.223 3.958)",
             "chart-5": "oklch(0.459 0.187 3.815)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -710,7 +710,7 @@
             "chart-4": "oklch(0.496 0.265 301.924)",
             "chart-5": "oklch(0.438 0.218 303.724)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -733,7 +733,7 @@
             "chart-4": "oklch(0.505 0.213 27.518)",
             "chart-5": "oklch(0.444 0.177 26.899)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -756,7 +756,7 @@
             "chart-4": "oklch(0.514 0.222 16.935)",
             "chart-5": "oklch(0.455 0.188 13.697)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -779,7 +779,7 @@
             "chart-4": "oklch(0.5 0.134 242.749)",
             "chart-5": "oklch(0.443 0.11 240.79)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -802,7 +802,7 @@
             "chart-4": "oklch(0.374 0.01 67.558)",
             "chart-5": "oklch(0.268 0.007 34.298)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -825,7 +825,7 @@
             "chart-4": "oklch(0.367 0.016 35.7)",
             "chart-5": "oklch(0.268 0.011 36.5)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -848,7 +848,7 @@
             "chart-4": "oklch(0.511 0.096 186.391)",
             "chart-5": "oklch(0.437 0.078 188.216)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -871,7 +871,7 @@
             "chart-4": "oklch(0.491 0.27 292.581)",
             "chart-5": "oklch(0.432 0.232 292.759)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         },
@@ -894,7 +894,7 @@
             "chart-4": "oklch(0.37 0.013 285.805)",
             "chart-5": "oklch(0.274 0.006 286.033)",
             "chart-flow-opened": "oklch(0.55 0.20 16.9)",
-            "chart-flow-closed": "oklch(0.68 0.18 135.2)",
+            "chart-flow-closed": "oklch(0.62 0.18 135.2)",
             "chart-flow-wip": "oklch(0.62 0.15 200.8)"
           }
         }

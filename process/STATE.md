@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Every teammate in its own git worktree; one branch per issue is the sole integration point |
-| Issue | PT-82 (cairn) |
+| Feature | Ratify or replace the interim --chart-flow-opened/closed/wip tokens against the design system; throughput chart as three overlapping lines |
+| Issue | PT-92 (cairn) |
 | Milestone | PT-0.12.1 |
-| Branch | `feature/pt-82-teammate-worktrees` |
-| PR | https://github.com/richmosko/project_template/pull/189 |
+| Branch | `feature/pt-92-chart-flow-tokens-lines` |
 | Started | 2026-09-08 |
-| Goal | A spike proves a fresh teammate can work from its own worktree at the feature tip with messaging, tasks, hooks, and hand-offs intact; the protocol lands in agent definitions, settings, and skills with the one-branch-one-PR invariant enforced. |
+| Goal | ux-designer ratifies or replaces the three flow tokens; the throughput chart draws opened/closed/WIP as three always-visible lines in distinct colours; browser-verified in two variants, light and dark. |
+| PR | https://github.com/richmosko/project_template/pull/190 |
 | Status | In Review |
 
 ## Releases
