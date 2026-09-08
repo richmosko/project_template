@@ -6,3 +6,9 @@
 # pattern does NOT reach inside it; the directory must be named explicitly.
 # Measured, not guessed — do not "simplify" this back to `**/node_modules/**`.
 scripts/cairn/dashboard/node_modules/**
+# Spike delta 1 (process/reviews/PT-82/spike.md @ 1d25274): the package
+# tree alone isn't enough -- `node_modules/.bin/` (a dot-directory) was
+# NOT delivered by the pattern above, so `vite` (installed only as a
+# `.bin/` symlink) was unresolvable in the fresh worktree. Named
+# explicitly, same reasoning as the parent directory above.
+scripts/cairn/dashboard/node_modules/.bin/**
