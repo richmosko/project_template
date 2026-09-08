@@ -2964,6 +2964,7 @@ def _compute_flow_payload(data_dir: Path) -> Dict[str, Any]:
             "as_of": None,
             "scope": FLOW_THROUGHPUT_SCOPE_NOTE,
             "warning": "git unavailable or not a worktree -- issue flow history cannot be reconstructed",
+            "closed_at": {},
         }
     head_sha = head_result.stdout.decode("utf-8", errors="replace").strip()
 
@@ -2980,6 +2981,7 @@ def _compute_flow_payload(data_dir: Path) -> Dict[str, Any]:
             "as_of": head_sha,
             "scope": FLOW_THROUGHPUT_SCOPE_NOTE,
             "warning": "git log failed -- issue flow history unavailable",
+            "closed_at": {},
         }
 
     events = _parse_flow_events(log_result.stdout.decode("utf-8", errors="replace"))
@@ -2987,6 +2989,7 @@ def _compute_flow_payload(data_dir: Path) -> Dict[str, Any]:
         return {
             "period": "day", "series": [], "milestones": [], "default_milestone": None,
             "as_of": head_sha, "scope": FLOW_THROUGHPUT_SCOPE_NOTE, "warning": None,
+            "closed_at": {},
         }
 
     blob_shas = sorted(set(e["blob_sha"] for e in events if e["blob_sha"]))
@@ -3055,6 +3058,12 @@ def _compute_flow_payload(data_dir: Path) -> Dict[str, Any]:
     # keeps driving WIP unchanged -- a deleted stem must still stop
     # counting as in-flight, so only the TRANSITION's source changes.
     last_status: Dict[str, str] = {}
+    # PT-102 (amended ruling, ccd4f48, item (a)): the status->done
+    # transition date, per stem -- reused as `/api/tokens`'s chronological
+    # sort key rather than a second git walk. Plain assignment, so a
+    # reopened-then-reclosed stem's LATER close date wins for free, the
+    # same "last write wins" shape `live`/`last_status` already use.
+    closed_at: Dict[str, str] = {}
     # Milestone ids in FIRST-APPEARANCE order across the whole walk --
     # `by_milestone` (addendum 2f8eba0, change 1) is DENSE from a
     # milestone's first appearance onward, so this is also the set every
@@ -3151,6 +3160,7 @@ def _compute_flow_payload(data_dir: Path) -> Dict[str, Any]:
             day_opened[milestone_id] = day_opened.get(milestone_id, 0) + 1
         if status == "done" and previous_status != "done":
             day_closed[milestone_id] = day_closed.get(milestone_id, 0) + 1
+            closed_at[stem] = day
         elif status == "cancelled" and previous_status != "cancelled":
             day_cancelled[milestone_id] = day_cancelled.get(milestone_id, 0) + 1
         live[stem] = status
@@ -3192,6 +3202,7 @@ def _compute_flow_payload(data_dir: Path) -> Dict[str, Any]:
         "as_of": head_sha,
         "scope": FLOW_THROUGHPUT_SCOPE_NOTE,
         "warning": None,
+        "closed_at": closed_at,
     }
 
 
@@ -3610,6 +3621,17 @@ def build_tokens_payload(data_dir: Path, prices: Optional[Dict[str, Any]] = None
         if not unpriced:
             raw_issue_cost[issue] = raw_issue_cost.get(issue, 0.0) + acc.get("_cost", 0.0)
 
+    # PT-102 (amended ruling, ccd4f48/bd45b78): the chronological chart's
+    # sort key -- REUSE the throughput chart's own status->done detection
+    # via the MEMOIZED `build_flow_payload` wrapper, never
+    # `_compute_flow_payload` directly (a wrapper-bypass costs a full git
+    # walk on every poll and produces byte-identical output, so nothing
+    # else here would catch it). `build_flow_payload` never raises --
+    # git-unavailable degrades to its own warning shape with an empty
+    # `closed_at` map, which this payload's "never raises" contract
+    # inherits for free.
+    closed_at_by_issue = build_flow_payload(data_dir).get("closed_at") or {}
+
     issues_out: List[Dict[str, Any]] = []
     for issue, role_entries in per_issue.items():
         # Role order: no order ruled for the payload -- sorted by name
@@ -3619,7 +3641,13 @@ def build_tokens_payload(data_dir: Path, prices: Optional[Dict[str, Any]] = None
         role_entries.sort(key=lambda r: r["role"])
         total = {c: sum(r[c] for r in role_entries) for c in _TOKEN_COUNTERS}
         total["cost_usd"] = None if issue_any_unpriced[issue] else round(raw_issue_cost.get(issue, 0.0), 2)
-        issues_out.append({"issue": issue, "kind": _token_bucket_kind(issue), "total": total, "roles": role_entries})
+        issues_out.append({
+            "issue": issue,
+            "kind": _token_bucket_kind(issue),
+            "total": total,
+            "roles": role_entries,
+            "closed_at": closed_at_by_issue.get(issue),
+        })
 
     # PT-84 §7: `milestone_windows` (this module) built ONCE per payload
     # build, never per bucket -- same "once, not per record" discipline

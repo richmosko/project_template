@@ -37,6 +37,11 @@ export type TokenIssueTotal = {
 	kind: TokenKind;
 	total: TokenCounters;
 	roles: Array<TokenCounters & { role: string }>;
+	// PT-102 (amended ruling, PT-102.md @ ccd4f48, item (a)): the
+	// status->done transition date, server-computed by reusing the
+	// throughput chart's own git-history derivation -- never re-derived
+	// here. Absent/null for an issue not yet done ("open").
+	closed_at?: string | null;
 };
 
 export type TokensPayload = {
@@ -105,14 +110,23 @@ export function tickEveryNth(barCount: number, plotWidthPx: number, labelWidthPx
 // creation-time order, cairn.milestone_rank_map) -- and are placed AFTER
 // the ranked/limited issue bars but BEFORE the trailing `main` bar (§6:
 // "milestone buckets rank after all issue bars and before main").
-// PT-88 gate-1 ruling, item (a): the chronological branch is exactly
-// `issues.filter((i) => i.kind === 'issue')` -- payload order preserved
-// (the server already emits `kind: 'issue'` bars id-ascending, see
-// cairn.py's `_issue_sort_key`), no client-side re-sort, no limit, and
-// no `main`/milestone bars: in this mode the x-axis means POSITION IN
-// THE ISSUE SEQUENCE, and neither bucket has one. Drawing `main` at the
+// PT-88 gate-1 ruling, item (a): the chronological branch starts from
+// `issues.filter((i) => i.kind === 'issue')` -- no limit, and no
+// `main`/milestone bars: in this mode the x-axis means POSITION IN THE
+// ISSUE SEQUENCE, and neither bucket has one. Drawing `main` at the
 // right-hand end would read as "the most recent issue" -- the exact
 // misreading this mode exists to remove.
+//
+// PT-102 (amended, re-issued ruling, PT-102.md @ ccd4f48, item (b)):
+// superseded PT-88's "payload order = chronological" -- id order is
+// FILING order, not WORK order. The sort key is `closed_at` (server-
+// computed, reused from the throughput chart's own status->done
+// detection): closed issues ascending by `closed_at`, open issues (no
+// `closed_at`) after every closed one. A STABLE sort on
+// `(hasClosedAt ? 0 : 1, closed_at ?? '')` reproduces the id tie-break
+// for free within each group -- the payload is id-ascending and
+// `Array.prototype.sort` is stable (ES2019) -- so the client never
+// parses an id, which PT-88 forbade.
 export function selectBars(
 	issues: TokenIssueTotal[],
 	metric: Metric,
@@ -121,7 +135,13 @@ export function selectBars(
 	order: Order = 'ranked',
 ): TokenIssueTotal[] {
 	if (order === 'chronological') {
-		return issues.filter((i) => i.kind === 'issue');
+		const realIssues = issues.filter((i) => i.kind === 'issue');
+		return [...realIssues].sort((a, b) => {
+			const aRank = a.closed_at ? 0 : 1;
+			const bRank = b.closed_at ? 0 : 1;
+			if (aRank !== bRank) return aRank - bRank;
+			return (a.closed_at ?? '').localeCompare(b.closed_at ?? '');
+		});
 	}
 	const real = issues.filter((i) => i.kind === 'issue');
 	const milestones = issues.filter((i) => i.kind === 'milestone');
@@ -145,6 +165,13 @@ export function selectBars(
 // sentence explaining why neither is drawn. `payload.milestone_caption`
 // is never appended in chronological mode -- it explains milestone
 // BARS, and chronological mode never shows any.
+// PT-102 (amended, re-issued ruling, item (d)): supersedes the middle
+// sentence a second time -- "in the order closed", not "in the order
+// opened" (the sort key is now close date). The shared-earliest-date
+// clause from the retired `first_active` ruling is dropped entirely
+// (close dates are real per-issue dates, no bulk-window block to
+// disclose); a new still-open clause names how many `kind: 'issue'`
+// bars carry no `closed_at`, appended only when at least one does.
 export function formatCaption(
 	payload: TokensPayload,
 	metric: Metric,
@@ -163,9 +190,13 @@ export function formatCaption(
 
 	const basis = metric === 'cost' ? 'estimated cost' : 'tokens';
 	if (order === 'chronological') {
-		parts.push(`Showing all ${total} issues in the order opened, by ${basis}.`);
+		parts.push(`Showing all ${total} issues in the order closed, by ${basis}.`);
 		if (payload.issues.some((i) => i.kind !== 'issue')) {
 			parts.push('Milestone and main buckets are omitted here — neither has a place in the issue sequence.');
+		}
+		const openCount = payload.issues.filter((i) => i.kind === 'issue' && !i.closed_at).length;
+		if (openCount > 0) {
+			parts.push(`${openCount} issues are still open and are shown last.`);
 		}
 	} else if (shown >= total) {
 		parts.push(`Showing all ${total} issues, ordered by ${basis}.`);
