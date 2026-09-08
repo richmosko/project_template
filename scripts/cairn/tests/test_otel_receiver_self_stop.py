@@ -664,10 +664,17 @@ class LastSessionSelfStopTests(unittest.TestCase):
             f"remaining={remaining:.3f}s (must be >= 1.0s, measured PT-105.md @ e66af1e)",
         )
 
+        # PT-105 (architect's ruling, item 5, PT-105.md @ e66af1e):
+        # measured wait-elapsed in the failure message, so a future
+        # timeout names WHICH deadline (this one, scaled by `grace`)
+        # expired rather than surfacing as a bare stdout/stderr dump.
+        wait_start = time.monotonic()
         stopped = _wait_for_status_not_running(fake_root, env, timeout=grace + 4.0)
+        wait_elapsed = time.monotonic() - wait_start
         self.assertEqual(
             stopped.returncode, 1,
             f"the receiver must exit on its own once the grace period elapses after the last session ended -- "
+            f"waited {wait_elapsed:.3f}s of a {grace + 4.0}s timeout (grace={grace}s), "
             f"stdout={stopped.stdout!r} stderr={stopped.stderr!r}",
         )
         self.assertTrue(_wait_for_pidfile_gone(fake_root), "the pidfile must be removed on self-stop")
@@ -1089,8 +1096,16 @@ class GraceWindowFlushContentTests(unittest.TestCase):
             f"remaining={remaining:.3f}s (must be >= 1.0s, measured PT-105.md @ e66af1e)",
         )
 
+        # PT-105 (architect's ruling, item 5, PT-105.md @ e66af1e): same
+        # measured wait-elapsed as LastSessionSelfStopTests above.
+        wait_start = time.monotonic()
         stopped = _wait_for_status_not_running(fake_root, env, timeout=grace + 4.0)
-        self.assertEqual(stopped.returncode, 1, f"receiver must self-stop after grace -- {stopped.stdout!r} {stopped.stderr!r}")
+        wait_elapsed = time.monotonic() - wait_start
+        self.assertEqual(
+            stopped.returncode, 1,
+            f"receiver must self-stop after grace -- waited {wait_elapsed:.3f}s of a {grace + 4.0}s "
+            f"timeout (grace={grace}s), {stopped.stdout!r} {stopped.stderr!r}",
+        )
 
         out_path = _out_path(fake_root)
         self.assertTrue(out_path.is_file(), "the self-stop flush must have written --out-file")
