@@ -138,22 +138,14 @@ class MetricsPathResolutionPrefersClaudeProjectDirTests(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------
-# Spike finding (team-lead, process/reviews/PT-82/spike.md @ 1d25274, step
-# 9): from a real worktree, a gated `run_tests.py` run wrote a record into
-# BOTH the resolved (main checkout) test-runs.jsonl AND the script-local
-# (worktree) copy -- the worktree's own copy gained a stray `who: null`
-# line, dirtying a git-tracked file in every teammate worktree and
-# inviting a bad commit. `run_tests.py:_self_record` (PT-82.md @
-# 6316a9b/b0287db, item (c)) is supposed to write to exactly ONE path --
-# the resolved `override` when `--gate` + `CLAUDE_PROJECT_DIR` make one
-# available, else the script-local default -- never both. Mutation: write
-# both (append to the script-local path unconditionally, in addition to
-# the resolved one).
-#
-# Real subprocess of the REAL run_tests.py (no local imports beyond
-# stdlib, so a minimal two-file copy -- run_tests.py + one trivial test
-# file -- is a legitimate, self-contained "worktree" for this purpose;
-# no need to copy the whole scripts/cairn tree).
+# Superseded (never a subject of any commit past this file's current
+# one): an earlier draft here assumed `_self_record` would prefer
+# `CLAUDE_PROJECT_DIR` when set, and tested that by setting it directly
+# in the subprocess env. The re-issued ruling (PT-82.md @ 69e9664)
+# removed that mechanism entirely -- `CLAUDE_PROJECT_DIR` is unset in a
+# teammate's own Bash tool calls (only set for hook shells), so it can
+# never be the discriminator; see the git-common-dir section below,
+# which is what actually shipped (run_tests.py @ 3909de2).
 # --------------------------------------------------------------------------
 
 _TRIVIAL_TEST_FILE = """
@@ -164,61 +156,6 @@ class TrivialPassingTests(unittest.TestCase):
     def test_trivial(self):
         self.assertTrue(True)
 """
-
-
-def _make_worktree_run_tests_copy(testcase):
-    """(worktree_root, run_tests_py_path) -- a minimal, self-contained
-    copy of run_tests.py plus one trivial test file, laid out at
-    <worktree_root>/scripts/cairn/{run_tests.py,tests/test_trivial.py}
-    so `SCRIPT_DIR.parent.parent` inside it resolves to `worktree_root`,
-    matching the real repo's own scripts/cairn -> scripts -> root shape."""
-    worktree_root = helpers.make_empty_tmp_dir(testcase)
-    cairn_dir = worktree_root / "scripts" / "cairn"
-    tests_dir = cairn_dir / "tests"
-    tests_dir.mkdir(parents=True)
-    real_run_tests_py = helpers.CAIRN_DIR / "run_tests.py"
-    shutil.copy(real_run_tests_py, cairn_dir / "run_tests.py")
-    (tests_dir / "test_trivial.py").write_text(_TRIVIAL_TEST_FILE, encoding="utf-8")
-    return worktree_root, cairn_dir / "run_tests.py"
-
-
-class GatedRunFromAWorktreeWritesExactlyOneRecordTests(unittest.TestCase):
-    def test_the_script_local_copy_is_untouched_when_the_resolved_path_differs(self):
-        worktree_root, run_tests_py = _make_worktree_run_tests_copy(self)
-        main_root = helpers.make_empty_tmp_dir(self)
-
-        # Pre-seed the worktree's own local records file, as a real
-        # git-tracked copy would already have committed content --
-        # "byte-identical before/after" is a meaningful claim only
-        # against a file that already exists with real bytes in it.
-        local_records_path = worktree_root / "process" / "cairn" / "metrics" / "test-runs.jsonl"
-        local_records_path.parent.mkdir(parents=True)
-        seed_bytes = b'{"ts":"2026-01-01T00:00:00.000Z","who":null,"gate":null,"seed":true}\n'
-        local_records_path.write_bytes(seed_bytes)
-
-        resolved_records_path = main_root / "process" / "cairn" / "metrics" / "test-runs.jsonl"
-        self.assertFalse(resolved_records_path.exists(), "sanity: the resolved path must start absent")
-
-        env = dict(os.environ)
-        env["CLAUDE_PROJECT_DIR"] = str(main_root)
-        env.pop("CAIRN_TEST_RUNS_FILE", None)
-        result = subprocess.run(
-            [sys.executable, str(run_tests_py), "--gate", "green"],
-            cwd=str(run_tests_py.parent), capture_output=True, text=True, env=env,
-        )
-        self.assertEqual(result.returncode, 0, f"the gated run itself must succeed (one trivial passing test) -- {result.stdout!r} {result.stderr!r}")
-
-        self.assertTrue(resolved_records_path.is_file(), "the resolved (main checkout) records file must gain the record")
-        resolved_lines = resolved_records_path.read_text(encoding="utf-8").splitlines()
-        self.assertEqual(len(resolved_lines), 1, f"expected exactly one new record in the resolved file -- got {resolved_lines!r}")
-
-        after_bytes = local_records_path.read_bytes()
-        self.assertEqual(
-            after_bytes, seed_bytes,
-            f"the script-local (worktree) copy must be BYTE-IDENTICAL before and after a gated "
-            f"run whose resolved path differs -- it must never also gain a line -- got "
-            f"{after_bytes!r}, seeded with {seed_bytes!r}",
-        )
 
 
 # --------------------------------------------------------------------------
@@ -312,6 +249,154 @@ class RealWorktreeGatedRunResolvesViaGitCommonDirTests(unittest.TestCase):
             f"the worktree's own tracked copy must gain ZERO lines -- a stray write there dirties "
             f"a git-tracked file in every teammate worktree -- got {worktree_records.read_text(encoding='utf-8') if worktree_records.exists() else None!r}",
         )
+
+
+# --------------------------------------------------------------------------
+# PT-82 gate-1 ruling, RE-ISSUED WHOLE (architect, process/cairn/issues/
+# PT-82.md @ 69e9664, superseding @6316a9b and addenda @b0287db/@07576af):
+# "the records-path discriminator... the load-bearing one." `run_tests.py`
+# may use the `--git-common-dir` root ONLY when `--git-dir != --git-
+# common-dir` -- true SOLELY in a linked worktree. Bare common-dir
+# resolution (no inequality check) is UNSAFE: from a fake engine root
+# INSIDE the repo, `--git-dir` and `--git-common-dir` are also EQUAL (both
+# resolve to the enclosing repo's real `.git`), so the unguarded form
+# would redirect a test copy's self-record into the REAL test-runs.jsonl
+# -- the exact regression the file-location default was written to
+# prevent, and the one PT-100's guards exist to catch.
+#
+# Four contexts, real git and real subprocesses throughout (never
+# simulated): linked worktree (differ -> common-dir), main checkout
+# (equal -> file-location default), fake engine root INSIDE the repo
+# (equal -> file-location default -- the decisive case), outside any
+# repo (git fails -> file-location default, never raises).
+# --------------------------------------------------------------------------
+
+
+class RecordsPathDiscriminatorTests(unittest.TestCase):
+    def test_context_1_linked_worktree_uses_the_common_dir_root(self):
+        # Already the exact scenario RealWorktreeGatedRunResolvesViaGit
+        # CommonDirTests covers above -- restated here as context 1 of
+        # 4 for a single, complete discriminator record in one place.
+        main_root, worktree_path = _make_main_checkout_with_worktree(self)
+        run_tests_py = worktree_path / "scripts" / "cairn" / "run_tests.py"
+        env = dict(os.environ)
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        env.pop("CAIRN_TEST_RUNS_FILE", None)
+        result = subprocess.run(
+            [sys.executable, str(run_tests_py), "--gate", "red"],
+            cwd=str(run_tests_py.parent), capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(result.returncode, 0, f"{result.stdout!r} {result.stderr!r}")
+        main_records = main_root / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        worktree_records = worktree_path / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        self.assertTrue(main_records.is_file(), "context 1 (linked worktree): the MAIN checkout must gain the record")
+        self.assertFalse(worktree_records.exists(), "context 1 (linked worktree): the worktree's own copy must gain nothing")
+
+    def test_context_2_main_checkout_uses_the_file_location_default(self):
+        # git-dir == git-common-dir here (both are the repo's own .git) --
+        # the two candidate roots COINCIDE, so this context can't by
+        # itself distinguish a correct implementation from the unguarded
+        # mutation; included as the "ordinary case is unaffected" sanity
+        # leg the other three contexts don't cover.
+        main_root = helpers.make_empty_tmp_dir(self)
+        genv = _git_env()
+        subprocess.run(["git", "init", "-q"], cwd=str(main_root), check=True, env=genv)
+        cairn_dir = main_root / "scripts" / "cairn"
+        tests_dir = cairn_dir / "tests"
+        tests_dir.mkdir(parents=True)
+        shutil.copy(helpers.CAIRN_DIR / "run_tests.py", cairn_dir / "run_tests.py")
+        (tests_dir / "test_trivial.py").write_text(_TRIVIAL_TEST_FILE, encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=str(main_root), check=True, env=genv)
+        subprocess.run(["git", "commit", "-q", "-m", "initial"], cwd=str(main_root), check=True, env=genv)
+
+        env = dict(os.environ)
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        env.pop("CAIRN_TEST_RUNS_FILE", None)
+        result = subprocess.run(
+            [sys.executable, str(cairn_dir / "run_tests.py"), "--gate", "red"],
+            cwd=str(cairn_dir), capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(result.returncode, 0, f"{result.stdout!r} {result.stderr!r}")
+        own_records = main_root / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        self.assertTrue(own_records.is_file(), "context 2 (main checkout): its own tree must gain the record")
+        lines = own_records.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 1, f"expected exactly one record -- got {lines!r}")
+
+    def test_context_3_fake_engine_root_inside_the_repo_stays_local_the_decisive_case(self):
+        # THE decisive context, per the ruling: a fake engine root
+        # NESTED inside a real repo's working tree (no .git of its own)
+        # has git-dir == git-common-dir, EQUAL to each other but
+        # DIFFERENT from the fake root itself -- the unguarded ("drop
+        # the inequality check") mutation would still resolve common-dir
+        # (the ENCLOSING repo) and wrongly redirect the fake root's
+        # self-record into the enclosing repo's real test-runs.jsonl.
+        enclosing_root = helpers.make_empty_tmp_dir(self)
+        genv = _git_env()
+        subprocess.run(["git", "init", "-q"], cwd=str(enclosing_root), check=True, env=genv)
+        (enclosing_root / "README.md").write_text("placeholder\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=str(enclosing_root), check=True, env=genv)
+        subprocess.run(["git", "commit", "-q", "-m", "initial"], cwd=str(enclosing_root), check=True, env=genv)
+
+        fake_root = enclosing_root / "nested" / "fake_engine_root"
+        cairn_dir = fake_root / "scripts" / "cairn"
+        tests_dir = cairn_dir / "tests"
+        tests_dir.mkdir(parents=True)
+        shutil.copy(helpers.CAIRN_DIR / "run_tests.py", cairn_dir / "run_tests.py")
+        (tests_dir / "test_trivial.py").write_text(_TRIVIAL_TEST_FILE, encoding="utf-8")
+        # Deliberately NOT committed -- a fake engine root is scratch,
+        # exactly PT-100's own "never the real committed file" fixtures.
+
+        env = dict(os.environ)
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        env.pop("CAIRN_TEST_RUNS_FILE", None)
+        result = subprocess.run(
+            [sys.executable, str(cairn_dir / "run_tests.py"), "--gate", "red"],
+            cwd=str(cairn_dir), capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(result.returncode, 0, f"{result.stdout!r} {result.stderr!r}")
+
+        fake_root_records = fake_root / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        enclosing_records = enclosing_root / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        self.assertTrue(
+            fake_root_records.is_file(),
+            "context 3 (fake root inside a repo): the fake root's OWN tree must gain the record "
+            "(git-dir == git-common-dir here, so the common-dir root must NOT be preferred)",
+        )
+        self.assertFalse(
+            enclosing_records.exists(),
+            f"context 3 (fake root inside a repo): the ENCLOSING repo's real test-runs.jsonl must "
+            f"gain NOTHING -- a write there is exactly the regression PT-100's guards exist to "
+            f"catch -- got {enclosing_records.read_text(encoding='utf-8') if enclosing_records.exists() else None!r}",
+        )
+
+    def test_context_4_outside_any_repo_falls_back_without_raising(self):
+        fake_root = helpers.make_empty_tmp_dir(self)
+        cairn_dir = fake_root / "scripts" / "cairn"
+        tests_dir = cairn_dir / "tests"
+        tests_dir.mkdir(parents=True)
+        shutil.copy(helpers.CAIRN_DIR / "run_tests.py", cairn_dir / "run_tests.py")
+        (tests_dir / "test_trivial.py").write_text(_TRIVIAL_TEST_FILE, encoding="utf-8")
+        # No `git init` anywhere in this fixture's ancestry -- helpers.
+        # make_empty_tmp_dir's own tmp root is never inside a git repo
+        # (verified: /tmp and /private/var/folders/... on this machine
+        # both report "fatal: not a git repository").
+
+        env = dict(os.environ)
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        env.pop("CAIRN_TEST_RUNS_FILE", None)
+        result = subprocess.run(
+            [sys.executable, str(cairn_dir / "run_tests.py"), "--gate", "red"],
+            cwd=str(cairn_dir), capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(
+            result.returncode, 0,
+            f"a run outside any git repo must still succeed -- the recorder never raises -- "
+            f"{result.stdout!r} {result.stderr!r}",
+        )
+        own_records = fake_root / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        self.assertTrue(own_records.is_file(), "context 4 (outside any repo): the fake root's own tree must still gain the record")
+        lines = own_records.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 1, f"expected exactly one record -- got {lines!r}")
 
 
 if __name__ == "__main__":
