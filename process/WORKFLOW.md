@@ -96,10 +96,14 @@ How far a `/drive`-aimed [goal-driven loop](#goal-driven-loop-drive) runs before
   guard modules, never the full suite, mid-loop: `python3 scripts/cairn/run_tests.py -p
   "test_<area>*.py"` (from `scripts/cairn/`; `-p` is repeatable). The full suite runs at the
   four gates only, by that gate's owner (qa at tests-red and build-green, the lead at finish):
-  `python3 scripts/cairn/run_tests.py` — a file-level parallel runner, default 8 workers,
-  ≤ 45 s on the reference machine with counts identical to serial `unittest discover`
-  (`process/reviews/PT-93/timings.md`). `--serial` reruns the same files one at a time for a
-  doubt-the-parallel-path control; a doc-only edit needs no run at all.
+  `python3 scripts/cairn/run_tests.py --gate <red|green|verdict|finish>` — a file-level
+  parallel runner, default 8 workers, ≤ 45 s on the reference machine
+  (`process/reviews/PT-93/timings.md`); `--gate` is what the PreToolUse guard requires of
+  a teammate and what records the run. The verdict's counts-agreement leg is
+  `python3 scripts/cairn/run_tests.py --serial --gate verdict` — the same files one at a
+  time, a doubt-the-parallel-path control. A bare unittest discover run is no longer a
+  gate leg: stock unittest has no `--gate` flag, so a teammate cannot issue one (PT-99).
+  A doc-only edit needs no run at all.
 - **Gate (per feature):** PR mergeable, tests green, peer review approved.
 
 ### Validate
