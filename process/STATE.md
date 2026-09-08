@@ -21,9 +21,10 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Issue | PT-82 (cairn) |
 | Milestone | PT-0.12.1 |
 | Branch | `feature/pt-82-teammate-worktrees` |
+| PR | https://github.com/richmosko/project_template/pull/189 |
 | Started | 2026-09-08 |
 | Goal | A spike proves a fresh teammate can work from its own worktree at the feature tip with messaging, tasks, hooks, and hand-offs intact; the protocol lands in agent definitions, settings, and skills with the one-branch-one-PR invariant enforced. |
-| Status | In Progress |
+| Status | In Review |
 
 ## Releases
 
