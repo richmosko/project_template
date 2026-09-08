@@ -104,6 +104,26 @@ sh: vite: command not found
 
 **FAIL — same failure as before the fix.** The explicit `.bin/**` pattern added at 9b50083 did not deliver `node_modules/.bin` into this fresh worktree; `vite` remains unresolvable and the build still fails identically.
 
+## Step 8 repeat #2 — build invokes vite by package path (delta 3 @ 037e6aa)
+
+New worktree `pt82-spike-3`, HEAD confirmed `037e6aa28d330f5cc6b940db6d7476424a4652a1`. `.worktreeinclude` no longer chases the `.bin/**` pattern (measured twice not to deliver a dot-directory of symlinks); `.worktreeinclude` keeps only `scripts/cairn/dashboard/node_modules/**` and now documents that `.bin` is not delivered. The fix moved into `package.json`'s build script instead:
+
+```
+"build": "node ./node_modules/vite/bin/vite.js build",
+```
+
+Result:
+
+```
+$ cd scripts/cairn/dashboard && npm run build
+...
+✓ built in 2.44s
+```
+
+**PASS.** Build succeeds by invoking vite directly from its package path, sidestepping the undelivered `.bin/` symlink entirely.
+
+`git status --short dist` → empty output. **dist is byte-identical to the committed dist** — no diff.
+
 ## Step 9 — Metrics write / go-no-go
 
 Command as given (`--gate red` combined with `-p`) was rejected by the harness itself:
