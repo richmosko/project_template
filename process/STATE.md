@@ -21,9 +21,10 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Issue | PT-102 (cairn) |
 | Milestone | PT-0.12.1 |
 | Branch | `feature/pt-102-chronological-by-time-worked` |
+| PR | https://github.com/richmosko/project_template/pull/185 |
 | Started | 2026-09-08 |
 | Goal | Chronological mode orders issues by first token activity so PT-88 renders at the right edge, with the caption 'in the order worked'; browser-verified. |
-| Status | In Progress |
+| Status | In Review |
 
 ## Releases
 
