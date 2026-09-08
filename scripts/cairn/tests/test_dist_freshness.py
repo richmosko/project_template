@@ -51,9 +51,13 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
+import re
+import shutil
 import subprocess
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import helpers  # noqa: F401
@@ -147,6 +151,27 @@ def make_buildable_dashboard_repo(testcase) -> Path:
 
     (tmp / "README.md").write_text("placeholder\n", encoding="utf-8")
     _commit(tmp, "initial: src + build script + matching dist", when="2026-08-20T10:00:00")
+    return tmp
+
+
+def _snapshot_dir(d: Path) -> dict:
+    """{relpath: bytes} for every file under `d`, recursive -- the
+    byte-for-byte comparison guard 3 (PT-82.md @ dc98ff4) needs to prove
+    the rebuild-and-compare step never touches the committed dist/."""
+    return {str(p.relative_to(d)): p.read_bytes() for p in d.rglob("*") if p.is_file()}
+
+
+def _make_git_only_path_dir(testcase) -> Path:
+    """A scratch PATH dir containing ONLY a `git` symlink (to whatever
+    real git binary this test environment already resolves) -- simulates
+    node/npm being entirely ABSENT from PATH while keeping
+    check_dist_freshness's own pre-existing git subprocess calls working,
+    so a failure here is attributable to the missing build toolchain
+    specifically, never to a broken git."""
+    real_git = shutil.which("git")
+    assert real_git, "this test environment has no git on PATH at all -- cannot build the fixture"
+    tmp = helpers.make_empty_tmp_dir(testcase)
+    (tmp / "git").symlink_to(real_git)
     return tmp
 
 
@@ -382,6 +407,80 @@ class DistFreshnessModuleTests(unittest.TestCase):
             f"-- the rescue path must not swallow a real staleness -- {result}",
         )
         self.assertEqual(result["reason"], "stale", result)
+
+    def test_a_failing_build_command_cannot_verify_and_stays_stale(self):
+        # Architect's post-verdict delta 1, guard 2 (PT-82.md @ dc98ff4,
+        # verbatim): "An absent or failing toolchain fails, it does not
+        # skip. If node/npm is missing or the build exits non-zero, the
+        # result is stale with a reason saying the gate could not verify
+        # -- not a pass." This leg: the toolchain is present, but the
+        # CURRENTLY COMMITTED build script itself is broken, so any
+        # rebuild attempt fails. Mutation this must catch: treating a
+        # failed rebuild as fresh (silently skipping the comparison).
+        repo_root = make_buildable_dashboard_repo(self)
+        dashboard = repo_root / "scripts" / "cairn" / "dashboard"
+        (dashboard / "build.js").write_text("process.exit(7);\n", encoding="utf-8")
+        _commit(repo_root, "build.js: deliberately broken (simulates a failing build)", when="2026-08-21T10:00:00")
+
+        result = self.module.check_dist_freshness(repo_root)
+        self.assertIs(
+            result["stale"], True,
+            f"a rebuild that cannot even run must never be treated as a pass -- a broken build "
+            f"command must stay stale, not silently rescued -- {result}",
+        )
+        self.assertTrue(result["message"], "the failure must explain the gate could not verify freshness")
+
+    def test_a_missing_toolchain_cannot_verify_and_stays_stale(self):
+        # Same guard 2, the other half: node/npm absent from PATH
+        # entirely (not merely a failing script). check_dist_freshness's
+        # OWN git calls must still work (PATH still has git via
+        # `_make_git_only_path_dir`) -- only the build toolchain is gone.
+        repo_root = make_buildable_dashboard_repo(self)
+        dashboard = repo_root / "scripts" / "cairn" / "dashboard"
+        pkg = json.loads((dashboard / "package.json").read_text(encoding="utf-8"))
+        pkg["scripts"]["build"] = "node build.js"  # invocation-only edit -- ancestry alone says stale
+        (dashboard / "package.json").write_text(json.dumps(pkg) + "\n", encoding="utf-8")
+        _commit(repo_root, "package.json: cosmetic build-script edit, no rebuild", when="2026-08-21T10:00:00")
+
+        git_only_dir = _make_git_only_path_dir(self)
+        with unittest.mock.patch.dict(os.environ, {"PATH": str(git_only_dir)}, clear=False):
+            result = self.module.check_dist_freshness(repo_root)
+        self.assertIs(
+            result["stale"], True,
+            f"an absent toolchain (node/npm not on PATH) must FAIL, never silently pass or skip "
+            f"the comparison -- {result}",
+        )
+        combined = result.get("message", "")
+        self.assertTrue(
+            re.search(r"\b(node|npm|toolchain|build)\b", combined, re.IGNORECASE),
+            f"the failure message must name the toolchain / build problem -- got: {combined!r}",
+        )
+
+    def test_the_rebuild_never_touches_the_committed_dist_directory(self):
+        # Guard 3 (PT-82.md @ dc98ff4): "The rebuild goes to a temp dir
+        # outside the repository and is removed afterwards. Building
+        # anywhere inside the tree would dirty it, and could trip both
+        # this gate and PT-100's real-state guards." Exercises the
+        # rescue scenario (ancestry-stale, byte-identical rebuild), which
+        # is guaranteed to trigger a rebuild attempt.
+        repo_root = make_buildable_dashboard_repo(self)
+        dashboard = repo_root / "scripts" / "cairn" / "dashboard"
+        dist_dir = dashboard / "dist"
+        before = _snapshot_dir(dist_dir)
+
+        pkg = json.loads((dashboard / "package.json").read_text(encoding="utf-8"))
+        pkg["scripts"]["build"] = "node build.js"
+        (dashboard / "package.json").write_text(json.dumps(pkg) + "\n", encoding="utf-8")
+        _commit(repo_root, "package.json: cosmetic build-script edit, no rebuild", when="2026-08-21T10:00:00")
+
+        self.module.check_dist_freshness(repo_root)  # ancestry-stale -> triggers a rebuild attempt
+
+        after = _snapshot_dir(dist_dir)
+        self.assertEqual(
+            before, after,
+            "the rebuild-and-compare step must run entirely in a temp dir outside the repo -- the "
+            "committed dist/ directory must be byte-for-byte unchanged after a check run",
+        )
 
     def test_never_raises_on_a_repo_with_no_dashboard_directory_at_all(self):
         # A spin-off / a repo that never had the dashboard at all --
