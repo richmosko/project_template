@@ -183,7 +183,14 @@ class RenameAwareGuardCommitTests(GuardTestBase):
         different authors land in the same staged change -- the rename
         must not become a blanket bypass for a genuine multi-author
         violation. Mutation: skip every R<100 entry outright (not just
-        diff it against its source) -> this wrongly passes too."""
+        diff it against its source) -> this wrongly passes too.
+
+        Load-bearing per the ruling (PT-109.md @ 6831854, guard 3): the
+        refusal must name EXACTLY the two genuinely new authors, not the
+        historical one -- proving the fix narrowed the guard rather than
+        disabling it. Mutation: diff the whole file instead of pairing
+        against the rename source -> 'architect' (stale) appears in the
+        message too."""
         self.comment("architect", "ruling")
         git(self.root, "commit", "-q", "-m", "ruling", "--", str(self.issue))
 
@@ -197,6 +204,45 @@ class RenameAwareGuardCommitTests(GuardTestBase):
         self.assertEqual(r.returncode, 1, f"two new authors on a partial rename must still refuse -- {r.stdout!r} {r.stderr!r}")
         self.assertIn("qa-engineer", r.stderr)
         self.assertIn("seceng", r.stderr)
+        self.assertNotIn(
+            "architect", r.stderr,
+            f"the refusal must name only the genuinely NEW authors, not the historical (unchanged) one -- {r.stderr!r}",
+        )
+
+    def test_ordinary_non_rename_modification_with_two_authors_still_refuses(self):
+        """Ruling guard 4: regression control for the untouched (non-
+        rename) path -- an ordinary same-path modification adding two
+        authors must still refuse, exactly as PreCommitHookTests already
+        covers. Restated here so PT-109's whole guard set lives in one
+        place; not a new behaviour."""
+        self.comment("architect", "ruling", "--allow-foreign")
+        self.comment("qa-engineer", "assertion", "--allow-foreign")
+        git(self.root, "add", "--", str(self.issue))
+        r = subprocess.run([str(helpers.CAIRN_BIN), "guard-commit"], cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, f"{r.stdout!r} {r.stderr!r}")
+
+    def test_a_staged_path_containing_a_space_is_still_evaluated(self):
+        """Ruling guard 5: the only thing keeping the `-z` NUL-separated
+        name-status parser honest. Mutation: split the name-status output
+        on whitespace instead of NUL -- a path with a space breaks the
+        field boundaries and the guard silently skips the file (goes
+        blind) rather than refusing or erroring."""
+        spaced_issue = self.data_dir / "issues" / "PT-1 spaced.md"
+        spaced_issue.write_text(self.issue.read_text(encoding="utf-8"), encoding="utf-8")
+        git(self.root, "add", "--", str(spaced_issue))
+        git(self.root, "commit", "-q", "-m", "seed spaced issue")
+
+        self._append_comment(spaced_issue, "architect", "ruling")
+        self._append_comment(spaced_issue, "qa-engineer", "assertion")
+        git(self.root, "add", "--", str(spaced_issue))
+
+        r = subprocess.run([str(helpers.CAIRN_BIN), "guard-commit"], cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(
+            r.returncode, 1,
+            f"a spaced path must still be evaluated (refused here, two new authors), not silently skipped -- "
+            f"{r.stdout!r} {r.stderr!r}",
+        )
+        self.assertIn("PT-1 spaced.md", r.stderr)
 
 
 if __name__ == "__main__":
