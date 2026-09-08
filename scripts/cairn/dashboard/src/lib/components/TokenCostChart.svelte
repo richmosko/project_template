@@ -513,7 +513,9 @@
 										? (d: any) => s.value ?? s.key
 										: undefined}
 									rounded={context.series.stackLayout != null
-										? (d: any) => (context.series.isStackTop(s.key, d) ? 'edge' : 'none')
+										? // Per row rather than per series: a sub-band or a gap in the data can leave the
+											// later series out, making an earlier one the top of *that* stack
+											(d: any) => (context.series.isStackTop(s.key, d) ? 'edge' : 'none')
 										: Array.isArray(xProp) || Array.isArray(yProp)
 											? 'all'
 											: 'edge'}
@@ -534,6 +536,7 @@
 							     still reads the real (unmodified) row underneath. -->
 							{#each subPixelCols as col (col.issue)}
 								<rect
+									data-subpixel-overlay
 									x={context.xScale(col.issue)}
 									y={context.yScale(0) - MIN_BAR_PX}
 									width={context.xScale.bandwidth?.() ?? 0}
