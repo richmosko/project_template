@@ -90,7 +90,7 @@
 	   200.8 deg) -- with L/C independently tuned (not copied from any
 	   palette.md swatch) to also clear the dataviz validator's other
 	   checks (lightness band, chroma floor, CVD separation, contrast).
-	   validate_palette.js:
+	   validate_palette.js (PT-85, interim):
 	     light (#ffffff surface): ALL CHECKS PASS -- one WARN, contrast
 	       (closed/#63-equivalent 2.73:1, below 3:1) -- mitigated: the
 	       chart always carries a text legend + tooltip (direct labels),
@@ -102,13 +102,45 @@
 	   Role-collision: 16.9/135.2/200.8 deg are each ~30 deg from the
 	   nearest of 252/76.8/300/346/236/105/47/165 deg (>= the 25 deg
 	   floor); pairwise 118.3/65.6/176.1 deg (>= the 60 deg floor).
-	   Interim, not final, and this deviation from "literal palette.md
-	   values" is flagged on PT-85 for the architect/team-lead, not
-	   silently substituted: PT-92 is filed for a ux-designer eye on the
-	   specific hex picks; the token NAMES and qa's per-variant
-	   distinctness guard are the contract this ticket ships. */
+
+	   PT-92 (ux-designer ratification, 2026-09-08): hues (16.9/135.2/
+	   200.8 deg), role-collision and pairwise margins, opened, wip, and
+	   both dark-mode values RATIFIED as-is -- the architect's placements
+	   already clear every hard floor with real margin. ONE value
+	   REPLACED: light-mode --chart-flow-closed, L 0.68 -> 0.62 (C 0.18
+	   and H 135.2 unchanged, so both mechanical guards -- pairwise and
+	   role-collision, hue-only -- are untouched by this edit). Reason:
+	   PT-92 moves this series from a filled Bars mark to a stroked line,
+	   and per this same ticket's own coincidence fix (see
+	   IssueFlowChart.svelte's per-series dash pattern) --closed-- is
+	   drawn as a DASHED line ON TOP of --opened--'s solid line, so at
+	   any x where the two coincide the reader depends on --closed--'s
+	   own contrast to resolve it in the dash gaps, not on fill area the
+	   way a bar's WARN-with-legend mitigation assumed. Measured (own
+	   OKLCH->sRGB + WCAG relative-luminance reimplementation, matching
+	   this doc's standing "flagging the method, not asserting precision"
+	   posture -- the dataviz skill's validate_palette.js was not
+	   reachable this session): old value #63af2a vs #ffffff = 2.72:1
+	   (the WARN); new value #509c06 vs #ffffff = 3.44:1 (float model)
+	   and 3.44:1 (quantized-hex model, both computed to guard against
+	   the PT-69 "gap between models" failure mode) -- clears the WCAG
+	   1.4.11 non-text-contrast floor (3:1) outright, no WARN, no legend
+	   dependency. Deuteranopia/protanopia re-check (Machado, Oliveira &
+	   Fairchild 2009, severity 1.0, own reimplementation): opened/closed
+	   simulated-RGB separation narrows slightly at the darker L (a real,
+	   flagged trade -- darkening closed toward opened's own L reduces
+	   their shared-channel spread under deutan simulation) but
+	   closed/wip separation widens by more than that loss, and light
+	   mode carried no CVD WARN before this change (unlike dark mode's
+	   already-accepted opened/closed WARN) -- re-run through the actual
+	   skill script before final lock, per this doc's standing caveat.
+	   Dark-mode --chart-flow-closed is UNCHANGED (0.65/0.15/135.2,
+	   5.69:1 against the dark card already, no line-vs-bar contrast
+	   risk to fix). Line treatment (weight, dash/marker pattern, legend,
+	   WIP-on-axis remedy) is specified on the PT-92 issue file, not
+	   here -- this file only carries token values. */
 	--chart-flow-opened: oklch(0.55 0.20 16.9);
-	--chart-flow-closed: oklch(0.68 0.18 135.2);
+	--chart-flow-closed: oklch(0.62 0.18 135.2);
 	--chart-flow-wip: oklch(0.62 0.15 200.8);
 	/* PT-79: the token/cost dashboard block's ROLE stack -- categorical
 	   (unordered), not ordinal, so this is a DIFFERENT validator shape
@@ -204,12 +236,15 @@
 	--chart-3: oklch(0.681 0.162 75.834);
 	--chart-4: oklch(0.554 0.135 66.442);
 	--chart-5: oklch(0.476 0.114 61.907);
-	/* PT-85 (interim, PT-92 filed for ux-designer ratification):
+	/* PT-85, RATIFIED unchanged by PT-92 (ux-designer, 2026-09-08):
 	   dataviz skill's validated categorical palette, dark-mode values
 	   -- red/green/violet, chosen to avoid every --chart-role-* hue on
 	   this page and validated via validate_palette.js against this
-	   block's own --card surface (#1c1917). See :root's comment for
-	   the full picks + validator output, recorded on PT-85. */
+	   block's own --card surface (#1c1917). Already 5.69:1 contrast for
+	   --chart-flow-closed against this surface -- no line-vs-bar
+	   contrast risk here, unlike the light-mode value. See :root's
+	   comment for the full picks + validator output + the one light-
+	   mode replacement, recorded on PT-85/PT-92. */
 	--chart-flow-opened: oklch(0.58 0.17 16.9);
 	--chart-flow-closed: oklch(0.65 0.15 135.2);
 	--chart-flow-wip: oklch(0.60 0.13 200.8);
