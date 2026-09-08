@@ -124,6 +124,38 @@ $ cd scripts/cairn/dashboard && npm run build
 
 `git status --short dist` → empty output. **dist is byte-identical to the committed dist** — no diff.
 
+## Step 9 repeat #2 — runner fix (3909de2), full `--gate red`
+
+Same worktree `pt82-spike-3`, `git pull --rebase` brought HEAD to `3909de223d972e5a102de048db2ae3a3d1d329b2`. Pull delivered a runner change (`scripts/cairn/run_tests.py`) plus a new automated test `scripts/cairn/tests/test_worktree_metrics_path_resolution.py`.
+
+Line counts before/after:
+
+| File | Before | After |
+|---|---|---|
+| worktree `process/cairn/metrics/test-runs.jsonl` | 196 | 196 (unchanged) |
+| main checkout `/Users/mosko/Projects/project_template/process/cairn/metrics/test-runs.jsonl` | 200 | 201 |
+
+`git status --short process/cairn/metrics/` in the worktree: empty, both before and after.
+
+Added line (main checkout only):
+
+```
+{"who": "qa-engineer", "gate": "red", "branch": "feature/pt-82-teammate-worktrees", "sha": "3909de2...", "session": null, "ok": false, ...}
+```
+
+**Manual go criterion: GO.** main +1 (who set, correct branch), worktree +0, worktree `git status` clean. The metrics-path resolution mechanism itself behaved correctly this run — no stray local write.
+
+**But the gate run itself is RED**, `ok: false` — one test failure in the new suite:
+
+```
+FAIL: test_the_script_local_copy_is_untouched_when_the_resolved_path_differs
+AssertionError: False is not true : the resolved (main checkout) records file must gain the record
+Ran 1497 tests in 20.224s (90 files, 8 workers)
+FAILED (failures=1, errors=0, files=1)
+```
+
+Cause (read from the test source): the failing test builds a synthetic, non-git worktree fixture (a plain tmp dir with no `.git`) and points resolution at itself via `CLAUDE_PROJECT_DIR`, expecting the runner to resolve to that env var. If the runner's actual resolution instead depends on real git plumbing (`git rev-parse --git-dir`/`--git-common-dir`), the synthetic fixture — which has no git repo at all — can't be resolved that way, so the record isn't written to the fixture's "main" path and the assertion fails. This looks like a test-fixture/implementation mismatch (fixture assumes `CLAUDE_PROJECT_DIR`-based resolution; my two real, git-backed worktree runs above show the actual git-based resolution working correctly) rather than a failure of the real per-worktree mechanism — but it is a genuine RED result on the full suite and blocks a clean gate as-is.
+
 ## Step 9 — Metrics write / go-no-go
 
 Command as given (`--gate red` combined with `-p`) was rejected by the harness itself:
