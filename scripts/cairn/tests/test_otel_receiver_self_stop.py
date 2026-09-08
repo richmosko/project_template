@@ -105,6 +105,15 @@ REAL_SESSIONS_DIR = REAL_METRICS_DIR / ".sessions"
 
 ENGINE_FILES = ("otel_receiver.py", "backfill_tokens.py", "cairn.py")
 
+# PT-105 (architect's ruling, PT-105.md @ e66af1e): the grace period an
+# IN-WINDOW operation must complete inside, for the two tests whose
+# margin assertion measured < 1.0s of headroom at rest. Deliberately
+# distinct from the wait-PAST-the-window deadlines (still 0.4s) --
+# growing those buys no safety, only wall cost. Documented fallback if
+# this file's cost is ever re-litigated: 1.0 (0.5s floor) still holds
+# >= 4.6x measured margin -- do not go below that floor.
+INSIDE_WINDOW_GRACE = 2.0
+
 
 # --------------------------------------------------------------------------
 # "Two fake project roots" fixture -- see module docstring.
@@ -607,6 +616,12 @@ class LastSessionSelfStopTests(unittest.TestCase):
     GRACE = 0.4
 
     def test_one_session_start_end_exits_after_grace_period_with_a_flush(self):
+        # PT-105 (architect's ruling, PT-105.md @ e66af1e): local
+        # INSIDE_WINDOW_GRACE, NOT self.GRACE -- this is one of the two
+        # deadlines the ruling raises; the class's GRACE=0.4 stays as-is
+        # for the sibling wait-PAST-the-window tests, where a bigger
+        # window buys no safety, only wall cost.
+        grace = INSIDE_WINDOW_GRACE
         port = _free_port()
         fake_root = make_fake_engine_root(self, otel_port=port)
         env = _base_env(port)
@@ -615,7 +630,7 @@ class LastSessionSelfStopTests(unittest.TestCase):
         start = run_fake_receiver(
             fake_root,
             ["--ensure-running", "--session-id", "s1", "--session-pid", str(os.getpid()),
-             "--grace-period-seconds", str(self.GRACE)],
+             "--grace-period-seconds", str(grace)],
             env=env,
         )
         self.assertEqual(start.returncode, 0, start.stdout + start.stderr)
@@ -624,6 +639,7 @@ class LastSessionSelfStopTests(unittest.TestCase):
         self.assertEqual(status.returncode, 0, f"receiver must be running after the only session starts -- {status.stdout!r} {status.stderr!r}")
         self.assertIn("sessions: 1", status.stdout, status.stdout)
 
+        t0 = time.monotonic()
         end = run_fake_receiver(fake_root, ["--session-ended", "s1"], env=env)
         self.assertEqual(end.returncode, 0, end.stdout + end.stderr)
 
@@ -636,10 +652,29 @@ class LastSessionSelfStopTests(unittest.TestCase):
             f"after the grace period, got {immediate.stdout!r} {immediate.stderr!r}",
         )
 
-        stopped = _wait_for_status_not_running(fake_root, env, timeout=self.GRACE + 4.0)
+        # PT-105 (architect's ruling, PT-105.md @ e66af1e): same margin
+        # characterisation as GraceWindowFlushContentTests above -- the
+        # in-window `--status` probe must complete with a full second of
+        # budget left before `grace` elapses.
+        elapsed = time.monotonic() - t0
+        remaining = grace - elapsed
+        self.assertGreaterEqual(
+            remaining, 1.0,
+            f"in-window --status margin too tight -- grace={grace}s, elapsed={elapsed:.3f}s, "
+            f"remaining={remaining:.3f}s (must be >= 1.0s, measured PT-105.md @ e66af1e)",
+        )
+
+        # PT-105 (architect's ruling, item 5, PT-105.md @ e66af1e):
+        # measured wait-elapsed in the failure message, so a future
+        # timeout names WHICH deadline (this one, scaled by `grace`)
+        # expired rather than surfacing as a bare stdout/stderr dump.
+        wait_start = time.monotonic()
+        stopped = _wait_for_status_not_running(fake_root, env, timeout=grace + 4.0)
+        wait_elapsed = time.monotonic() - wait_start
         self.assertEqual(
             stopped.returncode, 1,
             f"the receiver must exit on its own once the grace period elapses after the last session ended -- "
+            f"waited {wait_elapsed:.3f}s of a {grace + 4.0}s timeout (grace={grace}s), "
             f"stdout={stopped.stdout!r} stderr={stopped.stderr!r}",
         )
         self.assertTrue(_wait_for_pidfile_gone(fake_root), "the pidfile must be removed on self-stop")
@@ -719,8 +754,13 @@ class LastSessionSelfStopTests(unittest.TestCase):
         end = run_fake_receiver(fake_root, ["--session-ended", "s1"], env=env)
         self.assertEqual(end.returncode, 0, end.stdout + end.stderr)
 
-        # Well inside the grace window -- a fresh session starts.
-        time.sleep(grace * 0.3)
+        # Well inside the grace window -- a fresh session starts. PT-105
+        # (architect's ruling, PT-105.md @ e66af1e): fixed 0.1s, not
+        # grace * 0.3 -- shrinking the work is the fix here, not growing
+        # the window (grace stays 1.0; margin ~0.4s -> ~4x, wall cost
+        # -0.2s). The cancel is proved by the log line, no margin
+        # assertion needed.
+        time.sleep(0.1)
         r2 = run_fake_receiver(fake_root, ["--ensure-running", "--session-id", "s2", "--session-pid", str(os.getpid())], env=env)
         self.assertEqual(r2.returncode, 0, r2.stdout + r2.stderr)
 
@@ -1021,7 +1061,7 @@ class GraceWindowFlushContentTests(unittest.TestCase):
         fake_root = make_fake_engine_root(self, otel_port=port)
         env = _base_env(port)
         self.addCleanup(_stop_fake_receiver, fake_root, env)
-        grace = 0.6
+        grace = INSIDE_WINDOW_GRACE
 
         start = run_fake_receiver(
             fake_root,
@@ -1032,6 +1072,10 @@ class GraceWindowFlushContentTests(unittest.TestCase):
         self.assertEqual(start.returncode, 0, start.stdout + start.stderr)
         _wait_for_status_running(fake_root, env)
 
+        # PT-105 (architect's ruling, PT-105.md @ e66af1e): t0 is an upper
+        # bound on the daemon's grace-timer start -- just before the spawn
+        # that starts it.
+        t0 = time.monotonic()
         end = run_fake_receiver(fake_root, ["--session-ended", "s1"], env=env)
         self.assertEqual(end.returncode, 0, end.stdout + end.stderr)
 
@@ -1039,8 +1083,29 @@ class GraceWindowFlushContentTests(unittest.TestCase):
         status_code = _post_basic_payload(port)
         self.assertLess(status_code, 300, "a well-formed payload posted during the grace window must be accepted, not refused")
 
+        # PT-105: the characterisation itself -- a margin assertion, not a
+        # positive race. Under load, the in-window POST above can land so
+        # close to `grace` that a slower or busier machine flips it from
+        # "accepted" to "refused as already stopped" with no warning; the
+        # remaining budget after it completes must hold a full second.
+        elapsed = time.monotonic() - t0
+        remaining = grace - elapsed
+        self.assertGreaterEqual(
+            remaining, 1.0,
+            f"in-window POST margin too tight -- grace={grace}s, elapsed={elapsed:.3f}s, "
+            f"remaining={remaining:.3f}s (must be >= 1.0s, measured PT-105.md @ e66af1e)",
+        )
+
+        # PT-105 (architect's ruling, item 5, PT-105.md @ e66af1e): same
+        # measured wait-elapsed as LastSessionSelfStopTests above.
+        wait_start = time.monotonic()
         stopped = _wait_for_status_not_running(fake_root, env, timeout=grace + 4.0)
-        self.assertEqual(stopped.returncode, 1, f"receiver must self-stop after grace -- {stopped.stdout!r} {stopped.stderr!r}")
+        wait_elapsed = time.monotonic() - wait_start
+        self.assertEqual(
+            stopped.returncode, 1,
+            f"receiver must self-stop after grace -- waited {wait_elapsed:.3f}s of a {grace + 4.0}s "
+            f"timeout (grace={grace}s), {stopped.stdout!r} {stopped.stderr!r}",
+        )
 
         out_path = _out_path(fake_root)
         self.assertTrue(out_path.is_file(), "the self-stop flush must have written --out-file")

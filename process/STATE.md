@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Worktree teammates' narrowed (-p) runs record twice in the test-run ledger |
-| Issue | PT-107 (cairn) |
+| Feature | test_otel_receiver_self_stop: grace-window POST test races a 0.6 s absolute deadline under load |
+| Issue | PT-105 (cairn) |
 | Milestone | PT-0.12.2 |
-| Branch | `feature/pt-107-worktree-run-double-record` |
+| Branch | `feature/pt-105-grace-window-test-race` |
 | Started | 2026-09-08 |
-| Goal | One ledger record per run from a linked worktree, narrowed or gated, with the feature branch as `branch`. |
-| PR | https://github.com/richmosko/project_template/pull/196 |
+| Goal | The grace-window test lands its POST with margin under 8-worker load; no more parallel-run flake. |
+| PR | https://github.com/richmosko/project_template/pull/197 |
 | Status | In Review |
 
 ## Releases
