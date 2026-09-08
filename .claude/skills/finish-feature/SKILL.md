@@ -26,7 +26,7 @@ git rev-parse --abbrev-ref HEAD | grep -q '^feature/' || echo "ERROR: not on a f
 ( cd scripts/cairn && python3 run_tests.py --gate finish ) \
   || { echo "GATE FAIL: cairn Python suite is red — do not proceed"; exit 1; }
 if command -v node >/dev/null 2>&1 && ls scripts/cairn/tests/js/*.test.js >/dev/null 2>&1; then
-  node --test scripts/cairn/tests/js/*.test.js \
+  node --test "scripts/cairn/tests/js/**/*.test.js" \
     || { echo "GATE FAIL: board.js JS suite is red — do not proceed"; exit 1; }
 else
   echo "NOTE: board.js JS suite skipped (Node absent or no *.test.js files) — Python suite is the hard gate."

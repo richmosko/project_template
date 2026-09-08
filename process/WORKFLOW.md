@@ -103,7 +103,9 @@ How far a `/drive`-aimed [goal-driven loop](#goal-driven-loop-drive) runs before
   `python3 scripts/cairn/run_tests.py --serial --gate verdict` — the same files one at a
   time, a doubt-the-parallel-path control. A bare unittest discover run is no longer a
   gate leg: stock unittest has no `--gate` flag, so a teammate cannot issue one (PT-99).
-  A doc-only edit needs no run at all.
+  A doc-only edit needs no run at all. The JS suite has one canonical invocation,
+  `node --test "scripts/cairn/tests/js/**/*.test.js"` from the repo root, where node
+  expands the pattern itself; a bare directory path is not a discovery root for it.
 - **Gate (per feature):** PR mergeable, tests green, peer review approved.
 
 ### Validate
