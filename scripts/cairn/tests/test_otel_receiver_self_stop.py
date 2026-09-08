@@ -220,6 +220,19 @@ def _wait_for_status_not_running(fake_root: Path, env: dict, timeout: float) -> 
     return last
 
 
+def _wait_for_pidfile_gone(fake_root: Path, timeout: float = 3.0) -> bool:
+    # PT-90 gate-4 verdict delta 2: --status reports not-running from
+    # httpd.server_close() onward, while the pidfile survives until
+    # _compare_and_delete_pidfile() -- a window the shutdown path never
+    # promised was zero-width. Poll instead of asserting instantaneously.
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not _pidfile_path(fake_root).exists():
+            return True
+        time.sleep(0.05)
+    return not _pidfile_path(fake_root).exists()
+
+
 def _base_env(port: int) -> dict:
     return _minimal_env(
         CLAUDE_CODE_ENABLE_TELEMETRY="1",
@@ -650,7 +663,7 @@ class LastSessionSelfStopTests(unittest.TestCase):
             f"the receiver must exit on its own once the grace period elapses after the last session ended -- "
             f"stdout={stopped.stdout!r} stderr={stopped.stderr!r}",
         )
-        self.assertFalse(_pidfile_path(fake_root).exists(), "the pidfile must be removed on self-stop")
+        self.assertTrue(_wait_for_pidfile_gone(fake_root), "the pidfile must be removed on self-stop")
 
         # PT-90 AC1: the self-stop line at the point of no return, naming
         # the trigger -- measured baseline (architect, gate-1 ruling) was
