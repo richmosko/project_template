@@ -244,6 +244,29 @@ class RenameAwareGuardCommitTests(GuardTestBase):
         )
         self.assertIn("PT-1 spaced.md", r.stderr)
 
+    def test_a_pt_0_12_1_shaped_archive_commit_passes_the_real_hook_with_no_flag(self):
+        """Ruling brief item (3), acceptance: `cairn archive` stays the
+        sanctioned path and `--no-verify` stops being part of it -- a
+        real `git commit` (no bypass flag) through the REAL
+        `.githooks/pre-commit` -> `cairn guard-commit` hook, on a
+        multi-author archive move, must succeed. This is the end-to-end
+        path the other guards test only via the CLI directly; PT-0.12.1
+        needed --no-verify here and that is the regression this pins."""
+        self.comment("architect", "ruling")
+        git(self.root, "commit", "-q", "-m", "ruling", "--", str(self.issue))
+        self.comment("qa-engineer", "assertion")
+        git(self.root, "commit", "-q", "-m", "assertion", "--", str(self.issue))
+
+        dest = self._archive_dest()
+        git(self.root, "mv", str(self.issue), str(dest))
+
+        r = git(self.root, "commit", "-q", "-m", "archive", "--", str(dest), check=False)
+        self.assertEqual(
+            r.returncode, 0,
+            f"a PT-0.12.1-shaped archive commit must pass the real pre-commit hook with NO flag -- "
+            f"{r.stdout!r} {r.stderr!r}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
