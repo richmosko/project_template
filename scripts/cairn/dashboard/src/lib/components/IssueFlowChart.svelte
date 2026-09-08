@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { scaleBand } from 'd3-scale';
-	import { BarChart, Bars, Spline } from 'layerchart';
+	import { BarChart, Points, Spline } from 'layerchart';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Chart from '$lib/components/ui/chart/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -225,21 +225,77 @@
 						}}
 					>
 						{#snippet marks({ context })}
-							{#each context.series.visibleSeries as s (s.key)}
-								<Bars seriesKey={s.key} radius={2} {...s.props} />
-							{/each}
-							<!-- WIP overlaid as a line on the SAME shared scale
-							     (yDomain above forces it to cover the line too) --
-							     point-in-time, deliberately never a bar (a bar
-							     would visually read as another delta, exactly the
-							     "two gap semantics in one shape" defect PT-85
-							     exists to remove). -->
+							<!-- PT-92 gate-1 ruling (15fe9b6) + ux-designer's binding
+							     line-treatment spec (069b8db): three line marks on
+							     the SAME band scale -- never a bar mark, which is what
+							     hid a series whenever two shared a value (the board
+							     comment this feature exists to fix). This is the
+							     pre-existing WIP Spline arrangement generalised, not
+							     a new rendering path.
+
+							     Draw order bottom-to-top is opened -> closed -> wip,
+							     each with its OWN stroke pattern and point markers,
+							     so a dashed/dotted series drawn on top of a solid one
+							     exposes it through its own gaps at an exact
+							     coincidence (measured live: 2026-09-07 has
+							     opened=closed=3) -- draw-order/opacity alone was
+							     ruled insufficient; a vertical offset was rejected
+							     as a lie about the value. Markers use a graduated
+							     radius (5 / 3.5 / 2) so at a coincidence the larger
+							     marker's rim stays visible around the smaller one
+							     nested inside it. -->
+							<Spline
+								data={displayedSeries}
+								x={(d: { date: string }) => d.date}
+								y={(d: { opened: number }) => d.opened}
+								stroke={SERIES_COLOR.opened}
+								stroke-width={2}
+							/>
+							<Points
+								data={displayedSeries}
+								x={(d: { date: string }) => d.date}
+								y={(d: { opened: number }) => d.opened}
+								r={5}
+								fill={SERIES_COLOR.opened}
+							/>
+							<Spline
+								data={displayedSeries}
+								x={(d: { date: string }) => d.date}
+								y={(d: { closed: number }) => d.closed}
+								stroke={SERIES_COLOR.closed}
+								stroke-width={2}
+								stroke-dasharray="6,4"
+							/>
+							<Points
+								data={displayedSeries}
+								x={(d: { date: string }) => d.date}
+								y={(d: { closed: number }) => d.closed}
+								r={3.5}
+								fill={SERIES_COLOR.closed}
+							/>
+							<!-- WIP: dotted stroke + its own point markers (a filled
+							     circle with a --card-colored outline ring) are also
+							     the WIP-on-axis remedy -- a real axis rule has
+							     neither gaps nor discrete points, so WIP at y=0 never
+							     visually fuses with it. Point-in-time, deliberately
+							     never a bar (the "two gap semantics in one shape"
+							     defect PT-85 exists to remove). -->
 							<Spline
 								data={displayedSeries}
 								x={(d: { date: string }) => d.date}
 								y={(d: { wip: number }) => d.wip}
 								stroke={SERIES_COLOR.wip}
-								class="stroke-2"
+								stroke-width={2.5}
+								stroke-dasharray="2,4"
+							/>
+							<Points
+								data={displayedSeries}
+								x={(d: { date: string }) => d.date}
+								y={(d: { wip: number }) => d.wip}
+								r={2}
+								fill={SERIES_COLOR.wip}
+								stroke="var(--card)"
+								stroke-width={1}
 							/>
 						{/snippet}
 						{#snippet tooltip()}
