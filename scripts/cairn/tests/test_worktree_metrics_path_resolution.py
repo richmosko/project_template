@@ -30,6 +30,7 @@ imported from the worktree copy, with `CLAUDE_PROJECT_DIR` pointed at
 the main checkout, must resolve to the MAIN CHECKOUT's path."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
@@ -42,6 +43,15 @@ import helpers  # noqa: F401
 
 REPO_ROOT = helpers.CAIRN_DIR.parent.parent  # scripts/cairn -> scripts -> repo root
 HOOKS_DIR = REPO_ROOT / ".claude" / "hooks"
+
+
+def _load_hook_module(script: str):
+    # .claude/hooks/ is outside the normal package path -- load by file
+    # location, matching test_test_run_hooks.py's own helper.
+    spec = importlib.util.spec_from_file_location(f"pt107_{script[:-3]}", HOOKS_DIR / script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 _PROBE_TEMPLATE = """
 import os
@@ -504,14 +514,28 @@ class HookPatchesTheNarrowedWorktreeRunsRecordTests(unittest.TestCase):
         preceding test proves the runner's own line lands in the main
         checkout, but not that the hook leaves it alone. Mutation: the
         hook appends instead of patching (its pre-PT-82 scrape-and-append
-        fallback) -- 2 lines, the second `who=null`."""
+        fallback) -- 2 lines, the second `who=null`.
+
+        Addendum 1 to the gate-1 ruling (PT-107.md @ ab936fa): the hook's
+        real input is a teammate's TYPED Bash command -- measured, 4/4
+        real hook-scraped records name the literal `python3`, never a
+        versioned interpreter path. `sys.executable` (used below only for
+        the actual spawn, never the payload) is unfaithful to that and
+        must not appear in the hook's `tool_input.command`."""
         main_root, worktree_path = _make_main_checkout_with_worktree(self)
         worktree_run_tests_py = worktree_path / "scripts" / "cairn" / "run_tests.py"
 
         env = dict(os.environ)
         env.pop("CLAUDE_PROJECT_DIR", None)
         env.pop("CAIRN_TEST_RUNS_FILE", None)
-        command = f"{sys.executable} {worktree_run_tests_py} -p test_trivial.py"
+        command = f"python3 {worktree_run_tests_py} -p test_trivial.py"
+        shared = _load_hook_module("_test_run_shared.py")
+        self.assertTrue(
+            shared.is_test_invocation(command),
+            f"addendum guard: the payload command must actually be recognised as a test "
+            f"invocation by the hook's own shared tokeniser, or this test is a silent no-op "
+            f"with a null `who` -- got {command!r}",
+        )
         result = subprocess.run(
             [sys.executable, str(worktree_run_tests_py), "-p", "test_trivial.py"],
             cwd=str(worktree_run_tests_py.parent), capture_output=True, text=True, env=env,
