@@ -139,14 +139,18 @@ def make_fake_gh_dir(testcase) -> Path:
     return tmp
 
 
-def run_invariant_check(clone: Path, fake_gh_dir: Path, open_pr_count: int = 1, head_ref: Optional[str] = None) -> subprocess.CompletedProcess:
+def run_invariant_check(
+    clone: Path, fake_gh_dir: Path, open_pr_count: int = 1, head_ref: Optional[str] = None,
+    phase: Optional[str] = None,
+) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     env["PATH"] = f"{fake_gh_dir}{os.pathsep}{env.get('PATH', '')}"
     env["FAKE_GH_OPEN_PR_COUNT"] = str(open_pr_count)
     if head_ref is not None:
         env["FAKE_GH_HEAD_REF"] = head_ref
+    phase_args = ["--phase", phase] if phase else []
     return subprocess.run(
-        [sys.executable, str(SCRIPT_PATH), str(clone)],
+        [sys.executable, str(SCRIPT_PATH), *phase_args, str(clone)],
         cwd=str(clone), capture_output=True, text=True, env=env,
     )
 
@@ -198,7 +202,13 @@ class WorktreeBranchOnOriginFailsTests(unittest.TestCase):
 
 class OpenPrCountTests(unittest.TestCase):
     """Mutation target 3: zero open PRs and two open PRs both fail --
-    'exactly one', not 'at least one'."""
+    'exactly one', not 'at least one'. No `--phase` flag is passed here,
+    so this ALSO is the decisive "default is the strict predicate" case
+    from PT-82.md @ 778300b's post-verdict delta 2 (architect): "Mutation
+    for the last: make the default `pre-pr` -- the finish-phase test
+    must go red." `test_zero_open_prs_fails` is exactly that finish-phase
+    (zero-PRs) case, run with no phase flag -- a default that silently
+    weakens to pre-pr's 'at most one' would wrongly pass zero PRs here."""
 
     def test_zero_open_prs_fails(self):
         bare = make_bare_origin(self)
@@ -217,6 +227,98 @@ class OpenPrCountTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, "two open PRs must fail the check")
         combined = result.stdout + result.stderr
         self.assertRegex(combined, _PR_WORD_RE, f"the failure must be about the PR count -- got: {combined!r}")
+
+
+class PrePrPhaseTests(unittest.TestCase):
+    """PT-82.md @ 778300b (architect, post-verdict delta 2): the
+    `--phase pre-pr` variant is for sanity checks made BEFORE `gh pr
+    create` runs -- 'at most one' open PR, not 'exactly one', so a
+    re-run after the PR exists is not a false failure. The worktree-*
+    clause stays strict in every phase (architect, verbatim: "it is the
+    failure that matters and it is never relaxed")."""
+
+    def test_pre_pr_phase_passes_with_zero_open_prs(self):
+        bare = make_bare_origin(self)
+        clone = make_feature_clone(self, bare, "PT-1", "test-slug")
+        fake_gh_dir = make_fake_gh_dir(self)
+        result = run_invariant_check(clone, fake_gh_dir, open_pr_count=0, head_ref="feature/PT-1-test-slug", phase="pre-pr")
+        self.assertEqual(
+            result.returncode, 0,
+            f"--phase pre-pr with zero open PRs (before gh pr create) must pass -- "
+            f"got rc={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}",
+        )
+
+    def test_pre_pr_phase_passes_with_one_open_pr(self):
+        bare = make_bare_origin(self)
+        clone = make_feature_clone(self, bare, "PT-1", "test-slug")
+        fake_gh_dir = make_fake_gh_dir(self)
+        result = run_invariant_check(clone, fake_gh_dir, open_pr_count=1, head_ref="feature/PT-1-test-slug", phase="pre-pr")
+        self.assertEqual(
+            result.returncode, 0,
+            f"--phase pre-pr with exactly one open PR (a re-run after gh pr create) must still "
+            f"pass -- got rc={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}",
+        )
+
+    def test_pre_pr_phase_fails_with_two_open_prs(self):
+        bare = make_bare_origin(self)
+        clone = make_feature_clone(self, bare, "PT-1", "test-slug")
+        fake_gh_dir = make_fake_gh_dir(self)
+        result = run_invariant_check(clone, fake_gh_dir, open_pr_count=2, head_ref="feature/PT-1-test-slug", phase="pre-pr")
+        self.assertNotEqual(result.returncode, 0, "--phase pre-pr with two open PRs must still fail -- 'at most one', not 'any'")
+        combined = result.stdout + result.stderr
+        self.assertRegex(combined, _PR_WORD_RE, f"the failure must be about the PR count -- got: {combined!r}")
+
+    def test_pre_pr_phase_still_fails_on_a_worktree_branch(self):
+        bare = make_bare_origin(self)
+        clone = make_feature_clone(self, bare, "PT-1", "test-slug")
+        push_extra_branch(clone, "worktree-some-teammate-session")
+        fake_gh_dir = make_fake_gh_dir(self)
+        result = run_invariant_check(clone, fake_gh_dir, open_pr_count=0, head_ref="feature/PT-1-test-slug", phase="pre-pr")
+        self.assertNotEqual(result.returncode, 0, "a worktree-* branch on origin must fail even in --phase pre-pr")
+        combined = result.stdout + result.stderr
+        self.assertIn("worktree", combined.lower(), f"the failure must name the worktree-* branch specifically -- got: {combined!r}")
+
+
+class FinishAndMergePhasesMatchTheStrictDefaultTests(unittest.TestCase):
+    """`--phase finish` and `--phase merge` keep today's strict predicate
+    (exactly one open PR) -- identical to /finish-feature's own call site
+    (after `gh pr create`) and /merge-pr's, per PT-82.md @ 778300b."""
+
+    def test_phase_finish_fails_with_zero_open_prs(self):
+        bare = make_bare_origin(self)
+        clone = make_feature_clone(self, bare, "PT-1", "test-slug")
+        fake_gh_dir = make_fake_gh_dir(self)
+        result = run_invariant_check(clone, fake_gh_dir, open_pr_count=0, head_ref="feature/PT-1-test-slug", phase="finish")
+        self.assertNotEqual(result.returncode, 0, "--phase finish with zero open PRs must fail -- exactly one, matching the real call site's timing (after gh pr create)")
+
+    def test_phase_finish_passes_with_one_open_pr(self):
+        bare = make_bare_origin(self)
+        clone = make_feature_clone(self, bare, "PT-1", "test-slug")
+        fake_gh_dir = make_fake_gh_dir(self)
+        result = run_invariant_check(clone, fake_gh_dir, open_pr_count=1, head_ref="feature/PT-1-test-slug", phase="finish")
+        self.assertEqual(
+            result.returncode, 0,
+            f"--phase finish with exactly one open PR must pass -- got rc={result.returncode} "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}",
+        )
+
+    def test_phase_finish_fails_with_two_open_prs(self):
+        bare = make_bare_origin(self)
+        clone = make_feature_clone(self, bare, "PT-1", "test-slug")
+        fake_gh_dir = make_fake_gh_dir(self)
+        result = run_invariant_check(clone, fake_gh_dir, open_pr_count=2, head_ref="feature/PT-1-test-slug", phase="finish")
+        self.assertNotEqual(result.returncode, 0, "--phase finish with two open PRs must fail")
+
+    def test_phase_merge_matches_phase_finish(self):
+        bare = make_bare_origin(self)
+        clone = make_feature_clone(self, bare, "PT-1", "test-slug")
+        fake_gh_dir = make_fake_gh_dir(self)
+        zero = run_invariant_check(clone, fake_gh_dir, open_pr_count=0, head_ref="feature/PT-1-test-slug", phase="merge")
+        one = run_invariant_check(clone, fake_gh_dir, open_pr_count=1, head_ref="feature/PT-1-test-slug", phase="merge")
+        two = run_invariant_check(clone, fake_gh_dir, open_pr_count=2, head_ref="feature/PT-1-test-slug", phase="merge")
+        self.assertNotEqual(zero.returncode, 0, "--phase merge with zero open PRs must fail")
+        self.assertEqual(one.returncode, 0, f"--phase merge with exactly one open PR must pass -- {one.stdout!r} {one.stderr!r}")
+        self.assertNotEqual(two.returncode, 0, "--phase merge with two open PRs must fail")
 
 
 if __name__ == "__main__":
