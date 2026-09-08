@@ -624,6 +624,7 @@ class LastSessionSelfStopTests(unittest.TestCase):
         self.assertEqual(status.returncode, 0, f"receiver must be running after the only session starts -- {status.stdout!r} {status.stderr!r}")
         self.assertIn("sessions: 1", status.stdout, status.stdout)
 
+        t0 = time.monotonic()
         end = run_fake_receiver(fake_root, ["--session-ended", "s1"], env=env)
         self.assertEqual(end.returncode, 0, end.stdout + end.stderr)
 
@@ -634,6 +635,18 @@ class LastSessionSelfStopTests(unittest.TestCase):
             immediate.returncode, 0,
             f"the receiver must still be running immediately after the last SessionEnd -- exit happens only "
             f"after the grace period, got {immediate.stdout!r} {immediate.stderr!r}",
+        )
+
+        # PT-105 (architect's ruling, PT-105.md @ e66af1e): same margin
+        # characterisation as GraceWindowFlushContentTests above -- the
+        # in-window `--status` probe must complete with a full second of
+        # budget left before `self.GRACE` elapses.
+        elapsed = time.monotonic() - t0
+        remaining = self.GRACE - elapsed
+        self.assertGreaterEqual(
+            remaining, 1.0,
+            f"in-window --status margin too tight -- grace={self.GRACE}s, elapsed={elapsed:.3f}s, "
+            f"remaining={remaining:.3f}s (must be >= 1.0s, measured PT-105.md @ e66af1e)",
         )
 
         stopped = _wait_for_status_not_running(fake_root, env, timeout=self.GRACE + 4.0)
@@ -1032,12 +1045,29 @@ class GraceWindowFlushContentTests(unittest.TestCase):
         self.assertEqual(start.returncode, 0, start.stdout + start.stderr)
         _wait_for_status_running(fake_root, env)
 
+        # PT-105 (architect's ruling, PT-105.md @ e66af1e): t0 is an upper
+        # bound on the daemon's grace-timer start -- just before the spawn
+        # that starts it.
+        t0 = time.monotonic()
         end = run_fake_receiver(fake_root, ["--session-ended", "s1"], env=env)
         self.assertEqual(end.returncode, 0, end.stdout + end.stderr)
 
         # Strictly inside the grace window.
         status_code = _post_basic_payload(port)
         self.assertLess(status_code, 300, "a well-formed payload posted during the grace window must be accepted, not refused")
+
+        # PT-105: the characterisation itself -- a margin assertion, not a
+        # positive race. Under load, the in-window POST above can land so
+        # close to `grace` that a slower or busier machine flips it from
+        # "accepted" to "refused as already stopped" with no warning; the
+        # remaining budget after it completes must hold a full second.
+        elapsed = time.monotonic() - t0
+        remaining = grace - elapsed
+        self.assertGreaterEqual(
+            remaining, 1.0,
+            f"in-window POST margin too tight -- grace={grace}s, elapsed={elapsed:.3f}s, "
+            f"remaining={remaining:.3f}s (must be >= 1.0s, measured PT-105.md @ e66af1e)",
+        )
 
         stopped = _wait_for_status_not_running(fake_root, env, timeout=grace + 4.0)
         self.assertEqual(stopped.returncode, 1, f"receiver must self-stop after grace -- {stopped.stdout!r} {stopped.stderr!r}")
