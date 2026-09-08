@@ -194,8 +194,12 @@ export function formatCaption(
 		if (payload.issues.some((i) => i.kind !== 'issue')) {
 			parts.push('Milestone and main buckets are omitted here — neither has a place in the issue sequence.');
 		}
+		// Verdict delta 1 (PT-102.md @ 663eb0a): the ruling's own supplied
+		// sentence didn't pluralize -- explicit singular/plural branches.
 		const openCount = payload.issues.filter((i) => i.kind === 'issue' && !i.closed_at).length;
-		if (openCount > 0) {
+		if (openCount === 1) {
+			parts.push('1 issue is still open and is shown last.');
+		} else if (openCount > 1) {
 			parts.push(`${openCount} issues are still open and are shown last.`);
 		}
 	} else if (shown >= total) {
