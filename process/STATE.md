@@ -23,7 +23,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-92-chart-flow-tokens-lines` |
 | Started | 2026-09-08 |
 | Goal | ux-designer ratifies or replaces the three flow tokens; the throughput chart draws opened/closed/WIP as three always-visible lines in distinct colours; browser-verified in two variants, light and dark. |
-| Status | In Progress |
+| PR | https://github.com/richmosko/project_template/pull/190 |
+| Status | In Review |
 
 ## Releases
 
