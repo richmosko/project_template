@@ -221,5 +221,98 @@ class GatedRunFromAWorktreeWritesExactlyOneRecordTests(unittest.TestCase):
         )
 
 
+# --------------------------------------------------------------------------
+# Spike delta (team-lead, process/reviews/PT-82/spike.md @ 3b10267,
+# "step 9 corrected"): a REAL full `--gate red` run from a REAL worktree
+# still wrote the stray `who: null` line into the worktree's own tracked
+# copy -- the test above (which explicitly sets `CLAUDE_PROJECT_DIR` in
+# the subprocess env) modelled the WRONG case. `CLAUDE_PROJECT_DIR` is
+# set for hook shells, not for a teammate's own Bash tool calls, so the
+# `--gate`-gated preference never engages in the scenario that actually
+# occurs, and `_self_record` falls through to the script-local
+# (worktree) path every time.
+#
+# Ruled fix (this test's assumption): when `CLAUDE_PROJECT_DIR` is
+# ABSENT but `--gate` is present, resolve the main checkout via
+# `git rev-parse --git-common-dir` (run from cwd, which follows the
+# worktree) -- the git-native way to find the shared main checkout from
+# ANY worktree, with no environment dependency at all. Mutation:
+# resolve from `__file__` only (today's behaviour -- this is what
+# currently happens and is exactly the defect).
+#
+# Real git: a real bare-free local repo as the "main checkout", a real
+# `git worktree add` second checkout -- never a synthetic stand-in for
+# either.
+# --------------------------------------------------------------------------
+
+
+def _git_env() -> dict:
+    env = dict(os.environ)
+    env.update({
+        "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.com",
+    })
+    return env
+
+
+def _make_main_checkout_with_worktree(testcase):
+    """(main_root, worktree_path) -- a REAL git repo carrying a minimal,
+    self-contained copy of run_tests.py + one trivial test file
+    (committed, so a real `git worktree add` checkout shares them), plus
+    a REAL second worktree created from it via `git worktree add`."""
+    main_root = helpers.make_empty_tmp_dir(testcase)
+    genv = _git_env()
+    subprocess.run(["git", "init", "-q"], cwd=str(main_root), check=True, env=genv)
+
+    cairn_dir = main_root / "scripts" / "cairn"
+    tests_dir = cairn_dir / "tests"
+    tests_dir.mkdir(parents=True)
+    shutil.copy(helpers.CAIRN_DIR / "run_tests.py", cairn_dir / "run_tests.py")
+    (tests_dir / "test_trivial.py").write_text(_TRIVIAL_TEST_FILE, encoding="utf-8")
+
+    subprocess.run(["git", "add", "-A"], cwd=str(main_root), check=True, env=genv)
+    subprocess.run(["git", "commit", "-q", "-m", "initial"], cwd=str(main_root), check=True, env=genv)
+
+    worktree_parent = helpers.make_empty_tmp_dir(testcase)
+    worktree_path = worktree_parent / "x"
+    subprocess.run(
+        ["git", "worktree", "add", "-q", "-b", "worktree-x", str(worktree_path)],
+        cwd=str(main_root), check=True, env=genv,
+    )
+    return main_root, worktree_path
+
+
+class RealWorktreeGatedRunResolvesViaGitCommonDirTests(unittest.TestCase):
+    def test_a_gated_run_from_a_real_worktree_with_no_claude_project_dir_writes_only_the_main_checkout(self):
+        main_root, worktree_path = _make_main_checkout_with_worktree(self)
+        worktree_run_tests_py = worktree_path / "scripts" / "cairn" / "run_tests.py"
+
+        env = dict(os.environ)
+        env.pop("CLAUDE_PROJECT_DIR", None)  # the real teammate-Bash scenario -- absent, not set
+        env.pop("CAIRN_TEST_RUNS_FILE", None)
+        result = subprocess.run(
+            [sys.executable, str(worktree_run_tests_py), "--gate", "red"],
+            cwd=str(worktree_run_tests_py.parent), capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(result.returncode, 0, f"the gated run itself must succeed -- {result.stdout!r} {result.stderr!r}")
+
+        main_records = main_root / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        worktree_records = worktree_path / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+
+        self.assertTrue(
+            main_records.is_file(),
+            f"the MAIN checkout's records file must gain the record (resolved via `git rev-parse "
+            f"--git-common-dir`, no CLAUDE_PROJECT_DIR needed) -- got nothing at {main_records}",
+        )
+        main_lines = main_records.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(main_lines), 1, f"expected exactly one record in the main checkout's file -- got {main_lines!r}")
+
+        self.assertFalse(
+            worktree_records.exists(),
+            f"the worktree's own tracked copy must gain ZERO lines -- a stray write there dirties "
+            f"a git-tracked file in every teammate worktree -- got {worktree_records.read_text(encoding='utf-8') if worktree_records.exists() else None!r}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
