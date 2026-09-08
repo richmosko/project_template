@@ -6402,13 +6402,6 @@ def _added_comment_authors(diff_text: str) -> Set[str]:
     return {m.group(1) for l in diff_text.split("\n") if (m := _DIFF_COMMENT_HEADER_RE.match(l))}
 
 
-def _comment_headers(text: str) -> Set[str]:
-    """Authors of every comment header in `text` (module-level
-    `_COMMENT_HEADER_RE`, defined above alongside `check_budgets`'s own
-    use of it -- one pattern for the whole file, not a second copy)."""
-    return {m.group(1) for l in text.split("\n") if (m := _COMMENT_HEADER_RE.match(l))}
-
-
 def _cached_name_status(root: Path, env: Optional[Dict[str, str]] = None) -> List[Tuple[str, Optional[str], str]]:
     """`git diff --cached -M --name-status -z`, parsed. `-z` NUL-splits
     fields so a path containing a space still parses; a rename entry
@@ -6511,7 +6504,15 @@ def cmd_guard_commit(args: argparse.Namespace) -> int:
         elif status == "A" and dst in rename_of:
             dst_content = subprocess.run(["git", "show", f":{dst}"], cwd=root, capture_output=True, text=True).stdout
             src_content = subprocess.run(["git", "show", f"HEAD:{rename_of[dst]}"], cwd=root, capture_output=True, text=True).stdout
-            authors = _comment_headers(dst_content) - _comment_headers(src_content)
+            # PT-109 gate-4 verdict (5a680b1): a set difference over
+            # author NAMES lets an author already present anywhere in
+            # the file add unlimited fresh comments without registering
+            # as added. Diff the raw multiset of header LINES, aggregate
+            # into authors only after.
+            dst_headers = [l for l in dst_content.split("\n") if _COMMENT_HEADER_RE.match(l)]
+            src_headers = [l for l in src_content.split("\n") if _COMMENT_HEADER_RE.match(l)]
+            surplus = collections.Counter(dst_headers) - collections.Counter(src_headers)
+            authors = {_COMMENT_HEADER_RE.match(l).group(1) for l in surplus.elements()}
         else:
             diff = subprocess.run(["git", "diff", "--cached", "--", dst], cwd=root, capture_output=True, text=True).stdout
             authors = _added_comment_authors(diff)
