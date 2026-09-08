@@ -6402,6 +6402,37 @@ def _added_comment_authors(diff_text: str) -> Set[str]:
     return {m.group(1) for l in diff_text.split("\n") if (m := _DIFF_COMMENT_HEADER_RE.match(l))}
 
 
+def _comment_headers(text: str) -> Set[str]:
+    """Authors of every comment header in `text` (module-level
+    `_COMMENT_HEADER_RE`, defined above alongside `check_budgets`'s own
+    use of it -- one pattern for the whole file, not a second copy)."""
+    return {m.group(1) for l in text.split("\n") if (m := _COMMENT_HEADER_RE.match(l))}
+
+
+def _cached_name_status(root: Path, env: Optional[Dict[str, str]] = None) -> List[Tuple[str, Optional[str], str]]:
+    """`git diff --cached -M --name-status -z`, parsed. `-z` NUL-splits
+    fields so a path containing a space still parses; a rename entry
+    carries (status, src, dst), everything else (status, None, dst)."""
+    raw = subprocess.run(
+        ["git", "diff", "--cached", "-M", "--name-status", "-z"],
+        cwd=root, capture_output=True, text=True, env=env,
+    ).stdout
+    fields = raw.split("\0")
+    if fields and fields[-1] == "":
+        fields = fields[:-1]
+    entries: List[Tuple[str, Optional[str], str]] = []
+    i = 0
+    while i < len(fields):
+        status = fields[i]
+        if status.startswith(("R", "C")):
+            entries.append((status, fields[i + 1], fields[i + 2]))
+            i += 3
+        else:
+            entries.append((status, None, fields[i + 1]))
+            i += 2
+    return entries
+
+
 def uncommitted_comment_authors(path: Path) -> Set[str]:
     """Authors of comment headers the working tree adds over HEAD for
     `path`. Empty outside a git repo or for an untracked file."""
@@ -6418,19 +6449,74 @@ def uncommitted_comment_authors(path: Path) -> Set[str]:
 def cmd_guard_commit(args: argparse.Namespace) -> int:
     """`cairn guard-commit` (E15, the pre-commit hook's body): refuse when a
     staged tracker file adds comments by more than one author -- someone
-    else's uncommitted hunk is riding in this commit."""
+    else's uncommitted hunk is riding in this commit.
+
+    PT-109 (architect's ruling, PT-109.md @ 6831854): a `cairn archive`
+    move (`issues/X.md` -> `archive/issues/X.md`, a real `git mv`) used to
+    diff as 100% added lines with no rename detection, so every
+    HISTORICAL comment author tripped this guard. One `git diff --cached
+    -M --name-status -z` call enumerates staged entries (`-z`/NUL-split
+    so a path containing a space still parses correctly -- name-status
+    without it is whitespace-ambiguous); a rename entry's plain
+    `--name-status` line names only the destination, so the source has to
+    come from the SAME `-M` call, not a second lookup. Every `R` entry
+    -- no branch on the similarity number, R100 (pure) and a partial
+    rename are handled identically -- is diffed as `git diff --cached -M
+    -- <src> <dst>`, which shows only the genuinely changed hunk between
+    the two paths; a pure rename shows none, so no historical author
+    counts as newly added.
+
+    `git commit -m ... -- <dest-only-pathspec>` (the actual shape of a
+    real archive commit) runs the pre-commit hook against a TEMPORARY,
+    pathspec-restricted index (`$GIT_INDEX_FILE` pointed at a
+    `next-index-*.lock`, not the real one) that holds only the
+    destination's addition -- the source's deletion never lands in it,
+    so `-M` has nothing to pair and the entry reports as a plain `A`
+    even for a pure rename (measured: reproduced against a real `git
+    commit -- <dest>` pre-commit invocation). A blanket "drop
+    `GIT_INDEX_FILE` everywhere" over-corrects: a pathspec commit on a
+    file that was never `git add`-ed at all stages it ONLY into that same
+    temporary index (git's own doing, not ours) -- the real index has
+    nothing for it, so ignoring the hook's index there would silently
+    pass a genuine two-author violation (measured, PreCommitHookTests).
+    So: enumerate with the hook's OWN index (respects that implicit
+    staging), and for exactly the `A` entries, cross-reference the REAL
+    index's own `-M` pairing (`GIT_INDEX_FILE` dropped only for this
+    second, read-only lookup) to recover the dst -> src rename map that
+    index alone can see. A cross-referenced `A` is diffed as a content
+    comparison -- the dst's currently-staged headers (`git show :dst`,
+    the hook's own index) minus the src's headers at HEAD -- since `-M`
+    still can't pair src and dst within the hook's own restricted
+    index."""
     root = _git_toplevel(Path.cwd())
     if root is None:
         return 0
-    staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=root, capture_output=True, text=True).stdout.split("\n")
+    entries = _cached_name_status(root)
+
+    rename_of: Dict[str, str] = {}
+    if any(status == "A" for status, _, _ in entries):
+        real_env = dict(os.environ)
+        real_env.pop("GIT_INDEX_FILE", None)
+        for status, src, dst in _cached_name_status(root, env=real_env):
+            if status.startswith("R") and src is not None:
+                rename_of[dst] = src
+
     bad = []
-    for rel in staged:
-        if not rel or not rel.endswith(".md") or "/cairn/" not in ("/" + rel):
+    for status, src, dst in entries:
+        if not dst.endswith(".md") or "/cairn/" not in ("/" + dst):
             continue
-        diff = subprocess.run(["git", "diff", "--cached", "--", rel], cwd=root, capture_output=True, text=True).stdout
-        authors = _added_comment_authors(diff)
+        if status.startswith("R"):
+            diff = subprocess.run(["git", "diff", "--cached", "-M", "--", src, dst], cwd=root, capture_output=True, text=True).stdout
+            authors = _added_comment_authors(diff)
+        elif status == "A" and dst in rename_of:
+            dst_content = subprocess.run(["git", "show", f":{dst}"], cwd=root, capture_output=True, text=True).stdout
+            src_content = subprocess.run(["git", "show", f"HEAD:{rename_of[dst]}"], cwd=root, capture_output=True, text=True).stdout
+            authors = _comment_headers(dst_content) - _comment_headers(src_content)
+        else:
+            diff = subprocess.run(["git", "diff", "--cached", "--", dst], cwd=root, capture_output=True, text=True).stdout
+            authors = _added_comment_authors(diff)
         if len(authors) > 1:
-            bad.append((rel, sorted(authors)))
+            bad.append((dst, sorted(authors)))
     if not bad:
         return 0
     for rel, authors in bad:
