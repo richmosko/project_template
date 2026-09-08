@@ -359,7 +359,13 @@ def _self_record(args: argparse.Namespace, agg: Dict[str, object]) -> None:
     copy's self-record into the REAL `test-runs.jsonl`, exactly the
     regression the file-location default exists to prevent. Every other
     case (main checkout, fake root inside or outside a repo, git
-    unavailable) falls back to today's `repo_root` default."""
+    unavailable) falls back to today's `repo_root` default.
+
+    PT-107 (architect's ruling, PT-107.md @ 1aa5a71): `sha` and `branch`
+    are both resolved from `records_repo_root` -- never from the
+    worktree, even under the redirect. They must come from one root: a
+    record naming a `sha` that is not on its own `branch` is worse than
+    a `sha` a few commits behind the worktree that actually ran."""
     try:
         repo_root = SCRIPT_DIR.parent.parent
         records_repo_root = repo_root
