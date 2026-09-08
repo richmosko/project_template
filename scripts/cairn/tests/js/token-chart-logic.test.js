@@ -712,13 +712,22 @@ test("subPixelColumns' heightPx is the true, auditable sub-pixel height -- not t
 });
 
 // --------------------------------------------------------------------------
-// Fork guard (ruling item (e)6): TokenCostChart.svelte carries a
+// Fork guard (ruling item (e)6). TokenCostChart.svelte carries a
 // VERBATIM COPY of layerchart's default `marks` body (there is no
 // children/aboveMarks/belowMarks snippet to layer onto instead --
 // measured, BarChart.base.svelte exposes only `marks`). A minor bump can
 // change that body under an unchanged copy with NO rendering symptom --
 // the bars keep drawing, just silently missing whatever upstream
-// changed. This guard is the only thing that would catch that drift.
+// changed.
+//
+// VERDICT DELTA 1 (PT-101.md @ f3e4ef0): the first version of this guard
+// compared node_modules against a constant TRANSCRIBED INTO THE TEST --
+// it caught a layerchart upgrade but nothing about our own copy: a
+// construction test (inserting `data-drifted="yes"` into the component's
+// copied block) left the suite green, and no test in this file read
+// TokenCostChart.svelte at all. Fixed: read the component's OWN copy out
+// of the source file and compare it, three-way, against upstream and the
+// pinned constant.
 // --------------------------------------------------------------------------
 
 const fs = require("node:fs");
@@ -726,6 +735,9 @@ const fs = require("node:fs");
 const LAYERCHART_PACKAGE_JSON = path.join(__dirname, "..", "..", "dashboard", "node_modules", "layerchart", "package.json");
 const LAYERCHART_BARCHART_BASE = path.join(
   __dirname, "..", "..", "dashboard", "node_modules", "layerchart", "dist", "components", "charts", "BarChart", "BarChart.base.svelte",
+);
+const TOKEN_COST_CHART_SVELTE = path.join(
+  __dirname, "..", "..", "dashboard", "src", "lib", "components", "TokenCostChart.svelte",
 );
 
 // Pinned at the moment TokenCostChart.svelte's marks override copied
@@ -758,6 +770,36 @@ const PINNED_DEFAULT_MARKS_BODY = `      {#each context.series.visibleSeries as 
         />
       {/each}`;
 
+const MARKS_BODY_ANCHOR_RE = /\{#each context\.series\.visibleSeries as s, i \(s\.key\)\}[\s\S]*?\{\/each\}/;
+const OVERLAY_BLOCK_ANCHOR_RE = /\{#each subPixelCols as col \(col\.issue\)\}[\s\S]*?\{\/each\}/;
+
+function extractBlock(source, anchorRe, label) {
+  const match = source.match(anchorRe);
+  if (!match) {
+    throw new Error(
+      `could not find the expected {#each ...}{/each} block in ${label} -- the anchor text `
+      + `itself may have moved; update this guard's extraction, don't relax the comparison`,
+    );
+  }
+  return match[0];
+}
+
+// Line-level compare, indentation-insensitive (the component uses tabs,
+// node_modules 2-space) with exactly ONE substitution reverted: Token
+// CostChart.svelte's own `valueAxis` is typed narrower than layerchart's
+// prop, so Svelte's TS checker needs an explicit `as string` cast on
+// this one comparison that upstream's looser typing doesn't need. This
+// is the ONLY normalization applied -- any other line-level difference
+// (a paraphrase, a dropped prop, a lost comment) is real drift and must
+// fail.
+function normalizeMarksBodyLines(text) {
+  return text
+    .replace("(valueAxis as string) === 'x'", "valueAxis === 'x'")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
 test("layerchart is still the pinned version our copied marks body was taken from", () => {
   const pkg = JSON.parse(fs.readFileSync(LAYERCHART_PACKAGE_JSON, "utf8"));
   assert.equal(
@@ -769,15 +811,47 @@ test("layerchart is still the pinned version our copied marks body was taken fro
   );
 });
 
-test("layerchart's upstream default marks body still matches the text copied into TokenCostChart.svelte", () => {
-  const source = fs.readFileSync(LAYERCHART_BARCHART_BASE, "utf8");
-  assert.ok(
-    source.includes(PINNED_DEFAULT_MARKS_BODY),
-    "layerchart's BarChart.base.svelte default marks body (the {#each context.series."
-    + "visibleSeries...}{/each} block) no longer matches the text pinned in this test -- the "
-    + "vendored library changed its default rendering under an unchanged version pin (or the "
-    + "version-pin test above already caught a bump); TokenCostChart.svelte's copied marks "
-    + "override must be re-verified against the new upstream body before merging any dependency "
-    + "update, or the overlay silently renders on top of a body missing whatever changed.",
+test("TokenCostChart.svelte's marks override is a verbatim copy of layerchart's default body -- three-way: upstream, the pinned constant, and the component's own copy", () => {
+  const upstreamBlock = extractBlock(
+    fs.readFileSync(LAYERCHART_BARCHART_BASE, "utf8"), MARKS_BODY_ANCHOR_RE, "layerchart's BarChart.base.svelte",
+  );
+  const componentBlock = extractBlock(
+    fs.readFileSync(TOKEN_COST_CHART_SVELTE, "utf8"), MARKS_BODY_ANCHOR_RE, "TokenCostChart.svelte",
+  );
+  const upstream = normalizeMarksBodyLines(upstreamBlock);
+  const pinned = normalizeMarksBodyLines(PINNED_DEFAULT_MARKS_BODY);
+  const component = normalizeMarksBodyLines(componentBlock);
+
+  assert.deepEqual(
+    upstream, pinned,
+    "layerchart's upstream default marks body no longer matches the pinned constant in this "
+    + "test -- the vendored library changed its default rendering under an unchanged version "
+    + "pin (or the version-pin test above already caught a bump); re-verify TokenCostChart."
+    + "svelte's marks override against the new upstream body before trusting either.",
+  );
+  assert.deepEqual(
+    component, pinned,
+    "TokenCostChart.svelte's OWN copied marks override no longer matches layerchart's default "
+    + "body (normalized only for the one documented `(valueAxis as string)` TS cast) -- a "
+    + "paraphrase, a dropped prop or comment, or a lost accessor is a silent divergence from "
+    + "what layerchart itself renders, and this is the only check that reads the component's "
+    + "actual text rather than trusting it was copied correctly (verdict delta 1, PT-101.md @ "
+    + "f3e4ef0: a `data-drifted=\"yes\"` construction left the previous version of this guard "
+    + "green because nothing here read the .svelte file at all).",
+  );
+});
+
+// Verdict delta 1, "Note, not a delta" (PT-101.md @ f3e4ef0): the
+// overlay rects carried no class/data-testid/aria marker, so the lead's
+// visual leg could only count them because they happened to be exactly
+// 1.00px tall -- nothing guaranteed that, and a genuine 1px-tall real
+// bar would have been indistinguishable. Red at HEAD: the overlay <rect>
+// in TokenCostChart.svelte carries no such attribute yet.
+test("every sub-pixel overlay rect carries a marker attribute, so it can be counted without relying on an exact 1.00px height", () => {
+  const source = fs.readFileSync(TOKEN_COST_CHART_SVELTE, "utf8");
+  const overlayBlock = extractBlock(source, OVERLAY_BLOCK_ANCHOR_RE, "TokenCostChart.svelte's overlay block");
+  assert.match(
+    overlayBlock, /data-subpixel-overlay/,
+    `expected the overlay <rect> to carry a data-subpixel-overlay marker attribute -- got:\n${overlayBlock}`,
   );
 });
