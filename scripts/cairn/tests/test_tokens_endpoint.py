@@ -504,6 +504,39 @@ class TokensPayloadMilestoneKindTests(unittest.TestCase):
         )
 
 
+class TokensPayloadIssueOrderingTests(unittest.TestCase):
+    """PT-88 gate-1 ruling (architect, process/cairn/issues/PT-88.md @
+    c66be43, item (a)/(e)/6): the new chronological chart mode leans on
+    `/api/tokens` already emitting `kind: 'issue'` bars id-ascending
+    (`_issue_sort_key`, cairn.py:3652-3662) -- the client does no
+    re-sort of its own. Nothing asserted this server contract before.
+
+    Input lines are given in scrambled, non-ascending order, with the
+    ids chosen (PT-10 before PT-2 before PT-1) specifically so a
+    numeric-vs-string sort bug ('PT-10' < 'PT-2' lexicographically)
+    can't hide behind an input that happens to already be sorted. A
+    milestone and a main bucket are interleaved to prove the ordering
+    check is scoped to kind:'issue' entries only. Mutation (ruling):
+    reverse issues_out after the sort."""
+
+    def test_issue_kind_bars_are_id_ascending_regardless_of_input_line_order(self):
+        data_dir = make_tokens_data_dir(self, [
+            token_line("PT-10", "team-lead", "claude-sonnet-5", input=10),
+            token_line("milestone:PT-0.4", "team-lead", "claude-sonnet-5", input=5),
+            token_line("PT-2", "team-lead", "claude-sonnet-5", input=20),
+            token_line("main", "team-lead", "claude-sonnet-5", input=1),
+            token_line("PT-1", "team-lead", "claude-sonnet-5", input=30),
+        ])
+        payload = _call_build_tokens_payload(data_dir, prices=SONNET_PRICE)
+        issue_ids = [e["issue"] for e in payload["issues"] if e.get("kind") == "issue"]
+        self.assertEqual(
+            issue_ids, ["PT-1", "PT-2", "PT-10"],
+            f"kind:'issue' bars must come out numerically id-ascending regardless of input line "
+            f"order or lexicographic traps -- got {issue_ids!r}. PT-88's chronological chart mode "
+            "trusts this server-side order and does no client-side re-sort of its own.",
+        )
+
+
 class DataFileSha256GuardTests(unittest.TestCase):
     """Suite-level tripwire, team-lead's explicit instruction after the
     contamination incident (traced to an unrelated manual architect

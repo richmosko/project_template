@@ -11,6 +11,13 @@ export const DEFAULT_BAR_LIMIT = 12;
 
 export type Metric = 'tokens' | 'cost';
 
+// PT-88 gate-1 ruling (PT-88.md @ c66be43, item (a)): a mode of
+// `selectBars`/`formatCaption`, not a sibling function -- `selectBars`
+// is the one place that decides which kinds appear and in what order,
+// and a sibling would have to restate the milestone/`main` placement
+// rules, which is how two orderings drift apart.
+export type Order = 'ranked' | 'chronological';
+
 export type TokenCounters = {
 	input: number;
 	cache_write: number;
@@ -98,12 +105,24 @@ export function tickEveryNth(barCount: number, plotWidthPx: number, labelWidthPx
 // creation-time order, cairn.milestone_rank_map) -- and are placed AFTER
 // the ranked/limited issue bars but BEFORE the trailing `main` bar (§6:
 // "milestone buckets rank after all issue bars and before main").
+// PT-88 gate-1 ruling, item (a): the chronological branch is exactly
+// `issues.filter((i) => i.kind === 'issue')` -- payload order preserved
+// (the server already emits `kind: 'issue'` bars id-ascending, see
+// cairn.py's `_issue_sort_key`), no client-side re-sort, no limit, and
+// no `main`/milestone bars: in this mode the x-axis means POSITION IN
+// THE ISSUE SEQUENCE, and neither bucket has one. Drawing `main` at the
+// right-hand end would read as "the most recent issue" -- the exact
+// misreading this mode exists to remove.
 export function selectBars(
 	issues: TokenIssueTotal[],
 	metric: Metric,
 	limit: number = DEFAULT_BAR_LIMIT,
 	showAll: boolean = false,
+	order: Order = 'ranked',
 ): TokenIssueTotal[] {
+	if (order === 'chronological') {
+		return issues.filter((i) => i.kind === 'issue');
+	}
 	const real = issues.filter((i) => i.kind === 'issue');
 	const milestones = issues.filter((i) => i.kind === 'milestone');
 	const main = issues.find((i) => i.kind === 'main');
@@ -120,7 +139,19 @@ export function selectBars(
 // retention-window caveat; the unpriced-models suffix is appended only
 // when non-empty. Every value interpolated from `payload` -- no literal
 // dates or counts hardcoded in the component that calls this.
-export function formatCaption(payload: TokensPayload, metric: Metric, shown: number, total: number): string {
+// PT-88 gate-1 ruling, item (c): the chronological branch changes only
+// the middle "what's shown" sentence and, when the payload carries any
+// non-issue bucket (main or a milestone bar), appends one omission
+// sentence explaining why neither is drawn. `payload.milestone_caption`
+// is never appended in chronological mode -- it explains milestone
+// BARS, and chronological mode never shows any.
+export function formatCaption(
+	payload: TokensPayload,
+	metric: Metric,
+	shown: number,
+	total: number,
+	order: Order = 'ranked',
+): string {
 	const parts: string[] = [];
 	if (metric === 'cost') {
 		parts.push(
@@ -131,7 +162,12 @@ export function formatCaption(payload: TokensPayload, metric: Metric, shown: num
 	}
 
 	const basis = metric === 'cost' ? 'estimated cost' : 'tokens';
-	if (shown >= total) {
+	if (order === 'chronological') {
+		parts.push(`Showing all ${total} issues in the order opened, by ${basis}.`);
+		if (payload.issues.some((i) => i.kind !== 'issue')) {
+			parts.push('Milestone and main buckets are omitted here — neither has a place in the issue sequence.');
+		}
+	} else if (shown >= total) {
 		parts.push(`Showing all ${total} issues, ordered by ${basis}.`);
 	} else {
 		parts.push(`Showing the top ${shown} of ${total} issues by ${basis}, plus main.`);
@@ -149,8 +185,9 @@ export function formatCaption(payload: TokensPayload, metric: Metric, shown: num
 	// PT-84 §7: appended VERBATIM, last -- server-composed
 	// (build_tokens_payload), never recomposed or reworded here. Absent
 	// (null) whenever the payload carries no milestone bucket, so a
-	// payload with none never mentions milestones at all.
-	if (payload.milestone_caption) {
+	// payload with none never mentions milestones at all. PT-88: never
+	// appended in chronological mode, regardless -- see the docstring above.
+	if (order !== 'chronological' && payload.milestone_caption) {
 		parts.push(payload.milestone_caption);
 	}
 

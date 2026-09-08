@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Vendor the ordinal chart-ramp check so its guard never skips; settle the JS test runner |
-| Issue | PT-83 (cairn) |
+| Feature | Token chart order toggle: chronological (by issue sequence) alongside the ranked-by-usage default, so creep over time is visible |
+| Issue | PT-88 (cairn) |
 | Milestone | PT-0.12.1 |
-| Branch | `feature/pt-83-vendor-contrast-gate-js-runner` |
-| PR | https://github.com/richmosko/project_template/pull/183 |
-| Started | 2026-09-07 |
-| Goal | No chart-palette test skips for want of the external validator, and both JS runner forms agree. |
+| Branch | `feature/pt-88-token-chart-chronological-toggle` |
+| PR | https://github.com/richmosko/project_template/pull/184 |
+| Started | 2026-09-08 |
+| Goal | The token/cost chart offers a Ranked / Chronological toggle; chronological shows every issue in id order with a caption saying so, browser-verified in both themes. |
 | Status | In Review |
 
 ## Releases
