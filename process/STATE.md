@@ -23,7 +23,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-105-grace-window-test-race` |
 | Started | 2026-09-08 |
 | Goal | The grace-window test lands its POST with margin under 8-worker load; no more parallel-run flake. |
-| Status | In Progress |
+| PR | https://github.com/richmosko/project_template/pull/197 |
+| Status | In Review |
 
 ## Releases
 
