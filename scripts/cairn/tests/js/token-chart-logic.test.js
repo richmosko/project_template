@@ -364,3 +364,126 @@ test("formatCaption does not mention milestones at all when milestone_caption is
     `caption must not mention milestones at all when milestone_caption is null -- got ${JSON.stringify(caption)}`,
   );
 });
+
+// --------------------------------------------------------------------------
+// PT-88 gate-1 ruling (architect, process/cairn/issues/PT-88.md @ c66be43,
+// item (a)/(c)/(e)): `selectBars` gains a fifth optional positional,
+// `order: 'ranked' | 'chronological' = 'ranked'` -- every test above stays
+// valid unmodified on the default. Chronological: `kind: 'issue'` bars
+// ONLY, in PAYLOAD order (server already sorts id-ascending -- no
+// client-side re-sort), no limit, `main` and milestone bars omitted
+// entirely (neither has a position in the issue sequence).
+// --------------------------------------------------------------------------
+
+test("chronological mode returns issue bars in payload order, never re-ranked by the displayed metric", () => {
+  const mod = loadTokenChartLogic();
+  // Payload order deliberately NOT sorted by tokens (PT-1 has the most
+  // tokens but is NOT first) -- proves this is payload order, not a
+  // client-side re-sort that happens to look chronological on tidy input.
+  const issues = [
+    sampleIssue("PT-3", 100, 1.0),
+    sampleIssue("PT-1", 300, 3.0),
+    sampleIssue("PT-2", 200, 2.0),
+  ];
+  const selected = mod.selectBars(issues, "tokens", 12, false, "chronological").map((e) => e.issue);
+  assert.deepEqual(
+    selected, ["PT-3", "PT-1", "PT-2"],
+    `chronological mode must preserve payload order exactly, never re-sort by the displayed metric -- got ${JSON.stringify(selected)}`,
+  );
+});
+
+test("chronological mode applies no limit at all, even with showAll false", () => {
+  const mod = loadTokenChartLogic();
+  const issues = Array.from({ length: 20 }, (_, i) => sampleIssue(`PT-${i + 1}`, 10, 0.1));
+  const selected = mod.selectBars(issues, "tokens", 12, false, "chronological");
+  assert.equal(
+    selected.length, 20,
+    `chronological mode must show every issue bar regardless of limit -- there is no cut to lift -- got ${selected.length}`,
+  );
+});
+
+test("chronological mode omits main and milestone bars; ranked mode on the same payload still includes them", () => {
+  const mod = loadTokenChartLogic();
+  const issues = [
+    sampleIssue("PT-1", 300, 3.0),
+    sampleIssue("PT-2", 200, 2.0),
+    sampleIssue("milestone:PT-0.4", 50, 0.5, "milestone"),
+    sampleIssue("main", 999, 9.0),
+  ];
+  const chrono = mod.selectBars(issues, "tokens", 12, false, "chronological").map((e) => e.issue);
+  const ranked = mod.selectBars(issues, "tokens", 12, false, "ranked").map((e) => e.issue);
+  assert.deepEqual(
+    chrono, ["PT-1", "PT-2"],
+    `chronological mode must omit main and milestone bars entirely -- neither has a position in the issue sequence -- got ${JSON.stringify(chrono)}`,
+  );
+  assert.deepEqual(
+    ranked, ["PT-1", "PT-2", "milestone:PT-0.4", "main"],
+    `ranked mode on the SAME payload must still include both -- got ${JSON.stringify(ranked)}`,
+  );
+});
+
+test("metric orthogonality: chronological output is identical across metrics even when ranked output differs", () => {
+  const mod = loadTokenChartLogic();
+  // PT-1 has the most tokens but the LEAST cost; PT-2 the reverse -- the
+  // two metrics rank these issues in opposite order in ranked mode.
+  const issues = [
+    sampleIssue("PT-1", 300, 1.0),
+    sampleIssue("PT-2", 100, 30.0),
+  ];
+  const chronoTokens = mod.selectBars(issues, "tokens", 12, false, "chronological").map((e) => e.issue);
+  const chronoCost = mod.selectBars(issues, "cost", 12, false, "chronological").map((e) => e.issue);
+  const rankedTokens = mod.selectBars(issues, "tokens", 12, false, "ranked").map((e) => e.issue);
+  const rankedCost = mod.selectBars(issues, "cost", 12, false, "ranked").map((e) => e.issue);
+  assert.deepEqual(
+    chronoTokens, chronoCost,
+    `chronological order must be identical regardless of the displayed metric -- got tokens=${JSON.stringify(chronoTokens)} cost=${JSON.stringify(chronoCost)}`,
+  );
+  assert.notDeepEqual(
+    rankedTokens, rankedCost,
+    "sanity check on this test's own fixture: the two metrics must actually rank differently in ranked mode, or this test proves nothing about orthogonality",
+  );
+});
+
+test("formatCaption's ranked branch is byte-identical whether or not order is passed explicitly", () => {
+  const mod = loadTokenChartLogic();
+  const payload = samplePayload([sampleIssue("PT-1", 300, 3.0)]);
+  const implicitDefault = mod.formatCaption(payload, "tokens", 12, 68);
+  const explicitRanked = mod.formatCaption(payload, "tokens", 12, 68, "ranked");
+  assert.equal(
+    explicitRanked, implicitDefault,
+    "passing order='ranked' explicitly must produce byte-identical output to the default (no 5th argument at all)",
+  );
+});
+
+test("formatCaption for chronological mode states 'in the order opened' and never appends milestone_caption verbatim", () => {
+  const mod = loadTokenChartLogic();
+  const payload = samplePayload([
+    sampleIssue("PT-1", 300, 3.0),
+    sampleIssue("milestone:PT-0.4", 50, 0.5, "milestone"),
+    sampleIssue("main", 999, 9.0),
+  ]);
+  payload.milestone_caption = "Milestone bars are main-branch work attributed to whichever milestone was active at the time.";
+  const caption = mod.formatCaption(payload, "tokens", 68, 68, "chronological");
+  assert.match(
+    caption, /Showing all 68 issues in the order opened, by tokens\./,
+    `expected the ruled chronological middle sentence -- got ${JSON.stringify(caption)}`,
+  );
+  assert.match(
+    caption, /Milestone and main buckets are omitted here — neither has a place in the issue sequence\./,
+    `expected the omission sentence when the payload carries a non-issue bucket -- got ${JSON.stringify(caption)}`,
+  );
+  assert.ok(
+    !caption.includes(payload.milestone_caption),
+    `chronological caption must never append milestone_caption verbatim (no milestone bars are shown in this mode) -- got ${JSON.stringify(caption)}`,
+  );
+});
+
+test("formatCaption for chronological mode omits the omission sentence when the payload has no non-issue buckets", () => {
+  const mod = loadTokenChartLogic();
+  const payload = samplePayload([sampleIssue("PT-1", 300, 3.0)]);
+  const caption = mod.formatCaption(payload, "tokens", 1, 1, "chronological");
+  assert.doesNotMatch(
+    caption, /omitted here/,
+    `no non-issue bucket in this payload -- the omission sentence must not appear -- got ${JSON.stringify(caption)}`,
+  );
+});
