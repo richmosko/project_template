@@ -17,14 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | test_otel_receiver_self_stop: grace-window POST test races a 0.6 s absolute deadline under load |
-| Issue | PT-105 (cairn) |
+| Feature | guard-commit false-positives on cairn archive renames |
+| Issue | PT-109 (cairn) |
 | Milestone | PT-0.12.2 |
-| Branch | `feature/pt-105-grace-window-test-race` |
+| Branch | `feature/pt-109-guard-commit-renames` |
 | Started | 2026-09-08 |
-| Goal | The grace-window test lands its POST with margin under 8-worker load; no more parallel-run flake. |
-| PR | https://github.com/richmosko/project_template/pull/197 |
-| Status | In Review |
+| Goal | `cairn guard-commit` is rename-aware: an archive move of a multi-author issue commits without --no-verify; genuinely added foreign comments are still refused. |
+| Status | In Progress |
 
 ## Releases
 
