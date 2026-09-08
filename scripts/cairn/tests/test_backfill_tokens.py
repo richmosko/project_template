@@ -76,16 +76,20 @@ because the script doesn't exist cannot accidentally satisfy them.
 """
 from __future__ import annotations
 
+import contextlib
 import datetime
+import io
 import json
 import os
 import subprocess
 import sys
+import types
 import unittest
 from pathlib import Path
 
 import helpers  # noqa: F401
 
+import backfill_tokens
 import cairn
 
 SCRIPT_PATH = helpers.CAIRN_DIR / "backfill_tokens.py"
@@ -130,6 +134,27 @@ def run_backfill(
         cwd=str(cwd) if cwd is not None else None,
         env=env,
     )
+
+
+def run_backfill_in_process(args: list[str]) -> "types.SimpleNamespace":
+    """PT-98 (architect's gate-1 ruling, process/cairn/issues/PT-98.md @
+    04270d0, item (b)): calls `backfill_tokens.main(argv)` directly,
+    capturing stdout/stderr via redirect, instead of spawning a real
+    `python3 backfill_tokens.py` subprocess (~0.076s/call, measured).
+    Returns an object carrying the same `.returncode`/`.stdout`/
+    `.stderr` shape as `subprocess.CompletedProcess` so every existing
+    test assertion needs no change beyond which helper builds `result`.
+
+    NEVER used for a test that varies `cwd` or environment variables
+    (`test_cwd_outside_the_repo_...`, `test_cairn_data_dir_...` below) --
+    those exercise cwd inheritance / env var resolution a same-process
+    call can't safely simulate (mutating this test process's own cwd/
+    environ would leak across the suite's parallel workers); those stay
+    real subprocesses, `run_backfill`."""
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        returncode = backfill_tokens.main(args)
+    return types.SimpleNamespace(returncode=returncode, stdout=out.getvalue(), stderr=err.getvalue())
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -185,15 +210,31 @@ class BackfillGoldenPathTests(unittest.TestCase):
         self.tmp = helpers.make_empty_tmp_dir(self)
         self.out_path = self.tmp / "token-usage.jsonl"
 
-    def _run_golden(self, extra_args: list[str] | None = None) -> subprocess.CompletedProcess:
-        return run_backfill([
+    def _run_golden(self, extra_args: list[str] | None = None) -> "types.SimpleNamespace":
+        # PT-98: in-process (item (b)) -- every OTHER test in this class
+        # asserts on OUTPUT CONTENT (buckets/schema/ordering), not on
+        # anything a subprocess boundary is needed to exercise. The one
+        # CLI-boundary shape this class contributes (the bare
+        # `--transcripts-dir`/`--out-file` happy path, argv-shape #1 on
+        # the issue) is covered by test_exits_zero_and_writes_the_output_
+        # file below, which calls run_backfill directly instead of
+        # through this helper.
+        return run_backfill_in_process([
             "--transcripts-dir", str(TRANSCRIPTS_FIXTURES / "golden"),
             "--out-file", str(self.out_path),
             *(extra_args or []),
         ])
 
     def test_exits_zero_and_writes_the_output_file(self):
-        result = self._run_golden()
+        # PT-98 argv shape #1: `--transcripts-dir X --out-file Y`, the
+        # bare happy-path shape every other test in this class also
+        # uses -- kept as the ONE real subprocess covering it, per a
+        # real CLI invocation (argv, exit code, process boundary), not
+        # through _run_golden's in-process shortcut.
+        result = run_backfill([
+            "--transcripts-dir", str(TRANSCRIPTS_FIXTURES / "golden"),
+            "--out-file", str(self.out_path),
+        ])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(self.out_path.is_file(), "backfill must write --out on a clean run")
 
@@ -411,7 +452,7 @@ class BackfillGoldenPathTests(unittest.TestCase):
         # same tier as filtering out a non-assistant type -- so this is a
         # SILENT SKIP, not the fail-loudly path (that's reserved for a
         # record whose `usage` key IS present but incomplete/empty).
-        result = run_backfill([
+        result = run_backfill_in_process([
             "--transcripts-dir", str(TRANSCRIPTS_FIXTURES / "skipped_no_usage_key"),
             "--out-file", str(self.out_path),
         ])
@@ -490,7 +531,7 @@ class BackfillGoldenPathTests(unittest.TestCase):
         # 2026-07, guaranteed months before any real test run's "today").
         tmp = helpers.make_empty_tmp_dir(self)
         out_path = tmp / "token-usage.jsonl"
-        result = run_backfill([
+        result = run_backfill_in_process([
             "--transcripts-dir", str(TRANSCRIPTS_FIXTURES / "window_end"),
             "--out-file", str(out_path),
         ])
@@ -535,7 +576,14 @@ class BackfillGoldenPathTests(unittest.TestCase):
             self.assertEqual(issue_sequence[-1], "main", "main must sort last, not interleaved with numeric issues")
 
     def test_dry_run_prints_a_summary_and_writes_nothing(self):
-        result = self._run_golden(["--dry-run"])
+        # PT-98 argv shape #2: `--dry-run`. Kept as a real subprocess --
+        # a real CLI invocation exercising this flag's own parse_args()
+        # path, not through _run_golden's in-process shortcut.
+        result = run_backfill([
+            "--transcripts-dir", str(TRANSCRIPTS_FIXTURES / "golden"),
+            "--out-file", str(self.out_path),
+            "--dry-run",
+        ])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse(self.out_path.exists(), "--dry-run must never create --out")
         self.assertTrue((result.stdout + result.stderr).strip(), "--dry-run must print a summary somewhere")
@@ -549,7 +597,7 @@ class BackfillGoldenPathTests(unittest.TestCase):
         metrics_dir = data_dir / "metrics"
         metrics_dir.mkdir()
         out_path = metrics_dir / "token-usage.jsonl"
-        result = run_backfill([
+        result = run_backfill_in_process([
             "--transcripts-dir", str(TRANSCRIPTS_FIXTURES / "golden"),
             "--out-file", str(out_path),
         ])
@@ -579,7 +627,7 @@ class BackfillOrderingTests(unittest.TestCase):
         self.out_path = self.tmp / "token-usage.jsonl"
 
     def test_role_ordering_within_one_issue_is_lexicographic(self):
-        result = run_backfill([
+        result = run_backfill_in_process([
             "--transcripts-dir", str(TRANSCRIPTS_FIXTURES / "ordering"),
             "--out-file", str(self.out_path),
         ])
@@ -602,8 +650,13 @@ class BackfillFailLoudlyTests(unittest.TestCase):
     missing field; it never silently under-counts' (AC4) means nothing
     partial gets written either."""
 
-    def _run_against(self, fixture_name: str, out_path: Path) -> subprocess.CompletedProcess:
-        return run_backfill([
+    def _run_against(self, fixture_name: str, out_path: Path) -> "types.SimpleNamespace":
+        # PT-98: in-process (item (b)) -- every test here asserts on
+        # error-message CONTENT and exit code, not on anything a
+        # subprocess boundary is needed for; argv shape #1 (bare
+        # `--transcripts-dir`/`--out-file`) is already covered by
+        # test_exits_zero_and_writes_the_output_file.
+        return run_backfill_in_process([
             "--transcripts-dir", str(TRANSCRIPTS_FIXTURES / fixture_name),
             "--out-file", str(out_path),
         ])
@@ -656,6 +709,10 @@ class BackfillFailLoudlyTests(unittest.TestCase):
         )
 
     def test_missing_transcript_dir_is_a_loud_error_never_an_empty_result(self):
+        # PT-98 argv shape #3: a nonexistent --transcripts-dir value.
+        # Kept as a real subprocess -- the loud-error/no-output-file
+        # contract at the actual CLI boundary, not through an in-process
+        # shortcut.
         tmp = helpers.make_empty_tmp_dir(self)
         out_path = tmp / "token-usage.jsonl"
         nonexistent = tmp / "does-not-exist-at-all"
@@ -675,7 +732,14 @@ class BackfillWorkingDirectoryAndConfigResolutionTests(unittest.TestCase):
     exists to prevent. Every OTHER test in this file runs with an implicit
     cwd of the repo root (subprocess.run inherits the parent's cwd), so
     none of them could ever have caught this -- these three are the ones
-    that actually vary cwd/CAIRN_DATA_DIR."""
+    that actually vary cwd/CAIRN_DATA_DIR.
+
+    PT-98: only the first two of these (`test_cwd_outside_...`,
+    `test_cairn_data_dir_...`) genuinely need `run_backfill`'s real
+    subprocess -- cwd inheritance and env var resolution can't be
+    exercised any other way. `test_existing_output_line_missing_role_...`
+    doesn't vary cwd/env at all and converted to `run_backfill_in_process`
+    (item (b))."""
 
     def test_cwd_outside_the_repo_still_resolves_issue_buckets_correctly(self):
         # The architect's own repro: same script, same fixtures, cwd =
@@ -752,7 +816,7 @@ class BackfillWorkingDirectoryAndConfigResolutionTests(unittest.TestCase):
         broken_foreign_line = '{"source":"otel","generated":"2026-09-01T00:00:00Z","window_start":"2026-09-01","window_end":"2026-09-01","issue":"PT-1","model":"claude-sonnet-5","input":1,"cache_write":1,"cache_read":1,"output":1}\n'
         out_path.write_text(broken_foreign_line, encoding="utf-8")  # no "role" key
 
-        result = run_backfill([
+        result = run_backfill_in_process([
             "--transcripts-dir", str(TRANSCRIPTS_FIXTURES / "golden"),
             "--out-file", str(out_path),
         ])
@@ -771,7 +835,7 @@ class BackfillTruncatedFinalLineTests(unittest.TestCase):
     def test_truncated_final_line_is_tolerated_and_the_valid_line_still_counts(self):
         tmp = helpers.make_empty_tmp_dir(self)
         out_path = tmp / "token-usage.jsonl"
-        result = run_backfill([
+        result = run_backfill_in_process([
             "--transcripts-dir", str(TRANSCRIPTS_FIXTURES / "tolerated_truncated_last_line"),
             "--out-file", str(out_path),
         ])
@@ -803,8 +867,11 @@ class BackfillMergeSemanticsTests(unittest.TestCase):
         self.tmp = helpers.make_empty_tmp_dir(self)
         self.out_path = self.tmp / "token-usage.jsonl"
 
-    def _golden_run(self) -> subprocess.CompletedProcess:
-        return run_backfill([
+    def _golden_run(self) -> "types.SimpleNamespace":
+        # PT-98: in-process (item (b)) -- these tests assert on OUTPUT
+        # CONTENT (merge semantics), not on subprocess-boundary
+        # behaviour; argv shape #1 is already covered elsewhere.
+        return run_backfill_in_process([
             "--transcripts-dir", str(TRANSCRIPTS_FIXTURES / "golden"),
             "--out-file", str(self.out_path),
         ])

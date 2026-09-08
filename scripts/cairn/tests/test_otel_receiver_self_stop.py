@@ -1419,6 +1419,21 @@ class PeriodicReapSweepTests(unittest.TestCase):
         self.assertNotIn("gone", status.stdout, f"the reaped session id must no longer be listed -- {status.stdout!r}")
 
     def test_a_dead_pid_with_a_fresh_transcript_survives_the_periodic_sweep(self):
+        # PT-98 (architect's gate-1 ruling, process/cairn/issues/PT-98.md
+        # @ 04270d0, item (a)): converted from a blind `time.sleep(
+        # PERIODIC_REAP * 6)`. "Positive: it waits for a periodic reap to
+        # have occurred" -- there is no direct signal for "mis-detected"
+        # surviving (that's the negative half), but a THIRD session
+        # ("canary": dead pid, STALE transcript, definitely reapable,
+        # same shape as the sibling test's "gone") is registered purely
+        # as a timing sentinel. Polling for the canary's disappearance is
+        # an observable proxy for "a sweep has run" -- this test can
+        # return as soon as that's proven, typically after one sweep
+        # interval, rather than always waiting the full 6x window.
+        # Mutation: the periodic sweep's two-signal check drops the
+        # transcript-freshness half (reaps on a dead pid alone) --
+        # mis-detected would then be reaped too, and the final assertIn
+        # goes red.
         port = _free_port()
         fake_root = make_fake_engine_root(self, otel_port=port)
         env = _base_env(port)
@@ -1430,9 +1445,28 @@ class PeriodicReapSweepTests(unittest.TestCase):
         gone = run_fake_receiver(fake_root, ["--ensure-running", "--session-id", "mis-detected", "--session-pid", str(_dead_pid())], env=env)
         self.assertEqual(gone.returncode, 0, gone.stdout + gone.stderr)
 
-        # Well past several periodic-sweep intervals -- still must
-        # survive, same two-signal guard as every other reap trigger.
-        time.sleep(self.PERIODIC_REAP * 6)
+        _write_transcript(transcripts_dir, "canary", stale=True)
+        canary = run_fake_receiver(fake_root, ["--ensure-running", "--session-id", "canary", "--session-pid", str(_dead_pid())], env=env)
+        self.assertEqual(canary.returncode, 0, canary.stdout + canary.stderr)
+
+        # Poll for the canary's reap -- same worst-case deadline the
+        # blind sleep used, typical return after one sweep interval.
+        deadline = time.time() + self.PERIODIC_REAP * 6
+        canary_reaped = False
+        status = None
+        while time.time() < deadline:
+            status = run_fake_receiver(fake_root, ["--status"], env=env)
+            if "canary" not in status.stdout:
+                canary_reaped = True
+                break
+            time.sleep(0.2)
+        self.assertTrue(
+            canary_reaped,
+            f"the canary (dead pid, stale transcript) must eventually be reaped by the periodic "
+            f"sweep -- if it never is, this test proves nothing about a sweep having run at all -- "
+            f"last status: {status.stdout if status else None!r}",
+        )
+
         status = run_fake_receiver(fake_root, ["--status"], env=env)
         self.assertEqual(status.returncode, 0, f"'alive' is still registered -- {status.stdout!r} {status.stderr!r}")
         self.assertIn(
