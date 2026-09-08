@@ -50,6 +50,30 @@ sh: vite: command not found
 - Build FAILS. Root cause: `node_modules/.bin` does not exist in the worktree copy (checked directly: `ls node_modules/.bin` → "No such file or directory"), even though the `vite` package itself is present under `node_modules/vite/`. The package directories were delivered but the bin symlinks that `npm`/`node_modules/.bin` normally provides were not — so `vite` is not resolvable on PATH.
 - **FAIL: node_modules delivered (package contents present), but the dashboard build does not succeed as-is.**
 
+## Step 9 corrected — full `--gate red` run (architect addendum 2 @ 07576af)
+
+Same `pt82-spike-2` worktree, advanced to HEAD `643dd890451a3ed98d129ca27051b6abe73106a9` (rebased, up to date) before the run.
+
+Line counts before/after:
+
+| File | Before | After |
+|---|---|---|
+| worktree `process/cairn/metrics/test-runs.jsonl` | 161 | 162 |
+| main checkout `/Users/mosko/Projects/project_template/process/cairn/metrics/test-runs.jsonl` | 189 | 190 |
+
+```
+$ cd scripts/cairn && python3 run_tests.py --gate red
+Ran 1495 tests in 20.806s (90 files, 8 workers)
+OK (skipped=1)
+```
+
+Added lines:
+
+- **worktree copy**: `who: null, gate: "red", branch: "worktree-pt82-spike-2", session: null, sha: 643dd89...`
+- **main checkout**: `who: "qa-engineer", gate: "red", branch: "feature/pt-82-teammate-worktrees", session: "c2a545ab-3714-498b-8314-b9e1630b7de3", sha: 7652946...`
+
+**NO-GO per the stated criterion.** The main checkout got the correct, authoritative record (who set, correct branch/session) — but the worktree's own tracked copy *also* gained a line (who=null, worktree-branch name, session=null), same stray-write pattern flagged in the original step 9 (non-gate) run. The criterion requires zero lines added to the worktree copy; that did not hold.
+
 ## Step 8 repeat — .worktreeinclude fix (9b50083)
 
 New worktree `pt82-spike-2`, entered after `git pull --rebase origin feature/pt-82-teammate-worktrees` on the prior worktree brought HEAD to `9b50083` (confirmed via `git rev-parse HEAD` in the new worktree: `9b5008347f8939250bc26fdd783d2c90a52f8af3`).
