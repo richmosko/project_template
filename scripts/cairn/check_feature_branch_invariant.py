@@ -17,19 +17,33 @@ pushed worktree-* branch is what would produce a second PR" — the other
 two checks are corroborating evidence of the same failure class.
 
 Library contract:
-    check_feature_branch_invariant(repo_root: Path) -> dict
+    check_feature_branch_invariant(repo_root: Path, phase: str = "strict") -> dict
         {"ok": bool, "reason": str, "message": str}
     reason is one of:
         "ok", "not-a-feature-branch", "duplicate-feature-branch",
         "worktree-branch-on-origin", "pr-count"
 
+    `phase` (architect's ruling, PT-82.md @ 778300b, post-verdict delta
+    2): the invariant is meaningful at two different lifecycle moments
+    and a single fixed predicate cannot express both. `"pre-pr"` -- for
+    a sanity check made BEFORE `gh pr create` runs -- tolerates AT MOST
+    one open PR (zero, or one from a re-run after the PR already
+    exists); `"finish"` and `"merge"` require EXACTLY one, matching the
+    two real call sites (`/finish-feature`, after `gh pr create`;
+    `/merge-pr`, after the PR exists). The default, `"strict"`, is
+    identical to `"finish"`/`"merge"` -- an unflagged call can never
+    silently weaken to the tolerant predicate. The `worktree-*` branch
+    check is unchanged across every phase; it is never relaxed.
+
 CLI contract:
-    python3 scripts/cairn/check_feature_branch_invariant.py [repo_root]
+    python3 scripts/cairn/check_feature_branch_invariant.py [--phase {pre-pr,finish,merge}] [repo_root]
     Prints `message` and exits 1 unless `result["ok"]`. `repo_root`
-    defaults to the repo this script lives in.
+    defaults to the repo this script lives in. No `--phase` is the
+    strict (exactly-one-PR) predicate.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import subprocess
@@ -91,7 +105,7 @@ def _open_pr_count(repo_root: Path, branch: str) -> Optional[int]:
     return len(prs)
 
 
-def check_feature_branch_invariant(repo_root: Path) -> Dict[str, Any]:
+def check_feature_branch_invariant(repo_root: Path, phase: str = "strict") -> Dict[str, Any]:
     repo_root = Path(repo_root)
 
     branch = _current_branch(repo_root)
@@ -146,7 +160,18 @@ def check_feature_branch_invariant(repo_root: Path) -> Dict[str, Any]:
             "reason": "pr-count-unreachable",
             "message": f"could not read the open PR count for {feature_branches[0]!r} (gh pr list failed).",
         }
-    if pr_count != 1:
+    if phase == "pre-pr":
+        if pr_count > 1:
+            return {
+                "ok": False,
+                "reason": "pr-count",
+                "message": (
+                    f"expected at most one open PR for {feature_branches[0]!r} before it is "
+                    f"created, found {pr_count} -- issue {issue_id} must have at most one PR to "
+                    f"main."
+                ),
+            }
+    elif pr_count != 1:
         return {
             "ok": False,
             "reason": "pr-count",
@@ -168,13 +193,24 @@ def check_feature_branch_invariant(repo_root: Path) -> Dict[str, Any]:
 
 def main(argv: Optional[List[str]] = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if argv:
-        repo_root = Path(argv[0])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--phase", choices=["pre-pr", "finish", "merge"], default=None,
+        help="pre-pr: at most one open PR (before gh pr create); finish/merge: exactly one "
+             "(today's behaviour). No flag: the strict (exactly-one) predicate, same as "
+             "finish/merge -- never silently weaker.",
+    )
+    parser.add_argument("repo_root", nargs="?", default=None)
+    args = parser.parse_args(argv)
+
+    if args.repo_root:
+        repo_root = Path(args.repo_root)
     else:
         # scripts/cairn/check_feature_branch_invariant.py -> scripts/cairn -> scripts -> repo root
         repo_root = Path(__file__).resolve().parent.parent.parent
 
-    result = check_feature_branch_invariant(repo_root)
+    phase = args.phase or "strict"
+    result = check_feature_branch_invariant(repo_root, phase=phase)
     print(result["message"])
     return 0 if result["ok"] else 1
 
