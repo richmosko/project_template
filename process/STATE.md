@@ -17,14 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Gate guard: the verdict's serial-discover leg can't be issued by a teammate — stock unittest has no --gate |
-| Issue | PT-99 (cairn) |
+| Feature | Vendor the ordinal chart-ramp check so its guard never skips; settle the JS test runner |
+| Issue | PT-83 (cairn) |
 | Milestone | PT-0.12.1 |
-| Branch | `feature/pt-99-gate-guard-discover-leg` |
-| PR | https://github.com/richmosko/project_template/pull/182 |
+| Branch | `feature/pt-83-vendor-contrast-gate-js-runner` |
 | Started | 2026-09-07 |
-| Goal | A teammate can issue every leg of a gate-4 verdict under the guard, and each leg is recorded as a gate run. |
-| Status | In Review |
+| Goal | No chart-palette test skips for want of the external validator, and both JS runner forms agree. |
+| Status | In Progress |
 
 ## Releases
 
