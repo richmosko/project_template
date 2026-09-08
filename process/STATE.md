@@ -21,9 +21,10 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Issue | PT-100 (cairn) |
 | Milestone | PT-0.12.1 |
 | Branch | `feature/pt-100-self-diagnosing-real-file-guard` |
+| PR | https://github.com/richmosko/project_template/pull/187 |
 | Started | 2026-09-08 |
 | Goal | Every real-file test guard reports what changed (append vs rewrite, first differing line) through one shared helper, and any tolerance is justified by a constructed mechanism, not a run battery. |
-| Status | In Progress |
+| Status | In Review |
 
 ## Releases
 
