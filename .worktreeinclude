@@ -1,0 +1,18 @@
+# PT-82 (architect's ruling, process/cairn/issues/PT-82.md @ 6316a9b,
+# item (a)3): gitignored files a fresh worktree needs for the dashboard
+# to build, copied in on EnterWorktree. Only files that are BOTH gitignored
+# AND matched by a pattern here are copied — and for a wholly-ignored
+# directory (node_modules/ is ignored wholesale, .gitignore:28), a `**/`
+# pattern does NOT reach inside it; the directory must be named explicitly.
+# Measured, not guessed — do not "simplify" this back to `**/node_modules/**`.
+scripts/cairn/dashboard/node_modules/**
+# Spike delta 1, then delta 3 (process/reviews/PT-82/spike.md @ 1d25274,
+# 643dd89): `node_modules/.bin/` is a dot-directory of SYMLINKS -- naming
+# it explicitly here (as this comment used to) still did not deliver it
+# on a repeat, measured twice. The worktree-copy mechanism does not
+# preserve this dot-directory of symlinks, so this is NOT a pattern
+# problem to keep chasing. Fix moved to the build itself instead:
+# package.json's `build` script invokes vite directly
+# (`node ./node_modules/vite/bin/vite.js build`), which needs only the
+# `vite` package directory (delivered by the pattern above), never the
+# `.bin/` symlink.

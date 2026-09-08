@@ -78,8 +78,10 @@ CLI contract:
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -270,15 +272,119 @@ def check_dist_freshness(repo_root: Path) -> Dict[str, Any]:
 
     src_ts = _commit_timestamp(repo_root, last_src_sha)
     dist_ts = _commit_timestamp(repo_root, last_dist_sha)
+
+    # PT-82 post-verdict delta 1: ancestry is only ever a PROXY for "does
+    # the committed dist/ match what this source builds" -- an edit that
+    # changes only the build's INVOCATION (delta 3, 037e6aa) can leave a
+    # byte-identical rebuild with nothing to commit, so ancestry alone
+    # would report stale forever. Measure the real predicate directly:
+    # rebuild into an isolated tmp dir OUTSIDE the repo (never touching
+    # the working tree's own dist/) and compare byte-for-byte. Three
+    # guards: (1) a genuine difference stays stale, naming the files;
+    # (2) an absent/failing toolchain FAILS with its own reason, never a
+    # silent skip/pass (PT-24's defect returning); (3) the rebuild lives
+    # entirely outside the repository and is removed afterward. Runs
+    # only on this already-stale-by-ancestry path, so the common (fresh)
+    # case pays nothing extra.
+    rebuild = _rebuild_dashboard_and_compare(repo_root)
+    if rebuild["match"]:
+        return {
+            "stale": False,
+            "reason": "fresh",
+            "message": (
+                f"scripts/cairn/dashboard/dist/ looks stale by git ancestry (source last "
+                f"committed at {src_ts or last_src_sha}, dist/'s last commit "
+                f"({dist_ts or last_dist_sha}) does not include it), but an isolated rebuild "
+                f"reproduces the committed dist/ byte-for-byte -- stale by ancestry, rebuilt "
+                f"byte-identical."
+            ),
+        }
     return {
         "stale": True,
         "reason": "stale",
         "message": (
             f"scripts/cairn/dashboard/dist/ is stale: source was last committed at "
             f"{src_ts or last_src_sha}, but dist/'s last commit ({dist_ts or last_dist_sha}) does not "
-            f"include it. Rebuild the dashboard and commit dist/ before finishing this feature."
+            f"include it, and an isolated rebuild does not reproduce it byte-for-byte "
+            f"({rebuild['detail']}). Rebuild the dashboard and commit dist/ before finishing this feature."
         ),
     }
+
+
+def _diff_dist_trees(committed: Path, rebuilt: Path) -> List[str]:
+    """Every file-level difference between two `dist/`-shaped trees,
+    byte-for-byte -- present-only-in-one and content-mismatches alike.
+    `[]` means byte-identical. Neither tree existing is itself a
+    difference (an empty dist/ rebuild against a real committed one)."""
+    committed_files = {p.relative_to(committed) for p in committed.rglob("*") if p.is_file()} if committed.is_dir() else set()
+    rebuilt_files = {p.relative_to(rebuilt) for p in rebuilt.rglob("*") if p.is_file()} if rebuilt.is_dir() else set()
+    diffs: List[str] = []
+    for rel in sorted(committed_files - rebuilt_files):
+        diffs.append(f"{rel} (only in the committed dist/)")
+    for rel in sorted(rebuilt_files - committed_files):
+        diffs.append(f"{rel} (only in the rebuild)")
+    for rel in sorted(committed_files & rebuilt_files):
+        if (committed / rel).read_bytes() != (rebuilt / rel).read_bytes():
+            diffs.append(f"{rel} (content differs)")
+    return diffs
+
+
+def _rebuild_dashboard_and_compare(repo_root: Path) -> Dict[str, Any]:
+    """Rebuilds the dashboard into an ISOLATED tmp dir outside the repo
+    (guard 3) and compares the result to the committed `dist/` on disk,
+    byte-for-byte. `{"match": bool, "reason": str, "detail": str}` --
+    `reason` is `"fresh"` on a match, `"stale"` on a genuine content
+    difference (guard 1), or `"rebuild-verification-failed"` when the
+    toolchain itself couldn't be exercised (guard 2 -- copy/build
+    failure, missing `npm`, a non-zero build exit, or a timeout). Never
+    raises, and never treats a toolchain failure as a pass."""
+    dashboard_dir = repo_root / DASHBOARD_REL
+    committed_dist = repo_root / DIST_REL
+    with tempfile.TemporaryDirectory(prefix="cairn-dist-rebuild-") as tmp:
+        tmp_dashboard = Path(tmp) / "dashboard"
+        try:
+            # `shutil.ignore_patterns("dist")` was tried and rejected here:
+            # it fnmatches "dist" at EVERY level, not just the top --
+            # `node_modules/vite/dist/` (vite's own build output) matched
+            # too and vanished from the copy, breaking the vite CLI
+            # itself. Copy everything, then remove only the TOP-LEVEL
+            # dist/ by path.
+            shutil.copytree(dashboard_dir, tmp_dashboard, symlinks=True)
+            old_dist = tmp_dashboard / "dist"
+            if old_dist.exists():
+                shutil.rmtree(old_dist)
+        except OSError as exc:
+            return {
+                "match": False, "reason": "rebuild-verification-failed",
+                "detail": f"could not copy dashboard source into an isolated tmp dir for rebuild: {exc}",
+            }
+
+        try:
+            result = subprocess.run(
+                ["npm", "run", "build"], cwd=str(tmp_dashboard),
+                capture_output=True, text=True, timeout=180,
+            )
+        except FileNotFoundError:
+            return {
+                "match": False, "reason": "rebuild-verification-failed",
+                "detail": "npm is not available on PATH -- could not verify the rebuild",
+            }
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return {
+                "match": False, "reason": "rebuild-verification-failed",
+                "detail": f"the isolated rebuild could not be run: {exc}",
+            }
+        if result.returncode != 0:
+            tail = (result.stderr or result.stdout or "")[-2000:]
+            return {
+                "match": False, "reason": "rebuild-verification-failed",
+                "detail": f"the isolated rebuild failed (exit {result.returncode}): {tail}",
+            }
+
+        diffs = _diff_dist_trees(committed_dist, tmp_dashboard / "dist")
+        if diffs:
+            return {"match": False, "reason": "stale", "detail": "rebuild differs from committed dist/: " + "; ".join(diffs)}
+        return {"match": True, "reason": "fresh", "detail": "rebuild is byte-identical to the committed dist/"}
 
 
 def main(argv: Optional[List[str]] = None) -> int:

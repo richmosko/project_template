@@ -49,6 +49,8 @@ git checkout -b feature/<id-lowercase>-<kebab-slugified-title>
 
 Slug rule: lowercase, ASCII, hyphens; max 50 chars total branch length. (`PT-14` → `feature/pt-14-google-oauth`.)
 
+**Push the branch to origin before spawning any teammate** (PT-82): each teammate's `EnterWorktree` pins its worktree to the branch's tip *at entry* (`worktree.baseRef: "head"` resolves against the caller's own HEAD, not the lead's), so origin must already carry the commits a teammate is meant to start from — `git push -u origin HEAD` right after step 4's commit, before step 6.
+
 ### 4. Claim the issue
 
 ```bash
@@ -77,6 +79,7 @@ After user confirmation:
 - "Create an agent team for the Implement phase" — roster comes from the project configuration in `process/WORKFLOW.md` (active implementation leads + `qa-engineer`).
 - Pass the issue ID and acceptance criteria to all teammates via `SendMessage`. Teammates read the issue file directly (`process/cairn/issues/<ID>.md`) — no payload relay needed.
 - qa-engineer goes first — they write the failing acceptance test.
+- Each teammate's `EnterWorktree` is identity, not a per-spawn instruction (PT-82): every `.claude/agents/*.md` carries the shared worktree protocol block, so nothing here needs to remind them. The lead's own tree stays on the feature branch and never enters a worktree.
 
 ### 7. Create the anchor task on the shared task list
 
