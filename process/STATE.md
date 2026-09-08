@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Receiver logs its own self-stop (registry drained, grace elapsed) — today it exits silently |
-| Issue | PT-90 (cairn) |
+| Feature | Gate guard: the verdict's serial-discover leg can't be issued by a teammate — stock unittest has no --gate |
+| Issue | PT-99 (cairn) |
 | Milestone | PT-0.12.1 |
-| Branch | `feature/pt-90-receiver-logs-self-stop` |
-| PR | https://github.com/richmosko/project_template/pull/181 |
+| Branch | `feature/pt-99-gate-guard-discover-leg` |
+| PR | https://github.com/richmosko/project_template/pull/182 |
 | Started | 2026-09-07 |
-| Goal | The receiver writes one log line naming the trigger at its self-stop point of no return, and one when a registration cancels an armed grace window, both asserted by the existing tests. |
+| Goal | A teammate can issue every leg of a gate-4 verdict under the guard, and each leg is recorded as a gate run. |
 | Status | In Review |
 
 ## Releases
