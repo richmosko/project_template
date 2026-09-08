@@ -50,6 +50,36 @@ sh: vite: command not found
 - Build FAILS. Root cause: `node_modules/.bin` does not exist in the worktree copy (checked directly: `ls node_modules/.bin` → "No such file or directory"), even though the `vite` package itself is present under `node_modules/vite/`. The package directories were delivered but the bin symlinks that `npm`/`node_modules/.bin` normally provides were not — so `vite` is not resolvable on PATH.
 - **FAIL: node_modules delivered (package contents present), but the dashboard build does not succeed as-is.**
 
+## Step 8 repeat — .worktreeinclude fix (9b50083)
+
+New worktree `pt82-spike-2`, entered after `git pull --rebase origin feature/pt-82-teammate-worktrees` on the prior worktree brought HEAD to `9b50083` (confirmed via `git rev-parse HEAD` in the new worktree: `9b5008347f8939250bc26fdd783d2c90a52f8af3`).
+
+`.worktreeinclude` now lists both patterns:
+
+```
+scripts/cairn/dashboard/node_modules/**
+scripts/cairn/dashboard/node_modules/.bin/**
+```
+
+Result:
+
+```
+$ ls scripts/cairn/dashboard/node_modules/.bin | head -3
+ls: scripts/cairn/dashboard/node_modules/.bin: No such file or directory
+```
+
+Confirmed no `.bin` entry at all under `node_modules` (`ls -la node_modules | grep -i bin` → empty; `find node_modules -maxdepth 1 -name ".*"` → only `.package-lock.json`). Source (main checkout) does have `node_modules/.bin/` with real symlinks (e.g. `acorn -> ../acorn/bin/acorn`).
+
+```
+$ cd scripts/cairn/dashboard && npm run build
+> dashboard@0.0.0 build
+> vite build
+
+sh: vite: command not found
+```
+
+**FAIL — same failure as before the fix.** The explicit `.bin/**` pattern added at 9b50083 did not deliver `node_modules/.bin` into this fresh worktree; `vite` remains unresolvable and the build still fails identically.
+
 ## Step 9 — Metrics write / go-no-go
 
 Command as given (`--gate red` combined with `-p`) was rejected by the harness itself:
