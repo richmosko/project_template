@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import os
 import subprocess
 import sys
@@ -454,6 +455,100 @@ class GateRequiresFullRunTests(unittest.TestCase):
         # not to --gate itself.
         args = run_tests.parse_args(["--gate", "green"])
         self.assertEqual(args.gate, "green")
+
+
+class RedRunSelfRecordsWithFailureDetailTests(unittest.TestCase):
+    """PT-116 gate-1 ruling (PT-116.md @8c1cc29), guards 1-2 (runner
+    path). The reported defect ("a red narrowed run writes no record")
+    does NOT reproduce -- measured live by the architect, both paths.
+    Narrowed scope: add `failures`/`errors` to the self-recorded shape
+    (parsed from the in-process aggregate, never 0-filled from
+    ignorance) and pin that a red run records at all -- nothing in the
+    suite asserted that before this feature.
+
+    Fake-engine-root technique (PT-77/PT-80, matching
+    test_test_run_hooks.py's RunnerSelfRecordsTests): copies run_tests.py
+    into a throwaway root with a tiny, deliberately mixed-outcome tests/
+    dir -- never the real suite (D11)."""
+
+    RED_SUITE = (
+        "import unittest\n\n\n"
+        "class T(unittest.TestCase):\n"
+        "    def test_pass(self):\n"
+        "        self.assertTrue(True)\n\n"
+        "    def test_fail(self):\n"
+        "        self.assertTrue(False)\n\n"
+        "    def test_error(self):\n"
+        "        raise RuntimeError('boom')\n"
+    )
+    GREEN_SUITE = (
+        "import unittest\n\n\n"
+        "class T(unittest.TestCase):\n"
+        "    def test_one(self):\n"
+        "        self.assertTrue(True)\n"
+    )
+
+    def _fake_engine_root(self, test_body: str):
+        tmp = helpers.make_empty_tmp_dir(self)
+        engine_dir = tmp / "scripts" / "cairn"
+        engine_dir.mkdir(parents=True)
+        engine_dir.joinpath("run_tests.py").write_bytes((helpers.CAIRN_DIR / "run_tests.py").read_bytes())
+        tests_dir = engine_dir / "tests"
+        tests_dir.mkdir()
+        tests_dir.joinpath("test_mixed.py").write_text(test_body, encoding="utf-8")
+        return tmp, engine_dir
+
+    def _records(self, tmp) -> list:
+        records_path = tmp / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        if not records_path.exists():
+            return []
+        return [json.loads(l) for l in records_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+
+    def test_a_red_narrowed_run_records_ok_false_with_failure_counts(self):
+        tmp, engine_dir = self._fake_engine_root(self.RED_SUITE)
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "run_tests.py"), "-p", "test_mixed.py"],
+            cwd=str(engine_dir), capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 1, repr(result.stdout + result.stderr))
+        lines = self._records(tmp)
+        self.assertEqual(len(lines), 1, f"a red run must self-record like a green one -- got {lines!r}")
+        rec = lines[0]
+        self.assertEqual(rec.get("tests"), 3)
+        self.assertFalse(rec.get("ok"))
+        self.assertEqual(rec.get("failures"), 1, f"got {rec!r}")
+        self.assertEqual(rec.get("errors"), 1, f"got {rec!r}")
+
+    def test_the_all_green_control_records_ok_true_with_zero_counts(self):
+        tmp, engine_dir = self._fake_engine_root(self.GREEN_SUITE)
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "run_tests.py"), "-p", "test_mixed.py"],
+            cwd=str(engine_dir), capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, repr(result.stdout + result.stderr))
+        lines = self._records(tmp)
+        self.assertEqual(len(lines), 1)
+        rec = lines[0]
+        self.assertTrue(rec.get("ok"))
+        self.assertEqual(rec.get("failures"), 0, f"got {rec!r}")
+        self.assertEqual(rec.get("errors"), 0, f"got {rec!r}")
+
+    def test_a_red_run_with_stdout_and_stderr_fully_suppressed_still_records(self):
+        # Guard 2: guards the in-process property -- _self_record has no
+        # stdout dependency, so discarding stdout/stderr entirely must
+        # not affect whether (or how) it records.
+        tmp, engine_dir = self._fake_engine_root(self.RED_SUITE)
+        result = subprocess.run(
+            f'cd "{engine_dir}" && {sys.executable} run_tests.py -p test_mixed.py > /dev/null 2>&1',
+            shell=True, capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 1)
+        lines = self._records(tmp)
+        self.assertEqual(len(lines), 1, f"a red run must self-record even with stdout/stderr fully discarded -- got {lines!r}")
+        rec = lines[0]
+        self.assertFalse(rec.get("ok"))
+        self.assertEqual(rec.get("failures"), 1, f"got {rec!r}")
+        self.assertEqual(rec.get("errors"), 1, f"got {rec!r}")
 
 
 # --------------------------------------------------------------------------

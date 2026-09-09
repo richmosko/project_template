@@ -193,6 +193,68 @@ class RecorderTests(unittest.TestCase):
         self.assertEqual(records_path.read_text(encoding="utf-8"), "", "a non-test Bash call must never append a record")
 
 
+class ScrapedRecordCarriesFailureDetailTests(unittest.TestCase):
+    """PT-116 gate-1 ruling (PT-116.md @8c1cc29), guard 3 (hook scrape
+    path, bare `unittest`): `failures`/`errors` parsed from the runner's
+    own `FAILED (failures=N, errors=N)` summary line, exactly as
+    `skipped=` already is -- null when unknown, never 0-filled from
+    ignorance (a scrape with no parseable summary still writes nothing,
+    per the existing delta-3 gap handling)."""
+
+    def _env(self, tmp: Path) -> dict:
+        return {"CLAUDE_PROJECT_DIR": str(tmp)}
+
+    def _records_path(self, tmp: Path) -> Path:
+        return tmp / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+
+    def _payload(self, stdout: str) -> dict:
+        return {
+            "session_id": "s", "cwd": "/x", "agent_type": "architect",
+            "hook_event_name": "PostToolUse", "tool_name": "Bash",
+            "tool_input": {"command": "python3 -m unittest discover -s tests -p test_x.py"},
+            "tool_response": {"stdout": stdout, "stderr": ""},
+            "duration_ms": 60, "tool_use_id": "x",
+        }
+
+    def test_a_red_scraped_record_carries_parsed_failure_counts(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        (tmp / "process" / "cairn" / "metrics").mkdir(parents=True)
+        payload = self._payload("Ran 3 tests in 0.0s\nFAILED (failures=1, errors=1)\n")
+        result = _run_hook("test_run_record.py", json.dumps(payload), env=self._env(tmp))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = [json.loads(l) for l in self._records_path(tmp).read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(len(lines), 1)
+        rec = lines[0]
+        self.assertFalse(rec.get("ok"))
+        self.assertEqual(rec.get("failures"), 1, f"got {rec!r}")
+        self.assertEqual(rec.get("errors"), 1, f"got {rec!r}")
+
+    def test_the_ok_control_carries_zero_failure_counts(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        (tmp / "process" / "cairn" / "metrics").mkdir(parents=True)
+        payload = self._payload("Ran 3 tests in 0.0s\nOK\n")
+        result = _run_hook("test_run_record.py", json.dumps(payload), env=self._env(tmp))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = [json.loads(l) for l in self._records_path(tmp).read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(len(lines), 1)
+        rec = lines[0]
+        self.assertTrue(rec.get("ok"))
+        self.assertEqual(rec.get("failures"), 0, f"got {rec!r}")
+        self.assertEqual(rec.get("errors"), 0, f"got {rec!r}")
+
+    def test_unparseable_stdout_writes_nothing_never_invents_failure_counts(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        (tmp / "process" / "cairn" / "metrics").mkdir(parents=True)
+        records_path = self._records_path(tmp)
+        payload = self._payload("some garbage with no summary line at all\n")
+        result = _run_hook("test_run_record.py", json.dumps(payload), env=self._env(tmp))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(
+            records_path.exists() and records_path.read_text(encoding="utf-8").strip(),
+            "unparseable stdout must write nothing -- failures/errors are never invented",
+        )
+
+
 class VersionedPythonInterpreterGuardTests(unittest.TestCase):
     """PT-113 gate-1 ruling (PT-113.md @ e5b1106): `_is_python_token` must
     recognise `python3.14`-style basenames as a python invocation, not

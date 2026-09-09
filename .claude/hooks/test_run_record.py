@@ -64,6 +64,11 @@ from _test_run_shared import gate_of, is_full_suite_run, is_test_invocation, TES
 _SUMMARY_RE = re.compile(r"Ran (\d+) tests? in ([\d.]+)s(?:\s*\((\d+) files?, (\d+) workers?\))?")
 _SKIPPED_RE = re.compile(r"skipped=(\d+)")
 _RESULT_RE = re.compile(r"^(OK|FAILED)\b", re.MULTILINE)
+# PT-116 gate-1 ruling (PT-116.md @8c1cc29): failure detail parsed from
+# the runner's own `FAILED (failures=N, errors=N)` summary, exactly as
+# `skipped=` already is above.
+_FAILURES_RE = re.compile(r"failures=(\d+)")
+_ERRORS_RE = re.compile(r"errors=(\d+)")
 
 _RECORDS_REL = Path("process") / "cairn" / "metrics" / "test-runs.jsonl"
 
@@ -156,6 +161,15 @@ def _scrape_record(data: dict, command: str, project_dir: Path) -> dict:
     skipped = int(skipped_match.group(1)) if skipped_match else (0 if summary else None)
     result_match = _RESULT_RE.search(stdout)
     ok = (result_match.group(1) == "OK") if result_match else None
+    # PT-116 gate-1 ruling (PT-116.md @8c1cc29): null when unknown (no
+    # parseable OK/FAILED line at all -- the caller writes nothing in
+    # that case anyway), 0 when a parseable OK/FAILED line names no
+    # failures/errors of that kind, the parsed count otherwise. Never
+    # 0-filled from ignorance, the same rule `tests` already follows.
+    failures_match = _FAILURES_RE.search(stdout)
+    errors_match = _ERRORS_RE.search(stdout)
+    failures = (int(failures_match.group(1)) if failures_match else 0) if ok is not None else None
+    errors = (int(errors_match.group(1)) if errors_match else 0) if ok is not None else None
 
     full = is_full_suite_run(command)
     return {
@@ -179,6 +193,8 @@ def _scrape_record(data: dict, command: str, project_dir: Path) -> dict:
         "tests": tests,
         "skipped": skipped,
         "ok": ok,
+        "failures": failures,
+        "errors": errors,
         "session": data.get("session_id"),
         "cmd": command[:200],
     }
