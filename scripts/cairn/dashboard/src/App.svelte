@@ -324,28 +324,30 @@
 	     Sidebar.Inset (architect's landmine note) -- Inset owns page-level
 	     layout/peer-margins now, this div no longer wraps a bare <body>. -->
 	<div class="flex min-h-screen flex-col gap-6 bg-muted px-7 py-7">
-	<!-- PT-74 (Mosko's finding, 2026-08-31): this wrapper kept the old
-	     max-w-6xl inset when PT-73 unified the sections below it -- match
-	     the same rule the content wrapper already uses (no cap), on both
-	     routes (this header renders before the route switch, so it's
-	     already shared chrome -- no per-route duplication to fix). -->
-	<div class="mx-auto flex w-full flex-col gap-6">
-	<!-- PT-110 (architect's ruling, PT-110.md @ d89288c): `sticky top-0`
-	     in place -- no restructure to the sidebar-07 shape. Nothing in
-	     the shell path (body, sidebar-wrapper, sidebar-inset, this page
-	     root) establishes a scroll container, so the document scrolls
-	     and `sticky` pins the header here without leaving normal flow --
-	     no spacer needed, AC2's overlap is prevented by the mechanism
-	     itself. `z-50` matches the portal'd overlay tier (chart
-	     tooltips/dropdown/select/popover/sheet) deliberately: a header
-	     that outranks its own settings menu clips it, which is the
-	     wanted failure mode over the reverse. `bg-muted` matches body's
-	     own surface (page chrome, not a floating card) + `border-b` so
-	     scrolled content never bleeds through; `py-4` is the header's
-	     own vertical padding now that it needs breathing room as an
-	     opaque bar rather than blending into the page. Never `fixed` --
-	     that would leave normal flow and reintroduce the overlap. -->
-	<header class="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-4 border-b bg-muted py-4">
+	<!-- PT-110 (architect's ruling, re-issued whole, PT-110.md @ 4faae8f):
+	     `<header>` is now a DIRECT CHILD of this page-root div, not a
+	     wrapper's -- the browser leg measured the header un-pinning after
+	     ~89px of scroll, because its old parent (the PT-74 wrapper,
+	     `div.mx-auto.flex.w-full.flex-col.gap-6`, purpose: give the
+	     header the same width rule as the sections below) was itself
+	     only as tall as the header. A `sticky` element cannot outlive its
+	     containing block's box, so it stuck within 89px and left with
+	     it. This div spans the WHOLE page (3073px measured) -- `sticky`
+	     now has a containing block tall enough to stick within. PT-74's
+	     width rule (`mx-auto w-full`, no cap) moves onto the header
+	     itself below rather than a now-redundant single-child wrapper;
+	     no restructure to the sidebar-07 shape. `z-50` matches the
+	     portal'd overlay tier (chart tooltips/dropdown/select/popover/
+	     sheet) deliberately: a header that outranks its own settings
+	     menu clips it, the wanted failure mode over the reverse.
+	     `bg-muted` matches body's own surface (page chrome, not a
+	     floating card); `border-b` (colour via app.css's universal
+	     `border-border` rule) so scrolled content never bleeds through;
+	     `py-4` is the header's own vertical padding now that it needs
+	     breathing room as an opaque bar rather than blending into the
+	     page. Never `fixed` -- that would leave normal flow and
+	     reintroduce the overlap. -->
+	<header class="sticky top-0 z-50 mx-auto flex w-full flex-wrap items-center justify-between gap-4 border-b bg-muted py-4">
 		<div class="flex items-center gap-3">
 			<Sidebar.Trigger />
 			<Sidebar.Separator orientation="vertical" class="h-4" />
@@ -391,7 +393,6 @@
 			<ThemeSettings themeState={themeSettings} />
 		</div>
 	</header>
-	</div>
 
 	<!-- PT-72 (architect ruling §1): chrome above (Sidebar.Root + this
 	     header) mounts once and never remounts across Dashboard <->
