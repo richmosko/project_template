@@ -149,7 +149,17 @@
 	   here -- this file only carries token values. */
 	--chart-flow-opened: oklch(0.55 0.20 16.9);
 	--chart-flow-closed: oklch(0.62 0.18 135.2);
-	--chart-flow-wip: oklch(0.62 0.15 200.8);
+	/* PT-118 (ux-designer's re-authoring, PT-118.md @2026-09-09, following
+	   the architect's gate-1 gamut finding): the PT-92-ratified
+	   0.62/0.15/200.8 is OUT OF GAMUT (unclamped check: red channel
+	   -0.091) -- it was never a real, renderable colour; every browser
+	   silently gamut-mapped it before painting a pixel. Re-authored to
+	   the in-gamut maximum chroma at this L/h, minus ~5% headroom
+	   (0.10542 max -> 0.100): L and h UNCHANGED, so the pairwise/
+	   role-collision guards (hue-only) are untouched. Contrast vs --card
+	   3.49:1 (was never a real measurement before). This is also the
+	   Chart Color rotation's yellow/Δh=0 anchor (gen_variants.py). */
+	--chart-flow-wip: oklch(0.62 0.100 200.8);
 	/* PT-79: the token/cost dashboard block's ROLE stack -- categorical
 	   (unordered), not ordinal, so this is a DIFFERENT validator shape
 	   from the flow ramp above (minimum pairwise OKLab dE, not monotone
@@ -255,7 +265,10 @@
 	   mode replacement, recorded on PT-85/PT-92. */
 	--chart-flow-opened: oklch(0.58 0.17 16.9);
 	--chart-flow-closed: oklch(0.65 0.15 135.2);
-	--chart-flow-wip: oklch(0.60 0.13 200.8);
+	/* PT-118: see :root's comment -- re-authored in-gamut max minus ~5%
+	   headroom (0.10202 max -> 0.097); L/h unchanged. Contrast vs --card
+	   4.63:1 (was never a real measurement before). */
+	--chart-flow-wip: oklch(0.60 0.097 200.8);
 	/* PT-79: see :root's comment -- identical values, both real --card
 	   surfaces validated independently (no per-mode split needed). */
 	--chart-role-1: oklch(0.570 0.1587 252.00);

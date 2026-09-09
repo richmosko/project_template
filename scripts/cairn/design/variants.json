@@ -366,7 +366,11 @@
         "chart-5",
         "chart-flow-opened",
         "chart-flow-closed",
-        "chart-flow-wip"
+        "chart-flow-wip",
+        "chart-counter-input",
+        "chart-counter-cache-write",
+        "chart-counter-cache-read",
+        "chart-counter-output"
       ],
       "variants": {
         "amber": {
