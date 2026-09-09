@@ -7,6 +7,14 @@
    scripts/cairn/design/gen_variants.py. */
 @import './variants.css';
 
+/* PT-106 (architect's ruling, PT-106.md @ f26390c): root .gitignore
+   negates dist/ so this app's build output can be committed, and
+   Tailwind v4's automatic source detection respects .gitignore -- so
+   the PREVIOUS build's own emitted JS/CSS became a content source,
+   feeding its class-name strings into the NEXT build's utility
+   emission. The build must not depend on its own prior output. */
+@source not "../dist";
+
 /* PT-54 (architect ruling §2): fonts are self-hosted via the three
    @fontsource-variable packages, imported as JS side-effect imports in
    src/main.ts -- NOT a CSS @import here, which would push

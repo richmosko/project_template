@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | backfill_tokens.py: per-issue activity windows instead of one shared run span |
-| Issue | PT-103 (cairn) |
+| Feature | Dashboard build is non-deterministic: consecutive clean builds differ in assets/index.css |
+| Issue | PT-106 (cairn) |
 | Milestone | PT-0.12.2 |
-| Branch | `feature/pt-103-backfill-per-issue-windows` |
+| Branch | `feature/pt-106-dist-reproducible-build` |
 | Started | 2026-09-08 |
-| Goal | Each transcript-backfill record carries its own issue's first/last activity window; the ledger regenerated so chronological order is real. |
-| PR | https://github.com/richmosko/project_template/pull/200 |
+| Goal | A clean dashboard build is byte-identical wherever it runs; the dist-freshness rescue actually rescues; a two-build identity test guards it. |
+| PR | https://github.com/richmosko/project_template/pull/201 |
 | Status | In Review |
 
 ## Releases
