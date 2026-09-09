@@ -51,6 +51,7 @@ import helpers  # noqa: F401
 
 DASHBOARD_APP_SVELTE = helpers.CAIRN_DIR / "dashboard" / "src" / "App.svelte"
 APP_CSS = helpers.CAIRN_DIR / "dashboard" / "src" / "app.css"
+DIST_ASSETS_DIR = helpers.CAIRN_DIR / "dashboard" / "dist" / "assets"
 
 
 def _strip_html_comments(source: str) -> str:
@@ -255,6 +256,173 @@ class FloatingWrapperZIndexFloorTests(unittest.TestCase):
             f"z-index DOES land, it must win with the same value (this rule is a floor, not an "
             f"override, per verdict delta 2) -- rule body: {self.body!r}",
         )
+
+
+class HeaderCancelsTheGapAndSiblingsAreIsolatedTests(unittest.TestCase):
+    """PT-117 gate-1 ruling (architect, PT-117.md @ce0c15b): the header's
+    24px gap was only half the defect -- at scrollY 1500 the token
+    chart's own tooltip (`z-index: 50`, set by LayerChart in the content
+    subtree) painted OVER the pinned header (623 of 1026 hit-test points
+    in the header's own box). Ruled mechanism, two parts, both measured
+    live:
+    1. `isolate` (`isolation: isolate`) on every non-header direct child
+       of the page root -- each becomes its own stacking context, so a
+       library's z-50 can no longer escape it and compete with the
+       header. Measured: 623 -> 0 over-header hits at scrollY 1500.
+    2. `-mb-6` on the `<header>` -- cancels the page root's flex row-gap
+       after the header only, so the first content block's border-box
+       top IS the header's bottom edge. Measured: next.top - header.bottom,
+       24 -> 0, both routes.
+
+    PT-110's own guards (sticky/top-0/z-40/bg-muted/border-b/never-fixed/
+    structural-child-of-root/no-spacer) are KEPT, not restated away --
+    see the classes above. A negative margin is a margin, not a spacer
+    (ruling's own words)."""
+
+    def setUp(self):
+        self.assertTrue(DASHBOARD_APP_SVELTE.is_file(), f"{DASHBOARD_APP_SVELTE} does not exist")
+        self.source = _strip_html_comments(DASHBOARD_APP_SVELTE.read_text(encoding="utf-8"))
+
+    def _header_classes(self) -> set[str]:
+        match = re.search(r'<header\b[^>]*\bclass="([^"]*)"', self.source)
+        self.assertIsNotNone(match, f"{DASHBOARD_APP_SVELTE}: no <header class=\"...\"> element found")
+        return set(match.group(1).split())
+
+    def test_header_cancels_the_gap_with_a_negative_bottom_margin(self):
+        classes = self._header_classes()
+        self.assertIn(
+            "-mb-6", classes,
+            f"header must carry `-mb-6` to cancel the page root's row-gap after itself "
+            f"(measured next.top - header.bottom: 24 -> 0 both routes) -- got {sorted(classes)}",
+        )
+
+    def _tag_containing(self, anchor: str) -> str:
+        idx = self.source.find(anchor)
+        self.assertGreaterEqual(
+            idx, 0, f"{DASHBOARD_APP_SVELTE}: anchor {anchor!r} not found -- this test's "
+            f"structural assumption may be stale, not something to silence",
+        )
+        tag_start = self.source.rfind("<", 0, idx)
+        tag_end = self.source.index(">", idx)
+        return self.source[tag_start : tag_end + 1]
+
+    def _classes_in_tag(self, tag_text: str) -> set[str]:
+        m = re.search(r'class="([^"]*)"', tag_text)
+        return set(m.group(1).split()) if m else set()
+
+    def test_dashboard_content_wrapper_is_isolated(self):
+        # The `!onIssueTracking` branch's content wrapper -- a direct
+        # child of the page-root div on /dashboard.
+        tag = self._tag_containing('mx-auto flex w-full flex-col gap-6"')
+        classes = self._classes_in_tag(tag)
+        self.assertIn(
+            "isolate", classes,
+            f"the dashboard route's content wrapper (a direct child of the page root) must "
+            f"carry `isolate` -- got tag={tag!r}",
+        )
+
+    def test_board_section_is_isolated(self):
+        # PT-62: the Board section is deliberately OUTSIDE the content
+        # wrapper above -- a SECOND direct child of the page root on
+        # /dashboard, so it needs its own `isolate`.
+        tag = self._tag_containing('aria-label="Board"')
+        classes = self._classes_in_tag(tag)
+        self.assertIn(
+            "isolate", classes,
+            f"the Board section (a direct child of the page root on /dashboard) must carry "
+            f"`isolate` -- got tag={tag!r}",
+        )
+
+    def test_issue_tracking_section_is_isolated(self):
+        # The `onIssueTracking` branch's only top-level element -- the
+        # page root's sole non-header child on /dashboard/issues.
+        tag = self._tag_containing('aria-label="Issue Tracking"')
+        classes = self._classes_in_tag(tag)
+        self.assertIn(
+            "isolate", classes,
+            f"the Issue Tracking section (the page root's only direct child on "
+            f"/dashboard/issues) must carry `isolate` -- got tag={tag!r}",
+        )
+
+
+class BuiltCssHasTheGapAndIsolationRulesTests(unittest.TestCase):
+    """PT-117 gate-1 ruling, guard 2 -- the architect's own measured trap:
+    a first pass applied `pb-6 -mb-6` via `classList` and measured "no
+    change", because those utilities were never compiled into
+    `dist/assets/index.css` at all (`.isolate` present, `.pb-6`/`.-mb-6`
+    absent) -- the acceptance was silently a no-op against stale CSS.
+    This scans the BUILT css actually served, not App.svelte's class
+    string, so that trap can never repeat silently."""
+
+    def setUp(self):
+        self.assertTrue(DIST_ASSETS_DIR.is_dir(), f"{DIST_ASSETS_DIR} does not exist")
+        css_files = sorted(DIST_ASSETS_DIR.glob("*.css"))
+        self.assertTrue(css_files, f"no .css files found under {DIST_ASSETS_DIR}")
+        self.css_text = "".join(p.read_text(encoding="utf-8") for p in css_files)
+
+    def test_built_css_compiles_the_isolation_rule(self):
+        # assertTrue on a bool, not assertRegex on the whole blob --
+        # assertRegex's own failure message always echoes the full
+        # searched text, which here is the entire (minified,
+        # hundred-KB-plus) dist CSS.
+        found = bool(re.search(r"\.isolate\{[^}]*isolation:isolate[^}]*\}", self.css_text))
+        self.assertTrue(
+            found,
+            "dist/assets/*.css must compile the .isolate utility (isolation: isolate) -- "
+            "without it a library's z-50 (LayerChart's tooltip) can escape its stacking "
+            "context and paint over the header (measured: 623/1026 hits at scrollY 1500)",
+        )
+
+    def test_built_css_compiles_the_negative_margin_rule(self):
+        # Addendum 1 to the gate-1 ruling (PT-117.md @982001d): this
+        # repo's Tailwind v4 compiles every spacing utility as
+        # `calc(var(--spacing) * N)` -- verified against sibling
+        # utilities already in the built CSS (`.gap-6`, `.py-4`,
+        # `margin-inline:calc(var(--spacing) * -1)`), zero literal `rem`
+        # margins anywhere. Accept either property name Tailwind might
+        # emit (`margin-bottom` or the logical `margin-block-end`); no
+        # literal `rem` may be required in either direction.
+        found = bool(re.search(
+            r"\.-mb-6\{[^}]*margin-(?:bottom|block-end):\s*calc\(\s*var\(--spacing\)\s*\*\s*-6\s*\)[^}]*\}",
+            self.css_text,
+        ))
+        self.assertTrue(
+            found,
+            "dist/assets/*.css must compile -mb-6 as margin-(bottom|block-end): "
+            "calc(var(--spacing) * -6) (Tailwind v4's own compiled form -- never a literal "
+            "rem) -- the architect's own measured trap: applying this utility via classList "
+            "alone read as a no-op because it was never in the compiled CSS at all",
+        )
+
+
+class RenderedProofsOwnedByTheLeadsBrowserLegNote(unittest.TestCase):
+    """PT-117 gate-1 ruling, guard 4: properties A and B are RENDERED
+    proofs -- no test in this suite renders App.svelte, bits-ui, or
+    LayerChart, so neither can be measured from source. The scan classes
+    above prove the mechanism's classes and built-CSS rules exist; they
+    do not and cannot prove the cascade resolves them live. The lead's
+    browser leg re-runs these exact predicates, verbatim, at scrolls
+    0 / 200 / 700 / 1500 / 2400, on both /dashboard and
+    /dashboard/issues, light and dark:
+
+    A (nothing over the header): for every y in [header.top, header.bottom)
+    at 9 x positions spanning the header's width,
+    document.elementFromPoint(x, y) is the header or a descendant.
+    Baseline (pre-fix): 0, 0, 0, 623, 0. Required after both fixes: 0
+    everywhere, both themes.
+
+    B (content top is the header's bottom edge): at rest,
+    header.nextElementSibling.getBoundingClientRect().top -
+    header.getBoundingClientRect().bottom === 0. Baseline 24px, required
+    after the fix: 0px, on both routes.
+    """
+
+    def test_this_class_intentionally_asserts_nothing_the_note_above_is_the_guard(self):
+        # No Python-side assertion belongs here: re-deriving arithmetic on
+        # numbers this suite invented would not be a measurement of the
+        # real page. See the class docstring for the two verbatim
+        # predicates the browser leg owns.
+        pass
 
 
 if __name__ == "__main__":

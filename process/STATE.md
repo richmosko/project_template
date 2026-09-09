@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | test-run ledger: the hook patches who on the LAST line only — concurrent teammates can cross-attribute runs |
-| Issue | PT-112 (cairn) |
+| Feature | Dashboard header: scrolling content is visible in the gap below the header |
+| Issue | PT-117 (cairn) |
 | Milestone | PT-0.12.2 |
-| Branch | `feature/pt-112-ledger-who-by-run-id` |
+| Branch | `feature/pt-117-header-gap-mask` |
 | Started | 2026-09-09 |
-| Goal | The record hook patches `who` onto the run's own ledger line by run id, never by position; stale null lines are never adopted. |
-| PR | https://github.com/richmosko/project_template/pull/205 |
+| Goal | Nothing scrolls into view between the header's top and the first content block's top; browser-verified in two variants, light and dark. |
+| PR | https://github.com/richmosko/project_template/pull/206 |
 | Status | In Review |
 
 ## Releases
