@@ -388,7 +388,13 @@ def _self_record(args: argparse.Namespace, agg: Dict[str, object]) -> None:
             "tests": agg["tests"],
             "skipped": agg["skipped"],
             "ok": exit_code(agg) == 0,
-            "session": None,
+            # PT-112 gate-1 ruling (PT-112.md @8b60a8b): the hook's stdin
+            # `session_id` and this process's own `CLAUDE_CODE_SESSION_ID`
+            # are the identical string (measured live) -- a deterministic
+            # attribution key needing no new channel and no run id printed
+            # in the summary (unreadable the moment stdout is redirected
+            # or suppressed, per PT-111's own measurement).
+            "session": os.environ.get("CLAUDE_CODE_SESSION_ID") or None,
             "cmd": " ".join([sys.executable] + sys.argv)[:200],
         }
         override = os.environ.get(_RECORDS_PATH_ENV)

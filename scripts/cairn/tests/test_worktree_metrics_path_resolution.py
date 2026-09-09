@@ -521,13 +521,23 @@ class HookPatchesTheNarrowedWorktreeRunsRecordTests(unittest.TestCase):
         real hook-scraped records name the literal `python3`, never a
         versioned interpreter path. `sys.executable` (used below only for
         the actual spawn, never the payload) is unfaithful to that and
-        must not appear in the hook's `tool_input.command`."""
+        must not appear in the hook's `tool_input.command`.
+
+        PT-112 gate-1 ruling (PT-112.md @8b60a8b), item (3): the hook no
+        longer patches the ledger's LAST null-`who` line by position --
+        it matches on `session == payload["session_id"]`, and a record
+        whose own `session` is null is never adopted. This fixture's
+        runner spawn must therefore carry `CLAUDE_CODE_SESSION_ID` equal
+        to the hook payload's `session_id` below, deliberately, or the
+        self-recorded line is no longer patchable at all and this test
+        would false-negative for an unrelated reason."""
         main_root, worktree_path = _make_main_checkout_with_worktree(self)
         worktree_run_tests_py = worktree_path / "scripts" / "cairn" / "run_tests.py"
 
         env = dict(os.environ)
         env.pop("CLAUDE_PROJECT_DIR", None)
         env.pop("CAIRN_TEST_RUNS_FILE", None)
+        env["CLAUDE_CODE_SESSION_ID"] = "pt107-hook-leg"
         command = f"python3 {worktree_run_tests_py} -p test_trivial.py"
         shared = _load_hook_module("_test_run_shared.py")
         self.assertTrue(
@@ -570,6 +580,49 @@ class HookPatchesTheNarrowedWorktreeRunsRecordTests(unittest.TestCase):
         )
         rec = json.loads(main_lines[0])
         self.assertEqual(rec["who"], "architect", f"the patched line must carry the hook's agent_type -- got {rec!r}")
+
+    def test_a_session_mismatch_leaves_the_narrowed_runs_record_unpatched(self):
+        """Negative control alongside the fixture above (PT-112 gate-1
+        ruling, item 3): the runner's self-recorded line carries a real
+        session (unlike the pre-PT-112 null-session default), but the
+        hook's payload names a DIFFERENT session -- no match, so for a
+        `run_tests` command the ledger must be left byte-for-byte
+        unchanged (write nothing beats misattribution)."""
+        main_root, worktree_path = _make_main_checkout_with_worktree(self)
+        worktree_run_tests_py = worktree_path / "scripts" / "cairn" / "run_tests.py"
+
+        env = dict(os.environ)
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        env.pop("CAIRN_TEST_RUNS_FILE", None)
+        env["CLAUDE_CODE_SESSION_ID"] = "pt107-real-session"
+        command = f"python3 {worktree_run_tests_py} -p test_trivial.py"
+        result = subprocess.run(
+            [sys.executable, str(worktree_run_tests_py), "-p", "test_trivial.py"],
+            cwd=str(worktree_run_tests_py.parent), capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(result.returncode, 0, f"{result.stdout!r} {result.stderr!r}")
+
+        main_records = main_root / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        before = main_records.read_text(encoding="utf-8")
+        self.assertEqual(len([l for l in before.splitlines() if l.strip()]), 1, "precondition: one self-recorded line")
+
+        hook_payload = {
+            "session_id": "pt107-unrelated-session", "cwd": str(worktree_run_tests_py.parent),
+            "agent_type": "architect", "hook_event_name": "PostToolUse", "tool_name": "Bash",
+            "tool_input": {"command": command},
+            "tool_response": {"stdout": "Ran 1 tests in 0.010s (1 files, 1 workers)\nOK\n", "stderr": "", "interrupted": False},
+            "duration_ms": 42, "tool_use_id": "pt107-toolu-2",
+        }
+        hook_env = dict(os.environ)
+        hook_env["CLAUDE_PROJECT_DIR"] = str(main_root)
+        hook_result = subprocess.run(
+            [sys.executable, str(HOOKS_DIR / "test_run_record.py")],
+            input=json.dumps(hook_payload), capture_output=True, text=True, env=hook_env,
+        )
+        self.assertEqual(hook_result.returncode, 0, f"{hook_result.stdout!r} {hook_result.stderr!r}")
+
+        after = main_records.read_text(encoding="utf-8")
+        self.assertEqual(after, before, f"a session mismatch on a run_tests command must leave the ledger byte-for-byte unchanged -- got {after!r} vs {before!r}")
 
 
 if __name__ == "__main__":
