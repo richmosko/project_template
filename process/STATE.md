@@ -23,7 +23,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-111-loop-stats-blocked-runs` |
 | Started | 2026-09-09 |
 | Goal | Per-agent full-run counts match the ledger; blocked or misfired commands show as a separate counter and never count against the cap. |
-| Status | In Progress |
+| PR | https://github.com/richmosko/project_template/pull/204 |
+| Status | In Review |
 
 ## Releases
 
