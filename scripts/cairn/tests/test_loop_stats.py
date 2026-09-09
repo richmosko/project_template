@@ -102,6 +102,20 @@ class ClassifyTests(unittest.TestCase):
             "--pattern is run_tests.py's own long form of -p and must be recognised as narrowing",
         )
 
+    def test_a_versioned_bare_run_tests_py_call_is_full_suite(self):
+        # PT-113 gate-1 ruling (PT-113.md @ e5b1106): loop_stats.classify_bash
+        # shares _is_python_token via find_runner_invocation/is_full_suite_run
+        # -- a versioned interpreter (python3.14) must classify the same as
+        # literal python3, or a versioned full run is invisible to the
+        # full_suite_runs cap. Control: the narrowed -p form stays
+        # module_test.
+        self.assertEqual(
+            loop_stats.classify_bash("python3.14 scripts/cairn/run_tests.py"), "FULL_SUITE",
+        )
+        self.assertEqual(
+            loop_stats.classify_bash('python3.14 scripts/cairn/run_tests.py -p "test_x*.py"'), "module_test",
+        )
+
 
 class AuditAgentTests(unittest.TestCase):
     def setUp(self):
