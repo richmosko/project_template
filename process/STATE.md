@@ -23,7 +23,7 @@ Full history, every tagged release with its notes, lives at [the GitHub Releases
 
 | Version | Date | Major line | Milestone shipped | Branch | Notes |
 |---|---|---|---|---|---|
-| v0.12.1 | 2026-09-08 | PT-V1 | PT-0.12.1 (telemetry follow-ups) — [release](https://github.com/richmosko/project_template/releases/tag/v0.12.1) | main | Published |
+| v0.12.2 | 2026-09-09 | PT-V1 | PT-0.12.2 (loop tooling follow-ups) — [release](https://github.com/richmosko/project_template/releases/tag/v0.12.2) | main | Published |
 
 ## Decisions
 
