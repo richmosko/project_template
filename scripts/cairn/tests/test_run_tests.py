@@ -37,6 +37,7 @@ see PT-93.md @ 8c4409e.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import io
 import json
 import os
@@ -549,6 +550,115 @@ class RedRunSelfRecordsWithFailureDetailTests(unittest.TestCase):
         self.assertFalse(rec.get("ok"))
         self.assertEqual(rec.get("failures"), 1, f"got {rec!r}")
         self.assertEqual(rec.get("errors"), 1, f"got {rec!r}")
+
+
+class RunnerRefusesAnIndirectUntieredFullRunTests(unittest.TestCase):
+    """PT-119 gate-1 ruling (PT-119.md @c2b48ef): the `.claude/settings.json`
+    sh prefilter and both hooks match on Bash command TEXT, so `sh
+    probe.sh` wrapping `run_tests.py` reaches neither the PreToolUse
+    guard nor the PostToolUse record hook. `run_tests.py` itself is now
+    the backstop: immediately after arg parsing, before discovery/
+    run_all/_self_record, it refuses when CLAUDECODE +
+    CLAUDE_CODE_CHILD_SESSION are both set, the run is full (no
+    -p/--pattern/-k), and --gate is absent. Exit 2, the shared refusal
+    marker on stderr, no `Ran N tests` line (load-bearing: keeps PT-111's
+    classifier on "error result, no summary" -> full_run_blocked, and
+    keeps PT-116's record hook writing nothing) -- and no ledger row at
+    all, since the refusal fires before `_self_record`.
+
+    Lane fact (measured live, both team-lead's and the architect's own
+    shells): CLAUDE_CODE_CHILD_SESSION=1 is set on the LEAD lane too, so
+    this refusal also covers a lead's un-tiered full run -- the "human
+    lane never refused" control is "no Claude env at all (plain
+    terminal) never refused", not "no agent env"."""
+
+    HOOKS_DIR = REPO_ROOT / ".claude" / "hooks"
+
+    def _fake_engine_root(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        engine_dir = tmp / "scripts" / "cairn"
+        engine_dir.mkdir(parents=True)
+        engine_dir.joinpath("run_tests.py").write_bytes((helpers.CAIRN_DIR / "run_tests.py").read_bytes())
+        tests_dir = engine_dir / "tests"
+        tests_dir.mkdir()
+        tests_dir.joinpath("test_fake_ok.py").write_text(
+            "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_one(self):\n        self.assertTrue(True)\n",
+            encoding="utf-8",
+        )
+        probe = tmp / "probe.sh"
+        probe.write_text(
+            "#!/bin/sh\n"
+            f'cd "{engine_dir}"\n'
+            'exec "$PY" run_tests.py "$@"\n',
+            encoding="utf-8",
+        )
+        probe.chmod(0o755)
+        return tmp, probe
+
+    def _records(self, tmp) -> Path:
+        return tmp / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+
+    def _teammate_env(self) -> dict:
+        env = dict(os.environ)
+        env.pop("CAIRN_TEST_RUNS_FILE", None)
+        env["CLAUDECODE"] = "1"
+        env["CLAUDE_CODE_CHILD_SESSION"] = "1"
+        env["PY"] = sys.executable
+        return env
+
+    def _plain_terminal_env(self) -> dict:
+        # Guard 2's corrected control (lane fact above): a PLAIN terminal
+        # (no Claude Code env at all), not merely "no agent env" --
+        # CLAUDE_CODE_CHILD_SESSION is set on the lead lane too.
+        env = dict(os.environ)
+        for key in list(env):
+            if key.startswith("CLAUDE") or key == "AI_AGENT":
+                env.pop(key, None)
+        env.pop("CAIRN_TEST_RUNS_FILE", None)
+        env["PY"] = sys.executable
+        return env
+
+    def test_indirect_full_run_with_the_teammate_env_is_refused(self):
+        tmp, probe = self._fake_engine_root()
+        result = subprocess.run(["sh", str(probe)], capture_output=True, text=True, env=self._teammate_env())
+        self.assertEqual(result.returncode, 2, repr(result.stdout + result.stderr))
+        self.assertIn("refusing an un-tiered full-suite run", result.stderr)
+        self.assertNotRegex(result.stdout, r"Ran \d+ tests?", "a refusal must print no 'Ran N tests' line")
+        self.assertFalse(self._records(tmp).exists(), "a refused run must write no ledger row at all")
+
+    def test_the_same_wrapper_on_a_plain_terminal_runs_normally(self):
+        tmp, probe = self._fake_engine_root()
+        result = subprocess.run(["sh", str(probe)], capture_output=True, text=True, env=self._plain_terminal_env())
+        self.assertIn(result.returncode, (0, 1), repr(result.stdout + result.stderr))
+        self.assertRegex(result.stdout, r"Ran \d+ tests?")
+        self.assertTrue(self._records(tmp).exists(), "an unrefused run must self-record")
+
+    def test_narrowed_control_under_the_wrapper_with_the_teammate_env_is_never_refused(self):
+        tmp, probe = self._fake_engine_root()
+        result = subprocess.run(["sh", str(probe), "-p", "test_fake_ok.py"], capture_output=True, text=True, env=self._teammate_env())
+        self.assertEqual(result.returncode, 0, repr(result.stdout + result.stderr))
+        self.assertRegex(result.stdout, r"Ran \d+ tests?")
+
+    def test_gated_control_under_the_wrapper_with_the_teammate_env_is_never_refused(self):
+        tmp, probe = self._fake_engine_root()
+        result = subprocess.run(["sh", str(probe), "--gate", "green"], capture_output=True, text=True, env=self._teammate_env())
+        self.assertEqual(result.returncode, 0, repr(result.stdout + result.stderr))
+        self.assertRegex(result.stdout, r"Ran \d+ tests?")
+
+    def test_the_runner_and_the_pretooluse_guard_share_the_exact_refusal_text(self):
+        # "Both lanes say the same sentence" -- the runner's own refusal
+        # (no command text to misread) must reuse the PreToolUse guard's
+        # existing marker via _test_run_shared, not a second, driftable
+        # copy.
+        spec = importlib.util.spec_from_file_location("pt119_test_run_guard", self.HOOKS_DIR / "test_run_guard.py")
+        guard_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard_module)
+        marker = guard_module._MESSAGE.strip().splitlines()[0]
+
+        tmp, probe = self._fake_engine_root()
+        result = subprocess.run(["sh", str(probe)], capture_output=True, text=True, env=self._teammate_env())
+        self.assertEqual(result.returncode, 2, repr(result.stdout + result.stderr))
+        self.assertIn(marker, result.stderr, f"runner refusal must share the guard's own marker sentence -- got {result.stderr!r}")
 
 
 # --------------------------------------------------------------------------

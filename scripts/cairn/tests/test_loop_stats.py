@@ -388,6 +388,27 @@ class AuditAgentBlockedRunTests(unittest.TestCase):
         self.assertEqual(summary["full_suite_runs"], 0)
         self.assertEqual(summary.get("full_run_blocked"), 1)
 
+    def test_the_runners_own_refusal_text_with_no_tooldenialkind_is_still_blocked(self):
+        # PT-119 gate-1 ruling (PT-119.md @c2b48ef), guard 5: the
+        # runner's own refusal (run_tests.py exiting 2) is an error
+        # result carrying the SAME shared marker text as the hook's
+        # denial, but with NO toolDenialKind at all -- it is not a hook
+        # denial, the runner itself exits 2. Must still classify
+        # full_run_blocked via rule 3 (any other error result), not be
+        # mistaken for "no denial marker present" and left uncategorised.
+        # NB: audit_agent's classify_bash gates on the command TEXT
+        # containing "run_tests"/"unittest" -- the wrapper shape itself
+        # (`sh probe.sh`) is invisible to it by the same limitation the
+        # ruling names for the hooks (deliberately uncovered), so this
+        # pins the classifier's handling of the runner's error SHAPE,
+        # not the indirect-invocation scenario end to end.
+        _, summary = self._audit([
+            tool_use_with_id(1, "t1", "Bash", command="python3 run_tests.py"),
+            result_for(1.02, "t1", GUARD_REFUSAL_CONTENT, is_error=True),  # no denial_kind: not a hook denial
+        ])
+        self.assertEqual(summary["full_suite_runs"], 0)
+        self.assertEqual(summary.get("full_run_blocked"), 1)
+
     def test_guard_1_fixture_one_executed_two_blocked(self):
         # The ruling's own fixture shape: one executed+gated step (no
         # linked result at all -- absence of evidence, rule 5), one
