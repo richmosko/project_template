@@ -388,6 +388,12 @@ def _self_record(args: argparse.Namespace, agg: Dict[str, object]) -> None:
             "tests": agg["tests"],
             "skipped": agg["skipped"],
             "ok": exit_code(agg) == 0,
+            # PT-116 gate-1 ruling (PT-116.md @8c1cc29): failure detail --
+            # both counts come straight from the in-process aggregate, so
+            # they are always known (never null-filled) on this path,
+            # whether zero or not.
+            "failures": agg["failures"],
+            "errors": agg["errors"],
             # PT-112 gate-1 ruling (PT-112.md @8b60a8b): the hook's stdin
             # `session_id` and this process's own `CLAUDE_CODE_SESSION_ID`
             # are the identical string (measured live) -- a deterministic
