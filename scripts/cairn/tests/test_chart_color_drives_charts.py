@@ -397,6 +397,76 @@ class CounterVsRoleCollisionSweepTests(unittest.TestCase):
         )
 
 
+HUE_TOLERANCE_DEGREES = 0.5
+L_TOLERANCE = 1e-6
+C_TOLERANCE = 1e-6
+
+
+class DerivationIsObservablePerVariantTests(unittest.TestCase):
+    """team-lead's red-2 addition: the sweeps above are a FLOOR, not a
+    red for the feature itself -- today every variant carries IDENTICAL
+    flow/counter values (no rotation implemented yet), so contrast/
+    distinctness/identity all pass vacuously before any implementation
+    exists. This guard asserts the derivation actually happened: for
+    every non-default (non-yellow) chart variant x mode, each rotating
+    token's hue equals yellow's hue + Δh(variant) (mod 360, tolerance
+    <=0.5 deg), L equals yellow's exactly (rotation holds L), and C may
+    only SHRINK relative to yellow's (gamut-mapping only ever reduces
+    chroma, never grows it). Δh(variant) is read from --chart-1, the
+    ALREADY-declared per-variant token (ux-designer's own derivation
+    rule) -- never hand-computed or duplicated from gen_variants.py."""
+
+    def _delta_h(self, variant_block: str, root_block: str, dark_block: str, is_dark: bool, yellow_chart1_hue: float) -> float:
+        oklch = _resolve_oklch("chart-1", variant_block, root_block, dark_block, is_dark)
+        self.assertIsNotNone(oklch, "could not resolve --chart-1 for this variant/mode")
+        return (oklch[2] - yellow_chart1_hue) % 360
+
+    def test_every_rotating_token_matches_its_derived_position_in_every_non_default_variant(self):
+        self.assertTrue(DASHBOARD_VARIANTS_CSS.is_file())
+        variants_source = DASHBOARD_VARIANTS_CSS.read_text(encoding="utf-8")
+        app_css_source = APP_CSS.read_text(encoding="utf-8")
+        root_block = _extract_unqualified_block(app_css_source, ":root")
+        dark_block = _extract_unqualified_block(app_css_source, ".dark")
+        variants = _all_variants(variants_source)
+
+        offenders = []
+        seen = 0
+        for mode, block, is_dark in (("light", root_block, False), ("dark", dark_block, True)):
+            yellow_chart1 = _oklch_in_block(block, "chart-1")
+            self.assertIsNotNone(yellow_chart1, f"app.css {mode}: no literal --chart-1")
+            yellow_hue = yellow_chart1[2]
+            yellow_tokens = {}
+            for token in ROTATING_TOKENS:
+                oklch = _oklch_in_block(block, token)
+                self.assertIsNotNone(oklch, f"app.css {mode}: no literal --{token}")
+                yellow_tokens[token] = oklch
+
+            for variant_name, modes in sorted(variants.items()):
+                if variant_name == "yellow":
+                    continue
+                variant_block = modes.get(mode, "")
+                self.assertTrue(variant_block, f"{variant_name}/{mode}: no variant block found at all")
+                delta_h = self._delta_h(variant_block, root_block, dark_block, is_dark, yellow_hue)
+
+                for token in ROTATING_TOKENS:
+                    seen += 1
+                    yl, yc, yh = yellow_tokens[token]
+                    resolved = _resolve_oklch(token, variant_block, root_block, dark_block, is_dark)
+                    self.assertIsNotNone(resolved, f"{variant_name}/{mode}: could not resolve --{token}")
+                    vl, vc, vh = resolved
+
+                    expected_hue = (yh + delta_h) % 360
+                    hue_gap = _hue_distance(vh, expected_hue)
+                    if hue_gap > HUE_TOLERANCE_DEGREES:
+                        offenders.append((variant_name, mode, token, "hue", f"got {vh:.2f}, expected {expected_hue:.2f} (Δh={delta_h:.2f}), off by {hue_gap:.2f} deg"))
+                    if abs(vl - yl) > L_TOLERANCE:
+                        offenders.append((variant_name, mode, token, "L", f"got {vl}, yellow's is {yl} -- rotation must hold L exactly"))
+                    if vc > yc + C_TOLERANCE:
+                        offenders.append((variant_name, mode, token, "C", f"got {vc}, yellow's is {yc} -- gamut-mapping may only SHRINK chroma, never grow it"))
+        self.assertGreater(seen, 0, "the sweep resolved zero (variant, mode, token) combinations -- broken, not passing")
+        self.assertEqual(offenders, [], f"derivation not observed in the generated CSS: {offenders!r}")
+
+
 class RoleFamilyStaysFixedTests(unittest.TestCase):
     """Ruling 3: the role family (identity/PT-69/PT-79) is NOT rotated --
     no chart variant block may declare a --chart-role-* or guard token at
