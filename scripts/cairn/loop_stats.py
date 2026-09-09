@@ -393,15 +393,22 @@ def _result_map(recs: List[Tuple[datetime.datetime, Dict[str, Any]]]) -> Dict[st
 
 def _resolve_full_suite(tool_id: Optional[str], step_time: datetime.datetime, who: Optional[str],
                          result_map: Dict[str, Tuple[bool, str, Optional[str]]], ledger: List[Dict[str, Any]]) -> str:
-    """PT-111 gate-1 ruling: resolve a FULL_SUITE-shaped Bash step to
+    """PT-111 gate-4 verdict delta 1 (PT-111.md @57e6b6a, blocking):
+    result evidence beats the ledger -- the gate-1 ruling had the ledger
+    checked first, which on real data let a nearby unrelated (often
+    null-`who`) record promote 3 of 5 true guard denials to executed. A
+    denied step never ran, so any record matching it is by definition a
+    mispairing; the ledger's job is to resolve the silent case only, never
+    to overrule direct evidence. Resolve a FULL_SUITE-shaped Bash step to
     `FULL_SUITE` (executed) or `full_run_blocked`, in precedence order --
-    (1) a ledger match, (2) a `Ran N tests` result, (3) an id-linked error
-    result carrying `toolDenialKind` + the guard's own marker, (4) any
-    other error result with no run summary, (5) otherwise executed
-    (redirected stdout -- absence of evidence is not evidence of
-    refusal)."""
-    if _match_ledger(step_time, who, ledger):
-        return "FULL_SUITE"
+    (1) a `Ran N tests` result -> executed, exit status is not the
+    discriminator; (2) an id-linked error result carrying `toolDenialKind`
+    + the guard's own marker -> blocked; (3) any other error result ->
+    blocked, unconditionally, a nearby ledger record never overrides it;
+    (4) no result, or a result with neither a summary nor an error
+    (redirected stdout) -> the ledger corroborates this silent case only
+    (consumed for bookkeeping; harmless either way) -> executed regardless
+    (absence of evidence is not evidence of refusal)."""
     result = result_map.get(tool_id) if tool_id else None
     if result is not None:
         is_error, text, denial_kind = result
@@ -411,6 +418,7 @@ def _resolve_full_suite(tool_id: Optional[str], step_time: datetime.datetime, wh
             return "full_run_blocked"
         if is_error:
             return "full_run_blocked"
+    _match_ledger(step_time, who, ledger)
     return "FULL_SUITE"
 
 
