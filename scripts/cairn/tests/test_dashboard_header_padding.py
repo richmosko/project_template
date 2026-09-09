@@ -38,8 +38,14 @@ class HeaderWidthMatchesSectionsTests(unittest.TestCase):
         # The div immediately wrapping <header ...> -- unconditional,
         # part of the persistent shell chrome (PT-72), not inside the
         # `{#if !onIssueTracking}` branch.
+        # PT-110 (architect's ruling, PT-110.md @ d89288c) restyled the
+        # header (sticky/z-50/surface tokens added) -- this landmark
+        # tracks only the WRAPPER div immediately preceding it, so the
+        # anchor is `<header class="sticky ` (a stable prefix of the new
+        # class string) rather than the header's full, now-longer class
+        # attribute.
         match = re.search(
-            r'<div class="([^"]*)">\s*<header class="flex flex-wrap items-center justify-between gap-4">',
+            r'<div class="([^"]*)">\s*<header class="sticky ',
             self.source,
         )
         self.assertIsNotNone(

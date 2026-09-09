@@ -330,13 +330,32 @@
 	     routes (this header renders before the route switch, so it's
 	     already shared chrome -- no per-route duplication to fix). -->
 	<div class="mx-auto flex w-full flex-col gap-6">
-	<header class="flex flex-wrap items-center justify-between gap-4">
+	<!-- PT-110 (architect's ruling, PT-110.md @ d89288c): `sticky top-0`
+	     in place -- no restructure to the sidebar-07 shape. Nothing in
+	     the shell path (body, sidebar-wrapper, sidebar-inset, this page
+	     root) establishes a scroll container, so the document scrolls
+	     and `sticky` pins the header here without leaving normal flow --
+	     no spacer needed, AC2's overlap is prevented by the mechanism
+	     itself. `z-50` matches the portal'd overlay tier (chart
+	     tooltips/dropdown/select/popover/sheet) deliberately: a header
+	     that outranks its own settings menu clips it, which is the
+	     wanted failure mode over the reverse. `bg-muted` matches body's
+	     own surface (page chrome, not a floating card) + `border-b` so
+	     scrolled content never bleeds through; `py-4` is the header's
+	     own vertical padding now that it needs breathing room as an
+	     opaque bar rather than blending into the page. Never `fixed` --
+	     that would leave normal flow and reintroduce the overlap. -->
+	<header class="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-4 border-b bg-muted py-4">
 		<div class="flex items-center gap-3">
 			<Sidebar.Trigger />
 			<Sidebar.Separator orientation="vertical" class="h-4" />
 			<div class="flex flex-col gap-1">
 				<h1 class="font-heading text-2xl font-bold text-foreground">Project Dashboard</h1>
-				<p class="text-sm text-muted-foreground">
+				<!-- PT-110 item (4): hidden below `sm` -- a wrapped two-line
+				     header pinned to the top eats viewport on exactly the
+				     screens with least of it; the title and the trigger are
+				     what must survive. -->
+				<p class="hidden text-sm text-muted-foreground sm:block">
 					Real-time repo, tracker, and release state.
 				</p>
 			</div>
