@@ -31,6 +31,27 @@ Three guards:
 (c) `TokenChartLogicImportsTheOwnedTypesTests` -- `token-chart-logic.ts`
     declares no `TokensPayload`/`TokenIssueTotal`/`TokenKind` of its own
     and imports all three from `./dashboard-api`.
+
+Red-2 (folded in at the verdict, PT-104.md @0d56416 Delta 1 / @3e5de0c
+follow-up note):
+
+(d) `FormatterSnippetRendersNameAndIndicatorTests` -- the tooltip's
+    `formatter` snippet (`TokenCostChart.svelte`) renders ONLY the
+    formatted value today; per `chart-tooltip.svelte:133-141`, supplying
+    `formatter` replaces the default indicator+name+value row entirely,
+    so the snippet is responsible for the whole row. A reader hovering a
+    stacked bar (four series) sees bare numbers with no way to tell
+    Input from Cache read. Must reference `name` and render an
+    indicator (`item.color`/a `--color-bg`-style swatch), matching the
+    layout `chart-tooltip.svelte:142-165` already uses for the default
+    (no-formatter) row.
+
+(e) `TokenCountersDeclaredOnceTests` -- follow-up note at the verdict
+    (@3e5de0c): `TokenCounters` was deliberately left duplicated by the
+    gate-1 ruling ("the two copies already agree"), but folded into
+    this loop rather than filed separately -- same latent shape as
+    `TokenIssueTotal` three loops ago. Declared once in `dashboard-
+    api.ts`, imported by `token-chart-logic.ts`.
 """
 from __future__ import annotations
 
@@ -48,6 +69,7 @@ SVELTE_CHECK_BIN = DASHBOARD_NODE_MODULES / "svelte-check" / "bin" / "svelte-che
 SKILL_MD = REPO_ROOT / ".claude" / "skills" / "finish-feature" / "SKILL.md"
 DASHBOARD_API_TS = DASHBOARD_DIR / "src" / "lib" / "dashboard-api.ts"
 TOKEN_CHART_LOGIC_TS = DASHBOARD_DIR / "src" / "lib" / "token-chart-logic.ts"
+TOKEN_COST_CHART_SVELTE = DASHBOARD_DIR / "src" / "lib" / "components" / "TokenCostChart.svelte"
 
 
 # --------------------------------------------------------------------------
@@ -170,6 +192,93 @@ class TokenChartLogicImportsTheOwnedTypesTests(unittest.TestCase):
         self.assertEqual(
             missing, [],
             f"dashboard-api.ts (the ruled owner) must declare every wire payload type -- missing: {missing}",
+        )
+
+
+# --------------------------------------------------------------------------
+# (d) Red-2, Delta 1: the tooltip formatter snippet must render name +
+# indicator, not a bare number (PT-104.md @0d56416 / @3e5de0c).
+# --------------------------------------------------------------------------
+
+
+def _formatter_snippet_block(source: str) -> str:
+    """The `{#snippet formatter(...)}...{/snippet}` block's full text
+    (params + body). Found by string search rather than a brace-matching
+    regex -- the params carry their own `{ ... }: { ... }` destructuring/
+    type-annotation braces, which a naive `[^}]*` regex cannot cross."""
+    start = source.find("{#snippet formatter(")
+    assert start != -1, "no `{#snippet formatter(...)}` block found in TokenCostChart.svelte"
+    end = source.find("{/snippet}", start)
+    assert end != -1, "no matching `{/snippet}` found for the formatter snippet"
+    return source[start:end]
+
+
+_INDICATOR_RE = re.compile(r"--color-bg|item\.color|item\.config\?\.color|indicatorColor")
+
+
+class FormatterSnippetRendersNameAndIndicatorTests(unittest.TestCase):
+    """Mutation: revert to a bare `{#snippet formatter({ value }: ...)}`
+    rendering only the formatted value -- both assertions go red."""
+
+    def _block(self) -> str:
+        self.assertTrue(TOKEN_COST_CHART_SVELTE.is_file(), f"expected {TOKEN_COST_CHART_SVELTE}")
+        return _formatter_snippet_block(TOKEN_COST_CHART_SVELTE.read_text(encoding="utf-8"))
+
+    def test_the_snippet_params_destructure_name(self):
+        block = self._block()
+        params = block.split(")", 1)[0]  # up to the snippet's own param-list close paren
+        self.assertRegex(
+            params, r"\bname\b",
+            f"the formatter snippet must destructure `name` from its argument -- a stacked-bar "
+            f"tooltip with no series name is unreadable (PT-104 Delta 1) -- params: {params!r}",
+        )
+
+    def test_the_snippet_renders_name_in_its_body(self):
+        block = self._block()
+        body = block.split(")", 1)[1] if ")" in block else block
+        self.assertIn(
+            "name", body,
+            f"the formatter snippet must actually RENDER `name`, not just destructure it -- {body!r}",
+        )
+
+    def test_the_snippet_renders_a_colour_indicator(self):
+        block = self._block()
+        self.assertRegex(
+            block, _INDICATOR_RE,
+            f"the formatter snippet must render a colour indicator (item.color / a --color-bg-style "
+            f"swatch), matching the default row's layout at chart-tooltip.svelte:142-165 -- {block!r}",
+        )
+
+
+# --------------------------------------------------------------------------
+# (e) Red-2: TokenCounters declared once, imported by token-chart-logic.
+# --------------------------------------------------------------------------
+
+_COUNTERS_DECL_RE = re.compile(r"(?:^|\n)\s*(?:export\s+)?type\s+TokenCounters\b\s*=")
+_COUNTERS_IMPORT_RE = re.compile(r"import\s+type\s*\{([^}]*)\}\s*from\s*['\"]\./dashboard-api['\"]")
+
+
+class TokenCountersDeclaredOnceTests(unittest.TestCase):
+    def test_dashboard_api_declares_token_counters(self):
+        source = DASHBOARD_API_TS.read_text(encoding="utf-8")
+        self.assertRegex(source, _COUNTERS_DECL_RE, "dashboard-api.ts must declare TokenCounters")
+
+    def test_token_chart_logic_does_not_redeclare_token_counters(self):
+        source = TOKEN_CHART_LOGIC_TS.read_text(encoding="utf-8")
+        self.assertNotRegex(
+            source, _COUNTERS_DECL_RE,
+            "token-chart-logic.ts must not redeclare TokenCounters (verdict follow-up, PT-104.md @3e5de0c) "
+            "-- import it from ./dashboard-api instead",
+        )
+
+    def test_token_chart_logic_imports_token_counters_from_dashboard_api(self):
+        source = TOKEN_CHART_LOGIC_TS.read_text(encoding="utf-8")
+        m = _COUNTERS_IMPORT_RE.search(source)
+        self.assertIsNotNone(m, "token-chart-logic.ts must import from './dashboard-api' -- no import found")
+        imported = {n.strip() for n in m.group(1).split(",") if n.strip()}
+        self.assertIn(
+            "TokenCounters", imported,
+            f"token-chart-logic.ts's import from './dashboard-api' must include TokenCounters -- got {imported!r}",
         )
 
 
