@@ -23,7 +23,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-113-hooks-versioned-python` |
 | Started | 2026-09-09 |
 | Goal | Both test-run hooks recognise versioned Python basenames; a versioned full run is gated and recorded like a literal python3 one. |
-| Status | In Progress |
+| PR | https://github.com/richmosko/project_template/pull/203 |
+| Status | In Review |
 
 ## Releases
 
