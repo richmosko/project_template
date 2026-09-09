@@ -30,6 +30,17 @@ header. `sticky` keeps the box in normal flow, so a spacer or
 `padding-top` equal to the header height would double-count and push
 the first card down by a header's worth of dead space -- explicitly
 rejected by the ruling ("AC2 needs no spacer, and must not get one").
+
+Verdict delta 2 (PT-110.md @ 0b26e90): raising the header's own layer
+was never going to be enough -- bits-ui's `[data-bits-floating-
+content-wrapper]` computes `z-index: auto` for EVERY floating overlay
+(popover/dropdown/select/tooltip), so `app.css` needs its own floor
+rule. `FloatingWrapperZIndexFloorTests` scans for it, parse-level (PT-57
+rule: brace-depth block extraction after comment stripping, never a
+substring search that a comment could satisfy falsely). THE SCAN IS
+THE FLOOR, NOT THE PROOF -- no test in either suite renders bits-ui;
+the acceptance is the browser leg (elementFromPoint in the popover's
+top strip must return the popover, not the header).
 """
 from __future__ import annotations
 
@@ -39,10 +50,35 @@ import unittest
 import helpers  # noqa: F401
 
 DASHBOARD_APP_SVELTE = helpers.CAIRN_DIR / "dashboard" / "src" / "App.svelte"
+APP_CSS = helpers.CAIRN_DIR / "dashboard" / "src" / "app.css"
 
 
 def _strip_html_comments(source: str) -> str:
     return re.sub(r"<!--.*?-->", "", source, flags=re.DOTALL)
+
+
+def _strip_css_comments(source: str) -> str:
+    return re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+
+
+def _extract_css_rule_block(source: str, selector: str) -> str:
+    """Same shape as test_base_theme_contrast_gate.py's
+    `_extract_unqualified_block`: comment-strip first, locate `selector
+    {`, then brace-depth-match to the closing `}` -- parse-level, so a
+    selector or declaration mentioned only inside a comment (or a
+    similarly-named but different rule) can never satisfy this."""
+    stripped = _strip_css_comments(source)
+    match = re.search(re.escape(selector) + r"\s*\{", stripped)
+    if not match:
+        return ""
+    depth, i, n = 1, match.end(), len(stripped)
+    while i < n and depth > 0:
+        if stripped[i] == "{":
+            depth += 1
+        elif stripped[i] == "}":
+            depth -= 1
+        i += 1
+    return stripped[match.end() : i - 1]
 
 
 class HeaderStickyPositioningTests(unittest.TestCase):
@@ -172,6 +208,52 @@ class NoSpacerElementBelowTheHeaderTests(unittest.TestCase):
             f"{DASHBOARD_APP_SVELTE}: expected the route switch (`{{#if !onIssueTracking}}`) to "
             f"follow </header> directly (comments aside) -- found {stripped[:80]!r} instead, which "
             f"looks like a spacer element the ruling explicitly forbids (sticky needs none)",
+        )
+
+
+class FloatingWrapperZIndexFloorTests(unittest.TestCase):
+    """Verdict delta 2 (architect, PT-110.md @ 0b26e90): bits-ui's
+    `[data-bits-floating-content-wrapper]` computes `z-index: auto` for
+    every floating overlay (popover/dropdown/select/tooltip), so with
+    the header at a positive `z-40` every overlay sat at layer 0 --
+    invisible until the header was the first thing tall enough to
+    stand on their toes. `app.css` needs a floor rule.
+
+    THE SCAN IS THE FLOOR, NOT THE PROOF (the ruling's own words): no
+    test in either suite renders bits-ui, so this only proves the rule
+    text exists, never that the cascade actually resolves it live. The
+    acceptance is the browser leg -- elementFromPoint in the popover's
+    top strip returning the popover, not the header, on both themes.
+
+    Parse-level throughout (PT-57 rule): brace-depth block extraction
+    after comment-stripping, matching test_base_theme_contrast_gate.py's
+    own `_extract_unqualified_block` shape -- a comment mentioning the
+    selector or `z-index: 50` can never satisfy either assertion."""
+
+    def setUp(self):
+        self.assertTrue(APP_CSS.is_file(), f"{APP_CSS} does not exist")
+        self.source = APP_CSS.read_text(encoding="utf-8")
+        self.body = _extract_css_rule_block(self.source, "[data-bits-floating-content-wrapper]")
+
+    def test_the_floating_wrapper_selector_sets_z_index_50(self):
+        self.assertTrue(
+            self.body,
+            f"{APP_CSS}: no `[data-bits-floating-content-wrapper] {{ ... }}` rule found -- without "
+            f"it every bits-ui floating overlay (popover/dropdown/select/tooltip) computes "
+            f"z-index: auto and sits at layer 0, below the header's z-40 (verdict delta 2)",
+        )
+        self.assertRegex(
+            self.body, r"z-index\s*:\s*50\s*;",
+            f"{APP_CSS}: [data-bits-floating-content-wrapper] must set z-index: 50 -- the floor "
+            f"above the header's z-40 so every portal'd overlay clears it -- rule body: {self.body!r}",
+        )
+
+    def test_the_z_index_declaration_carries_no_important(self):
+        self.assertNotIn(
+            "!important", self.body,
+            f"{APP_CSS}: no !important on the z-index floor -- if bits-ui's own RAF-copied inline "
+            f"z-index DOES land, it must win with the same value (this rule is a floor, not an "
+            f"override, per verdict delta 2) -- rule body: {self.body!r}",
         )
 
 
