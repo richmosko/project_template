@@ -15,16 +15,7 @@
 
 A feature = one cairn issue = one PR = one Implement→Validate loop. Exists only during Implement phase. This is a pointer — the issue file (`process/cairn/issues/<ID>.md`) is the record.
 
-| Field | Value |
-|---|---|
-| Feature | Chart Color: charts wear the selected shadcn chart values exactly |
-| Issue | PT-120 (cairn) |
-| Milestone | PT-0.12.2 |
-| Branch | `feature/pt-120-chart-color-exact-shadcn` |
-| Started | 2026-09-09 |
-| Goal | Selecting a Chart Color makes both charts use that variant's vendored shadcn chart values verbatim; Pink is pink. |
-| PR | https://github.com/richmosko/project_template/pull/212 |
-| Status | In Review |
+_None — between loops. PT-0.12.2's last issue (PT-120) merged as #212 on 2026-09-09; milestone close pending Mosko's approval._
 
 ## Releases
 
