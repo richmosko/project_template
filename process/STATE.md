@@ -17,14 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Test-run hooks: interpreter flags and launchers evade the adjacency anchor |
-| Issue | PT-115 (cairn) |
+| Feature | Test-run ledger: a failing (red) run writes no record — red runs are invisible to loop-stats |
+| Issue | PT-116 (cairn) |
 | Milestone | PT-0.12.2 |
-| Branch | `feature/pt-115-hooks-flags-launchers` |
+| Branch | `feature/pt-116-ledger-records-red-runs` |
 | Started | 2026-09-09 |
-| Goal | A full run invoked with interpreter flags or through uv/poetry is gated, recorded, and counted like a bare python3 one; the false-positive controls stay negative. |
-| PR | https://github.com/richmosko/project_template/pull/207 |
-| Status | In Review |
+| Goal | Every executed run, red or green, through the runner or the hook's scrape path, lands in the ledger with its outcome. |
+| Status | In Progress |
 
 ## Releases
 
