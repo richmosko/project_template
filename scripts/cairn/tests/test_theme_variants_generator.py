@@ -108,20 +108,14 @@ EXPECTED_VARS_BY_DIM = {
     }),
     "chart": frozenset({
         "--chart-1", "--chart-2", "--chart-3", "--chart-4", "--chart-5",
-        # PT-85 (architect ruling 586af1f): the 6-token ordinal
-        # --chart-flow-* ramp is retired entirely -- opened/closed/wip
-        # are categorical, not ordinal, so 3 dedicated tokens replace it
-        # (implementation-lead's own edit, per the ruling's explicit
-        # "the guard edit is yours" -- a forced mechanical consequence
-        # of retiring the ramp this table asserted).
-        "--chart-flow-opened", "--chart-flow-closed", "--chart-flow-wip",
-        # PT-118 (gate-1 ruling c80dee8, item 1): Chart Color now also
-        # drives the counter-type family via the same rotate-then-map
-        # derivation -- ownedVars gains these four, another forced
-        # mechanical consequence of this table (implementation-lead's
-        # own edit, same posture as the PT-85 edit above).
-        "--chart-counter-input", "--chart-counter-cache-write",
-        "--chart-counter-cache-read", "--chart-counter-output",
+        # PT-120 (architect's gate-1 ruling, PT-120.md @fe2a929):
+        # --chart-flow-*/--chart-counter-* are no longer emitted per
+        # variant at all -- they're var(--chart-N) ALIASES declared once
+        # in app.css (PT-118's rotate+gamut-map generator code is
+        # deleted, not bypassed), so this dimension's per-variant CSS
+        # block owns only the ramp itself again (implementation-lead's
+        # own edit, reverting the PT-85/PT-118 additions above -- same
+        # posture, a forced mechanical consequence of this table).
     }),
 }
 

@@ -646,13 +646,6 @@
   --chart-3: oklch(0.666 0.179 58.318);
   --chart-4: oklch(0.555 0.163 48.998);
   --chart-5: oklch(0.473 0.137 46.201);
-  --chart-counter-cache-read: oklch(0.65 0.0777 198.494);
-  --chart-counter-cache-write: oklch(0.575 0.0688 198.494);
-  --chart-counter-input: oklch(0.5 0.0598 198.494);
-  --chart-counter-output: oklch(0.72 0.0861 198.494);
-  --chart-flow-closed: oklch(0.62 0.1637 128.694);
-  --chart-flow-opened: oklch(0.55 0.2 10.394);
-  --chart-flow-wip: oklch(0.62 0.1 194.294);
 }
 
 :root.dark[data-cairn-chart="amber"] {
@@ -661,13 +654,6 @@
   --chart-3: oklch(0.666 0.179 58.318);
   --chart-4: oklch(0.555 0.163 48.998);
   --chart-5: oklch(0.473 0.137 46.201);
-  --chart-counter-cache-read: oklch(0.65 0.0777 198.494);
-  --chart-counter-cache-write: oklch(0.575 0.0688 198.494);
-  --chart-counter-input: oklch(0.5 0.0598 198.494);
-  --chart-counter-output: oklch(0.72 0.0861 198.494);
-  --chart-flow-closed: oklch(0.65 0.15 128.694);
-  --chart-flow-opened: oklch(0.58 0.17 10.394);
-  --chart-flow-wip: oklch(0.6 0.097 194.294);
 }
 
 :root[data-cairn-chart="blue"] {
@@ -676,13 +662,6 @@
   --chart-3: oklch(0.546 0.245 262.881);
   --chart-4: oklch(0.488 0.243 264.376);
   --chart-5: oklch(0.424 0.199 265.638);
-  --chart-counter-cache-read: oklch(0.65 0.0777 358.702);
-  --chart-counter-cache-write: oklch(0.575 0.0688 358.702);
-  --chart-counter-input: oklch(0.5 0.0598 358.702);
-  --chart-counter-output: oklch(0.72 0.0861 358.702);
-  --chart-flow-closed: oklch(0.62 0.18 288.902);
-  --chart-flow-opened: oklch(0.55 0.1081 170.602);
-  --chart-flow-wip: oklch(0.62 0.1 354.502);
 }
 
 :root.dark[data-cairn-chart="blue"] {
@@ -691,13 +670,6 @@
   --chart-3: oklch(0.546 0.245 262.881);
   --chart-4: oklch(0.488 0.243 264.376);
   --chart-5: oklch(0.424 0.199 265.638);
-  --chart-counter-cache-read: oklch(0.65 0.0777 358.702);
-  --chart-counter-cache-write: oklch(0.575 0.0688 358.702);
-  --chart-counter-input: oklch(0.5 0.0598 358.702);
-  --chart-counter-output: oklch(0.72 0.0861 358.702);
-  --chart-flow-closed: oklch(0.65 0.15 288.902);
-  --chart-flow-opened: oklch(0.58 0.114 170.602);
-  --chart-flow-wip: oklch(0.6 0.097 354.502);
 }
 
 :root[data-cairn-chart="cyan"] {
@@ -706,13 +678,6 @@
   --chart-3: oklch(0.609 0.126 221.723);
   --chart-4: oklch(0.52 0.105 223.128);
   --chart-5: oklch(0.45 0.085 224.283);
-  --chart-counter-cache-read: oklch(0.65 0.0777 313.967);
-  --chart-counter-cache-write: oklch(0.575 0.0688 313.967);
-  --chart-counter-input: oklch(0.5 0.0598 313.967);
-  --chart-counter-output: oklch(0.72 0.0861 313.967);
-  --chart-flow-closed: oklch(0.62 0.1534 244.167);
-  --chart-flow-opened: oklch(0.55 0.1397 125.867);
-  --chart-flow-wip: oklch(0.62 0.1 309.767);
 }
 
 :root.dark[data-cairn-chart="cyan"] {
@@ -721,13 +686,6 @@
   --chart-3: oklch(0.609 0.126 221.723);
   --chart-4: oklch(0.52 0.105 223.128);
   --chart-5: oklch(0.45 0.085 224.283);
-  --chart-counter-cache-read: oklch(0.65 0.0777 313.967);
-  --chart-counter-cache-write: oklch(0.575 0.0688 313.967);
-  --chart-counter-input: oklch(0.5 0.0598 313.967);
-  --chart-counter-output: oklch(0.72 0.0861 313.967);
-  --chart-flow-closed: oklch(0.65 0.15 244.167);
-  --chart-flow-opened: oklch(0.58 0.1473 125.867);
-  --chart-flow-wip: oklch(0.6 0.097 309.767);
 }
 
 :root[data-cairn-chart="emerald"] {
@@ -736,13 +694,6 @@
   --chart-3: oklch(0.596 0.145 163.225);
   --chart-4: oklch(0.508 0.118 165.612);
   --chart-5: oklch(0.432 0.095 166.913);
-  --chart-counter-cache-read: oklch(0.65 0.0777 271.867);
-  --chart-counter-cache-write: oklch(0.575 0.0688 271.867);
-  --chart-counter-input: oklch(0.5 0.0598 271.867);
-  --chart-counter-output: oklch(0.72 0.0861 271.867);
-  --chart-flow-closed: oklch(0.62 0.1054 202.067);
-  --chart-flow-opened: oklch(0.55 0.1129 83.767);
-  --chart-flow-wip: oklch(0.62 0.1 267.667);
 }
 
 :root.dark[data-cairn-chart="emerald"] {
@@ -751,13 +702,6 @@
   --chart-3: oklch(0.596 0.145 163.225);
   --chart-4: oklch(0.508 0.118 165.612);
   --chart-5: oklch(0.432 0.095 166.913);
-  --chart-counter-cache-read: oklch(0.65 0.0777 271.867);
-  --chart-counter-cache-write: oklch(0.575 0.0688 271.867);
-  --chart-counter-input: oklch(0.5 0.0598 271.867);
-  --chart-counter-output: oklch(0.72 0.0861 271.867);
-  --chart-flow-closed: oklch(0.65 0.1105 202.067);
-  --chart-flow-opened: oklch(0.58 0.119 83.767);
-  --chart-flow-wip: oklch(0.6 0.097 267.667);
 }
 
 :root[data-cairn-chart="fuchsia"] {
@@ -766,13 +710,6 @@
   --chart-3: oklch(0.591 0.293 322.896);
   --chart-4: oklch(0.518 0.253 323.949);
   --chart-5: oklch(0.452 0.211 324.591);
-  --chart-counter-cache-read: oklch(0.65 0.0777 68.323);
-  --chart-counter-cache-write: oklch(0.575 0.0688 68.323);
-  --chart-counter-input: oklch(0.5 0.0598 68.323);
-  --chart-counter-output: oklch(0.72 0.0861 68.323);
-  --chart-flow-closed: oklch(0.62 0.18 358.523);
-  --chart-flow-opened: oklch(0.55 0.1264 240.223);
-  --chart-flow-wip: oklch(0.62 0.1 64.123);
 }
 
 :root.dark[data-cairn-chart="fuchsia"] {
@@ -781,13 +718,6 @@
   --chart-3: oklch(0.591 0.293 322.896);
   --chart-4: oklch(0.518 0.253 323.949);
   --chart-5: oklch(0.452 0.211 324.591);
-  --chart-counter-cache-read: oklch(0.65 0.0777 68.323);
-  --chart-counter-cache-write: oklch(0.575 0.0688 68.323);
-  --chart-counter-input: oklch(0.5 0.0598 68.323);
-  --chart-counter-output: oklch(0.72 0.0861 68.323);
-  --chart-flow-closed: oklch(0.65 0.15 358.523);
-  --chart-flow-opened: oklch(0.58 0.1333 240.223);
-  --chart-flow-wip: oklch(0.6 0.097 64.123);
 }
 
 :root[data-cairn-chart="green"] {
@@ -796,13 +726,6 @@
   --chart-3: oklch(0.627 0.194 149.214);
   --chart-4: oklch(0.527 0.154 150.069);
   --chart-5: oklch(0.448 0.119 151.328);
-  --chart-counter-cache-read: oklch(0.65 0.0777 261.338);
-  --chart-counter-cache-write: oklch(0.575 0.0688 261.338);
-  --chart-counter-input: oklch(0.5 0.0598 261.338);
-  --chart-counter-output: oklch(0.72 0.0861 261.338);
-  --chart-flow-closed: oklch(0.62 0.1065 191.538);
-  --chart-flow-opened: oklch(0.55 0.117 73.238);
-  --chart-flow-wip: oklch(0.62 0.1 257.138);
 }
 
 :root.dark[data-cairn-chart="green"] {
@@ -811,13 +734,6 @@
   --chart-3: oklch(0.627 0.194 149.214);
   --chart-4: oklch(0.527 0.154 150.069);
   --chart-5: oklch(0.448 0.119 151.328);
-  --chart-counter-cache-read: oklch(0.65 0.0777 261.338);
-  --chart-counter-cache-write: oklch(0.575 0.0688 261.338);
-  --chart-counter-input: oklch(0.5 0.0598 261.338);
-  --chart-counter-output: oklch(0.72 0.0861 261.338);
-  --chart-flow-closed: oklch(0.65 0.1117 191.538);
-  --chart-flow-opened: oklch(0.58 0.1233 73.238);
-  --chart-flow-wip: oklch(0.6 0.097 257.138);
 }
 
 :root[data-cairn-chart="indigo"] {
@@ -826,13 +742,6 @@
   --chart-3: oklch(0.511 0.262 276.966);
   --chart-4: oklch(0.457 0.24 277.023);
   --chart-5: oklch(0.398 0.195 277.366);
-  --chart-counter-cache-read: oklch(0.65 0.0777 21.602);
-  --chart-counter-cache-write: oklch(0.575 0.0688 21.602);
-  --chart-counter-input: oklch(0.5 0.0598 21.602);
-  --chart-counter-output: oklch(0.72 0.0861 21.602);
-  --chart-flow-closed: oklch(0.62 0.18 311.802);
-  --chart-flow-opened: oklch(0.55 0.0941 193.502);
-  --chart-flow-wip: oklch(0.62 0.1 17.402);
 }
 
 :root.dark[data-cairn-chart="indigo"] {
@@ -841,13 +750,6 @@
   --chart-3: oklch(0.511 0.262 276.966);
   --chart-4: oklch(0.457 0.24 277.023);
   --chart-5: oklch(0.398 0.195 277.366);
-  --chart-counter-cache-read: oklch(0.65 0.0777 21.602);
-  --chart-counter-cache-write: oklch(0.575 0.0688 21.602);
-  --chart-counter-input: oklch(0.5 0.0598 21.602);
-  --chart-counter-output: oklch(0.72 0.0861 21.602);
-  --chart-flow-closed: oklch(0.65 0.15 311.802);
-  --chart-flow-opened: oklch(0.58 0.0992 193.502);
-  --chart-flow-wip: oklch(0.6 0.097 17.402);
 }
 
 :root[data-cairn-chart="lime"] {
@@ -856,13 +758,6 @@
   --chart-3: oklch(0.648 0.2 131.684);
   --chart-4: oklch(0.532 0.157 131.589);
   --chart-5: oklch(0.453 0.124 130.933);
-  --chart-counter-cache-read: oklch(0.65 0.0777 233.554);
-  --chart-counter-cache-write: oklch(0.575 0.0688 233.554);
-  --chart-counter-input: oklch(0.5 0.0598 233.554);
-  --chart-counter-output: oklch(0.72 0.0861 233.554);
-  --chart-flow-closed: oklch(0.62 0.1325 163.754);
-  --chart-flow-opened: oklch(0.55 0.156 45.454);
-  --chart-flow-wip: oklch(0.62 0.1 229.354);
 }
 
 :root.dark[data-cairn-chart="lime"] {
@@ -871,13 +766,6 @@
   --chart-3: oklch(0.648 0.2 131.684);
   --chart-4: oklch(0.532 0.157 131.589);
   --chart-5: oklch(0.453 0.124 130.933);
-  --chart-counter-cache-read: oklch(0.65 0.0777 233.554);
-  --chart-counter-cache-write: oklch(0.575 0.0688 233.554);
-  --chart-counter-input: oklch(0.5 0.0598 233.554);
-  --chart-counter-output: oklch(0.72 0.0861 233.554);
-  --chart-flow-closed: oklch(0.65 0.1389 163.754);
-  --chart-flow-opened: oklch(0.58 0.1645 45.454);
-  --chart-flow-wip: oklch(0.6 0.097 229.354);
 }
 
 :root[data-cairn-chart="mauve"] {
@@ -886,13 +774,6 @@
   --chart-3: oklch(0.435 0.029 321.78);
   --chart-4: oklch(0.364 0.029 323.89);
   --chart-5: oklch(0.263 0.024 320.12);
-  --chart-counter-cache-read: oklch(0.65 0.0777 72.569);
-  --chart-counter-cache-write: oklch(0.575 0.0688 72.569);
-  --chart-counter-input: oklch(0.5 0.0598 72.569);
-  --chart-counter-output: oklch(0.72 0.0861 72.569);
-  --chart-flow-closed: oklch(0.62 0.18 2.769);
-  --chart-flow-opened: oklch(0.55 0.1369 244.469);
-  --chart-flow-wip: oklch(0.62 0.1 68.369);
 }
 
 :root.dark[data-cairn-chart="mauve"] {
@@ -901,13 +782,6 @@
   --chart-3: oklch(0.435 0.029 321.78);
   --chart-4: oklch(0.364 0.029 323.89);
   --chart-5: oklch(0.263 0.024 320.12);
-  --chart-counter-cache-read: oklch(0.65 0.0777 72.569);
-  --chart-counter-cache-write: oklch(0.575 0.0688 72.569);
-  --chart-counter-input: oklch(0.5 0.0598 72.569);
-  --chart-counter-output: oklch(0.72 0.0861 72.569);
-  --chart-flow-closed: oklch(0.65 0.15 2.769);
-  --chart-flow-opened: oklch(0.58 0.1443 244.469);
-  --chart-flow-wip: oklch(0.6 0.097 68.369);
 }
 
 :root[data-cairn-chart="mist"] {
@@ -916,13 +790,6 @@
   --chart-3: oklch(0.45 0.017 213.2);
   --chart-4: oklch(0.378 0.015 216);
   --chart-5: oklch(0.275 0.011 216.9);
-  --chart-counter-cache-read: oklch(0.65 0.0777 326.489);
-  --chart-counter-cache-write: oklch(0.575 0.0688 326.489);
-  --chart-counter-input: oklch(0.5 0.0598 326.489);
-  --chart-counter-output: oklch(0.72 0.0861 326.489);
-  --chart-flow-closed: oklch(0.62 0.18 256.689);
-  --chart-flow-opened: oklch(0.55 0.1712 138.389);
-  --chart-flow-wip: oklch(0.62 0.1 322.289);
 }
 
 :root.dark[data-cairn-chart="mist"] {
@@ -931,13 +798,6 @@
   --chart-3: oklch(0.45 0.017 213.2);
   --chart-4: oklch(0.378 0.015 216);
   --chart-5: oklch(0.275 0.011 216.9);
-  --chart-counter-cache-read: oklch(0.65 0.0777 326.489);
-  --chart-counter-cache-write: oklch(0.575 0.0688 326.489);
-  --chart-counter-input: oklch(0.5 0.0598 326.489);
-  --chart-counter-output: oklch(0.72 0.0861 326.489);
-  --chart-flow-closed: oklch(0.65 0.15 256.689);
-  --chart-flow-opened: oklch(0.58 0.17 138.389);
-  --chart-flow-wip: oklch(0.6 0.097 322.289);
 }
 
 :root[data-cairn-chart="neutral"] {
@@ -946,13 +806,6 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --chart-counter-cache-read: oklch(0.65 0.0777 106.889);
-  --chart-counter-cache-write: oklch(0.575 0.0688 106.889);
-  --chart-counter-input: oklch(0.5 0.0598 106.889);
-  --chart-counter-output: oklch(0.72 0.0861 106.889);
-  --chart-flow-closed: oklch(0.62 0.18 37.089);
-  --chart-flow-opened: oklch(0.55 0.2 278.789);
-  --chart-flow-wip: oklch(0.62 0.1 102.689);
 }
 
 :root.dark[data-cairn-chart="neutral"] {
@@ -961,13 +814,6 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --chart-counter-cache-read: oklch(0.65 0.0777 106.889);
-  --chart-counter-cache-write: oklch(0.575 0.0688 106.889);
-  --chart-counter-input: oklch(0.5 0.0598 106.889);
-  --chart-counter-output: oklch(0.72 0.0861 106.889);
-  --chart-flow-closed: oklch(0.65 0.15 37.089);
-  --chart-flow-opened: oklch(0.58 0.17 278.789);
-  --chart-flow-wip: oklch(0.6 0.097 102.689);
 }
 
 :root[data-cairn-chart="olive"] {
@@ -976,13 +822,6 @@
   --chart-3: oklch(0.466 0.025 107.3);
   --chart-4: oklch(0.394 0.023 107.4);
   --chart-5: oklch(0.286 0.016 107.4);
-  --chart-counter-cache-read: oklch(0.65 0.0777 213.489);
-  --chart-counter-cache-write: oklch(0.575 0.0688 213.489);
-  --chart-counter-input: oklch(0.5 0.0598 213.489);
-  --chart-counter-output: oklch(0.72 0.0861 213.489);
-  --chart-flow-closed: oklch(0.62 0.18 143.689);
-  --chart-flow-opened: oklch(0.55 0.2 25.389);
-  --chart-flow-wip: oklch(0.62 0.1 209.289);
 }
 
 :root.dark[data-cairn-chart="olive"] {
@@ -991,13 +830,6 @@
   --chart-3: oklch(0.466 0.025 107.3);
   --chart-4: oklch(0.394 0.023 107.4);
   --chart-5: oklch(0.286 0.016 107.4);
-  --chart-counter-cache-read: oklch(0.65 0.0777 213.489);
-  --chart-counter-cache-write: oklch(0.575 0.0688 213.489);
-  --chart-counter-input: oklch(0.5 0.0598 213.489);
-  --chart-counter-output: oklch(0.72 0.0861 213.489);
-  --chart-flow-closed: oklch(0.65 0.15 143.689);
-  --chart-flow-opened: oklch(0.58 0.17 25.389);
-  --chart-flow-wip: oklch(0.6 0.097 209.289);
 }
 
 :root[data-cairn-chart="orange"] {
@@ -1006,13 +838,6 @@
   --chart-3: oklch(0.646 0.222 41.116);
   --chart-4: oklch(0.553 0.195 38.402);
   --chart-5: oklch(0.47 0.157 37.304);
-  --chart-counter-cache-read: oklch(0.65 0.0777 173.179);
-  --chart-counter-cache-write: oklch(0.575 0.0688 173.179);
-  --chart-counter-input: oklch(0.5 0.0598 173.179);
-  --chart-counter-output: oklch(0.72 0.0861 173.179);
-  --chart-flow-closed: oklch(0.62 0.1305 103.379);
-  --chart-flow-opened: oklch(0.55 0.2 345.079);
-  --chart-flow-wip: oklch(0.62 0.1 168.979);
 }
 
 :root.dark[data-cairn-chart="orange"] {
@@ -1021,13 +846,6 @@
   --chart-3: oklch(0.646 0.222 41.116);
   --chart-4: oklch(0.553 0.195 38.402);
   --chart-5: oklch(0.47 0.157 37.304);
-  --chart-counter-cache-read: oklch(0.65 0.0777 173.179);
-  --chart-counter-cache-write: oklch(0.575 0.0688 173.179);
-  --chart-counter-input: oklch(0.5 0.0598 173.179);
-  --chart-counter-output: oklch(0.72 0.0861 173.179);
-  --chart-flow-closed: oklch(0.65 0.1368 103.379);
-  --chart-flow-opened: oklch(0.58 0.17 345.079);
-  --chart-flow-wip: oklch(0.6 0.097 168.979);
 }
 
 :root[data-cairn-chart="pink"] {
@@ -1036,13 +854,6 @@
   --chart-3: oklch(0.592 0.249 0.584);
   --chart-4: oklch(0.525 0.223 3.958);
   --chart-5: oklch(0.459 0.187 3.815);
-  --chart-counter-cache-read: oklch(0.65 0.0777 92.907);
-  --chart-counter-cache-write: oklch(0.575 0.0688 92.907);
-  --chart-counter-input: oklch(0.5 0.0598 92.907);
-  --chart-counter-output: oklch(0.72 0.0861 92.907);
-  --chart-flow-closed: oklch(0.62 0.18 23.107);
-  --chart-flow-opened: oklch(0.55 0.2 264.807);
-  --chart-flow-wip: oklch(0.62 0.1 88.707);
 }
 
 :root.dark[data-cairn-chart="pink"] {
@@ -1051,13 +862,6 @@
   --chart-3: oklch(0.592 0.249 0.584);
   --chart-4: oklch(0.525 0.223 3.958);
   --chart-5: oklch(0.459 0.187 3.815);
-  --chart-counter-cache-read: oklch(0.65 0.0777 92.907);
-  --chart-counter-cache-write: oklch(0.575 0.0688 92.907);
-  --chart-counter-input: oklch(0.5 0.0598 92.907);
-  --chart-counter-output: oklch(0.72 0.0861 92.907);
-  --chart-flow-closed: oklch(0.65 0.15 23.107);
-  --chart-flow-opened: oklch(0.58 0.17 264.807);
-  --chart-flow-wip: oklch(0.6 0.097 88.707);
 }
 
 :root[data-cairn-chart="purple"] {
@@ -1066,13 +870,6 @@
   --chart-3: oklch(0.558 0.288 302.321);
   --chart-4: oklch(0.496 0.265 301.924);
   --chart-5: oklch(0.438 0.218 303.724);
-  --chart-counter-cache-read: oklch(0.65 0.0777 53.272);
-  --chart-counter-cache-write: oklch(0.575 0.0688 53.272);
-  --chart-counter-input: oklch(0.5 0.0598 53.272);
-  --chart-counter-output: oklch(0.72 0.0861 53.272);
-  --chart-flow-closed: oklch(0.62 0.18 343.472);
-  --chart-flow-opened: oklch(0.55 0.1043 225.172);
-  --chart-flow-wip: oklch(0.62 0.1 49.072);
 }
 
 :root.dark[data-cairn-chart="purple"] {
@@ -1081,13 +878,6 @@
   --chart-3: oklch(0.558 0.288 302.321);
   --chart-4: oklch(0.496 0.265 301.924);
   --chart-5: oklch(0.438 0.218 303.724);
-  --chart-counter-cache-read: oklch(0.65 0.0777 53.272);
-  --chart-counter-cache-write: oklch(0.575 0.0688 53.272);
-  --chart-counter-input: oklch(0.5 0.0598 53.272);
-  --chart-counter-output: oklch(0.72 0.0861 53.272);
-  --chart-flow-closed: oklch(0.65 0.15 343.472);
-  --chart-flow-opened: oklch(0.58 0.11 225.172);
-  --chart-flow-wip: oklch(0.6 0.097 49.072);
 }
 
 :root[data-cairn-chart="red"] {
@@ -1096,13 +886,6 @@
   --chart-3: oklch(0.577 0.245 27.325);
   --chart-4: oklch(0.505 0.213 27.518);
   --chart-5: oklch(0.444 0.177 26.899);
-  --chart-counter-cache-read: oklch(0.65 0.0777 126.46);
-  --chart-counter-cache-write: oklch(0.575 0.0688 126.46);
-  --chart-counter-input: oklch(0.5 0.0598 126.46);
-  --chart-counter-output: oklch(0.72 0.0861 126.46);
-  --chart-flow-closed: oklch(0.62 0.1505 56.66);
-  --chart-flow-opened: oklch(0.55 0.2 298.36);
-  --chart-flow-wip: oklch(0.62 0.1 122.26);
 }
 
 :root.dark[data-cairn-chart="red"] {
@@ -1111,13 +894,6 @@
   --chart-3: oklch(0.577 0.245 27.325);
   --chart-4: oklch(0.505 0.213 27.518);
   --chart-5: oklch(0.444 0.177 26.899);
-  --chart-counter-cache-read: oklch(0.65 0.0777 126.46);
-  --chart-counter-cache-write: oklch(0.575 0.0688 126.46);
-  --chart-counter-input: oklch(0.5 0.0598 126.46);
-  --chart-counter-output: oklch(0.72 0.0861 126.46);
-  --chart-flow-closed: oklch(0.65 0.15 56.66);
-  --chart-flow-opened: oklch(0.58 0.17 298.36);
-  --chart-flow-wip: oklch(0.6 0.097 122.26);
 }
 
 :root[data-cairn-chart="rose"] {
@@ -1126,13 +902,6 @@
   --chart-3: oklch(0.586 0.253 17.585);
   --chart-4: oklch(0.514 0.222 16.935);
   --chart-5: oklch(0.455 0.188 13.697);
-  --chart-counter-cache-read: oklch(0.65 0.0777 118.527);
-  --chart-counter-cache-write: oklch(0.575 0.0688 118.527);
-  --chart-counter-input: oklch(0.5 0.0598 118.527);
-  --chart-counter-output: oklch(0.72 0.0861 118.527);
-  --chart-flow-closed: oklch(0.62 0.1669 48.727);
-  --chart-flow-opened: oklch(0.55 0.2 290.427);
-  --chart-flow-wip: oklch(0.62 0.1 114.327);
 }
 
 :root.dark[data-cairn-chart="rose"] {
@@ -1141,13 +910,6 @@
   --chart-3: oklch(0.586 0.253 17.585);
   --chart-4: oklch(0.514 0.222 16.935);
   --chart-5: oklch(0.455 0.188 13.697);
-  --chart-counter-cache-read: oklch(0.65 0.0777 118.527);
-  --chart-counter-cache-write: oklch(0.575 0.0688 118.527);
-  --chart-counter-input: oklch(0.5 0.0598 118.527);
-  --chart-counter-output: oklch(0.72 0.0861 118.527);
-  --chart-flow-closed: oklch(0.65 0.15 48.727);
-  --chart-flow-opened: oklch(0.58 0.17 290.427);
-  --chart-flow-wip: oklch(0.6 0.097 114.327);
 }
 
 :root[data-cairn-chart="sky"] {
@@ -1156,13 +918,6 @@
   --chart-3: oklch(0.588 0.158 241.966);
   --chart-4: oklch(0.5 0.134 242.749);
   --chart-5: oklch(0.443 0.11 240.79);
-  --chart-counter-cache-read: oklch(0.65 0.0777 337.207);
-  --chart-counter-cache-write: oklch(0.575 0.0688 337.207);
-  --chart-counter-input: oklch(0.5 0.0598 337.207);
-  --chart-counter-output: oklch(0.72 0.0861 337.207);
-  --chart-flow-closed: oklch(0.62 0.18 267.407);
-  --chart-flow-opened: oklch(0.55 0.1547 149.107);
-  --chart-flow-wip: oklch(0.62 0.1 333.007);
 }
 
 :root.dark[data-cairn-chart="sky"] {
@@ -1171,13 +926,6 @@
   --chart-3: oklch(0.588 0.158 241.966);
   --chart-4: oklch(0.5 0.134 242.749);
   --chart-5: oklch(0.443 0.11 240.79);
-  --chart-counter-cache-read: oklch(0.65 0.0777 337.207);
-  --chart-counter-cache-write: oklch(0.575 0.0688 337.207);
-  --chart-counter-input: oklch(0.5 0.0598 337.207);
-  --chart-counter-output: oklch(0.72 0.0861 337.207);
-  --chart-flow-closed: oklch(0.65 0.15 267.407);
-  --chart-flow-opened: oklch(0.58 0.1632 149.107);
-  --chart-flow-wip: oklch(0.6 0.097 333.007);
 }
 
 :root[data-cairn-chart="stone"] {
@@ -1186,13 +934,6 @@
   --chart-3: oklch(0.444 0.011 73.639);
   --chart-4: oklch(0.374 0.01 67.558);
   --chart-5: oklch(0.268 0.007 34.298);
-  --chart-counter-cache-read: oklch(0.65 0.0777 163.255);
-  --chart-counter-cache-write: oklch(0.575 0.0688 163.255);
-  --chart-counter-input: oklch(0.5 0.0598 163.255);
-  --chart-counter-output: oklch(0.72 0.0861 163.255);
-  --chart-flow-closed: oklch(0.62 0.127 93.455);
-  --chart-flow-opened: oklch(0.55 0.2 335.155);
-  --chart-flow-wip: oklch(0.62 0.1 159.055);
 }
 
 :root.dark[data-cairn-chart="stone"] {
@@ -1201,13 +942,6 @@
   --chart-3: oklch(0.444 0.011 73.639);
   --chart-4: oklch(0.374 0.01 67.558);
   --chart-5: oklch(0.268 0.007 34.298);
-  --chart-counter-cache-read: oklch(0.65 0.0777 163.255);
-  --chart-counter-cache-write: oklch(0.575 0.0688 163.255);
-  --chart-counter-input: oklch(0.5 0.0598 163.255);
-  --chart-counter-output: oklch(0.72 0.0861 163.255);
-  --chart-flow-closed: oklch(0.65 0.1331 93.455);
-  --chart-flow-opened: oklch(0.58 0.17 335.155);
-  --chart-flow-wip: oklch(0.6 0.097 159.055);
 }
 
 :root[data-cairn-chart="taupe"] {
@@ -1216,13 +950,6 @@
   --chart-3: oklch(0.438 0.017 39.3);
   --chart-4: oklch(0.367 0.016 35.7);
   --chart-5: oklch(0.268 0.011 36.5);
-  --chart-counter-cache-read: oklch(0.65 0.0777 146.389);
-  --chart-counter-cache-write: oklch(0.575 0.0688 146.389);
-  --chart-counter-input: oklch(0.5 0.0598 146.389);
-  --chart-counter-output: oklch(0.72 0.0861 146.389);
-  --chart-flow-closed: oklch(0.62 0.1299 76.589);
-  --chart-flow-opened: oklch(0.55 0.2 318.289);
-  --chart-flow-wip: oklch(0.62 0.1 142.189);
 }
 
 :root.dark[data-cairn-chart="taupe"] {
@@ -1231,13 +958,6 @@
   --chart-3: oklch(0.438 0.017 39.3);
   --chart-4: oklch(0.367 0.016 35.7);
   --chart-5: oklch(0.268 0.011 36.5);
-  --chart-counter-cache-read: oklch(0.65 0.0777 146.389);
-  --chart-counter-cache-write: oklch(0.575 0.0688 146.389);
-  --chart-counter-input: oklch(0.5 0.0598 146.389);
-  --chart-counter-output: oklch(0.72 0.0861 146.389);
-  --chart-flow-closed: oklch(0.65 0.1362 76.589);
-  --chart-flow-opened: oklch(0.58 0.17 318.289);
-  --chart-flow-wip: oklch(0.6 0.097 142.189);
 }
 
 :root[data-cairn-chart="teal"] {
@@ -1246,13 +966,6 @@
   --chart-3: oklch(0.6 0.118 184.704);
   --chart-4: oklch(0.511 0.096 186.391);
   --chart-5: oklch(0.437 0.078 188.216);
-  --chart-counter-cache-read: oklch(0.65 0.0777 287.96);
-  --chart-counter-cache-write: oklch(0.575 0.0688 287.96);
-  --chart-counter-input: oklch(0.5 0.0598 287.96);
-  --chart-counter-output: oklch(0.72 0.0861 287.96);
-  --chart-flow-closed: oklch(0.62 0.1115 218.16);
-  --chart-flow-opened: oklch(0.55 0.1142 99.86);
-  --chart-flow-wip: oklch(0.62 0.1 283.76);
 }
 
 :root.dark[data-cairn-chart="teal"] {
@@ -1261,13 +974,6 @@
   --chart-3: oklch(0.6 0.118 184.704);
   --chart-4: oklch(0.511 0.096 186.391);
   --chart-5: oklch(0.437 0.078 188.216);
-  --chart-counter-cache-read: oklch(0.65 0.0777 287.96);
-  --chart-counter-cache-write: oklch(0.575 0.0688 287.96);
-  --chart-counter-input: oklch(0.5 0.0598 287.96);
-  --chart-counter-output: oklch(0.72 0.0861 287.96);
-  --chart-flow-closed: oklch(0.65 0.1169 218.16);
-  --chart-flow-opened: oklch(0.58 0.1205 99.86);
-  --chart-flow-wip: oklch(0.6 0.097 283.76);
 }
 
 :root[data-cairn-chart="violet"] {
@@ -1276,13 +982,6 @@
   --chart-3: oklch(0.541 0.281 293.009);
   --chart-4: oklch(0.491 0.27 292.581);
   --chart-5: oklch(0.432 0.232 292.759);
-  --chart-counter-cache-read: oklch(0.65 0.0777 40.46);
-  --chart-counter-cache-write: oklch(0.575 0.0688 40.46);
-  --chart-counter-input: oklch(0.5 0.0598 40.46);
-  --chart-counter-output: oklch(0.72 0.0861 40.46);
-  --chart-flow-closed: oklch(0.62 0.18 330.66);
-  --chart-flow-opened: oklch(0.55 0.0959 212.36);
-  --chart-flow-wip: oklch(0.62 0.1 36.26);
 }
 
 :root.dark[data-cairn-chart="violet"] {
@@ -1291,13 +990,6 @@
   --chart-3: oklch(0.541 0.281 293.009);
   --chart-4: oklch(0.491 0.27 292.581);
   --chart-5: oklch(0.432 0.232 292.759);
-  --chart-counter-cache-read: oklch(0.65 0.0777 40.46);
-  --chart-counter-cache-write: oklch(0.575 0.0688 40.46);
-  --chart-counter-input: oklch(0.5 0.0598 40.46);
-  --chart-counter-output: oklch(0.72 0.0861 40.46);
-  --chart-flow-closed: oklch(0.65 0.15 330.66);
-  --chart-flow-opened: oklch(0.58 0.1012 212.36);
-  --chart-flow-wip: oklch(0.6 0.097 36.26);
 }
 
 :root[data-cairn-chart="zinc"] {
@@ -1306,13 +998,6 @@
   --chart-3: oklch(0.442 0.017 285.786);
   --chart-4: oklch(0.37 0.013 285.805);
   --chart-5: oklch(0.274 0.006 286.033);
-  --chart-counter-cache-read: oklch(0.65 0.0777 33.175);
-  --chart-counter-cache-write: oklch(0.575 0.0688 33.175);
-  --chart-counter-input: oklch(0.5 0.0598 33.175);
-  --chart-counter-output: oklch(0.72 0.0861 33.175);
-  --chart-flow-closed: oklch(0.62 0.18 323.375);
-  --chart-flow-opened: oklch(0.55 0.0939 205.075);
-  --chart-flow-wip: oklch(0.62 0.1 28.975);
 }
 
 :root.dark[data-cairn-chart="zinc"] {
@@ -1321,11 +1006,4 @@
   --chart-3: oklch(0.442 0.017 285.786);
   --chart-4: oklch(0.37 0.013 285.805);
   --chart-5: oklch(0.274 0.006 286.033);
-  --chart-counter-cache-read: oklch(0.65 0.0777 33.175);
-  --chart-counter-cache-write: oklch(0.575 0.0688 33.175);
-  --chart-counter-input: oklch(0.5 0.0598 33.175);
-  --chart-counter-output: oklch(0.72 0.0861 33.175);
-  --chart-flow-closed: oklch(0.65 0.15 323.375);
-  --chart-flow-opened: oklch(0.58 0.099 205.075);
-  --chart-flow-wip: oklch(0.6 0.097 28.975);
 }

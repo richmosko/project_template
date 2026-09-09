@@ -74,92 +74,33 @@
 	--chart-3: oklch(0.681 0.162 75.834);
 	--chart-4: oklch(0.554 0.135 66.442);
 	--chart-5: oklch(0.476 0.114 61.907);
-	/* PT-85 (architect ruling 409d310 §7/§9, retired the PT-61 ordinal
-	   ramp entirely, 586af1f): the throughput chart's 3 series --
-	   opened/closed (two bars a reader must contrast at a glance) and
-	   wip (a distinct mark) -- are CATEGORICAL, not ordinal, so an
-	   ordinal ramp (even a re-stepped one) is the wrong encoding
-	   regardless of step count. team-lead's decision (69bee40): three
-	   NEW dedicated tokens (not --chart-1..5, itself measurably the
-	   same single-hue-ramp shape; not --chart-role-*, borrowed from an
-	   unrelated series on this same page).
-
-	   NOT the literal named swatches from the dataviz skill's palette
-	   (.claude/skills/dataviz/references/palette.md) -- measured
-	   (implementation-lead): all 8 named colors sit within the
-	   architect's own pre-registered 25 deg role-collision floor
-	   (9336826) of SOME --chart-role-* hue, in at least one mode (worst
-	   cases: green 22.5 deg from role-8/165 deg, red 22.1-24.7 deg from
-	   role-7/47 deg) -- no 3-subset of the 8 satisfies the floor, so the
-	   literal-palette instruction and the pre-registered threshold are
-	   jointly unsatisfiable. Built instead at the architect's OWN
-	   suggested placements from that same pre-registration -- the three
-	   widest gaps between role hues, at their midpoints (16.9 / 135.2 /
-	   200.8 deg) -- with L/C independently tuned (not copied from any
-	   palette.md swatch) to also clear the dataviz validator's other
-	   checks (lightness band, chroma floor, CVD separation, contrast).
-	   validate_palette.js (PT-85, interim):
-	     light (#ffffff surface): ALL CHECKS PASS -- one WARN, contrast
-	       (closed/#63-equivalent 2.73:1, below 3:1) -- mitigated: the
-	       chart always carries a text legend + tooltip (direct labels),
-	       the skill's own stated relief for this WARN band.
-	     dark (#1c1917 surface): ALL CHECKS PASS -- one WARN, CVD
-	       separation (opened/closed deutan ΔE 7.1, in the 6-8 "legal
-	       only with secondary encoding" band) -- same legend/tooltip
-	       mitigation.
-	   Role-collision: 16.9/135.2/200.8 deg are each ~30 deg from the
-	   nearest of 252/76.8/300/346/236/105/47/165 deg (>= the 25 deg
-	   floor); pairwise 118.3/65.6/176.1 deg (>= the 60 deg floor).
-
-	   PT-92 (ux-designer ratification, 2026-09-08): hues (16.9/135.2/
-	   200.8 deg), role-collision and pairwise margins, opened, wip, and
-	   both dark-mode values RATIFIED as-is -- the architect's placements
-	   already clear every hard floor with real margin. ONE value
-	   REPLACED: light-mode --chart-flow-closed, L 0.68 -> 0.62 (C 0.18
-	   and H 135.2 unchanged, so both mechanical guards -- pairwise and
-	   role-collision, hue-only -- are untouched by this edit). Reason:
-	   PT-92 moves this series from a filled Bars mark to a stroked line,
-	   and per this same ticket's own coincidence fix (see
-	   IssueFlowChart.svelte's per-series dash pattern) --closed-- is
-	   drawn as a DASHED line ON TOP of --opened--'s solid line, so at
-	   any x where the two coincide the reader depends on --closed--'s
-	   own contrast to resolve it in the dash gaps, not on fill area the
-	   way a bar's WARN-with-legend mitigation assumed. Measured (own
-	   OKLCH->sRGB + WCAG relative-luminance reimplementation, matching
-	   this doc's standing "flagging the method, not asserting precision"
-	   posture -- the dataviz skill's validate_palette.js was not
-	   reachable this session): old value #63af2a vs #ffffff = 2.72:1
-	   (the WARN); new value #509c06 vs #ffffff = 3.44:1 (float model)
-	   and 3.44:1 (quantized-hex model, both computed to guard against
-	   the PT-69 "gap between models" failure mode) -- clears the WCAG
-	   1.4.11 non-text-contrast floor (3:1) outright, no WARN, no legend
-	   dependency. Deuteranopia/protanopia re-check (Machado, Oliveira &
-	   Fairchild 2009, severity 1.0, own reimplementation): opened/closed
-	   simulated-RGB separation narrows slightly at the darker L (a real,
-	   flagged trade -- darkening closed toward opened's own L reduces
-	   their shared-channel spread under deutan simulation) but
-	   closed/wip separation widens by more than that loss, and light
-	   mode carried no CVD WARN before this change (unlike dark mode's
-	   already-accepted opened/closed WARN) -- re-run through the actual
-	   skill script before final lock, per this doc's standing caveat.
-	   Dark-mode --chart-flow-closed is UNCHANGED (0.65/0.15/135.2,
-	   5.69:1 against the dark card already, no line-vs-bar contrast
-	   risk to fix). Line treatment (weight, dash/marker pattern, legend,
-	   WIP-on-axis remedy) is specified on the PT-92 issue file, not
-	   here -- this file only carries token values. */
-	--chart-flow-opened: oklch(0.55 0.20 16.9);
-	--chart-flow-closed: oklch(0.62 0.18 135.2);
-	/* PT-118 (ux-designer's re-authoring, PT-118.md @2026-09-09, following
-	   the architect's gate-1 gamut finding): the PT-92-ratified
-	   0.62/0.15/200.8 is OUT OF GAMUT (unclamped check: red channel
-	   -0.091) -- it was never a real, renderable colour; every browser
-	   silently gamut-mapped it before painting a pixel. Re-authored to
-	   the in-gamut maximum chroma at this L/h, minus ~5% headroom
-	   (0.10542 max -> 0.100): L and h UNCHANGED, so the pairwise/
-	   role-collision guards (hue-only) are untouched. Contrast vs --card
-	   3.49:1 (was never a real measurement before). This is also the
-	   Chart Color rotation's yellow/Δh=0 anchor (gen_variants.py). */
-	--chart-flow-wip: oklch(0.62 0.100 200.8);
+	/* PT-120 (architect's gate-1 ruling, PT-120.md @fe2a929; ux-designer's
+	   mapping, same issue): the throughput chart's 3 series are now
+	   var(--chart-N) ALIASES of the selected Chart Color variant's own
+	   vendored shadcn ramp -- declared ONCE here, no per-variant CSS
+	   block, no derivation math (gen_variants.py's rotate+gamut-map
+	   machinery from PT-118 is deleted). Mapping: opened/closed/wip ->
+	   chart-1/3/5 -- the widest achievable lightness spread within a
+	   5-step ramp (measured: the only triple of five clearing categorical
+	   ΔE >= 0.06 with margin in all 24 variants, min 0.1195). PT-92's
+	   pairwise-hue (>=60 deg) and role-collision guards are RETIRED for
+	   this family: a single-hue ordinal ramp's pairwise hue spread tops
+	   out under 25 deg by construction (measured: min hue gap 0.2 deg,
+	   all 48 variant x mode combinations fail) -- replaced by categorical
+	   ΔE and the hue-independent dash/marker coincidence mechanism
+	   (IssueFlowChart.svelte), unaffected by this change. PT-83's 2:1
+	   contrast floor and the sRGB gamut check are also retired to a
+	   RECORDED OBSERVATION, never a nudge or a gate -- Mosko's steer is
+	   that these values must be EXACT (see design-system-spec.md's
+	   "Chart-local ramp" section for the observation tables: contrast
+	   misses, gamut overshoots, counter-adjacency risks). No two flow
+	   series can ever collide -- chart-1..5 is monotonic in lightness by
+	   construction. The retired PT-85/PT-92/PT-118 literal values and
+	   their own placement rationale are prior history now superseded --
+	   see those issue files for the archaeology, not this comment. */
+	--chart-flow-opened: var(--chart-1);
+	--chart-flow-closed: var(--chart-3);
+	--chart-flow-wip: var(--chart-5);
 	/* PT-79: the token/cost dashboard block's ROLE stack -- categorical
 	   (unordered), not ordinal, so this is a DIFFERENT validator shape
 	   from the flow ramp above (minimum pairwise OKLab dE, not monotone
@@ -187,20 +128,23 @@
 	--chart-role-guard-aux: oklch(0.700 0.015 56.0);          /* auxiliary series */
 	--chart-role-guard-unattributed: oklch(0.440 0.020 56.0); /* subagent-unattributed series */
 	--chart-role-other: oklch(0.600 0.010 56.0);              /* grouped roles outside ROLE_TOKEN_ORDER */
-	/* PT-79 (ux-designer's ruling, f9c6417): dedicated counter-type
-	   palette for the tokens-view stacked series (input/cache_write/
-	   cache_read/output) -- rejects reusing --chart-role-* (a real
-	   semantic-meaning collision, same class of issue as PT-69's Paused
-	   badge fix) and --chart-flow-* (the ordinal backlog->done ramp,
-	   deliberately near-identical adjacent steps, the opposite of what
-	   a 4-way categorical split needs). Muted cyan/teal family (H
-	   205.0), distinct in character from both the golden ordinal ramp
-	   and the 8-hue role rainbow. Identical in :root/.dark (validated
-	   against both real --card surfaces). */
-	--chart-counter-input: oklch(0.500 0.0598 205.0);
-	--chart-counter-cache-write: oklch(0.575 0.0688 205.0);
-	--chart-counter-cache-read: oklch(0.650 0.0777 205.0);
-	--chart-counter-output: oklch(0.720 0.0861 205.0);
+	/* PT-120: the token chart's counter-type series are also var(--chart-N)
+	   aliases now, superseding PT-79's dedicated muted cyan/teal palette
+	   entirely -- see the flow comment above for the mapping rationale.
+	   output/cache-read/cache-write/input -> chart-2/3/4/5 (chart-1
+	   deliberately UNUSED here -- it fails the 2:1 contrast floor against
+	   white in every variant, on record since 2026-08-28, and counter has
+	   no pattern-based fallback the way flow's dash/marker treatment
+	   does), preserving today's light=output/dark=input direction.
+	   Correction (architect, measured): contiguous chart-5/4/3/2 leaves
+	   4 variants (violet/indigo/blue/rose) with adjacent steps below the
+	   categorical ΔE 0.06 floor -- recorded as an observation
+	   (design-system-spec.md), not fixed, per the same "exact outranks
+	   the floor" steer. */
+	--chart-counter-input: var(--chart-5);
+	--chart-counter-cache-write: var(--chart-4);
+	--chart-counter-cache-read: var(--chart-3);
+	--chart-counter-output: var(--chart-2);
 	--radius: 0.625rem;
 	--sidebar: oklch(0.985 0.001 106.423);
 	--sidebar-foreground: oklch(0.147 0.004 49.25);
@@ -254,21 +198,13 @@
 	--chart-3: oklch(0.681 0.162 75.834);
 	--chart-4: oklch(0.554 0.135 66.442);
 	--chart-5: oklch(0.476 0.114 61.907);
-	/* PT-85, RATIFIED unchanged by PT-92 (ux-designer, 2026-09-08):
-	   dataviz skill's validated categorical palette, dark-mode values
-	   -- red/green/violet, chosen to avoid every --chart-role-* hue on
-	   this page and validated via validate_palette.js against this
-	   block's own --card surface (#1c1917). Already 5.69:1 contrast for
-	   --chart-flow-closed against this surface -- no line-vs-bar
-	   contrast risk here, unlike the light-mode value. See :root's
-	   comment for the full picks + validator output + the one light-
-	   mode replacement, recorded on PT-85/PT-92. */
-	--chart-flow-opened: oklch(0.58 0.17 16.9);
-	--chart-flow-closed: oklch(0.65 0.15 135.2);
-	/* PT-118: see :root's comment -- re-authored in-gamut max minus ~5%
-	   headroom (0.10202 max -> 0.097); L/h unchanged. Contrast vs --card
-	   4.63:1 (was never a real measurement before). */
-	--chart-flow-wip: oklch(0.60 0.097 200.8);
+	/* PT-120: see :root's comment -- same var(--chart-N) alias mapping,
+	   mode-invariant (aliases resolve through the cascade regardless of
+	   mode). Prior PT-85/PT-92 literal dark-mode values retired; see
+	   :root's comment and those issue files for the archaeology. */
+	--chart-flow-opened: var(--chart-1);
+	--chart-flow-closed: var(--chart-3);
+	--chart-flow-wip: var(--chart-5);
 	/* PT-79: see :root's comment -- identical values, both real --card
 	   surfaces validated independently (no per-mode split needed). */
 	--chart-role-1: oklch(0.570 0.1587 252.00);
@@ -282,10 +218,11 @@
 	--chart-role-guard-aux: oklch(0.700 0.015 56.0);
 	--chart-role-guard-unattributed: oklch(0.440 0.020 56.0);
 	--chart-role-other: oklch(0.600 0.010 56.0);
-	--chart-counter-input: oklch(0.500 0.0598 205.0);
-	--chart-counter-cache-write: oklch(0.575 0.0688 205.0);
-	--chart-counter-cache-read: oklch(0.650 0.0777 205.0);
-	--chart-counter-output: oklch(0.720 0.0861 205.0);
+	/* PT-120: see :root's comment -- same mapping (chart-1 unused). */
+	--chart-counter-input: var(--chart-5);
+	--chart-counter-cache-write: var(--chart-4);
+	--chart-counter-cache-read: var(--chart-3);
+	--chart-counter-output: var(--chart-2);
 	--sidebar: oklch(0.216 0.006 56.043);
 	--sidebar-foreground: oklch(0.985 0.001 106.423);
 	--sidebar-primary: oklch(0.685 0.169 237.323);
