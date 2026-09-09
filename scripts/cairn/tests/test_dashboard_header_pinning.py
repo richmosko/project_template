@@ -8,9 +8,16 @@ nothing), so the document scrolls and `sticky` works in place.
 Pins on the `<header>` element itself:
 - `sticky` + `top-0`: keeps it pinned without leaving normal flow (no
   spacer needed -- item (2) of the ruling).
-- `z-50`: the same tier as the portal'd overlays (chart tooltips,
-  dropdown/select/popover/sheet) -- deliberately, so the header wins
-  over ordinary scrolling content.
+- `z-40`, NOT `z-50` (addendum 2, PT-110.md @ cfa5128): measured on the
+  live board -- at the equal `z-50` tier the header clipped its own
+  settings popover (`elementFromPoint` in the popover's top 27px
+  returned the header, not the popover). The header sits strictly
+  BELOW the portal'd overlay tier (dropdown/select/popover/sheet/chart
+  tooltip, all `z-50`) and strictly ABOVE ordinary content (`z-auto`)
+  -- every overlay now correctly paints over the header, and the
+  header still wins over scrolled content. The addendum's own escape
+  hatch ("raise to z-[60] if this looks wrong") is withdrawn as
+  backwards; do not resurrect it.
 - `bg-muted` + `border-b`: opaque page-chrome surface (matches `body`,
   not a floating card) so scrolled content never bleeds through.
 - NEGATIVE: never `fixed` -- `fixed` would satisfy a naive "stays at
@@ -72,13 +79,25 @@ class HeaderStickyPositioningTests(unittest.TestCase):
             f"`fixed` leaves normal flow and reintroduces the overlap AC2 forbids -- got {sorted(classes)}",
         )
 
-    def test_header_layer_is_z_50_matching_the_portaled_overlay_tier(self):
+    def test_header_layer_is_z_40_strictly_below_the_overlay_tier(self):
+        # Addendum 2 (PT-110.md @ cfa5128): measured on the live board --
+        # at z-50 (the equal overlay tier) the header clipped its own
+        # settings popover. z-40 sits strictly below the portal'd
+        # overlay tier (z-50: dropdown/select/popover/sheet/chart
+        # tooltip) and strictly above ordinary content (z-auto).
         classes = self._header_classes()
         self.assertIn(
+            "z-40", classes,
+            f"header must carry `z-40` -- strictly below the z-50 portal'd overlay tier "
+            f"(dropdown/select/popover/sheet/chart tooltip) so those overlays paint over it, "
+            f"and strictly above ordinary z-auto content so the header still wins over "
+            f"scrolled content -- got {sorted(classes)}",
+        )
+        self.assertNotIn(
             "z-50", classes,
-            f"header must carry `z-50` -- the same tier as the chart tooltips/dropdown/select/"
-            f"popover/sheet overlays, deliberately (ruling: 'a header that outranks its own "
-            f"settings menu clips it') -- got {sorted(classes)}",
+            f"header must NOT carry `z-50` -- measured to clip the header's own settings "
+            f"popover at that equal tier (addendum 2, PT-110.md @ cfa5128); the escape hatch "
+            f"to raise it further is withdrawn as backwards -- got {sorted(classes)}",
         )
 
     def test_header_surface_is_opaque_muted_with_a_bottom_border(self):
