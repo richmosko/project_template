@@ -23,7 +23,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-119-indirect-run-guard` |
 | Started | 2026-09-09 |
 | Goal | An un-tiered full run is refused even when invoked through a wrapper; the human lane and narrowed runs are never refused. |
-| Status | In Progress |
+| PR | https://github.com/richmosko/project_template/pull/211 |
+| Status | In Review |
 
 ## Releases
 
