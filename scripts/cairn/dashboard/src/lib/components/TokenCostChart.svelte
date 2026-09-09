@@ -549,8 +549,40 @@
 							<Chart.Tooltip
 								indicator="line"
 								class="z-50 bg-popover text-popover-foreground ring-1 ring-border"
-								formatter={(v: number) => (mode === 'cost' ? formatUsd(v) : formatTokens(v))}
-							/>
+							>
+								<!-- PT-104 Delta 1 (visual leg, PT-104.md @ 0d56416):
+								     `formatter` is a Snippet (rendered via `{@render
+								     formatter(...)}` in chart-tooltip.svelte) that
+								     REPLACES the tooltip's default indicator + name +
+								     value row entirely -- the snippet is responsible
+								     for the whole row, not just the value text. Mirrors
+								     that default row's own "line" indicator + name +
+								     value layout (chart-tooltip.svelte L142-174) rather
+								     than rendering a bare number. `value` arrives
+								     `unknown` there, narrowed here since this chart's
+								     own series are always numeric. -->
+								{#snippet formatter({
+									value,
+									name,
+									item,
+								}: {
+									value: unknown;
+									name: string;
+									item: { color?: string; config?: { color?: string } };
+								})}
+									{@const indicatorColor = item.config?.color || item.color}
+									<div
+										style="--color-bg: {indicatorColor}; --color-border: {indicatorColor};"
+										class="h-full w-1 shrink-0 rounded-[2px] border-(--color-border) bg-(--color-bg)"
+									></div>
+									<div class="flex flex-1 shrink-0 items-center justify-between leading-none">
+										<span class="text-muted-foreground">{name}</span>
+										<span class="font-mono font-medium text-foreground tabular-nums">
+											{mode === 'cost' ? formatUsd(value as number) : formatTokens(value as number)}
+										</span>
+									</div>
+								{/snippet}
+							</Chart.Tooltip>
 						{/snippet}
 					</BarChart>
 				</Chart.Container>

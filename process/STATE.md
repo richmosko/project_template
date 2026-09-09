@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | guard-commit false-positives on cairn archive renames |
-| Issue | PT-109 (cairn) |
+| Feature | dashboard: one owner for the /api/tokens wire payload type; svelte-check drift |
+| Issue | PT-104 (cairn) |
 | Milestone | PT-0.12.2 |
-| Branch | `feature/pt-109-guard-commit-renames` |
+| Branch | `feature/pt-104-tokens-payload-type-owner` |
 | Started | 2026-09-08 |
-| Goal | `cairn guard-commit` is rename-aware: an archive move of a multi-author issue commits without --no-verify; genuinely added foreign comments are still refused. |
-| PR | https://github.com/richmosko/project_template/pull/198 |
+| Goal | One declaration of the tokens payload type, imported by the chart logic; svelte-check clean; drift guarded. |
+| PR | https://github.com/richmosko/project_template/pull/199 |
 | Status | In Review |
 
 ## Releases

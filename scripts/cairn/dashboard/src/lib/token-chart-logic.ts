@@ -6,6 +6,14 @@
 // `node --test scripts/cairn/tests/js/token-chart-logic.test.js`, no
 // browser, mirroring how board-logic.js is already split from board.js.
 // TokenCostChart.svelte imports this and does rendering only.
+//
+// PT-104 (architect's gate-1 brief, PT-104.md): the wire payload type
+// (`TokenCounters`/`TokenKind`/`TokenIssueTotal`/`TokensPayload`) has
+// exactly one owner -- `dashboard-api.ts`, the fetch layer -- imported
+// here rather than redeclared; the two copies had already drifted (5
+// svelte-check errors) before this module got the fields the other one
+// was missing.
+import type { TokenIssueTotal, TokensPayload, TokenKind, TokenCounters } from './dashboard-api';
 
 export const DEFAULT_BAR_LIMIT = 12;
 
@@ -17,51 +25,6 @@ export type Metric = 'tokens' | 'cost';
 // and a sibling would have to restate the milestone/`main` placement
 // rules, which is how two orderings drift apart.
 export type Order = 'ranked' | 'chronological';
-
-export type TokenCounters = {
-	input: number;
-	cache_write: number;
-	cache_read: number;
-	output: number;
-	cost_usd: number | null;
-};
-
-// PT-84 §7: server-computed, never string-sniffed here -- the chart must
-// not infer a bar's kind by parsing the `milestone:` prefix off `issue`
-// itself (exactly the coupling §7 rejects; see build_tokens_payload's
-// _token_bucket_kind).
-export type TokenKind = 'issue' | 'milestone' | 'main';
-
-export type TokenIssueTotal = {
-	issue: string;
-	kind: TokenKind;
-	total: TokenCounters;
-	roles: Array<TokenCounters & { role: string }>;
-	// PT-102 (amended ruling, PT-102.md @ ccd4f48, item (a)): the
-	// status->done transition date, server-computed by reusing the
-	// throughput chart's own git-history derivation -- never re-derived
-	// here. Absent/null for an issue not yet done ("open").
-	closed_at?: string | null;
-};
-
-export type TokensPayload = {
-	issues: TokenIssueTotal[];
-	window_start: string | null;
-	window_end: string | null;
-	generated: string | null;
-	sources: string[];
-	prices: {
-		retrieved: string | null;
-		source: string | null;
-		unpriced_models: string[];
-	};
-	warning: string | null;
-	// PT-84 §7: one-clause explanation of what milestone bars are, null
-	// when the payload carries no milestone bucket -- server-composed
-	// (cairn.py's build_tokens_payload), appended VERBATIM by
-	// formatCaption below, never recomposed client-side.
-	milestone_caption: string | null;
-};
 
 // The raw value one issue contributes on the currently displayed axis --
 // summed tokens (all four counters) for 'tokens', cost_usd (0 when
