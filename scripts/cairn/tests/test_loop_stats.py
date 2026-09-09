@@ -414,9 +414,13 @@ class AuditAgentBlockedRunTests(unittest.TestCase):
         self.assertEqual(summary["full_suite_runs"], 1)
         self.assertEqual(summary.get("full_run_blocked", 0), 0)
 
-    def test_ledger_match_promotes_an_error_result_to_executed(self):
-        # Guard 5, positive: the step's own timestamp lines up with a
-        # ledger record's computed start (ts - seconds), same who.
+    def test_a_ledger_match_does_not_promote_an_error_result_to_executed(self):
+        # Corrected by delta 1 (PT-111.md @57e6b6a): rule 3 ("any other
+        # error result -> blocked") is unconditional -- a nearby ledger
+        # record never overrides it. Real data (153/6 split): this exact
+        # shape, the wrong-path step, is one of the 6 blocked. Previously
+        # this test expected the ledger to promote it to executed; that
+        # was the ledger-first ordering the architect's own delta retracted.
         step_minutes = 10.0
         record_ts = ts(step_minutes + 25.0 / 60.0)  # end = start (step time) + 25s
         _, summary = self._audit(
@@ -426,8 +430,8 @@ class AuditAgentBlockedRunTests(unittest.TestCase):
             ],
             ledger=[ledger_record(record_ts, who="architect")],
         )
-        self.assertEqual(summary["full_suite_runs"], 1)
-        self.assertEqual(summary.get("full_run_blocked", 0), 0)
+        self.assertEqual(summary["full_suite_runs"], 0)
+        self.assertEqual(summary.get("full_run_blocked"), 1)
 
     def test_a_true_denial_stays_blocked_even_with_a_nearby_ledger_record(self):
         # Gate-4 verdict delta 1 (blocking, PT-111.md @57e6b6a): result
