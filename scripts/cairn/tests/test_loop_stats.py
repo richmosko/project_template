@@ -436,6 +436,10 @@ class AuditAgentBlockedRunTests(unittest.TestCase):
         self.assertEqual(summary.get("full_run_blocked"), 1)
 
     def test_exit_1_but_ran_is_full_suite_not_blocked(self):
+        # This is also PT-116's guard 4 (PT-116.md @8c1cc29): "a red
+        # run_tests step with a Ran N tests result classifies FULL_SUITE"
+        # -- already pinned here since PT-111, already green. No
+        # duplicate test added; explicitly not-a-gap by measurement.
         _, summary = self._audit([
             tool_use_with_id(1, "t1", "Bash", command="python3 run_tests.py --gate green"),
             result_for(1.02, "t1", "Ran 1577 tests in 25.4s (95 files, 8 workers)\nFAILED (failures=3)\n", is_error=True),
