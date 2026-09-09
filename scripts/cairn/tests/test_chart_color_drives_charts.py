@@ -418,6 +418,49 @@ class RoleFamilyStaysFixedTests(unittest.TestCase):
         )
 
 
+class WipReauthoredValueIsPinnedTests(unittest.TestCase):
+    """ux-designer's landed decision (PT-118.md @d7f5724): re-author
+    chart-flow-wip's chroma rather than grandfather an unrenderable
+    value. New values, L and h held, ~5% headroom below the computed
+    gamut edge (not the literal max -- rounding/engine differences
+    shouldn't reopen this on a different renderer):
+    - Light: oklch(0.62 0.100 200.8) (was 0.15)
+    - Dark:  oklch(0.60 0.097 200.8) (was 0.13)
+    Pinned directly to app.css (the ratified source), independently of
+    the byte-identity guard below -- wip stays excluded from THAT guard
+    (team-lead's instruction) so a generator rounding difference in the
+    gamut-mapping step, even for an already-in-gamut value, cannot be
+    confused with a real regression here."""
+
+    NEW_WIP = {"light": (0.62, 0.100, 200.8), "dark": (0.60, 0.097, 200.8)}
+
+    def test_app_css_carries_the_reauthored_wip_values(self):
+        self.assertTrue(APP_CSS.is_file())
+        app_css_source = APP_CSS.read_text(encoding="utf-8")
+        root_block = _extract_unqualified_block(app_css_source, ":root")
+        dark_block = _extract_unqualified_block(app_css_source, ".dark")
+        for mode, block in (("light", root_block), ("dark", dark_block)):
+            with self.subTest(mode=mode):
+                oklch = _oklch_in_block(block, "chart-flow-wip")
+                self.assertEqual(
+                    oklch, self.NEW_WIP[mode],
+                    f"app.css {mode} --chart-flow-wip must be {self.NEW_WIP[mode]!r} "
+                    f"(ux-designer's re-authored value, PT-118.md @d7f5724) -- got {oklch!r}",
+                )
+
+    def test_the_reauthored_values_are_in_gamut_with_headroom(self):
+        for mode, (l, c, h) in self.NEW_WIP.items():
+            with self.subTest(mode=mode):
+                self.assertTrue(is_in_gamut(l, c, h), f"{mode} wip {l, c, h} must be in-gamut")
+                # Headroom, not the literal edge: a small chroma bump must
+                # still read as in-gamut, or there is no margin left for
+                # a different renderer's rounding.
+                self.assertTrue(
+                    is_in_gamut(l, c + 0.003, h),
+                    f"{mode} wip has no headroom -- c={c} is too close to the gamut edge",
+                )
+
+
 class YellowByteIdenticalToAppCssTests(unittest.TestCase):
     """Guard 4: yellow (Δh=0) reproduces today's app.css values
     byte-for-byte in all three generated copies -- excluding
