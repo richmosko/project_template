@@ -424,6 +424,239 @@ class RunnerSelfRecordsTests(unittest.TestCase):
         self.assertTrue(record.get("full"))
 
 
+class SelfRecordSessionTests(unittest.TestCase):
+    """PT-112 gate-1 ruling (PT-112.md @8b60a8b), guard threshold 5:
+    `run_tests.py::_self_record` writes `session` from
+    `$CLAUDE_CODE_SESSION_ID` -- both directions, env set and absent.
+    Measured live by the architect: the hook's stdin `session_id` and the
+    runner's own `CLAUDE_CODE_SESSION_ID` are the identical string, so
+    this is the deterministic matching key the hook uses (no new
+    channel, no run id printed in the summary)."""
+
+    def _fake_engine_root(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        engine_dir = tmp / "scripts" / "cairn"
+        engine_dir.mkdir(parents=True)
+        engine_dir.joinpath("run_tests.py").write_bytes((helpers.CAIRN_DIR / "run_tests.py").read_bytes())
+        tests_dir = engine_dir / "tests"
+        tests_dir.mkdir()
+        tests_dir.joinpath("test_fake_ok.py").write_text(
+            "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_one(self):\n        self.assertTrue(True)\n",
+            encoding="utf-8",
+        )
+        return tmp, engine_dir
+
+    def _run_and_get_record(self, env: dict) -> dict:
+        tmp, engine_dir = self._fake_engine_root()
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "run_tests.py"), "--gate", "red"],
+            cwd=str(engine_dir), capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        records_path = tmp / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        lines = [json.loads(l) for l in records_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(len(lines), 1)
+        return lines[0]
+
+    def test_session_is_written_from_the_env_var_when_set(self):
+        env = dict(os.environ)
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        env.pop("CAIRN_TEST_RUNS_FILE", None)
+        env["CLAUDE_CODE_SESSION_ID"] = "S-real-session-123"
+        record = self._run_and_get_record(env)
+        self.assertEqual(record.get("session"), "S-real-session-123")
+
+    def test_session_is_null_when_the_env_var_is_absent(self):
+        env = dict(os.environ)
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        env.pop("CAIRN_TEST_RUNS_FILE", None)
+        env.pop("CLAUDE_CODE_SESSION_ID", None)
+        record = self._run_and_get_record(env)
+        self.assertIsNone(record.get("session"))
+
+
+class SessionScopedPatchTests(unittest.TestCase):
+    """PT-112 gate-1 ruling (PT-112.md @8b60a8b), guard thresholds 1-4:
+    the hook scans the last 200 ledger lines for the NEWEST record with
+    `who is null` and `session` non-null and equal to the payload's
+    `session_id`, and patches only that line -- replacing the old
+    last-line-only rule that cross-attributes concurrent worktree runs."""
+
+    def _env(self, tmp: Path) -> dict:
+        return {"CLAUDE_PROJECT_DIR": str(tmp)}
+
+    def _records_path(self, tmp: Path) -> Path:
+        return tmp / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+
+    def _seed(self, tmp: Path, records: list) -> Path:
+        path = self._records_path(tmp)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
+        return path
+
+    def _record(self, session, who=None, cmd="python3 run_tests.py --gate red") -> dict:
+        return {
+            "ts": "2026-09-09T00:00:00.000Z", "who": who, "session": session, "gate": "red", "full": True,
+            "runner": "run_tests", "sha": None, "branch": None, "seconds": 1.0, "harness_ms": 1000,
+            "jobs": 1, "files": 1, "tests": 1, "skipped": 0, "ok": True, "cmd": cmd,
+        }
+
+    def _payload(self, session_id, agent_type, command="python3 run_tests.py --gate red", **overrides) -> dict:
+        payload = {
+            "session_id": session_id, "cwd": "/x", "agent_type": agent_type,
+            "hook_event_name": "PostToolUse", "tool_name": "Bash",
+            "tool_input": {"command": command},
+            "tool_response": {"stdout": "", "stderr": ""}, "duration_ms": 1000, "tool_use_id": "x",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_two_interleaved_sessions_are_each_patched_to_their_own_record(self):
+        # Guard 1: S1 first, S2 second, both who:null. Today's last-line
+        # rule patches the SECOND (S2) record for the S1 payload -- wrong.
+        tmp = helpers.make_empty_tmp_dir(self)
+        records_path = self._seed(tmp, [self._record("S1"), self._record("S2")])
+
+        result = _run_hook("test_run_record.py", json.dumps(self._payload("S1", "architect")), env=self._env(tmp))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = [json.loads(l) for l in records_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(len(lines), 2, f"must patch in place, never append -- got {lines!r}")
+        self.assertEqual(lines[0]["who"], "architect", f"S1's own record must be patched -- got {lines!r}")
+        self.assertIsNone(lines[1]["who"], f"S2's record must stay untouched by S1's payload -- got {lines!r}")
+
+        result2 = _run_hook("test_run_record.py", json.dumps(self._payload("S2", "implementation-lead")), env=self._env(tmp))
+        self.assertEqual(result2.returncode, 0, result2.stdout + result2.stderr)
+        lines2 = [json.loads(l) for l in records_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(len(lines2), 2)
+        self.assertEqual(lines2[0]["who"], "architect")
+        self.assertEqual(lines2[1]["who"], "implementation-lead", f"S2's own record must now be patched -- got {lines2!r}")
+
+    def test_a_stale_null_session_line_is_never_patched(self):
+        # Guard 2: a null-session record (every pre-PT-112 record) stays
+        # who:null permanently, by design -- no payload may adopt it.
+        tmp = helpers.make_empty_tmp_dir(self)
+        records_path = self._seed(tmp, [self._record(None)])
+        result = _run_hook("test_run_record.py", json.dumps(self._payload("S-anything", "architect")), env=self._env(tmp))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = [json.loads(l) for l in records_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(len(lines), 1, f"a run_tests command with no match must write nothing -- got {lines!r}")
+        self.assertIsNone(lines[0]["who"], f"a null-session line must never be adopted -- got {lines!r}")
+
+    def test_cross_attribution_control_no_match_writes_nothing_for_run_tests(self):
+        # Guard 3: neither S1 nor S2 matches the payload's session -- for
+        # a run_tests command, write nothing (unattributed beats
+        # misattributed), and never append a second record either.
+        tmp = helpers.make_empty_tmp_dir(self)
+        records_path = self._seed(tmp, [self._record("S1"), self._record("S2")])
+        result = _run_hook("test_run_record.py", json.dumps(self._payload("S-unmatched", "architect")), env=self._env(tmp))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = [json.loads(l) for l in records_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(len(lines), 2, f"no match must neither patch nor append -- got {lines!r}")
+        self.assertIsNone(lines[0]["who"])
+        self.assertIsNone(lines[1]["who"])
+
+    def test_unittest_runner_with_no_match_still_appends_a_self_attributing_record(self):
+        # Guard 4: bare `unittest` never self-records, so a miss falls
+        # back to scrape-and-append exactly as today -- `session` comes
+        # from the payload, so the appended record is self-attributing.
+        tmp = helpers.make_empty_tmp_dir(self)
+        records_path = self._records_path(tmp)
+        records_path.parent.mkdir(parents=True, exist_ok=True)
+        records_path.write_text("", encoding="utf-8")
+        payload = self._payload(
+            "S-new", "qa-engineer", command="python3 -m unittest discover -s tests",
+            tool_response={"stdout": "Ran 5 tests in 0.050s\nOK\n", "stderr": ""},
+        )
+        result = _run_hook("test_run_record.py", json.dumps(payload), env=self._env(tmp))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = [json.loads(l) for l in records_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(len(lines), 1, f"expected exactly one appended record -- got {lines!r}")
+        self.assertEqual(lines[0]["who"], "qa-engineer")
+        self.assertEqual(lines[0]["session"], "S-new")
+
+
+class ConcurrentPatchAndAppendTests(unittest.TestCase):
+    """PT-112 gate-1 ruling (PT-112.md @8b60a8b), guard threshold 6 (the
+    in-scope concurrency fix): the hook's read-modify-write must hold an
+    exclusive lock across the WHOLE critical section, or a real runner's
+    concurrent append -- landing while the hook is mid-patch -- is
+    silently discarded when the hook's read-then-overwrite replays only
+    its own stale snapshot. Orchestrated deterministically: this test
+    itself holds `fcntl.flock(LOCK_EX)` on the ledger BEFORE starting
+    both real subprocesses (the runner, via the established
+    fake-engine-root technique, and the hook), so both are guaranteed to
+    still be at (or blocked on) their own file access when the lock is
+    released -- no wall-clock racing, no repeat-run battery."""
+
+    def _fake_engine_root(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        engine_dir = tmp / "scripts" / "cairn"
+        engine_dir.mkdir(parents=True)
+        engine_dir.joinpath("run_tests.py").write_bytes((helpers.CAIRN_DIR / "run_tests.py").read_bytes())
+        tests_dir = engine_dir / "tests"
+        tests_dir.mkdir()
+        tests_dir.joinpath("test_fake_ok.py").write_text(
+            "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_one(self):\n        self.assertTrue(True)\n",
+            encoding="utf-8",
+        )
+        return tmp, engine_dir
+
+    def test_a_concurrent_append_survives_the_hooks_locked_patch(self):
+        import fcntl
+
+        tmp, engine_dir = self._fake_engine_root()
+        records_path = tmp / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        records_path.parent.mkdir(parents=True, exist_ok=True)
+        target = {
+            "ts": "2026-09-09T00:00:00.000Z", "who": None, "session": "S-target", "gate": "red", "full": True,
+            "runner": "run_tests", "sha": None, "branch": None, "seconds": 1.0, "harness_ms": 1000,
+            "jobs": 1, "files": 1, "tests": 1, "skipped": 0, "ok": True, "cmd": "python3 run_tests.py --gate red",
+        }
+        records_path.write_text(json.dumps(target) + "\n", encoding="utf-8")
+
+        runner_env = dict(os.environ)
+        runner_env.pop("CLAUDE_PROJECT_DIR", None)
+        runner_env.pop("CAIRN_TEST_RUNS_FILE", None)
+        runner_env["CLAUDE_CODE_SESSION_ID"] = "S-concurrent-runner"
+
+        hook_payload = {
+            "session_id": "S-target", "cwd": str(engine_dir), "agent_type": "architect",
+            "hook_event_name": "PostToolUse", "tool_name": "Bash",
+            "tool_input": {"command": "python3 run_tests.py --gate red"},
+            "tool_response": {"stdout": "", "stderr": ""}, "duration_ms": 1000, "tool_use_id": "x",
+        }
+        hook_env = dict(os.environ)
+        hook_env["CLAUDE_PROJECT_DIR"] = str(tmp)
+
+        lock_fd = open(records_path, "r+", encoding="utf-8")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            runner_proc = subprocess.Popen(
+                [sys.executable, str(engine_dir / "run_tests.py"), "--gate", "red"],
+                cwd=str(engine_dir), env=runner_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            hook_proc = subprocess.Popen(
+                [sys.executable, str(HOOKS_DIR / "test_run_record.py")],
+                env=hook_env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            hook_proc.stdin.write(json.dumps(hook_payload))
+            hook_proc.stdin.close()
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
+
+        runner_out, runner_err = runner_proc.communicate(timeout=15)
+        hook_out, hook_err = hook_proc.communicate(timeout=15)
+        self.assertEqual(runner_proc.returncode, 0, runner_out + runner_err)
+        self.assertEqual(hook_proc.returncode, 0, hook_out + hook_err)
+
+        lines = [json.loads(l) for l in records_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(len(lines), 2, f"the concurrent runner's own append must survive the hook's patch -- got {lines!r}")
+        by_session = {l.get("session"): l for l in lines}
+        self.assertIn("S-concurrent-runner", by_session, f"the concurrently-appended record must not be lost -- got {lines!r}")
+        self.assertEqual(by_session["S-target"]["who"], "architect", f"the hook's own patch must still land correctly -- got {lines!r}")
+
+
 class RecorderIgnoresNonRunNoiseTests(unittest.TestCase):
     """Gate-4 verdict delta 3 (blocking): record only a run. No parseable
     result and no runner exit => write nothing; `gate` never comes from a
