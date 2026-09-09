@@ -451,6 +451,24 @@ Placement is otherwise unchanged from the anatomy above: same label+value+indica
 
 **Standalone board is unaffected.** `/` and `/list` keep working exactly as today — no params, full chrome, their own theme-settings trigger. This is the zero-build fallback (a fresh clone with no `dist/` has no dashboard to defer to) and must not depend on the shell existing.
 
+### Stacking order (z-tier ladder)
+
+**What this is:** the shell's z-index contract — every layer that can render above another, so the next positive z anyone adds has a ladder to argue with, not a guess. Measured against the live board (architect, PT-114, `4327ea9`), not asserted from source reading alone.
+
+| Rung | Value | Where |
+|---|---|---|
+| Content | `z-auto` | inside the page root's `isolate` children |
+| Sidebar container | `z-10` | `ui/sidebar/sidebar.svelte` (`fixed inset-y-0 z-10`) |
+| Sidebar rail | `z-20` | `ui/sidebar/sidebar-rail.svelte` — a resize handle, one rung above the sidebar container, below the header |
+| Header | `z-40` | `App.svelte`, sticky |
+| Portal'd floating overlays | `z-50` | `[data-bits-floating-content-wrapper]` floor in `app.css` (PT-110) + each overlay's own content class (popover, dropdown-menu, select, tooltip, sheet) |
+
+**Portal'd vs. in-content `z-50` — the sentence that makes the ladder true, not just decorative.** Two different things wear `z-50`, and only one of them is actually global. **Portal'd** overlays (bits-ui's Popover/DropdownMenu/Select/Tooltip/Sheet) are re-parented to `<body>` at render time, so their `z-50` competes directly against the header's `z-40` and wins — until PT-110, this raced (bits-ui copied the content node's z-index onto its wrapper inside a `requestAnimationFrame`, so the wrapper briefly sat at `z-auto`, i.e. layer 0, below the header); the declarative `[data-bits-floating-content-wrapper]` floor closes that race for every overlay type at once, by selector. **In-content** library overlays (LayerChart's forced-`z-50` chart tooltips) are **not** re-parented — they stay inside their chart's DOM position, so their `z-50` only wins locally, within their own stacking context. They are safe from climbing above the header only because every non-header direct child of the page root carries `isolate` (PT-117): `isolate` opens a new stacking context at that child, so nothing inside it — however high its z — can escape to contest the header or sidebar. **A `z-50` inside an isolated block is a local 50, not a global one.** Drop `isolate` from a future page-root section and its in-content `z-50`s reopen PT-117 silently, with no error and no visual signal until someone opens a chart tooltip under the header.
+
+**Verified live (PT-114).** The one bits-ui overlay actually in use on the board today (ThemeSettings' Popover) was measured over the sticky header: 27px of vertical overlap, all 21 hit-test points in the overlap strip return the overlay, never the header. The sidebar primitive's own Tooltip (collapsed rail) and mobile Sheet share the same floor by construction but are the lead's leg to confirm; the Sheet sits behind a `md:` breakpoint not reachable at desktop width — recorded as unmeasured, not asserted.
+
+**Guard, not honor system.** No component in `src/` declares a z-index class above 50 without a comment naming this ladder; every non-header direct child of the page root carries `isolate`, checked structurally (the count is derived, never hard-coded); the four rungs above are pinned to source. Guarded mechanically in `scripts/cairn/tests/` (PT-114) — a doc claim about z-order that isn't test-backed is a claim about the past, not a contract.
+
 ---
 
 ## Components
