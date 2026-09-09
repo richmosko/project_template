@@ -17,14 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Test-run hooks: an indirectly invoked run (sh probe.sh) reaches neither the guard nor the record hook |
-| Issue | PT-119 (cairn) |
+| Feature | Chart Color: charts wear the selected shadcn chart values exactly |
+| Issue | PT-120 (cairn) |
 | Milestone | PT-0.12.2 |
-| Branch | `feature/pt-119-indirect-run-guard` |
+| Branch | `feature/pt-120-chart-color-exact-shadcn` |
 | Started | 2026-09-09 |
-| Goal | An un-tiered full run is refused even when invoked through a wrapper; the human lane and narrowed runs are never refused. |
-| PR | https://github.com/richmosko/project_template/pull/211 |
-| Status | In Review |
+| Goal | Selecting a Chart Color makes both charts use that variant's vendored shadcn chart values verbatim; Pink is pink. |
+| Status | In Progress |
 
 ## Releases
 
