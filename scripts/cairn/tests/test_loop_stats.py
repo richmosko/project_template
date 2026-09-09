@@ -365,13 +365,24 @@ class AuditAgentBlockedRunTests(unittest.TestCase):
         self.assertEqual(summary["full_suite_runs"], 1)
         self.assertEqual(summary.get("full_run_blocked"), 2)
 
-    def test_a_result_quoting_the_guards_own_source_is_not_a_denial(self):
-        # False-positive control (a): is_error False and no toolDenialKind
-        # -- a free-text match on the refusal phrase (e.g. a Read of
-        # test_run_guard.py's own docstring) must not block this step.
+    def test_a_read_of_the_guards_own_source_is_not_mistaken_for_a_denial(self):
+        # False-positive control (a) (architect's addendum 1, PT-111.md @
+        # 659e161: "keep that fixture case verbatim from the file rather
+        # than a paraphrase"). `.claude/hooks/test_run_guard.py` quotes its
+        # own refusal message in its `_MESSAGE` string, so a Read of the
+        # real file is exactly the confusable case -- id-linked to the
+        # READ's own id, is_error False, no toolDenialKind. Must not touch
+        # the unrelated FULL_SUITE step t1 (which has no linked result at
+        # all -- rule 5, absence of evidence).
+        guard_source = (helpers.CAIRN_DIR.parent.parent / ".claude" / "hooks" / "test_run_guard.py").read_text(encoding="utf-8")
+        self.assertIn(
+            "refusing an un-tiered full-suite run", guard_source,
+            "fixture precondition: the guard's own source must still quote its refusal message",
+        )
         _, summary = self._audit([
             tool_use_with_id(1, "t1", "Bash", command="python3 run_tests.py --gate green"),
-            result_for(1.02, "t1", "...\n" + GUARD_REFUSAL_CONTENT + "\n...", is_error=False),
+            tool_use_with_id(2, "t2", "Read", file_path="/x/.claude/hooks/test_run_guard.py"),
+            result_for(2.02, "t2", guard_source, is_error=False),
         ])
         self.assertEqual(summary["full_suite_runs"], 1)
         self.assertEqual(summary.get("full_run_blocked", 0), 0)
