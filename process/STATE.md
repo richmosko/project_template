@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Settings → Chart Color drives both charts (derived chart-local tokens per variant) |
-| Issue | PT-118 (cairn) |
+| Feature | Test-run hooks: an indirectly invoked run (sh probe.sh) reaches neither the guard nor the record hook |
+| Issue | PT-119 (cairn) |
 | Milestone | PT-0.12.2 |
-| Branch | `feature/pt-118-chart-color-drives-charts` |
+| Branch | `feature/pt-119-indirect-run-guard` |
 | Started | 2026-09-09 |
-| Goal | The Chart Color setting changes the throughput and token charts' colours in every variant × mode, with the contrast and distinctness guards passing mechanically and yellow byte-identical to today. |
-| PR | https://github.com/richmosko/project_template/pull/210 |
+| Goal | An un-tiered full run is refused even when invoked through a wrapper; the human lane and narrowed runs are never refused. |
+| PR | https://github.com/richmosko/project_template/pull/211 |
 | Status | In Review |
 
 ## Releases

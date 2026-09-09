@@ -92,6 +92,52 @@ from typing import Dict, List, Optional, Tuple
 SCRIPT_DIR = Path(__file__).resolve().parent
 TESTS_DIR = SCRIPT_DIR / "tests"
 
+# PT-119 gate-1 ruling, re-issued (PT-119.md @6cd7e44): kept byte-identical
+# to `.claude/hooks/_test_run_shared.REFUSAL_MESSAGE` -- used ONLY as a
+# fallback when that module can't be imported (a fake-engine-root test
+# copy of this file has no .claude/hooks alongside it; every such
+# existing test only ever runs narrowed or gated, so this text is what a
+# reader actually sees in that one synthetic case, not the production
+# path). The real checkout always imports the shared constant instead --
+# see `_refuse_if_untiered_and_unclaimed` below.
+_FALLBACK_REFUSAL_MESSAGE = (
+    "test_run_guard: refusing an un-tiered full-suite run. Mid-loop, narrow it: "
+    'python3 run_tests.py -p "test_<area>*.py" (WORKFLOW -> Implement -> Inner loop). '
+    "At a gate, declare it: python3 run_tests.py --gate <red|green|verdict|finish> (PT-94 C9).\n"
+)
+
+
+def _refuse_if_untiered_and_unclaimed(args: argparse.Namespace) -> bool:
+    """PT-119 gate-1 ruling, re-issued whole (architect, PT-119.md @6cd7e44):
+    a runner-side backstop for an INDIRECTLY invoked run -- a wrapper
+    script's body (`sh probe.sh`) is invisible to the command-text
+    prefilter in `.claude/settings.json` and to both hooks, so neither
+    ever sees it. Refuse when ALL hold: `CLAUDECODE` is set (any Claude
+    Code lane -- there is no agent-identity env var to discriminate the
+    lead's lane from a teammate's, measured live; this deliberately
+    extends the refusal to the lead's own un-tiered full runs too, per
+    the ruling's own judgment call), the run is FULL (no `-p`/
+    `--pattern`/`-k` -- `--list` is exempt, same as PT-115's `--help`/
+    `--list` exemption: nothing runs), and `--gate` is absent. Exact,
+    never text-scanned: reads `args.pattern`/`args.gate` directly, so
+    none of PT-111/113/115's defect class (quoted text, heredocs,
+    versioned interpreters, launchers) can apply here at all. Caller
+    must check this BEFORE discovery, `run_all`, and `_self_record` --
+    a refused run leaves no ledger row, because nothing ran."""
+    if not os.environ.get("CLAUDECODE"):
+        return False
+    if args.list or args.pattern != ["test_*.py"] or args.gate is not None:
+        return False
+    try:
+        hooks_dir = SCRIPT_DIR.parent.parent / ".claude" / "hooks"
+        if str(hooks_dir) not in sys.path:
+            sys.path.insert(0, str(hooks_dir))
+        from _test_run_shared import REFUSAL_MESSAGE
+    except Exception:
+        REFUSAL_MESSAGE = _FALLBACK_REFUSAL_MESSAGE
+    sys.stderr.write(REFUSAL_MESSAGE)
+    return True
+
 _RAN_RE = re.compile(r"^Ran (\d+) tests? in", re.MULTILINE)
 _SUMMARY_RE = re.compile(r"^(OK|FAILED)\b\s*(?:\(([^)]*)\))?", re.MULTILINE)
 _NO_TESTS_RE = re.compile(r"^NO TESTS RAN", re.MULTILINE)
@@ -414,6 +460,19 @@ def _self_record(args: argparse.Namespace, agg: Dict[str, object]) -> None:
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
+
+    # PT-119 gate-1 ruling: checked before discovery/run_all/_self_record --
+    # nothing has run yet, so a refusal leaves no ledger row at all.
+    # `__name__ == "__main__"` -- same guard as _self_record's own call
+    # site below (PT-97 gate-4 delta 7's reasoning applies identically
+    # here): true for a real `python3 run_tests.py ...` invocation
+    # (direct or via an indirect wrapper, subprocess either way), false
+    # when a test imports this module and calls main() in-process to
+    # exercise its internal plumbing -- that is not a run a teammate
+    # typed, and must never be refused.
+    if __name__ == "__main__" and _refuse_if_untiered_and_unclaimed(args):
+        return 2
+
     files = discover_files(TESTS_DIR, args.pattern)
 
     if not files:

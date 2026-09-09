@@ -37,6 +37,7 @@ see PT-93.md @ 8c4409e.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import io
 import json
 import os
@@ -549,6 +550,136 @@ class RedRunSelfRecordsWithFailureDetailTests(unittest.TestCase):
         self.assertFalse(rec.get("ok"))
         self.assertEqual(rec.get("failures"), 1, f"got {rec!r}")
         self.assertEqual(rec.get("errors"), 1, f"got {rec!r}")
+
+
+class RunnerRefusesAnIndirectUntieredFullRunTests(unittest.TestCase):
+    """PT-119 gate-1 ruling, RE-ISSUED WHOLE (PT-119.md @6cd7e44) --
+    supersedes the first ruling @dd1432d: CLAUDE_CODE_CHILD_SESSION is
+    set on the lead's lane too (measured), so it discriminates nothing;
+    there is no CLAUDE_CODE_AGENT_TYPE at all. Agent identity lives only
+    in the hook payload, never in env.
+
+    Ruling: option (b), scoped by CLAUDECODE alone. `.claude/settings.json`'s
+    sh prefilter and both hooks match on Bash command TEXT, so `sh
+    probe.sh` wrapping `run_tests.py` reaches neither the PreToolUse
+    guard nor the PostToolUse record hook. `run_tests.py` itself is now
+    the backstop: immediately after arg parsing, before discovery/
+    run_all/_self_record, it refuses when CLAUDECODE is set, the run is
+    full (no -p/--pattern/-k), and --gate is absent. Exit 2, the shared
+    refusal marker on stderr, no `Ran N tests` line (load-bearing: keeps
+    PT-111's classifier on "error result, no summary" -> full_run_blocked,
+    and keeps PT-116's record hook writing nothing) -- and no ledger row
+    at all, since the refusal fires before `_self_record`.
+
+    This DELIBERATELY extends the refusal to the lead's lane (no way to
+    exempt it -- CLAUDECODE is the only signal and the lead's shell sets
+    it too): a human's own terminal (measured: no shell rc file exports
+    CLAUDE*) is never touched; narrowed and gated runs are never touched,
+    lead's lane included."""
+
+    HOOKS_DIR = REPO_ROOT / ".claude" / "hooks"
+
+    def _fake_engine_root(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        engine_dir = tmp / "scripts" / "cairn"
+        engine_dir.mkdir(parents=True)
+        engine_dir.joinpath("run_tests.py").write_bytes((helpers.CAIRN_DIR / "run_tests.py").read_bytes())
+        tests_dir = engine_dir / "tests"
+        tests_dir.mkdir()
+        tests_dir.joinpath("test_fake_ok.py").write_text(
+            "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_one(self):\n        self.assertTrue(True)\n",
+            encoding="utf-8",
+        )
+        probe = tmp / "probe.sh"
+        probe.write_text(
+            "#!/bin/sh\n"
+            f'cd "{engine_dir}"\n'
+            'exec "$PY" run_tests.py "$@"\n',
+            encoding="utf-8",
+        )
+        probe.chmod(0o755)
+        return tmp, probe
+
+    def _records(self, tmp) -> Path:
+        return tmp / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+
+    def _claude_code_env(self, **extra) -> dict:
+        env = dict(os.environ)
+        env.pop("CAIRN_TEST_RUNS_FILE", None)
+        for key in list(env):
+            if key.startswith("CLAUDE") or key == "AI_AGENT":
+                env.pop(key, None)
+        env["CLAUDECODE"] = "1"
+        env.update(extra)
+        env["PY"] = sys.executable
+        return env
+
+    def _human_terminal_env(self) -> dict:
+        # No CLAUDECODE, no other Claude Code env at all -- a real human
+        # shell, measured: no rc file exports CLAUDE*.
+        env = dict(os.environ)
+        for key in list(env):
+            if key.startswith("CLAUDE") or key == "AI_AGENT":
+                env.pop(key, None)
+        env.pop("CAIRN_TEST_RUNS_FILE", None)
+        env["PY"] = sys.executable
+        return env
+
+    def test_indirect_full_run_with_claudecode_set_is_refused(self):
+        tmp, probe = self._fake_engine_root()
+        result = subprocess.run(["sh", str(probe)], capture_output=True, text=True, env=self._claude_code_env(CLAUDE_CODE_CHILD_SESSION="1"))
+        self.assertEqual(result.returncode, 2, repr(result.stdout + result.stderr))
+        self.assertIn("refusing an un-tiered full-suite run", result.stderr)
+        self.assertNotRegex(result.stdout, r"Ran \d+ tests?", "a refusal must print no 'Ran N tests' line")
+        self.assertFalse(self._records(tmp).exists(), "a refused run must write no ledger row at all")
+
+    def test_the_same_wrapper_on_a_human_terminal_runs_normally(self):
+        tmp, probe = self._fake_engine_root()
+        result = subprocess.run(["sh", str(probe)], capture_output=True, text=True, env=self._human_terminal_env())
+        self.assertIn(result.returncode, (0, 1), repr(result.stdout + result.stderr))
+        self.assertRegex(result.stdout, r"Ran \d+ tests?")
+        self.assertTrue(self._records(tmp).exists(), "an unrefused run must self-record")
+
+    def test_narrowed_control_under_the_wrapper_with_claudecode_set_is_never_refused(self):
+        tmp, probe = self._fake_engine_root()
+        result = subprocess.run(["sh", str(probe), "-p", "test_fake_ok.py"], capture_output=True, text=True, env=self._claude_code_env())
+        self.assertEqual(result.returncode, 0, repr(result.stdout + result.stderr))
+        self.assertRegex(result.stdout, r"Ran \d+ tests?")
+
+    def test_gated_control_under_the_wrapper_with_claudecode_set_is_never_refused(self):
+        tmp, probe = self._fake_engine_root()
+        result = subprocess.run(["sh", str(probe), "--gate", "green"], capture_output=True, text=True, env=self._claude_code_env())
+        self.assertEqual(result.returncode, 0, repr(result.stdout + result.stderr))
+        self.assertRegex(result.stdout, r"Ran \d+ tests?")
+
+    def test_the_lead_lane_case_is_also_refused_by_deliberate_extension(self):
+        # Guard 5: CLAUDECODE=1 with NO CLAUDE_CODE_CHILD_SESSION at all
+        # (no signal distinguishes lead from teammate) still refused --
+        # this is the ruling's own named judgment call, not an oversight.
+        # WORKFLOW already requires the lead's finish run to carry
+        # --gate finish; an ad-hoc full run from the lead's lane now
+        # needs --gate or -p too.
+        tmp, probe = self._fake_engine_root()
+        env = self._claude_code_env()
+        self.assertNotIn("CLAUDE_CODE_CHILD_SESSION", env, "this case is specifically the absence of that signal")
+        result = subprocess.run(["sh", str(probe)], capture_output=True, text=True, env=env)
+        self.assertEqual(result.returncode, 2, repr(result.stdout + result.stderr))
+        self.assertFalse(self._records(tmp).exists())
+
+    def test_the_runner_and_the_pretooluse_guard_share_the_exact_refusal_text(self):
+        # "Both lanes say the same sentence" -- the runner's own refusal
+        # (no command text to misread) must reuse the PreToolUse guard's
+        # existing marker via _test_run_shared, not a second, driftable
+        # copy.
+        spec = importlib.util.spec_from_file_location("pt119_test_run_guard", self.HOOKS_DIR / "test_run_guard.py")
+        guard_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard_module)
+        marker = guard_module._MESSAGE.strip().splitlines()[0]
+
+        tmp, probe = self._fake_engine_root()
+        result = subprocess.run(["sh", str(probe)], capture_output=True, text=True, env=self._claude_code_env())
+        self.assertEqual(result.returncode, 2, repr(result.stdout + result.stderr))
+        self.assertIn(marker, result.stderr, f"runner refusal must share the guard's own marker sentence -- got {result.stderr!r}")
 
 
 # --------------------------------------------------------------------------
