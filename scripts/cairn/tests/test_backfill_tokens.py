@@ -44,16 +44,25 @@ Contract under test (`scripts/cairn/backfill_tokens.py`, run directly, not a
   wherever `--out` points, for tests), one object per (source, issue, role,
   model) bucket-total line: `source`, `generated` (RFC3339 UTC, `Z`
   suffix), `window_start`/`window_end` (`YYYY-MM-DD`, inclusive --
-  both DATA-derived: `window_start` is the earliest contributing record's
-  date, `window_end` is the LATEST contributing record's date -- NOT the
-  date portion of `generated` (struck by the architect's amendment,
-  9e94514, which resolved a self-contradiction between the ruling's own
-  §1 and §2: "generated already records the scrape moment; the only
+  both DATA-derived: `window_start` is the earliest date, `window_end`
+  the LATEST date, among the timestamps that fed THAT RECORD'S OWN
+  (issue, role, model) BUCKET -- min/max, never first-seen/last-seen
+  (records are not guaranteed chronological across files). PT-103
+  (architect's ruling, PT-103.md @ 9f622cf, item (1)) superseded the
+  original per-RUN reading (one pair computed once and repeated on
+  every line): a record claiming a run-wide span for rows that may
+  cover one day is the same class of lie in a smaller font once
+  per-issue consumers exist. The run-level span survives only as the
+  operator's stdout line (`print(f"window: ...")`) and gains no record
+  field -- min/max across every produced line still equals that printed
+  span (item (1)'s preserved invariant, `build_tokens_payload` already
+  computes it the same way). `window_end` is NOT the date portion of
+  `generated` (struck by the architect's amendment, 9e94514, which
+  resolved a self-contradiction between the original ruling's own §1
+  and §2: "generated already records the scrape moment; the only
   reading under which window_end earns its place in the schema is the
-  data-derived one"). Both computed ONCE per run, contribution-wide, and
-  repeated identically on every line of that run -- not per-bucket. The
-  PT-78 non-overlap invariant keys on `generated`, not `window_end`, for
-  this exact reason.), `issue`, `role`, `model`,
+  data-derived one"). The PT-78 non-overlap invariant keys on
+  `generated`, not `window_end`, for this exact reason.), `issue`, `role`, `model`,
   `input`, `cache_write`, `cache_read`, `output` (the four AUTHORITATIVE
   counters), optionally `cache_write_5m`/`cache_write_1h`/`records`. No
   other keys -- in particular no `sessionId`/`requestId`/`uuid`/message
@@ -81,6 +90,7 @@ import datetime
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import types
@@ -495,32 +505,44 @@ class BackfillGoldenPathTests(unittest.TestCase):
             self.assertFalse(missing, f"missing required keys in output line: {missing}")
             self.assertEqual(line["source"], "transcript-backfill")
 
-    def test_window_start_is_the_earliest_record_date_not_today(self):
-        # Earliest surviving record in the golden fixture is
-        # impl_adhoc_milestone_branch_main.jsonl's chore/pt-0.11-* line,
-        # timestamped 2026-08-18T07:00:00Z.
+    def test_window_start_is_the_earliest_record_date_of_its_own_bucket_not_today(self):
+        # PT-103 addendum 1 (architect, PT-103.md @ 1052006): measured
+        # per-file spans in the golden fixture, hard-coded here, never
+        # computed with the code's own derivation. min(window_start)
+        # across every line is 2026-08-18, carried by the
+        # milestone-branch bucket (impl_adhoc_milestone_branch_main.jsonl
+        # -> main/impl) -- and NOT shared by every line (that was the
+        # defect: 330 real records all sharing one 3-week span).
         result = self._run_golden()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         lines = read_jsonl(self.out_path)
+        buckets = bucket_map(lines)
         window_starts = {line["window_start"] for line in lines}
-        self.assertEqual(window_starts, {"2026-08-18"}, "window_start must be the earliest contributing record's date, uniform across every line of one run")
+        self.assertEqual(min(window_starts), "2026-08-18", f"got {window_starts}")
+        self.assertGreater(
+            len(window_starts), 1,
+            f"per-bucket windows must NOT collapse to one uniform value across the golden fixture's "
+            f"seven-day spread -- got {window_starts}",
+        )
+        self.assertEqual(buckets[("main", "impl", "claude-sonnet-5")]["window_start"], "2026-08-18")
 
-    def test_window_end_is_the_latest_record_date_not_generated(self):
-        # Architect's amendment (9e94514) struck the ruling's original §2
-        # sentence ("the backfill sets window_end to its generated date")
-        # as self-contradictory with §1 -- window_end is DATA-derived: the
-        # latest contributing record's date. Golden fixture's latest
-        # surviving record is 2026-08-24 (golden/subagents/agent-1.jsonl,
-        # the nested subagent record), well before whatever "today"
-        # (generated's date) happens to be --
-        # the exact shape the amendment calls out as the real
-        # discriminator (a struck "use generated" implementation would
-        # produce today's date here, not 2026-08-24).
+    def test_window_end_is_the_latest_record_date_of_its_own_bucket_not_generated(self):
+        # PT-103 addendum 1: max(window_end) across every line is
+        # 2026-08-24 (the subagent file -> PT-28/qa-engineer), still !=
+        # today, and explicitly not shared by every line. Architect's
+        # amendment (9e94514) struck the original ruling's §2 sentence
+        # ("the backfill sets window_end to its generated date") --
+        # window_end is DATA-derived, the latest contributing record's
+        # date, narrowed by PT-103 to the record's own bucket.
         result = self._run_golden()
         lines = read_jsonl(self.out_path)
+        buckets = bucket_map(lines)
         today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
         window_ends = {line["window_end"] for line in lines}
-        self.assertEqual(window_ends, {"2026-08-24"}, "window_end must be the latest contributing record's date, not generated's date")
-        self.assertNotEqual(window_ends, {today}, "window_end must not silently equal today -- that would be the struck reading")
+        self.assertEqual(max(window_ends), "2026-08-24", f"got {window_ends}")
+        self.assertGreater(len(window_ends), 1, f"per-bucket window_end must not collapse to one value -- got {window_ends}")
+        self.assertEqual(buckets[("PT-28", "qa-engineer", "claude-sonnet-5")]["window_end"], "2026-08-24")
+        self.assertNotIn(today, window_ends, "window_end must not silently equal today -- that would be the struck reading")
 
     def test_window_end_tracks_the_record_not_the_clock_on_a_dedicated_fixture(self):
         # The architect explicitly asked for this: "a run whose newest
@@ -543,16 +565,97 @@ class BackfillGoldenPathTests(unittest.TestCase):
         self.assertEqual(window_starts, {"2026-07-01"})
         self.assertEqual(window_ends, {"2026-07-15"})
 
-    def test_every_line_in_one_run_carries_the_identical_window_pair(self):
-        # Contribution-wide, not per-bucket (architect's amendment): one
-        # (window_start, window_end) pair computed once across the whole
-        # run and repeated on every line, regardless of which bucket that
-        # line belongs to.
+    def test_different_buckets_carry_different_window_pairs(self):
+        # PT-103 addendum 1 (architect, PT-103.md @ 1052006, item 4):
+        # supersedes the pre-PT-103 "every line shares one pair" property
+        # this test used to assert -- that WAS the defect (a record
+        # claiming a three-week span for rows that may cover one day).
+        # Each line's (window_start, window_end) equals the min/max date
+        # of its own bucket's contributing records; at least two distinct
+        # pairs on the golden fixture, with LITERAL (hard-coded, never
+        # code-derived) expectations for two named buckets: PT-90/
+        # team-lead (2026-08-23/2026-08-23) and PT-47/qa-engineer
+        # (2026-08-22/2026-08-22). Mutation: revert to a run-level window
+        # computed once and repeated on every line -> both named buckets
+        # collapse to the run span (2026-08-18/2026-08-24) and this goes
+        # red on all three assertions.
         result = self._run_golden()
         lines = read_jsonl(self.out_path)
         self.assertTrue(lines)
+        buckets = bucket_map(lines)
         pairs = {(line["window_start"], line["window_end"]) for line in lines}
-        self.assertEqual(len(pairs), 1, f"every line of one run must share the exact same (window_start, window_end) pair, got {pairs}")
+        self.assertGreater(
+            len(pairs), 1,
+            f"different (issue, role, model) buckets active on different days must carry DIFFERENT "
+            f"window pairs -- got a single uniform pair {pairs}, the exact defect PT-103 fixes",
+        )
+        pt90 = buckets[("PT-90", "team-lead", "claude-sonnet-5")]
+        self.assertEqual((pt90["window_start"], pt90["window_end"]), ("2026-08-23", "2026-08-23"))
+        pt47 = buckets[("PT-47", "qa-engineer", "claude-sonnet-5")]
+        self.assertEqual((pt47["window_start"], pt47["window_end"]), ("2026-08-22", "2026-08-22"))
+
+    def test_two_issues_active_on_different_days_get_different_windows(self):
+        # Ruling guard (a): a fixture transcript, two issues active on
+        # different days -> two records with different windows, each
+        # equal to its own bucket's first/last day.
+        tmp = helpers.make_empty_tmp_dir(self)
+        out_path = tmp / "token-usage.jsonl"
+        result = run_backfill_in_process([
+            "--transcripts-dir", str(TRANSCRIPTS_FIXTURES / "two_issues_different_days"),
+            "--out-file", str(out_path),
+        ])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = read_jsonl(out_path)
+        buckets = bucket_map(lines)
+        self.assertEqual(set(buckets.keys()), {("PT-30", "team-lead", "claude-sonnet-5"), ("PT-31", "team-lead", "claude-sonnet-5")})
+        pt30 = buckets[("PT-30", "team-lead", "claude-sonnet-5")]
+        pt31 = buckets[("PT-31", "team-lead", "claude-sonnet-5")]
+        self.assertEqual((pt30["window_start"], pt30["window_end"]), ("2026-07-05", "2026-07-05"))
+        self.assertEqual((pt31["window_start"], pt31["window_end"]), ("2026-07-10", "2026-07-10"))
+        self.assertNotEqual(
+            (pt30["window_start"], pt30["window_end"]), (pt31["window_start"], pt31["window_end"]),
+            "two issues active on different days must not share a window",
+        )
+
+    def test_out_of_chronological_order_records_still_yield_start_before_end(self):
+        # Ruling guard (b): a bucket spanning several days with its
+        # records OUT OF CHRONOLOGICAL ORDER in the file -> window_start
+        # < window_end. Mutation: first-seen/last-seen assignment instead
+        # of min/max -- the fixture's file order is 07-20, 07-10, 07-15,
+        # so first-seen/last-seen would produce window_start=07-20,
+        # window_end=07-15 (INVERTED, start > end).
+        tmp = helpers.make_empty_tmp_dir(self)
+        out_path = tmp / "token-usage.jsonl"
+        result = run_backfill_in_process([
+            "--transcripts-dir", str(TRANSCRIPTS_FIXTURES / "out_of_order_bucket"),
+            "--out-file", str(out_path),
+        ])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = read_jsonl(out_path)
+        self.assertEqual(len(lines), 1, f"expected exactly one bucket -- got {lines!r}")
+        line = lines[0]
+        self.assertEqual(line["window_start"], "2026-07-10", "window_start must be the MINIMUM day across the bucket's records, not the first seen in file order")
+        self.assertEqual(line["window_end"], "2026-07-20", "window_end must be the MAXIMUM day across the bucket's records, not the last seen in file order")
+        self.assertLess(line["window_start"], line["window_end"])
+
+    def test_run_level_span_printed_to_stdout_equals_min_max_across_produced_lines(self):
+        # Ruling guard (c): min/max across all produced lines equals the
+        # run-level span the CLI prints (`print(f"window: {start} ..
+        # {end}")`) -- the invariant the ruling names as both a qa
+        # assertion and the data-re-run's data-loss detector.
+        result = self._run_golden()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = read_jsonl(self.out_path)
+        self.assertTrue(lines)
+        min_start = min(line["window_start"] for line in lines)
+        max_end = max(line["window_end"] for line in lines)
+        m = re.search(r"window: (\S+) \.\. (\S+)", result.stdout)
+        self.assertIsNotNone(m, f"expected a 'window: X .. Y' line on stdout -- got {result.stdout!r}")
+        self.assertEqual(
+            (m.group(1), m.group(2)), (min_start, max_end),
+            "the run-level span printed to stdout must equal min(window_start)/max(window_end) across "
+            "every produced line -- the invariant build_tokens_payload's own min/max already relies on",
+        )
 
     def test_generated_timestamp_is_rfc3339_utc_with_z_suffix(self):
         result = self._run_golden()

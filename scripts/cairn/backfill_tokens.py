@@ -295,7 +295,7 @@ def resolve_role_from_header(agent_setting: Optional[str], agent_name: Optional[
 # Transcript scanning
 # --------------------------------------------------------------------------
 
-def _new_bucket() -> Dict[str, int]:
+def _new_bucket() -> Dict[str, Any]:
     return {
         "input": 0,
         "cache_write": 0,
@@ -304,6 +304,8 @@ def _new_bucket() -> Dict[str, int]:
         "cache_write_5m": 0,
         "cache_write_1h": 0,
         "records": 0,
+        "window_start": None,  # type: Optional[str]
+        "window_end": None,  # type: Optional[str]
     }
 
 
@@ -324,7 +326,7 @@ def _process_record(
     prefix: str,
     issue_re: "re.Pattern[str]",
     roster: Set[str],
-    buckets: Dict[Tuple[str, str, str], Dict[str, int]],
+    buckets: Dict[Tuple[str, str, str], Dict[str, Any]],
     seen_keys: Set[str],
     stats: Dict[str, Any],
     role: str,
@@ -413,7 +415,18 @@ def _process_record(
     acc["cache_write_1h"] += cache_creation.get("ephemeral_1h_input_tokens", 0) or 0
     acc["records"] += 1
 
+    # PT-103 (architect's ruling, PT-103.md @ 9f622cf, item (1)): the
+    # window belongs to the record's own (issue, role, model) bucket, not
+    # the run -- min/max over THAT bucket's own contributing timestamps,
+    # never first-seen/last-seen (records are not guaranteed chronological
+    # across files). `stats["window_start"/"window_end"]` stays the
+    # run-level span for the operator's stdout line only -- no record
+    # field carries it.
     date = str(timestamp)[:10]
+    if acc["window_start"] is None or date < acc["window_start"]:
+        acc["window_start"] = date
+    if acc["window_end"] is None or date > acc["window_end"]:
+        acc["window_end"] = date
     if stats["window_start"] is None or date < stats["window_start"]:
         stats["window_start"] = date
     if stats["window_end"] is None or date > stats["window_end"]:
@@ -425,7 +438,7 @@ def _process_file(
     prefix: str,
     issue_re: "re.Pattern[str]",
     roster: Set[str],
-    buckets: Dict[Tuple[str, str, str], Dict[str, int]],
+    buckets: Dict[Tuple[str, str, str], Dict[str, Any]],
     seen_keys: Set[str],
     stats: Dict[str, Any],
     milestone_windows_table: List[Tuple[str, str]],
@@ -466,7 +479,7 @@ def _process_file(
 
 def scan_transcripts(
     transcript_dir: Path, prefix: str, roster: Set[str], repo_root: Optional[Path] = None
-) -> Tuple[Dict[Tuple[str, str, str], Dict[str, int]], Dict[str, Any], List[Path], List[Tuple[str, str]]]:
+) -> Tuple[Dict[Tuple[str, str, str], Dict[str, Any]], Dict[str, Any], List[Path], List[Tuple[str, str]]]:
     """Recursively scans `transcript_dir` for `*.jsonl` files (nested
     subagent transcripts live at `<session>/subagents/agent-*.jsonl`; no
     exclude list needed -- `memory/` and `<session>/tool-results/` hold no
@@ -486,7 +499,7 @@ def scan_transcripts(
     throwaway tracker.
     """
     issue_re = _issue_regex(prefix)
-    buckets: Dict[Tuple[str, str, str], Dict[str, int]] = {}
+    buckets: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
     seen_keys: Set[str] = set()
     stats = _new_stats()
     milestone_windows_table = cairn.milestone_windows(repo_root if repo_root is not None else _repo_root())
@@ -501,19 +514,23 @@ def scan_transcripts(
 # --------------------------------------------------------------------------
 
 def _build_lines(
-    buckets: Dict[Tuple[str, str, str], Dict[str, int]],
+    buckets: Dict[Tuple[str, str, str], Dict[str, Any]],
     generated: str,
-    window_start: str,
-    window_end: str,
     milestone_windows_table: Optional[List[Tuple[str, str]]] = None,
 ) -> List[Dict[str, Any]]:
+    """PT-103 (architect's ruling, PT-103.md @ 9f622cf, item (1)): each
+    line's `window_start`/`window_end` come from its OWN bucket's
+    min/max-over-contributing-records -- never a uniform run-level pair
+    (`_process_record` already computed these per bucket; every bucket in
+    `buckets` has been touched by at least one record, so both are always
+    set here, never None)."""
     lines = []
     for (issue, role, model), acc in buckets.items():
         lines.append({
             "source": SOURCE_NAME,
             "generated": generated,
-            "window_start": window_start,
-            "window_end": window_end,
+            "window_start": acc["window_start"],
+            "window_end": acc["window_end"],
             "issue": issue,
             "role": role,
             "model": model,
@@ -738,7 +755,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     generated = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     window_start = stats["window_start"] or generated[:10]
     window_end = stats["window_end"] or generated[:10]
-    new_lines = _build_lines(buckets, generated, window_start, window_end, milestone_windows_table)
+    new_lines = _build_lines(buckets, generated, milestone_windows_table)
 
     print(f"scanned {len(files)} transcript file(s) under {transcript_dir}")
     print(

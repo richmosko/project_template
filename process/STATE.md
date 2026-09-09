@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | dashboard: one owner for the /api/tokens wire payload type; svelte-check drift |
-| Issue | PT-104 (cairn) |
+| Feature | backfill_tokens.py: per-issue activity windows instead of one shared run span |
+| Issue | PT-103 (cairn) |
 | Milestone | PT-0.12.2 |
-| Branch | `feature/pt-104-tokens-payload-type-owner` |
+| Branch | `feature/pt-103-backfill-per-issue-windows` |
 | Started | 2026-09-08 |
-| Goal | One declaration of the tokens payload type, imported by the chart logic; svelte-check clean; drift guarded. |
-| PR | https://github.com/richmosko/project_template/pull/199 |
+| Goal | Each transcript-backfill record carries its own issue's first/last activity window; the ledger regenerated so chronological order is real. |
+| PR | https://github.com/richmosko/project_template/pull/200 |
 | Status | In Review |
 
 ## Releases
