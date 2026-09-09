@@ -336,10 +336,13 @@
 	     now has a containing block tall enough to stick within. PT-74's
 	     width rule (`mx-auto w-full`, no cap) moves onto the header
 	     itself below rather than a now-redundant single-child wrapper;
-	     no restructure to the sidebar-07 shape. `z-50` matches the
-	     portal'd overlay tier (chart tooltips/dropdown/select/popover/
-	     sheet) deliberately: a header that outranks its own settings
-	     menu clips it, the wanted failure mode over the reverse.
+	     no restructure to the sidebar-07 shape. `z-40` -- ONE tier BELOW
+	     the portal'd overlay tier (chart tooltips/dropdown/select/
+	     popover/sheet, all `z-50`) -- lets the header's own settings
+	     popover win the hit test over the header's bottom edge where the
+	     two overlap; the original `z-50` (equal tier, DOM order breaking
+	     the tie) let the header clip its own settings menu instead
+	     (measured on the live board, PT-110.md addendum).
 	     `bg-muted` matches body's own surface (page chrome, not a
 	     floating card); `border-b` (colour via app.css's universal
 	     `border-border` rule) so scrolled content never bleeds through;
@@ -347,7 +350,7 @@
 	     breathing room as an opaque bar rather than blending into the
 	     page. Never `fixed` -- that would leave normal flow and
 	     reintroduce the overlap. -->
-	<header class="sticky top-0 z-50 mx-auto flex w-full flex-wrap items-center justify-between gap-4 border-b bg-muted py-4">
+	<header class="sticky top-0 z-40 mx-auto flex w-full flex-wrap items-center justify-between gap-4 border-b bg-muted py-4">
 		<div class="flex items-center gap-3">
 			<Sidebar.Trigger />
 			<Sidebar.Separator orientation="vertical" class="h-4" />
