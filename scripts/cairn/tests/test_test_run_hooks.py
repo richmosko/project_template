@@ -296,6 +296,213 @@ class IsPythonTokenTruthTableTests(unittest.TestCase):
                 self.assertFalse(module._is_python_token(tok), f"{tok!r} must NOT be recognised as a python invocation")
 
 
+class InterpreterFlagsAndLaunchersTests(unittest.TestCase):
+    """PT-115 gate-1 ruling (PT-115.md @c7b84c0), guards 1-2: a CLOSED
+    allow-list of interpreter flags between the python token and its
+    target (never "any dash token"), plus `uv run`/`poetry run` as
+    launcher prefixes consumed before the normal scan. Measured over
+    2110 real commands: zero instances of the filed evasion (python
+    flags / launchers), but `-c` (30 calls) and `-` (75 calls, stdin
+    heredocs) are real and MUST stay non-runs -- a naive "skip any dash
+    token" rule would swallow exactly those two shapes."""
+
+    ACCEPT_FULL = (
+        "python3 -X dev scripts/cairn/run_tests.py --gate green",
+        "python3 -Xdev scripts/cairn/run_tests.py --gate green",
+        "python3 -uB -m unittest discover -s tests",
+        "uv run scripts/cairn/run_tests.py --gate green",
+        "uv run python3 scripts/cairn/run_tests.py --gate green",
+        "poetry run python -m unittest discover -s tests --gate green",
+    )
+
+    REJECT = (
+        "python3 - <<'PY'\nrun_tests.py\nPY",
+        'python3 -c "run_tests.py"',
+        "pipx run run_tests.py",
+        'git add -- "notes/python3.14 run_tests.py --gate green.md"',
+    )
+
+    def test_flag_and_launcher_forms_are_recognised_as_full_runs(self):
+        shared = _load_hook_module("_test_run_shared.py")
+        for cmd in self.ACCEPT_FULL:
+            with self.subTest(cmd=cmd):
+                self.assertTrue(shared.is_test_invocation(cmd), f"{cmd!r} must be recognised as a test invocation")
+                self.assertTrue(shared.is_full_suite_run(cmd), f"{cmd!r} must be recognised as a full-suite run")
+
+    def test_dash_c_stdin_pipx_and_the_versioned_git_add_stay_non_runs(self):
+        shared = _load_hook_module("_test_run_shared.py")
+        for cmd in self.REJECT:
+            with self.subTest(cmd=cmd):
+                self.assertFalse(shared.is_test_invocation(cmd), f"{cmd!r} must NOT be recognised as a test invocation")
+
+    def test_guard_refuses_untiered_flag_and_launcher_forms(self):
+        for cmd in (
+            "python3 -X dev scripts/cairn/run_tests.py",
+            "uv run scripts/cairn/run_tests.py",
+            "poetry run python -m unittest discover -s tests",
+        ):
+            with self.subTest(cmd=cmd):
+                result = _run_hook("test_run_guard.py", json.dumps(_pre_payload(cmd)))
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+
+    def test_guard_allows_the_same_forms_when_gated(self):
+        for cmd in (
+            "python3 -X dev scripts/cairn/run_tests.py --gate green",
+            "uv run scripts/cairn/run_tests.py --gate green",
+            "poetry run python -m unittest discover -s tests --gate green",
+        ):
+            with self.subTest(cmd=cmd):
+                result = _run_hook("test_run_guard.py", json.dumps(_pre_payload(cmd)))
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class NarrowedModuleTargetsAreNotFullRunsTests(unittest.TestCase):
+    """Guard 3: naming a module explicitly IS narrowing -- `is_full_suite_run`
+    only knew `-p`/`--pattern`/`-k`. Measured: 3 real refusals of
+    `python3 -m unittest tests.test_a tests.test_b -v` and
+    `python3 -m unittest tests.mod.Class.test_x`. Aligns the hooks with
+    `loop_stats._FULL_RE`, which has only ever treated `unittest
+    discover` as full since PT-93."""
+
+    def test_guard_allows_named_unittest_targets(self):
+        for cmd in (
+            "python3 -m unittest tests.test_x tests.test_y -v",
+            "python3 -m unittest tests.test_x.Class.test_m",
+        ):
+            with self.subTest(cmd=cmd):
+                result = _run_hook("test_run_guard.py", json.dumps(_pre_payload(cmd)))
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_guard_still_refuses_bare_unittest_discover(self):
+        result = _run_hook("test_run_guard.py", json.dumps(
+            _pre_payload("python3 -m unittest discover -s tests")))
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+
+    def test_is_full_suite_run_treats_named_targets_as_narrowed(self):
+        shared = _load_hook_module("_test_run_shared.py")
+        self.assertFalse(shared.is_full_suite_run("python3 -m unittest tests.test_x tests.test_y -v"))
+        self.assertFalse(shared.is_full_suite_run("python3 -m unittest tests.test_x.Class.test_m"))
+        self.assertTrue(shared.is_full_suite_run("python3 -m unittest discover -s tests"))
+
+
+class HelpAndListAreNotFullRunsTests(unittest.TestCase):
+    """Guard 4: `run_tests.py --help`/`-h`/`--list` exit without running
+    anything -- not full, and no record at all. Measured: 1 real
+    refusal of `--help`."""
+
+    def test_help_and_list_are_not_test_invocations_at_all(self):
+        shared = _load_hook_module("_test_run_shared.py")
+        for cmd in (
+            "python3 run_tests.py --help",
+            "python3 run_tests.py -h",
+            "python3 run_tests.py --list",
+        ):
+            with self.subTest(cmd=cmd):
+                self.assertFalse(shared.is_test_invocation(cmd), f"{cmd!r} must not be recorded as a run at all")
+
+    def test_guard_allows_help_and_list_through(self):
+        for cmd in ("python3 run_tests.py --help", "python3 run_tests.py --list"):
+            with self.subTest(cmd=cmd):
+                result = _run_hook("test_run_guard.py", json.dumps(_pre_payload(cmd)))
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_record_hook_writes_nothing_for_help(self):
+        tmp = helpers.make_empty_tmp_dir(self)
+        (tmp / "process" / "cairn" / "metrics").mkdir(parents=True)
+        records_path = tmp / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        payload = {
+            "session_id": "s", "cwd": str(tmp), "agent_type": "architect",
+            "hook_event_name": "PostToolUse", "tool_name": "Bash",
+            "tool_input": {"command": "python3 run_tests.py --help"},
+            "tool_response": {"stdout": "usage: run_tests.py ...\n", "stderr": ""},
+            "duration_ms": 12, "tool_use_id": "x",
+        }
+        result = _run_hook("test_run_record.py", json.dumps(payload), env={"CLAUDE_PROJECT_DIR": str(tmp)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(
+            records_path.exists() and records_path.read_text(encoding="utf-8").strip(),
+            "a --help command must never write a record",
+        )
+
+    def test_bare_run_tests_py_is_still_a_full_run(self):
+        shared = _load_hook_module("_test_run_shared.py")
+        self.assertTrue(shared.is_full_suite_run("python3 run_tests.py"))
+        self.assertTrue(shared.is_test_invocation("python3 run_tests.py"))
+
+
+class HeredocIsNotAnInvocationInTheHooksTests(unittest.TestCase):
+    """Guard 5: reverses PT-111's loop_stats-only placement -- measured 8
+    real commands where a heredoc body merely QUOTES a full run (writing
+    a verdict/ruling comment), several of which were actually refused.
+    `_strip_heredocs` moves into `_test_run_shared` so BOTH callers
+    (`loop_stats.classify_bash` and the hooks) share one implementation,
+    never a second, driftable copy."""
+
+    HEREDOC_CMD = "cat > /tmp/pt99-verdict.md <<'EOF'\nRun this at a gate: python3 run_tests.py --gate verdict\nEOF"
+    PLAIN_CMD = "python3 run_tests.py --gate verdict"
+
+    def test_heredoc_quoted_run_is_not_an_invocation(self):
+        shared = _load_hook_module("_test_run_shared.py")
+        self.assertFalse(
+            shared.is_test_invocation(self.HEREDOC_CMD),
+            "a heredoc body that merely quotes a run must not be an invocation",
+        )
+
+    def test_the_same_command_without_the_heredoc_wrapper_is_an_invocation(self):
+        shared = _load_hook_module("_test_run_shared.py")
+        self.assertTrue(shared.is_test_invocation(self.PLAIN_CMD))
+        self.assertTrue(shared.is_full_suite_run(self.PLAIN_CMD))
+
+    def test_guard_allows_a_heredoc_that_merely_quotes_a_run(self):
+        result = _run_hook("test_run_guard.py", json.dumps(_pre_payload(self.HEREDOC_CMD)))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_loop_stats_and_the_shared_helper_strip_heredocs_identically(self):
+        # Behavioural equivalence, not object identity -- either a
+        # re-export (`_strip_heredocs = shared._strip_heredocs`) or a
+        # thin delegating wrapper satisfies "one implementation, no
+        # drift"; only the OUTPUT is the contract.
+        import loop_stats
+        shared = _load_hook_module("_test_run_shared.py")
+        cases = (
+            self.HEREDOC_CMD,
+            self.PLAIN_CMD,
+            "cat >> process/cairn/issues/PT-76.md <<'EOF'\npython3 run_tests.py --gate verdict\nEOF",
+            "S=x; python3 - <<'PY'\nprint(1)\nPY",
+        )
+        for cmd in cases:
+            with self.subTest(cmd=cmd):
+                self.assertEqual(loop_stats._strip_heredocs(cmd), shared._strip_heredocs(cmd))
+
+
+class AcceptedShapesStayWithinThePrefilterLockstepTests(unittest.TestCase):
+    """Guard 6: every newly-accepted shape must still contain a
+    `TEST_CMD_TOKENS` substring, or the shell prefilter in
+    `.claude/settings.json` (which globs on the raw command TEXT before
+    ever spawning python) would silently never see it. The ruling's own
+    answer to brief item (4): no settings.json change needed --
+    verified per-shape here rather than trusted."""
+
+    def test_every_accepted_shape_contains_a_test_cmd_token(self):
+        shared = _load_hook_module("_test_run_shared.py")
+        shapes = (
+            "python3 -X dev scripts/cairn/run_tests.py --gate green",
+            "python3 -Xdev scripts/cairn/run_tests.py --gate green",
+            "python3 -uB -m unittest discover -s tests",
+            "uv run scripts/cairn/run_tests.py --gate green",
+            "uv run python3 scripts/cairn/run_tests.py --gate green",
+            "poetry run python -m unittest discover -s tests --gate green",
+            "python3 -m unittest tests.test_x tests.test_y -v",
+        )
+        for cmd in shapes:
+            with self.subTest(cmd=cmd):
+                self.assertTrue(
+                    any(tok in cmd for tok in shared.TEST_CMD_TOKENS),
+                    f"{cmd!r} must contain one of {shared.TEST_CMD_TOKENS!r} or the shell "
+                    f"prefilter never spawns python for it at all",
+                )
+
+
 class FlagAwareNarrowingTests(unittest.TestCase):
     """Gate-4 verdict delta 1 (PT-97.md @ d896d8d, blocking): narrowing
     must be detected from the runner's own tokenised arguments, not a
