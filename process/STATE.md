@@ -23,7 +23,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-112-ledger-who-by-run-id` |
 | Started | 2026-09-09 |
 | Goal | The record hook patches `who` onto the run's own ledger line by run id, never by position; stale null lines are never adopted. |
-| Status | In Progress |
+| PR | https://github.com/richmosko/project_template/pull/205 |
+| Status | In Review |
 
 ## Releases
 
