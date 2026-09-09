@@ -23,7 +23,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-103-backfill-per-issue-windows` |
 | Started | 2026-09-08 |
 | Goal | Each transcript-backfill record carries its own issue's first/last activity window; the ledger regenerated so chronological order is real. |
-| Status | In Progress |
+| PR | https://github.com/richmosko/project_template/pull/200 |
+| Status | In Review |
 
 ## Releases
 
