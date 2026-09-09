@@ -115,6 +115,13 @@ EXPECTED_VARS_BY_DIM = {
         # "the guard edit is yours" -- a forced mechanical consequence
         # of retiring the ramp this table asserted).
         "--chart-flow-opened", "--chart-flow-closed", "--chart-flow-wip",
+        # PT-118 (gate-1 ruling c80dee8, item 1): Chart Color now also
+        # drives the counter-type family via the same rotate-then-map
+        # derivation -- ownedVars gains these four, another forced
+        # mechanical consequence of this table (implementation-lead's
+        # own edit, same posture as the PT-85 edit above).
+        "--chart-counter-input", "--chart-counter-cache-write",
+        "--chart-counter-cache-read", "--chart-counter-output",
     }),
 }
 
