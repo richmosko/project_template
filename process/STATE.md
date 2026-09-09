@@ -17,14 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | loop-stats counts hook-blocked or wrong-path full-suite commands as runs |
-| Issue | PT-111 (cairn) |
+| Feature | test-run ledger: the hook patches who on the LAST line only — concurrent teammates can cross-attribute runs |
+| Issue | PT-112 (cairn) |
 | Milestone | PT-0.12.2 |
-| Branch | `feature/pt-111-loop-stats-blocked-runs` |
+| Branch | `feature/pt-112-ledger-who-by-run-id` |
 | Started | 2026-09-09 |
-| Goal | Per-agent full-run counts match the ledger; blocked or misfired commands show as a separate counter and never count against the cap. |
-| PR | https://github.com/richmosko/project_template/pull/204 |
-| Status | In Review |
+| Goal | The record hook patches `who` onto the run's own ledger line by run id, never by position; stale null lines are never adopted. |
+| Status | In Progress |
 
 ## Releases
 
