@@ -350,7 +350,14 @@
 	     breathing room as an opaque bar rather than blending into the
 	     page. Never `fixed` -- that would leave normal flow and
 	     reintroduce the overlap. -->
-	<header class="sticky top-0 z-40 mx-auto flex w-full flex-wrap items-center justify-between gap-4 border-b bg-muted py-4">
+		<!-- PT-117 (architect's gate-1 ruling, PT-117.md @ 38083b2): `-mb-6`
+	     cancels the page root's flex row-gap (`gap-6`) after the header
+	     ONLY, so the first content block's border-box top IS the
+	     header's bottom edge (measured next.top - header.bottom: 24px ->
+	     0px, both routes) -- the 24px strip below the header was letting
+	     scrolled content show through underneath it. A negative margin
+	     is a margin, not a spacer -- the no-spacer guard still holds. -->
+<header class="sticky top-0 z-40 mx-auto flex w-full flex-wrap items-center justify-between gap-4 border-b bg-muted py-4 -mb-6">
 		<div class="flex items-center gap-3">
 			<Sidebar.Trigger />
 			<Sidebar.Separator orientation="vertical" class="h-4" />
@@ -414,8 +421,15 @@
 	     narrower siblings"), not the reverse. No cap here anymore --
 	     status cards/tracker/chart/agents now share the same full-bleed
 	     container the Board section already had. -->
+	<!-- PT-117 (architect's gate-1 ruling, PT-117.md @ 38083b2): `isolate`
+	     on this wrapper -- and on the Board and Issue Tracking sections
+	     below, the page root's other two direct children -- gives each
+	     its own stacking context so a library's `z-50` (LayerChart's
+	     token-chart tooltip, set in this subtree) can no longer escape
+	     it and compete with the header's `z-40` (measured: 623 -> 0
+	     over-header hit-test points at scrollY 1500). -->
 	{#if !onIssueTracking}
-	<div class="mx-auto flex w-full flex-col gap-6">
+	<div class="isolate mx-auto flex w-full flex-col gap-6">
 	{#if loadError && !data}
 		<Card.Root>
 			<Card.Content>
@@ -648,7 +662,7 @@
 	     (architect's ruling §4) -- not a second inline/modal editor. No
 	     sandbox (breaks same-origin storage), no postMessage auto-height
 	     (the board owns its own scrolling/sticky chrome), fixed height. -->
-	<section aria-label="Board">
+	<section aria-label="Board" class="isolate">
 		<Card.Root class="[--card-spacing:1.5rem]">
 			<Card.Header>
 				<Card.Title class="text-lg">Board</Card.Title>
@@ -676,7 +690,7 @@
 		</Card.Root>
 	</section>
 	{:else}
-		<section aria-label="Issue Tracking" class="flex min-h-0 flex-1 flex-col">
+		<section aria-label="Issue Tracking" class="flex min-h-0 flex-1 flex-col isolate">
 			<iframe
 				src="/?embed=1{issueTrackingOpenSuffix}"
 				title="Cairn board"
