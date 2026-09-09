@@ -41,6 +41,18 @@ import re
 import shlex
 from typing import List, Optional, Tuple
 
+# PT-119 gate-1 ruling, re-issued (PT-119.md @6cd7e44): the PreToolUse
+# guard's refusal text, shared with run_tests.py's own runner-side
+# backstop (an indirectly-invoked run -- `sh probe.sh` wrapping the
+# runner -- reaches neither the command-text prefilter nor this hook, so
+# the runner refuses it directly, no text to misread). Both lanes must
+# say the exact same sentence, so it lives in exactly one place.
+REFUSAL_MESSAGE = (
+    "test_run_guard: refusing an un-tiered full-suite run. Mid-loop, narrow it: "
+    'python3 run_tests.py -p "test_<area>*.py" (WORKFLOW -> Implement -> Inner loop). '
+    "At a gate, declare it: python3 run_tests.py --gate <red|green|verdict|finish> (PT-94 C9).\n"
+)
+
 # The shell prefilter in settings.json globs on these same tokens
 # (`*<token>*`) before ever spawning python -- keep the two in lockstep
 # (SettingsAnchoringTests / ShellPrefilterCouplingTests).

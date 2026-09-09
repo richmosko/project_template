@@ -19,6 +19,13 @@ verdict delta 1), shared with `test_run_record.py` -- a naive substring
 scan for the two directions this used to get wrong: `--pattern` doesn't
 contain the literal ` -p `, and `/usr/bin/time -p ...` does (time's own
 flag, not the runner's).
+
+PT-119 gate-1 ruling (PT-119.md @6cd7e44): the refusal SENTENCE itself
+("test_run_guard: refusing an un-tiered full-suite run...") also moved
+into `_test_run_shared.REFUSAL_MESSAGE`, so `run_tests.py`'s own
+runner-side backstop for an indirectly invoked run (a wrapper script's
+body, invisible to both this hook and the prefilter) says the exact same
+sentence -- one string, two lanes, never a second drifting copy.
 """
 from __future__ import annotations
 
@@ -33,13 +40,14 @@ from pathlib import Path
 # importlib.util.spec_from_file_location (qa's ShellPrefilterCouplingTests,
 # which does NOT). Make both work.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _test_run_shared import TEST_CMD_TOKENS, gate_of, is_full_suite_run  # noqa: E402,F401
+from _test_run_shared import REFUSAL_MESSAGE, TEST_CMD_TOKENS, gate_of, is_full_suite_run  # noqa: E402,F401
 
-_MESSAGE = (
-    "test_run_guard: refusing an un-tiered full-suite run. Mid-loop, narrow it: "
-    'python3 run_tests.py -p "test_<area>*.py" (WORKFLOW -> Implement -> Inner loop). '
-    "At a gate, declare it: python3 run_tests.py --gate <red|green|verdict|finish> (PT-94 C9).\n"
-)
+# PT-119 gate-1 ruling (PT-119.md @6cd7e44): moved into _test_run_shared
+# so run_tests.py's own runner-side backstop (the indirect-invocation
+# case) says the exact same sentence -- kept as a module attribute here
+# (not inlined at the call site) since qa's tests read it as
+# `test_run_guard._MESSAGE`.
+_MESSAGE = REFUSAL_MESSAGE
 
 
 def _known_agent_stems(project_dir: Path) -> set:
