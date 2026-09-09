@@ -349,52 +349,20 @@ class CounterFamilyAdjacentSeparationSweepTests(unittest.TestCase):
         )
 
 
-class CounterVsRoleCollisionSweepTests(unittest.TestCase):
-    """Guard 3, the new cross-family risk PT-118 introduces: counter now
-    rotates per variant while role stays fixed (ruling 3) -- the same
-    identity-collision risk test_flow_series_distinctness.py's
-    NoCollisionWithChartRolePaletteTests already guards for flow, but
-    that test only checks app.css's own (unrotated) values, never swept
-    per variant. Counter and role DO appear on the same chart
-    (TokenCostChart's cost view is role-coloured, its tokens view is
-    counter-coloured) -- a reader who has seen one view must not read a
-    rotated counter hue as a specific roster role in the other. Same
-    25-degree floor as the established flow-vs-role check."""
-
-    ROLE_COLLISION_HUE_FLOOR_DEGREES = 25.0
-
-    def test_no_counter_hue_matches_a_role_hue_in_any_variant_or_mode(self):
-        self.assertTrue(DASHBOARD_VARIANTS_CSS.is_file())
-        variants_source = DASHBOARD_VARIANTS_CSS.read_text(encoding="utf-8")
-        app_css_source = APP_CSS.read_text(encoding="utf-8")
-        root_block = _extract_unqualified_block(app_css_source, ":root")
-        dark_block = _extract_unqualified_block(app_css_source, ".dark")
-        variants = _all_variants(variants_source)
-
-        offenders = []
-        seen = 0
-        for variant_name, modes in sorted(variants.items()):
-            for mode in ("light", "dark"):
-                is_dark = mode == "dark"
-                variant_block = modes.get(mode, "")
-                role_hues = {}
-                for token in ROLE_TOKENS:
-                    oklch = _resolve_oklch(token, "", root_block, dark_block, is_dark)
-                    self.assertIsNotNone(oklch, f"{mode}: could not resolve --{token} in app.css")
-                    role_hues[token] = oklch[2]
-                for token in COUNTER_TOKENS:
-                    oklch = _resolve_oklch(token, variant_block, root_block, dark_block, is_dark)
-                    self.assertIsNotNone(oklch, f"{variant_name}/{mode}: could not resolve --{token}")
-                    for role_name, role_hue in role_hues.items():
-                        seen += 1
-                        distance = _hue_distance(oklch[2], role_hue)
-                        if distance < self.ROLE_COLLISION_HUE_FLOOR_DEGREES:
-                            offenders.append((variant_name, mode, token, role_name, round(distance, 1)))
-        self.assertGreater(seen, 0, "the sweep resolved zero counter-vs-role pairs -- broken, not passing")
-        self.assertEqual(
-            offenders, [],
-            f"counter hue within {self.ROLE_COLLISION_HUE_FLOOR_DEGREES} deg of a fixed role hue: {offenders!r}",
-        )
+# Counter-vs-role hue collision: NOT a gate (architect's addendum 1,
+# PT-118.md @be4117c, option (a)). Measured: the 9 role hues' 25-degree
+# zones cover 88.2% of the circle (21 of 23 variants land the rotated
+# counter hue inside one); the only free arc totals 42 degrees across
+# three narrow bands, so an escape-nudge option (b) would collapse a
+# 24-choice control down to ~3 distinct counter hues. Sound because
+# TokenCostChart.svelte's series set is chosen by `mode` (`mode ===
+# 'cost' ? roles : counters`) -- counter and role never co-render, so a
+# 25-degree zone between them guards nothing on any screen (PT-79's
+# rule was for identity WITHIN the role palette and against --primary/
+# --destructive, both of which DO co-render with roles). Flow-vs-role
+# (which DOES co-render, different charts on the same page) stays a
+# design-time observation for ux-designer, same posture as CVD -- not a
+# mechanical matrix, and not silently widened into a gate either.
 
 
 HUE_TOLERANCE_DEGREES = 0.5
