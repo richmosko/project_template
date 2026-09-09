@@ -506,43 +506,40 @@ class BackfillGoldenPathTests(unittest.TestCase):
             self.assertEqual(line["source"], "transcript-backfill")
 
     def test_window_start_is_the_earliest_record_date_of_its_own_bucket_not_today(self):
-        # PT-103 (architect's ruling, PT-103.md @ 9f622cf, item (1)): the
-        # window belongs to the record's own (issue, role, model) BUCKET,
-        # not the run -- superseding this test's own prior "uniform
-        # across every line" framing (that reading was the defect PT-103
-        # fixes: 330 real records all sharing one 3-week span). The
-        # golden fixture's buckets are each single-day but span SEVEN
-        # different days (2026-08-18 .. 2026-08-24) -- window_starts must
-        # NOT collapse to one value, and two specific buckets are checked
-        # by exact date, hand-derived from the fixture files.
+        # PT-103 addendum 1 (architect, PT-103.md @ 1052006): measured
+        # per-file spans in the golden fixture, hard-coded here, never
+        # computed with the code's own derivation. min(window_start)
+        # across every line is 2026-08-18, carried by the
+        # milestone-branch bucket (impl_adhoc_milestone_branch_main.jsonl
+        # -> main/impl) -- and NOT shared by every line (that was the
+        # defect: 330 real records all sharing one 3-week span).
         result = self._run_golden()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         lines = read_jsonl(self.out_path)
         buckets = bucket_map(lines)
         window_starts = {line["window_start"] for line in lines}
+        self.assertEqual(min(window_starts), "2026-08-18", f"got {window_starts}")
         self.assertGreater(
             len(window_starts), 1,
             f"per-bucket windows must NOT collapse to one uniform value across the golden fixture's "
             f"seven-day spread -- got {window_starts}",
         )
         self.assertEqual(buckets[("main", "impl", "claude-sonnet-5")]["window_start"], "2026-08-18")
-        self.assertEqual(buckets[("PT-47", "qa-engineer", "claude-sonnet-5")]["window_start"], "2026-08-22")
 
     def test_window_end_is_the_latest_record_date_of_its_own_bucket_not_generated(self):
-        # Architect's amendment (9e94514) struck the original ruling's §2
-        # sentence ("the backfill sets window_end to its generated date")
-        # -- window_end is DATA-derived, the latest contributing record's
-        # date. PT-103 narrows "contributing" to the record's own bucket
-        # (item (1)): the golden fixture's latest bucket is PT-28's
-        # qa-engineer subagent record, 2026-08-24 -- well before whatever
-        # "today" (generated's date) happens to be, the same
-        # discriminator the amendment named (a struck "use generated"
-        # implementation would produce today's date here).
+        # PT-103 addendum 1: max(window_end) across every line is
+        # 2026-08-24 (the subagent file -> PT-28/qa-engineer), still !=
+        # today, and explicitly not shared by every line. Architect's
+        # amendment (9e94514) struck the original ruling's §2 sentence
+        # ("the backfill sets window_end to its generated date") --
+        # window_end is DATA-derived, the latest contributing record's
+        # date, narrowed by PT-103 to the record's own bucket.
         result = self._run_golden()
         lines = read_jsonl(self.out_path)
         buckets = bucket_map(lines)
         today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
         window_ends = {line["window_end"] for line in lines}
+        self.assertEqual(max(window_ends), "2026-08-24", f"got {window_ends}")
         self.assertGreater(len(window_ends), 1, f"per-bucket window_end must not collapse to one value -- got {window_ends}")
         self.assertEqual(buckets[("PT-28", "qa-engineer", "claude-sonnet-5")]["window_end"], "2026-08-24")
         self.assertNotIn(today, window_ends, "window_end must not silently equal today -- that would be the struck reading")
@@ -569,21 +566,33 @@ class BackfillGoldenPathTests(unittest.TestCase):
         self.assertEqual(window_ends, {"2026-07-15"})
 
     def test_different_buckets_carry_different_window_pairs(self):
-        # PT-103 (architect's ruling, PT-103.md @ 9f622cf, item (1)):
+        # PT-103 addendum 1 (architect, PT-103.md @ 1052006, item 4):
         # supersedes the pre-PT-103 "every line shares one pair" property
         # this test used to assert -- that WAS the defect (a record
         # claiming a three-week span for rows that may cover one day).
-        # Mutation: revert to a run-level window computed once and
-        # repeated on every line -> this collapses back to one pair.
+        # Each line's (window_start, window_end) equals the min/max date
+        # of its own bucket's contributing records; at least two distinct
+        # pairs on the golden fixture, with LITERAL (hard-coded, never
+        # code-derived) expectations for two named buckets: PT-90/
+        # team-lead (2026-08-23/2026-08-23) and PT-47/qa-engineer
+        # (2026-08-22/2026-08-22). Mutation: revert to a run-level window
+        # computed once and repeated on every line -> both named buckets
+        # collapse to the run span (2026-08-18/2026-08-24) and this goes
+        # red on all three assertions.
         result = self._run_golden()
         lines = read_jsonl(self.out_path)
         self.assertTrue(lines)
+        buckets = bucket_map(lines)
         pairs = {(line["window_start"], line["window_end"]) for line in lines}
         self.assertGreater(
             len(pairs), 1,
             f"different (issue, role, model) buckets active on different days must carry DIFFERENT "
             f"window pairs -- got a single uniform pair {pairs}, the exact defect PT-103 fixes",
         )
+        pt90 = buckets[("PT-90", "team-lead", "claude-sonnet-5")]
+        self.assertEqual((pt90["window_start"], pt90["window_end"]), ("2026-08-23", "2026-08-23"))
+        pt47 = buckets[("PT-47", "qa-engineer", "claude-sonnet-5")]
+        self.assertEqual((pt47["window_start"], pt47["window_end"]), ("2026-08-22", "2026-08-22"))
 
     def test_two_issues_active_on_different_days_get_different_windows(self):
         # Ruling guard (a): a fixture transcript, two issues active on
