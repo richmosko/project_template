@@ -182,19 +182,56 @@ class ClassifyTests(unittest.TestCase):
         # PT-111 guard 6: a heredoc BODY that merely quotes a full-run
         # command (writing a verdict/ruling comment, say) must not be
         # classified as an attempt at all -- not FULL_SUITE, not
-        # full_run_blocked. Strip heredoc bodies in loop_stats.py only;
-        # the hooks' own tokeniser (_test_run_shared) is untouched (control
-        # below).
+        # full_run_blocked.
+        #
+        # PT-115 gate-1 ruling (PT-115.md @c7b84c0) REVERSES this test's
+        # original placement rationale: PT-111 kept heredoc-stripping in
+        # loop_stats.py only, reasoning "a heredoc quoting a full run
+        # should still be refused" by the hooks. Measured over the real
+        # transcript archive: 8 such commands existed, several actually
+        # WERE refused -- that was reasoning, this is measurement.
+        # `_strip_heredocs` moves into `_test_run_shared` so both
+        # `loop_stats.classify_bash` and the hooks share one
+        # implementation. This assertion's OUTCOME is unchanged by the
+        # move; see HeredocIsNotAnInvocationInTheHooksTests in
+        # test_test_run_hooks.py for the hooks' own (now positive) guard.
         self.assertNotIn(loop_stats.classify_bash(HEREDOC_CMD), ("FULL_SUITE", "full_run_blocked"))
 
     def test_the_same_command_without_the_heredoc_wrapper_is_still_full_suite(self):
         self.assertEqual(loop_stats.classify_bash("python3 run_tests.py --gate verdict"), "FULL_SUITE")
 
     def test_is_full_suite_run_on_that_string_is_unchanged_in_the_hooks(self):
-        # Control: _test_run_shared.is_full_suite_run (the hooks' own
-        # guard surface) must still refuse this shape for real -- this
-        # feature touches loop_stats.py's classification only.
+        # Control: _test_run_shared.is_full_suite_run must still recognise
+        # this PLAIN (non-heredoc) shape as a full run for real.
         self.assertTrue(loop_stats.is_full_suite_run("python3 run_tests.py --gate verdict"))
+
+    def test_flag_and_launcher_forms_are_full_suite(self):
+        # PT-115 gate-1 ruling (PT-115.md @c7b84c0): loop_stats shares
+        # find_runner_invocation/is_full_suite_run with the hooks, so the
+        # same interpreter-flag and launcher-prefix recognition applies
+        # here too, or a versioned/flagged/launcher-wrapped full run is
+        # invisible to the full_suite_runs cap.
+        self.assertEqual(
+            loop_stats.classify_bash("python3 -X dev scripts/cairn/run_tests.py --gate green"), "FULL_SUITE",
+        )
+        self.assertEqual(
+            loop_stats.classify_bash("uv run scripts/cairn/run_tests.py --gate green"), "FULL_SUITE",
+        )
+
+    def test_named_unittest_targets_are_narrowed_not_full_suite(self):
+        # Guard 3, loop_stats side -- already correctly narrowed today via
+        # _FULL_RE's "discover"-only gate (control, not a new defect
+        # here; the hooks' own is_full_suite_run lacked the equivalent
+        # check -- see NarrowedModuleTargetsAreNotFullRunsTests).
+        self.assertEqual(loop_stats.classify_bash("python3 -m unittest tests.test_x tests.test_y -v"), "module_test")
+        self.assertEqual(loop_stats.classify_bash("python3 -m unittest tests.test_x.Class.test_m"), "module_test")
+
+    def test_help_and_list_are_not_full_suite(self):
+        # Guard 4: measured 1 real refusal of `--help`. Today,
+        # classify_bash wrongly returns FULL_SUITE for this shape (no
+        # narrowing flag present, so is_full_suite_run defaults true).
+        self.assertEqual(loop_stats.classify_bash("python3 run_tests.py --help"), "module_test")
+        self.assertEqual(loop_stats.classify_bash("python3 run_tests.py --list"), "module_test")
 
 
 class AuditAgentTests(unittest.TestCase):

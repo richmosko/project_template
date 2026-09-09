@@ -32,7 +32,9 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 _HOOKS_DIR = Path(__file__).resolve().parent.parent.parent / ".claude" / "hooks"
 if str(_HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(_HOOKS_DIR))
-from _test_run_shared import find_runner_invocation, is_full_suite_run, tokenize  # noqa: E402
+from _test_run_shared import (  # noqa: E402
+    _strip_heredocs, find_runner_invocation, is_full_suite_run, tokenize,
+)
 
 CODE_EXT = (".py", ".js", ".mjs", ".ts", ".svelte", ".css", ".html", ".sh", ".yml", ".yaml", ".toml")
 
@@ -197,31 +199,6 @@ def transcript_roles(transcripts_dir: Path) -> Dict[Path, str]:
     for p in sorted(Path(transcripts_dir).glob("*.jsonl")):
         out[p] = _role_of_file(p)
     return out
-
-
-_HEREDOC_START_RE = re.compile(r"<<-?\s*(['\"]?)(\w+)\1")
-
-
-def _strip_heredocs(cmd: str) -> str:
-    """PT-111 gate-1 ruling, guard 6: strip heredoc BODIES (the text
-    between a `<<DELIM`/`<<'DELIM'`/`<<-DELIM` marker and its closing
-    delimiter line) before classification -- a `cat > f <<'EOF' ... EOF`
-    that merely QUOTES a full-run command (writing a verdict comment,
-    say) must never be classified as an attempt at all. loop_stats.py
-    only; `_test_run_shared.tokenize` (the hooks' own guard surface) is
-    untouched -- a heredoc quoting a full run must still be refused
-    there."""
-    out: List[str] = []
-    delim: Optional[str] = None
-    for line in cmd.split("\n"):
-        if delim is None:
-            out.append(line)
-            m = _HEREDOC_START_RE.search(line)
-            if m:
-                delim = m.group(2)
-        elif line.strip() == delim:
-            delim = None
-    return "\n".join(out)
 
 
 # ---------------------------------------------------------------- classify
