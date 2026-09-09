@@ -374,10 +374,20 @@ class BuiltCssHasTheGapAndIsolationRulesTests(unittest.TestCase):
         )
 
     def test_built_css_compiles_the_negative_margin_rule(self):
-        found = bool(re.search(r"\.-mb-6\{[^}]*margin-bottom:-1\.5rem[^}]*\}", self.css_text))
+        # Addendum (implementation-lead's measurement): Tailwind v4 emits
+        # this utility as `margin-bottom:calc(var(--spacing) * -6)` --
+        # never a literal `-1.5rem` anywhere in the built CSS. Whitespace-
+        # tolerant around the calc() internals; the selector and the
+        # calc() shape are still what the ruling's own trap is about
+        # (compiled or not), a literal-rem match is simply unreachable.
+        found = bool(re.search(
+            r"\.-mb-6\{[^}]*margin-bottom:\s*calc\(\s*var\(--spacing\)\s*\*\s*-6\s*\)[^}]*\}",
+            self.css_text,
+        ))
         self.assertTrue(
             found,
-            "dist/assets/*.css must compile -mb-6 (margin-bottom: -1.5rem) -- the architect's "
+            "dist/assets/*.css must compile -mb-6 as margin-bottom: calc(var(--spacing) * -6) "
+            "(Tailwind v4's own compiled form -- never a literal -1.5rem) -- the architect's "
             "own measured trap: applying this utility via classList alone read as a no-op "
             "because it was never in the compiled CSS at all",
         )
