@@ -13,7 +13,7 @@
 // here rather than redeclared; the two copies had already drifted (5
 // svelte-check errors) before this module got the fields the other one
 // was missing.
-import type { TokenIssueTotal, TokensPayload, TokenKind } from './dashboard-api';
+import type { TokenIssueTotal, TokensPayload, TokenKind, TokenCounters } from './dashboard-api';
 
 export const DEFAULT_BAR_LIMIT = 12;
 
