@@ -23,7 +23,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-106-dist-reproducible-build` |
 | Started | 2026-09-08 |
 | Goal | A clean dashboard build is byte-identical wherever it runs; the dist-freshness rescue actually rescues; a two-build identity test guards it. |
-| Status | In Progress |
+| PR | https://github.com/richmosko/project_template/pull/201 |
+| Status | In Review |
 
 ## Releases
 
