@@ -389,7 +389,7 @@ class AuditAgentBlockedRunTests(unittest.TestCase):
         self.assertEqual(summary.get("full_run_blocked"), 1)
 
     def test_the_runners_own_refusal_text_with_no_tooldenialkind_is_still_blocked(self):
-        # PT-119 gate-1 ruling (PT-119.md @c2b48ef), guard 5: the
+        # PT-119 gate-1 ruling, re-issued (PT-119.md @6cd7e44), guard 6: the
         # runner's own refusal (run_tests.py exiting 2) is an error
         # result carrying the SAME shared marker text as the hook's
         # denial, but with NO toolDenialKind at all -- it is not a hook
