@@ -52,8 +52,70 @@ def tool_result(minutes: float) -> dict:
             "message": {"content": [{"type": "tool_result", "content": "ok"}]}}
 
 
+def tool_use_with_id(minutes: float, tool_id: str, name: str, **inp) -> dict:
+    """PT-111: a tool_use block carrying the real harness's `id` field, so
+    a later tool_result can be linked to it via `tool_use_id` -- `tool()`
+    above has no id and cannot be resolved against a result at all."""
+    return {"type": "assistant", "timestamp": ts(minutes),
+            "message": {"content": [{"type": "tool_use", "id": tool_id, "name": name, "input": inp}]}}
+
+
+def result_for(minutes: float, tool_id: str, content: str, is_error: bool = False,
+               denial_kind: str | None = None) -> dict:
+    """PT-111: the real harness shape for an id-linked tool_result --
+    measured against real transcripts (PT-111.md's gate-1 ruling):
+    `is_error` and `tool_use_id` sit on the content block, `toolDenialKind`
+    is a TOP-LEVEL sibling of `message` (only present for a hook/permission
+    denial, never for an ordinary command failure)."""
+    rec = {"type": "user", "timestamp": ts(minutes),
+           "message": {"content": [{"type": "tool_result", "tool_use_id": tool_id, "content": content, "is_error": is_error}]}}
+    if denial_kind is not None:
+        rec["toolDenialKind"] = denial_kind
+    return rec
+
+
+def tool_use_with_id_at(iso_ts: str, tool_id: str, name: str, command: str) -> dict:
+    """Same shape as tool_use_with_id, but for fixtures built on an
+    already-formatted (e.g. `now()`-relative) ISO timestamp rather than
+    the fixed-T0 `ts(minutes)` helper -- ScorecardTests' fixtures use
+    `now()` since scorecard() defaults `until` to it."""
+    return {"type": "assistant", "timestamp": iso_ts,
+            "message": {"content": [{"type": "tool_use", "id": tool_id, "name": name, "input": {"command": command}}]}}
+
+
+def result_for_at(iso_ts: str, tool_id: str, content: str, is_error: bool = False,
+                   denial_kind: str | None = None) -> dict:
+    rec = {"type": "user", "timestamp": iso_ts,
+           "message": {"content": [{"type": "tool_result", "tool_use_id": tool_id, "content": content, "is_error": is_error}]}}
+    if denial_kind is not None:
+        rec["toolDenialKind"] = denial_kind
+    return rec
+
+
+def ledger_record(ts_iso: str, who, seconds: float = 25.0, jobs: int = 8) -> dict:
+    return {"ts": ts_iso, "who": who, "gate": "green", "full": True, "runner": "run_tests",
+            "sha": "abc123", "branch": "feature/x", "seconds": seconds, "harness_ms": int(seconds * 1000) + 60,
+            "jobs": jobs, "files": 1, "tests": 10, "skipped": 0, "ok": True, "session": "s1",
+            "cmd": "python3 run_tests.py --gate green"}
+
+
 FULL = "cd scripts/cairn && python3 -m unittest discover -s tests 2>&1 | tail -3"
 MODULE = 'python3 -m unittest discover -s tests -p "test_x.py"'
+
+# PT-111 gate-1 ruling (PT-111.md @ ec75732), guard 6: classify_bash
+# tokenises heredoc BODIES too, so a command that merely QUOTES a full
+# run inside a `cat > f <<'EOF' ... EOF` counts as one. Reproduced live:
+# classify_bash(HEREDOC_CMD) == "FULL_SUITE" today.
+HEREDOC_CMD = "cat > verdict.md <<'EOF'\nRun this at a gate: python3 run_tests.py --gate verdict\nEOF"
+
+GUARD_REFUSAL_CONTENT = (
+    "PreToolUse:Bash hook error: [in=$(cat); case \"$in\" in *unittest*|*run_tests*) printf %s \"$in\" | "
+    "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/test_run_guard.py\";; *) exit 0;; esac]: "
+    "test_run_guard: refusing an un-tiered full-suite run. Mid-loop, narrow it: "
+    'python3 run_tests.py -p "test_<area>*.py" (WORKFLOW -> Implement -> Inner loop). '
+    "At a gate, declare it: python3 run_tests.py --gate <red|green|verdict|finish> (PT-94 C9).\n"
+)
+NO_RUN_ERROR_CONTENT = "python3: can't open file '/x/scripts/cairn/tests/run_tests.py': [Errno 2] No such file or directory"
 
 
 def write_jsonl(path: Path, records: list) -> None:
@@ -115,6 +177,24 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(
             loop_stats.classify_bash('python3.14 scripts/cairn/run_tests.py -p "test_x*.py"'), "module_test",
         )
+
+    def test_heredoc_quoted_full_run_text_is_not_classified_as_a_run(self):
+        # PT-111 guard 6: a heredoc BODY that merely quotes a full-run
+        # command (writing a verdict/ruling comment, say) must not be
+        # classified as an attempt at all -- not FULL_SUITE, not
+        # full_run_blocked. Strip heredoc bodies in loop_stats.py only;
+        # the hooks' own tokeniser (_test_run_shared) is untouched (control
+        # below).
+        self.assertNotIn(loop_stats.classify_bash(HEREDOC_CMD), ("FULL_SUITE", "full_run_blocked"))
+
+    def test_the_same_command_without_the_heredoc_wrapper_is_still_full_suite(self):
+        self.assertEqual(loop_stats.classify_bash("python3 run_tests.py --gate verdict"), "FULL_SUITE")
+
+    def test_is_full_suite_run_on_that_string_is_unchanged_in_the_hooks(self):
+        # Control: _test_run_shared.is_full_suite_run (the hooks' own
+        # guard surface) must still refuse this shape for real -- this
+        # feature touches loop_stats.py's classification only.
+        self.assertTrue(loop_stats.is_full_suite_run("python3 run_tests.py --gate verdict"))
 
 
 class AuditAgentTests(unittest.TestCase):
@@ -222,6 +302,136 @@ class AuditAgentTests(unittest.TestCase):
         write_jsonl(p, [header("qa-engineer", "s2"), tool(-30, "Bash", command=FULL), tool(5, "Bash", command=FULL)])
         _, summary = loop_stats.audit_agent(p, T0, T0 + datetime.timedelta(hours=1))
         self.assertEqual(summary["full_suite_runs"], 1)
+
+
+class AuditAgentBlockedRunTests(unittest.TestCase):
+    """PT-111 gate-1 ruling (PT-111.md @ ec75732): a FULL_SUITE-shaped Bash
+    step is resolved against its id-linked tool_result, in this
+    precedence -- (1) a ledger match promotes to executed; (2) `Ran N
+    tests` in the result -> executed, exit status is not the
+    discriminator; (3) an error result carrying `toolDenialKind` + the
+    guard's own marker text -> full_run_blocked; (4) any other error
+    result with no run summary -> full_run_blocked; (5) otherwise
+    (redirected stdout, absence of evidence) -> executed.
+
+    `audit_agent` gains an optional `ledger_path` kwarg (default None) so
+    the per-agent count can corroborate a step against
+    process/cairn/metrics/test-runs.jsonl the same way `full_run_stats`
+    already does for the top-of-card count; every pre-existing call site
+    in this file omits it and is unaffected. `who` for the ledger's
+    who-keyed match comes from the transcript's own header (agentSetting),
+    the same source `transcript_roles` already reads -- no new parameter
+    needed to convey it."""
+
+    def setUp(self):
+        self.tmp = helpers.make_empty_tmp_dir(self)
+
+    def _audit(self, records, ledger=None):
+        p = self.tmp / "s1.jsonl"
+        write_jsonl(p, [header("architect", "s1")] + records)
+        ledger_path = None
+        if ledger is not None:
+            ledger_path = self.tmp / "test-runs.jsonl"
+            write_jsonl(ledger_path, ledger)
+        return loop_stats.audit_agent(p, T0, T0 + datetime.timedelta(hours=2), ledger_path=ledger_path)
+
+    def test_guard_refused_step_is_blocked_not_counted(self):
+        _, summary = self._audit([
+            tool_use_with_id(1, "t1", "Bash", command="python3 run_tests.py"),
+            result_for(1.02, "t1", GUARD_REFUSAL_CONTENT, is_error=True, denial_kind="permission-rule"),
+        ])
+        self.assertEqual(summary["full_suite_runs"], 0)
+        self.assertEqual(summary.get("full_run_blocked"), 1)
+
+    def test_wrong_path_step_is_blocked_not_counted(self):
+        _, summary = self._audit([
+            tool_use_with_id(1, "t1", "Bash", command="cd scripts/cairn/tests && python3 run_tests.py --gate green"),
+            result_for(1.02, "t1", NO_RUN_ERROR_CONTENT, is_error=True),
+        ])
+        self.assertEqual(summary["full_suite_runs"], 0)
+        self.assertEqual(summary.get("full_run_blocked"), 1)
+
+    def test_guard_1_fixture_one_executed_two_blocked(self):
+        # The ruling's own fixture shape: one executed+gated step (no
+        # linked result at all -- absence of evidence, rule 5), one
+        # guard-refused, one wrong-path.
+        _, summary = self._audit([
+            tool_use_with_id(1, "t1", "Bash", command="python3 run_tests.py --gate green"),
+            tool_use_with_id(2, "t2", "Bash", command="python3 run_tests.py"),
+            result_for(2.02, "t2", GUARD_REFUSAL_CONTENT, is_error=True, denial_kind="permission-rule"),
+            tool_use_with_id(3, "t3", "Bash", command="cd scripts/cairn/tests && python3 run_tests.py --gate green"),
+            result_for(3.02, "t3", NO_RUN_ERROR_CONTENT, is_error=True),
+        ])
+        self.assertEqual(summary["full_suite_runs"], 1)
+        self.assertEqual(summary.get("full_run_blocked"), 2)
+
+    def test_a_result_quoting_the_guards_own_source_is_not_a_denial(self):
+        # False-positive control (a): is_error False and no toolDenialKind
+        # -- a free-text match on the refusal phrase (e.g. a Read of
+        # test_run_guard.py's own docstring) must not block this step.
+        _, summary = self._audit([
+            tool_use_with_id(1, "t1", "Bash", command="python3 run_tests.py --gate green"),
+            result_for(1.02, "t1", "...\n" + GUARD_REFUSAL_CONTENT + "\n...", is_error=False),
+        ])
+        self.assertEqual(summary["full_suite_runs"], 1)
+        self.assertEqual(summary.get("full_run_blocked", 0), 0)
+
+    def test_a_denial_linked_to_a_different_step_does_not_mark_this_one(self):
+        # False-positive control (b): t1's own result is absent -- t2's
+        # denial must not leak onto t1 via a free-text scan.
+        _, summary = self._audit([
+            tool_use_with_id(1, "t1", "Bash", command="python3 run_tests.py --gate green"),
+            tool_use_with_id(2, "t2", "Bash", command="python3 run_tests.py"),
+            result_for(2.02, "t2", GUARD_REFUSAL_CONTENT, is_error=True, denial_kind="permission-rule"),
+        ])
+        self.assertEqual(summary["full_suite_runs"], 1)
+        self.assertEqual(summary.get("full_run_blocked"), 1)
+
+    def test_exit_1_but_ran_is_full_suite_not_blocked(self):
+        _, summary = self._audit([
+            tool_use_with_id(1, "t1", "Bash", command="python3 run_tests.py --gate green"),
+            result_for(1.02, "t1", "Ran 1577 tests in 25.4s (95 files, 8 workers)\nFAILED (failures=3)\n", is_error=True),
+        ])
+        self.assertEqual(summary["full_suite_runs"], 1)
+        self.assertEqual(summary.get("full_run_blocked", 0), 0)
+
+    def test_redirected_stdout_run_with_no_ledger_is_still_full_suite(self):
+        _, summary = self._audit([
+            tool_use_with_id(1, "t1", "Bash", command="nohup python3 -m unittest discover -s tests > /tmp/x 2>&1"),
+            result_for(1.02, "t1", "", is_error=False),
+        ])
+        self.assertEqual(summary["full_suite_runs"], 1)
+        self.assertEqual(summary.get("full_run_blocked", 0), 0)
+
+    def test_ledger_match_promotes_an_error_result_to_executed(self):
+        # Guard 5, positive: the step's own timestamp lines up with a
+        # ledger record's computed start (ts - seconds), same who.
+        step_minutes = 10.0
+        record_ts = ts(step_minutes + 25.0 / 60.0)  # end = start (step time) + 25s
+        _, summary = self._audit(
+            [
+                tool_use_with_id(step_minutes, "t1", "Bash", command="cd /wrong && python3 run_tests.py --gate green"),
+                result_for(step_minutes + 0.02, "t1", NO_RUN_ERROR_CONTENT, is_error=True),
+            ],
+            ledger=[ledger_record(record_ts, who="architect")],
+        )
+        self.assertEqual(summary["full_suite_runs"], 1)
+        self.assertEqual(summary.get("full_run_blocked", 0), 0)
+
+    def test_ledger_record_twenty_minutes_away_does_not_match(self):
+        # Guard 5, negative control: identical step, record moved 20
+        # minutes away -- must NOT promote.
+        step_minutes = 10.0
+        record_ts = ts(step_minutes + 20.0 + 25.0 / 60.0)
+        _, summary = self._audit(
+            [
+                tool_use_with_id(step_minutes, "t1", "Bash", command="cd /wrong && python3 run_tests.py --gate green"),
+                result_for(step_minutes + 0.02, "t1", NO_RUN_ERROR_CONTENT, is_error=True),
+            ],
+            ledger=[ledger_record(record_ts, who="architect")],
+        )
+        self.assertEqual(summary["full_suite_runs"], 0)
+        self.assertEqual(summary.get("full_run_blocked"), 1)
 
 
 class LeadInboundTests(unittest.TestCase):
@@ -344,6 +554,39 @@ class ScorecardTests(unittest.TestCase):
             f"the transcript-derived per-agent sum must agree with the authoritative "
             f"records count on this fixture -- got {per_agent_sum!r} vs {card['full_suite_runs']!r}",
         )
+
+    def test_guard_refused_and_wrong_path_runs_do_not_count_against_the_cap(self):
+        # PT-111 gate-1 ruling's own fixture, end to end through
+        # scorecard(): one executed+gated run (ledger-matched), one
+        # guard-refused step, one wrong-path step -> full_suite_runs 1,
+        # full_run_blocked 2, cap evaluated against 1 (not 3).
+        transcripts = self.root / "transcripts_blocked"
+        transcripts.mkdir()
+        now = datetime.datetime.now(datetime.timezone.utc)
+        recent = lambda m: (now + datetime.timedelta(minutes=m)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        write_jsonl(transcripts / "a.jsonl", [
+            header("architect", "a1"),
+            tool_use_with_id_at(recent(-9), "t1", "Bash", "python3 run_tests.py --gate green"),
+            result_for_at(recent(-8.98), "t1", "Ran 10 tests in 25.000s (1 files, 8 workers)\nOK\n", is_error=False),
+            tool_use_with_id_at(recent(-7), "t2", "Bash", "python3 run_tests.py"),
+            result_for_at(recent(-6.99), "t2", GUARD_REFUSAL_CONTENT, is_error=True, denial_kind="permission-rule"),
+            tool_use_with_id_at(recent(-5), "t3", "Bash", "cd scripts/cairn/tests && python3 run_tests.py --gate green"),
+            result_for_at(recent(-4.99), "t3", NO_RUN_ERROR_CONTENT, is_error=True),
+        ])
+        metrics_dir = self.data_dir / "metrics"
+        metrics_dir.mkdir(exist_ok=True)
+        write_jsonl(metrics_dir / "test-runs.jsonl", [{
+            "ts": recent(-9 + 25 / 60), "who": "architect", "gate": "green", "full": True, "runner": "run_tests",
+            "sha": "abc123", "branch": "feature/pt-1-thing", "seconds": 25.0, "harness_ms": 25080, "jobs": 8,
+            "files": 1, "tests": 10, "skipped": 0, "ok": True, "session": "a1", "cmd": "python3 run_tests.py --gate green",
+        }])
+        card = loop_stats.scorecard(self.root, self.data_dir, "PT-1", base="main", since=self.since, transcripts_dir=transcripts)
+        self.assertEqual(card["full_suite_runs"], 1)
+        self.assertEqual(card.get("full_run_blocked"), 2, f"got card={card!r}")
+        self.assertFalse(card["caps"]["full_suite_runs"]["over"])
+        per_agent = card["per_agent"]["architect"]
+        self.assertEqual(per_agent["full_suite_runs"], 1)
+        self.assertEqual(per_agent.get("blocked"), 2)
 
     def test_caps_are_reported_and_exceeding_one_is_marked(self):
         """Mutation: compare with `>=` instead of `>` -> commits (3) vs a
@@ -504,6 +747,17 @@ class ScorecardRenderingNeverPrintsUnmeasuredTests(unittest.TestCase):
         }
         rendered = loop_stats.format_scorecard(card)
         self.assertIn("transcript", rendered.lower(), "a disagreeing per-agent breakdown must be labelled as transcript-derived, not left unlabelled")
+
+    def test_blocked_runs_get_their_own_row_and_the_executed_label(self):
+        # PT-111 gate-1 ruling: rename the full_suite_runs row's display
+        # text to "full_suite_runs (executed)" and add a full_run_blocked
+        # row -- shown, but with no cap of its own (never in DEFAULT_CAPS).
+        card = self._min_card(full_suite_runs=1, full_run_blocked=2, suite_seconds_added=-6.9)
+        card["per_agent"] = {"architect": {"tool_calls": 5, "full_suite_runs": 1, "blocked": 2, "msgs_to_lead": 0, "waste": {}}}
+        rendered = loop_stats.format_scorecard(card)
+        self.assertIn("full_suite_runs (executed)", rendered)
+        self.assertIn("full_run_blocked", rendered)
+        self.assertIn("2", rendered.split("full_run_blocked", 1)[1].split("\n", 1)[0])
 
 
 if __name__ == "__main__":
