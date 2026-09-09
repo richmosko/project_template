@@ -17,14 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Test-run hooks ignore versioned interpreters — a run invoked as python3.14 run_tests.py records nothing |
-| Issue | PT-113 (cairn) |
+| Feature | loop-stats counts hook-blocked or wrong-path full-suite commands as runs |
+| Issue | PT-111 (cairn) |
 | Milestone | PT-0.12.2 |
-| Branch | `feature/pt-113-hooks-versioned-python` |
+| Branch | `feature/pt-111-loop-stats-blocked-runs` |
 | Started | 2026-09-09 |
-| Goal | Both test-run hooks recognise versioned Python basenames; a versioned full run is gated and recorded like a literal python3 one. |
-| PR | https://github.com/richmosko/project_template/pull/203 |
-| Status | In Review |
+| Goal | Per-agent full-run counts match the ledger; blocked or misfired commands show as a separate counter and never count against the cap. |
+| Status | In Progress |
 
 ## Releases
 
