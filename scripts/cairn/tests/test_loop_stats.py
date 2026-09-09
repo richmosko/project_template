@@ -429,6 +429,25 @@ class AuditAgentBlockedRunTests(unittest.TestCase):
         self.assertEqual(summary["full_suite_runs"], 1)
         self.assertEqual(summary.get("full_run_blocked", 0), 0)
 
+    def test_a_true_denial_stays_blocked_even_with_a_nearby_ledger_record(self):
+        # Gate-4 verdict delta 1 (blocking, PT-111.md @57e6b6a): result
+        # evidence beats the ledger. Real data: 3 of 5 true denials were
+        # wrongly promoted to executed because an unrelated, successful
+        # run (null `who`, matches any agent) happened to fall inside the
+        # window. An id-linked denial (toolDenialKind + marker) must stay
+        # full_run_blocked regardless of a nearby ledger record.
+        step_minutes = 10.0
+        nearby_ts = ts(step_minutes + 25.0 / 60.0)
+        _, summary = self._audit(
+            [
+                tool_use_with_id(step_minutes, "t1", "Bash", command="python3 run_tests.py"),
+                result_for(step_minutes + 0.02, "t1", GUARD_REFUSAL_CONTENT, is_error=True, denial_kind="permission-rule"),
+            ],
+            ledger=[ledger_record(nearby_ts, who=None)],
+        )
+        self.assertEqual(summary["full_suite_runs"], 0)
+        self.assertEqual(summary.get("full_run_blocked"), 1)
+
     def test_ledger_record_twenty_minutes_away_does_not_match(self):
         # Guard 5, negative control: identical step, record moved 20
         # minutes away -- must NOT promote.
