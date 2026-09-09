@@ -23,7 +23,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-110-fixed-dashboard-header` |
 | Started | 2026-09-08 |
 | Goal | The shell header stays at the top on both routes while content scrolls; nothing hidden under it; browser-verified in two variants, light and dark. |
-| Status | In Progress |
+| PR | https://github.com/richmosko/project_template/pull/202 |
+| Status | In Review |
 
 ## Releases
 
