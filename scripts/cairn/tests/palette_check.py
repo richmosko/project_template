@@ -58,6 +58,17 @@ _OKLCH_RE = re.compile(
     re.IGNORECASE,
 )
 
+# PT-120 (process/cairn/issues/PT-120.md @fe2a929): the chart-local
+# family tokens (--chart-flow-*, --chart-counter-*) are now `var(--chart-N)`
+# ALIASES, declared once in app.css -- no per-variant, no per-token
+# literal oklch(...) left at all. A literal-only scan sees zero counter
+# tokens the moment this lands (a missing-token structural failure, not
+# a colour failure).
+_VAR_ALIAS_RE = re.compile(
+    r"--(?P<name>[a-z0-9-]+)\s*:\s*var\(\s*--(?P<target>[a-z0-9-]+)\s*\)",
+    re.IGNORECASE,
+)
+
 
 # --------------------------------------------------------------------------
 # Colour maths (OKLCH -> OKLab -> linear sRGB -> WCAG relative luminance)
@@ -138,6 +149,29 @@ def parse_oklch_tokens(css_text: str) -> List[Tuple[str, Tuple[float, float, flo
     return out
 
 
+def parse_var_aliases(css_text: str) -> List[Tuple[str, str]]:
+    """[(token_name, target_name), ...] for every `--x: var(--y)`."""
+    return [(m.group("name"), m.group("target")) for m in _VAR_ALIAS_RE.finditer(css_text)]
+
+
+def resolve_tokens_with_aliases(css_text: str) -> Dict[str, Tuple[float, float, float]]:
+    """{token_name: (L, C, H)} for every literal `oklch(...)` declaration,
+    PLUS every `var(--other)` alias resolved against an already-literal
+    target -- one level of indirection, the only shape a chart-local
+    alias uses (PT-120). Mode-invariant aliased tokens (--chart-1..5:
+    verified identical in :root and .dark within a single stylesheet)
+    make single-pass, whole-file resolution correct for both modes at
+    once; a mode-VARYING alias target would need per-block resolution,
+    which no current alias in this codebase requires."""
+    tokens: Dict[str, Tuple[float, float, float]] = {}
+    for name, value, _offset in parse_oklch_tokens(css_text):
+        tokens[name] = value
+    for name, target in parse_var_aliases(css_text):
+        if name not in tokens and target in tokens:
+            tokens[name] = tokens[target]
+    return tokens
+
+
 def card_surfaces(css_text: str) -> Dict[str, Tuple[float, float, float]]:
     """The real `--card` for each mode: the first `--card` is `:root`
     (light), the one inside/after the `.dark` RULE BLOCK is dark mode.
@@ -178,7 +212,7 @@ def check_role_palette(css_text: str) -> List[str]:
     a colour problem -- only for a structural one (missing tokens/surfaces),
     which is itself a failure worth surfacing loudly."""
     failures: List[str] = []
-    tokens = {name: v for name, v, _ in parse_oklch_tokens(css_text)}
+    tokens = resolve_tokens_with_aliases(css_text)
     surfaces = card_surfaces(css_text)
 
     role_names = [f"chart-role-{i}" for i in range(1, ROLE_TOKEN_COUNT + 1)]
@@ -218,45 +252,35 @@ def check_counter_palette(css_text: str) -> List[str]:
     team-lead's instruction, per ux-designer's f9c6417 ruling). Returns a
     list of failure strings; empty means pass. Never raises for a colour
     problem -- only for missing tokens/surfaces, matching
-    check_role_palette's own posture."""
+    check_role_palette's own posture.
+
+    PT-120 (process/cairn/issues/PT-120.md @fe2a929): the counter family
+    now aliases EXACT vendored --chart-N steps (chart-5..2), and the
+    architect's own correction 1 rules that its contrast floor and
+    adjacent-step separation floor RETIRE TOGETHER -- exact values
+    outrank both, and "the adjacency floor cannot stay a gate while the
+    contrast floor becomes an observation." This function therefore
+    checks only STRUCTURAL validity (the four tokens resolve to a real
+    colour, whether literal or through one level of var() alias); it no
+    longer fails on contrast or adjacency. Both are recorded, per
+    variant, as named observation tables in
+    test_chart_color_drives_charts.py's ContrastObservationTests and
+    CounterAdjacencyObservationTests -- this function's caller
+    (test_dashboard_role_palette.py) predates the alias mechanism and
+    checked app.css's own (single, "yellow") instance only; the real
+    per-variant sweep lives there now."""
     failures: List[str] = []
-    tokens = {name: v for name, v, _ in parse_oklch_tokens(css_text)}
-    surfaces = card_surfaces(css_text)
+    tokens = resolve_tokens_with_aliases(css_text)
 
     missing = [n for n in COUNTER_TOKEN_ORDER if n not in tokens]
     if missing:
         failures.append(f"missing token(s): {missing}")
-        return failures
-
-    # 1. contrast against each mode's own real --card
-    for name in COUNTER_TOKEN_ORDER:
-        lin = oklch_to_linear_srgb(*tokens[name])
-        for mode, surface in surfaces.items():
-            ratio = contrast_ratio(lin, oklch_to_linear_srgb(*surface))
-            if ratio < CONTRAST_FLOOR:
-                failures.append(
-                    f"--{name} ({linear_to_hex(lin)}) is {ratio:.2f}:1 against the {mode} --card "
-                    f"-- below the {CONTRAST_FLOOR}:1 floor"
-                )
-
-    # 2. adjacent-step lightness separation, in COUNTER_TOKEN_ORDER --
-    # an ORDERED family, not an unordered categorical set: consecutive
-    # steps must be individually distinguishable, not just "some pair
-    # somewhere is far enough apart."
-    for i in range(len(COUNTER_TOKEN_ORDER) - 1):
-        a, b = COUNTER_TOKEN_ORDER[i], COUNTER_TOKEN_ORDER[i + 1]
-        delta_l = abs(tokens[b][0] - tokens[a][0])
-        if delta_l < MIN_ADJACENT_DELTA_L:
-            failures.append(
-                f"--{a} and --{b} (adjacent in the ordered family) are only dL "
-                f"{delta_l:.3f} apart -- below the {MIN_ADJACENT_DELTA_L} floor"
-            )
     return failures
 
 
 def summarize(css_text: str) -> str:
     """Human-readable report; handy in a test failure message."""
-    tokens = {name: v for name, v, _ in parse_oklch_tokens(css_text)}
+    tokens = resolve_tokens_with_aliases(css_text)
     surfaces = card_surfaces(css_text)
     lines = []
     for i in range(1, ROLE_TOKEN_COUNT + 1):

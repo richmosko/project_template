@@ -109,8 +109,13 @@ class CounterPaletteTokenContractTests(unittest.TestCase):
     f9c6417's :root/.dark block into app.css)."""
 
     def test_all_four_counter_tokens_are_parseable_from_app_css(self):
+        # PT-120 (PT-120.md @fe2a929): the counter tokens are now
+        # var(--chart-N) ALIASES, not literal oklch(...) -- resolved
+        # through resolve_tokens_with_aliases, same as
+        # check_counter_palette itself uses, so this test's notion of
+        # "parseable" matches the module's own.
         source = _read_app_css()
-        tokens = {name: v for name, v, _ in palette_check.parse_oklch_tokens(source)}
+        tokens = palette_check.resolve_tokens_with_aliases(source)
         missing = [n for n in COUNTER_TOKEN_NAMES if n not in tokens]
         self.assertEqual(
             missing, [],
@@ -119,8 +124,12 @@ class CounterPaletteTokenContractTests(unittest.TestCase):
         )
 
     def test_counter_tokens_are_not_reused_from_the_role_or_flow_palettes(self):
+        # PT-120: literal-only parse_oklch_tokens would see the counter
+        # NAMES as absent entirely (they're var(--chart-N) aliases now)
+        # and this check would pass vacuously, checking nothing --
+        # resolve_tokens_with_aliases keeps it meaningful.
         source = _read_app_css()
-        tokens = {name for name, v, _ in palette_check.parse_oklch_tokens(source)}
+        tokens = set(palette_check.resolve_tokens_with_aliases(source))
         counter_tokens = tokens & set(COUNTER_TOKEN_NAMES)
         forbidden = set(ROLE_TOKEN_NAMES) | {f"chart-{i}" for i in range(1, 6)} | {
             f"chart-flow-{s}" for s in ("backlog", "todo", "in-progress", "in-review", "done", "cancelled")
@@ -212,18 +221,27 @@ class PaletteCheckModuleSelfTests(unittest.TestCase):
         failures = palette_check.check_role_palette(css)
         self.assertTrue(any("dE_OK" in f or "categorical" in f for f in failures), f"expected a categorical-separation failure, got: {failures}")
 
-    def test_module_fails_two_adjacent_counter_steps_with_too_little_lightness_separation(self):
-        # Mirrors the role-collapse self-test above, for the ordered
-        # counter family's own criterion (adjacent dL, not pairwise dE).
+    def test_counter_palette_no_longer_gates_on_adjacent_lightness_separation(self):
+        # PT-120 (process/cairn/issues/PT-120.md @fe2a929, architect's
+        # correction 1): the counter family's adjacency floor and
+        # contrast floor "retire together" -- exact vendored values
+        # outrank both. This is the RETIREMENT of the self-test above
+        # (`test_module_fails_two_adjacent_counter_steps...`), not a
+        # weakening: the same synthetic shape that used to fail must now
+        # pass check_counter_palette cleanly (structural-only). The real
+        # adjacency measurement lives on in
+        # test_chart_color_drives_charts.py's
+        # CounterAdjacencyObservationTests, recorded by name and value,
+        # never gated.
         tokens = (
             "--chart-counter-input: oklch(0.500 0.06 205);"
-            "--chart-counter-cache-write: oklch(0.505 0.06 205);"  # only 0.005 dL from input -- below the 0.06 floor
+            "--chart-counter-cache-write: oklch(0.505 0.06 205);"  # only 0.005 dL from input -- was below the retired 0.06 floor
             "--chart-counter-cache-read: oklch(0.650 0.06 205);"
             "--chart-counter-output: oklch(0.720 0.06 205);"
         )
         css = f":root {{ --card: oklch(1 0 0); {tokens} }}\n.dark {{ --card: oklch(0.2 0 0); {tokens} }}\n"
         failures = palette_check.check_counter_palette(css)
-        self.assertTrue(any("dL" in f for f in failures), f"expected an adjacent-lightness-separation failure, got: {failures}")
+        self.assertEqual(failures, [], f"adjacency is retired as a gate -- expected no failures, got: {failures}")
 
     def test_module_reports_a_missing_counter_token_by_name_not_silently(self):
         css = ":root { --card: oklch(1 0 0); }\n.dark { --card: oklch(0.2 0 0); }\n"
