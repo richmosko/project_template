@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Test-run ledger: a failing (red) run writes no record — red runs are invisible to loop-stats |
-| Issue | PT-116 (cairn) |
+| Feature | Dashboard z-tier ladder: verify every bits-ui floating overlay sits above page chrome and record the ladder in the design spec |
+| Issue | PT-114 (cairn) |
 | Milestone | PT-0.12.2 |
-| Branch | `feature/pt-116-ledger-records-red-runs` |
+| Branch | `feature/pt-114-z-tier-ladder` |
 | Started | 2026-09-09 |
-| Goal | Every executed run, red or green, through the runner or the hook's scrape path, lands in the ledger with its outcome. |
-| PR | https://github.com/richmosko/project_template/pull/208 |
+| Goal | The z-tier ladder is written into the design spec, guarded structurally, and every overlay type in use is browser-verified above the header. |
+| PR | https://github.com/richmosko/project_template/pull/209 |
 | Status | In Review |
 
 ## Releases
