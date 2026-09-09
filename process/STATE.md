@@ -23,7 +23,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-116-ledger-records-red-runs` |
 | Started | 2026-09-09 |
 | Goal | Every executed run, red or green, through the runner or the hook's scrape path, lands in the ledger with its outcome. |
-| Status | In Progress |
+| PR | https://github.com/richmosko/project_template/pull/208 |
+| Status | In Review |
 
 ## Releases
 
