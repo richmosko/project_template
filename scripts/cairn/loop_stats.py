@@ -163,41 +163,71 @@ def text_of(content: Any) -> str:
     return ""
 
 
-def transcript_roles(transcripts_dir: Path) -> Dict[Path, str]:
-    """Role per transcript from the header: `agentSetting` (the harness's
+def _role_of_file(p: Path) -> str:
+    """Role from one transcript's header: `agentSetting` (the harness's
     own subagent_type) wins; a role-shaped `agentName` is the fallback; a
     transcript with neither is the main session -> team-lead."""
+    role = "team-lead"
+    try:
+        with open(p, encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                if i > 50:
+                    break
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                if r.get("agentSetting"):
+                    role = r["agentSetting"]
+                    break
+                # agentName is a spawn nickname or, on the main session, a
+                # /rename title -- accept it only when it is shaped like a role.
+                name = r.get("agentName")
+                if name and re.fullmatch(r"[a-z][a-z0-9-]*", name):
+                    role = re.sub(r"-\d+$", "", name)
+                    break
+    except OSError:
+        pass
+    return role
+
+
+def transcript_roles(transcripts_dir: Path) -> Dict[Path, str]:
+    """Role per transcript in a directory -- see `_role_of_file`."""
     out: Dict[Path, str] = {}
     for p in sorted(Path(transcripts_dir).glob("*.jsonl")):
-        role = "team-lead"
-        try:
-            with open(p, encoding="utf-8") as f:
-                for i, line in enumerate(f):
-                    if i > 50:
-                        break
-                    try:
-                        r = json.loads(line)
-                    except Exception:
-                        continue
-                    if r.get("agentSetting"):
-                        role = r["agentSetting"]
-                        break
-                    # agentName is a spawn nickname or, on the main session, a
-                    # /rename title -- accept it only when it is shaped like a role.
-                    name = r.get("agentName")
-                    if name and re.fullmatch(r"[a-z][a-z0-9-]*", name):
-                        role = re.sub(r"-\d+$", "", name)
-                        break
-        except OSError:
-            continue
-        out[p] = role
+        out[p] = _role_of_file(p)
     return out
+
+
+_HEREDOC_START_RE = re.compile(r"<<-?\s*(['\"]?)(\w+)\1")
+
+
+def _strip_heredocs(cmd: str) -> str:
+    """PT-111 gate-1 ruling, guard 6: strip heredoc BODIES (the text
+    between a `<<DELIM`/`<<'DELIM'`/`<<-DELIM` marker and its closing
+    delimiter line) before classification -- a `cat > f <<'EOF' ... EOF`
+    that merely QUOTES a full-run command (writing a verdict comment,
+    say) must never be classified as an attempt at all. loop_stats.py
+    only; `_test_run_shared.tokenize` (the hooks' own guard surface) is
+    untouched -- a heredoc quoting a full run must still be refused
+    there."""
+    out: List[str] = []
+    delim: Optional[str] = None
+    for line in cmd.split("\n"):
+        if delim is None:
+            out.append(line)
+            m = _HEREDOC_START_RE.search(line)
+            if m:
+                delim = m.group(2)
+        elif line.strip() == delim:
+            delim = None
+    return "\n".join(out)
 
 
 # ---------------------------------------------------------------- classify
 
 def classify_bash(c: str) -> str:
-    c1 = c.strip()
+    c1 = _strip_heredocs(c.strip())
     if "unittest" in c1 or "run_tests" in c1:
         # PT-97 gate-4 delta 8: narrowing is flag-aware (shared with the
         # hooks), not a substring scan -- the substring form false-matched
@@ -269,14 +299,132 @@ def _is_test_path(fp: str) -> bool:
     return os.path.basename(fp).startswith("test_") or "/tests/" in fp or fp.endswith(".test.js")
 
 
+# ------------------------------------------------- blocked-run resolution (PT-111)
+
+# The guard's own first sentence (`.claude/hooks/test_run_guard.py`) -- also
+# present in that file's docstring, so this marker is only trusted when
+# paired with an id-linked `toolDenialKind`, never on a free-text scan (a
+# `Read` of the hook's own source must not count as a denial).
+_DENIAL_MARKER = "test_run_guard: refusing an un-tiered full-suite run"
+_RAN_TESTS_RE = re.compile(r"\bRan \d+ tests\b")
+# start = ledger record's `ts` (end of run) minus its `seconds`; a step's own
+# timestamp is the run's start. Measured residual for true pairs: p50 1.5s,
+# p90 5.8s (PT-111.md @ ec75732) -- generous asymmetric window either side.
+_LEDGER_WINDOW_SECONDS = (-120, 300)
+
+
+def _load_ledger(path: Optional[Path]) -> List[Dict[str, Any]]:
+    """`full: true` records from a test-runs.jsonl, each carrying a parsed
+    `_ts` (`rec["ts"]`, the run's END). Missing file or path -> []."""
+    if not path:
+        return []
+    path = Path(path)
+    if not path.exists():
+        return []
+    out: List[Dict[str, Any]] = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            if not rec.get("full"):
+                continue
+            ts_raw = rec.get("ts")
+            if not ts_raw:
+                continue
+            try:
+                t = parse_ts(ts_raw)
+            except Exception:
+                continue
+            rec = dict(rec)
+            rec["_ts"] = t
+            out.append(rec)
+    return out
+
+
+def _match_ledger(step_time: datetime.datetime, who: Optional[str], ledger: List[Dict[str, Any]]) -> bool:
+    """One-to-one: the first ledger record whose computed start
+    (`_ts - seconds`) falls within `_LEDGER_WINDOW_SECONDS` of `step_time`,
+    and whose `who` either matches or is null (49 of 166 real records are
+    null -- main-session and unpatched runs), is consumed and reported as a
+    match. Consumed records are removed so a second step can't reuse one."""
+    for i, rec in enumerate(ledger):
+        seconds = rec.get("seconds")
+        if not isinstance(seconds, (int, float)):
+            continue
+        predicted_start = rec["_ts"] - datetime.timedelta(seconds=seconds)
+        diff = (predicted_start - step_time).total_seconds()
+        if not (_LEDGER_WINDOW_SECONDS[0] <= diff <= _LEDGER_WINDOW_SECONDS[1]):
+            continue
+        rec_who = rec.get("who")
+        if rec_who is not None and rec_who != who:
+            continue
+        del ledger[i]
+        return True
+    return False
+
+
+def _result_map(recs: List[Tuple[datetime.datetime, Dict[str, Any]]]) -> Dict[str, Tuple[bool, str, Optional[str]]]:
+    """`tool_use_id -> (is_error, result text, toolDenialKind)`, built from
+    every id-linked `tool_result` block in the record stream. `content` is
+    read through `text_of` (str or block-list, same as a text turn) so
+    either shape resolves."""
+    out: Dict[str, Tuple[bool, str, Optional[str]]] = {}
+    for _t, r in recs:
+        if r.get("type") != "user":
+            continue
+        m = r.get("message", {}) or {}
+        content = m.get("content")
+        if not isinstance(content, list):
+            continue
+        denial_kind = r.get("toolDenialKind")
+        for b in content:
+            if isinstance(b, dict) and b.get("type") == "tool_result":
+                tid = b.get("tool_use_id")
+                if not tid:
+                    continue
+                out[tid] = (bool(b.get("is_error")), text_of(b.get("content")), denial_kind)
+    return out
+
+
+def _resolve_full_suite(tool_id: Optional[str], step_time: datetime.datetime, who: Optional[str],
+                         result_map: Dict[str, Tuple[bool, str, Optional[str]]], ledger: List[Dict[str, Any]]) -> str:
+    """PT-111 gate-1 ruling: resolve a FULL_SUITE-shaped Bash step to
+    `FULL_SUITE` (executed) or `full_run_blocked`, in precedence order --
+    (1) a ledger match, (2) a `Ran N tests` result, (3) an id-linked error
+    result carrying `toolDenialKind` + the guard's own marker, (4) any
+    other error result with no run summary, (5) otherwise executed
+    (redirected stdout -- absence of evidence is not evidence of
+    refusal)."""
+    if _match_ledger(step_time, who, ledger):
+        return "FULL_SUITE"
+    result = result_map.get(tool_id) if tool_id else None
+    if result is not None:
+        is_error, text, denial_kind = result
+        if _RAN_TESTS_RE.search(text):
+            return "FULL_SUITE"
+        if is_error and denial_kind and _DENIAL_MARKER in text:
+            return "full_run_blocked"
+        if is_error:
+            return "full_run_blocked"
+    return "FULL_SUITE"
+
+
 # ---------------------------------------------------------------- per-agent audit
 
-def audit_agent(path: Path, since: datetime.datetime, until: datetime.datetime, lead: bool = False):
+def audit_agent(path: Path, since: datetime.datetime, until: datetime.datetime, lead: bool = False,
+                 ledger_path: Optional[Path] = None):
     """Every step of one transcript in the window, in order, with a class
     and waste flags. Returns (steps, summary). A step is
     (time, kind, class, detail, flags) with kind in inbound|text|tool.
     `lead=True`: the main session's text turns face the user, not a
-    mailbox, so they are never idle waste."""
+    mailbox, so they are never idle waste. `ledger_path`: optional
+    `process/cairn/metrics/test-runs.jsonl` used to corroborate a
+    FULL_SUITE-shaped step as actually executed (PT-111)."""
     steps: List[Tuple[datetime.datetime, str, str, str, str]] = []
     turn = 0
     reads_this_turn: collections.Counter = collections.Counter()
@@ -296,7 +444,12 @@ def audit_agent(path: Path, since: datetime.datetime, until: datetime.datetime, 
             if head[:1].isupper():
                 waste[head] += 1
 
-    for t, r in records(path, since, until):
+    recs = list(records(path, since, until))
+    result_map = _result_map(recs)
+    ledger = _load_ledger(ledger_path)
+    who = _role_of_file(path) if ledger else None
+
+    for t, r in recs:
         typ = r.get("type")
         m = r.get("message", {}) or {}
         if typ == "user":
@@ -344,6 +497,8 @@ def audit_agent(path: Path, since: datetime.datetime, until: datetime.datetime, 
             elif cls in ("FULL_SUITE", "module_test", "js_suite"):
                 cmd = inp.get("command", "") or ""
                 detail = cmd[:110].replace("\n", " ")
+                if cls == "FULL_SUITE":
+                    cls = _resolve_full_suite(b.get("id"), t, who, result_map, ledger)
                 if cls == "FULL_SUITE":
                     code_edits = [p for p in edited_since_full if p.endswith(CODE_EXT)]
                     test_edits = [p for p in code_edits if _is_test_path(p)]
@@ -402,6 +557,8 @@ def audit_agent(path: Path, since: datetime.datetime, until: datetime.datetime, 
         "text_turns": text_turns,
         "waste": waste,
         "full_suite_runs": sum(1 for s in steps if s[2] == "FULL_SUITE"),
+        "full_run_blocked": sum(1 for s in steps if s[2] == "full_run_blocked"),
+        "blocked": sum(1 for s in steps if s[2] == "full_run_blocked"),
         "messages": len(msgs),
         "msgs_to_lead": sum(1 for x in msgs if x[1] == "team-lead"),
         "msgs_to_peers": sum(1 for x in msgs if x[1] != "team-lead"),
@@ -548,14 +705,16 @@ def scorecard(repo_root: Path, data_dir: Path, issue_id: str, base: str = "main"
     diff = _git(repo_root, "diff", rng)
     tests_added = sum(1 for l in diff.split("\n") if re.match(r"^\+\s*(def test_|(test|it)\()", l))
 
-    full_runs = msgs_to_lead = idle = idle_dup = 0
+    full_runs = msgs_to_lead = idle = idle_dup = full_blocked = 0
     per_agent: Dict[str, Dict[str, Any]] = {}
+    ledger_path = Path(data_dir) / "metrics" / "test-runs.jsonl"
     if transcripts_dir and Path(transcripts_dir).is_dir():
         for p, role in transcript_roles(Path(transcripts_dir)).items():
-            steps, summ = audit_agent(p, since, until, lead=(role == "team-lead"))
+            steps, summ = audit_agent(p, since, until, lead=(role == "team-lead"), ledger_path=ledger_path)
             if not steps:
                 continue
             full_runs += summ["full_suite_runs"]
+            full_blocked += summ.get("full_run_blocked", 0)
             msgs_to_lead += summ["msgs_to_lead"]
             per_agent[role if role not in per_agent else f"{role}-{p.stem[:8]}"] = summ
             if role == "team-lead":
@@ -590,7 +749,7 @@ def scorecard(repo_root: Path, data_dir: Path, issue_id: str, base: str = "main"
         "comments": comments, "ruling_sections": rulings,
         "issue_kb_added": kb_added, "tests_added": tests_added,
         "suite_seconds_added": suite_seconds_added,
-        "full_suite_runs": full_runs, "msgs_to_lead": msgs_to_lead,
+        "full_suite_runs": full_runs, "full_run_blocked": full_blocked, "msgs_to_lead": msgs_to_lead,
         "idle_notifications": idle, "idle_dup_of_direct": idle_dup,
         "cost_usd": cost, "per_agent": per_agent,
     }
@@ -607,14 +766,22 @@ def format_scorecard(card: Dict[str, Any]) -> str:
            f"Window {card['since'][:16]}Z → {card['until'][:16]}Z, commits `{card['base']}..HEAD`. "
            "A cap exceeded needs a one-line justification in the PR.", "",
            "| metric | value | cap | status |", "|---|---|---|---|"]
+    # PT-111 gate-1 ruling: a blocked attempt (guard-refused or wrong-path)
+    # is shown but never counted against the full_suite_runs cap, and gets
+    # no cap of its own -- rename the executed-count row only when there is
+    # something to distinguish it from (a nonzero blocked count in window).
+    blocked = card.get("full_run_blocked")
     for k in ROW_ORDER:
         v = card.get(k)
         shown = "(no full-run records in window)" if k == "suite_seconds_added" and v is None else ("—" if v is None else v)
+        label = f"{k} (executed)" if (k == "full_suite_runs" and blocked) else k
         if k in card["caps"]:
             c = card["caps"][k]
-            out.append(f"| {k} | {shown} | {c['cap']} | {'OVER' if c['over'] else 'ok'} |")
+            out.append(f"| {label} | {shown} | {c['cap']} | {'OVER' if c['over'] else 'ok'} |")
         else:
-            out.append(f"| {k} | {shown} | — | — |")
+            out.append(f"| {label} | {shown} | — | — |")
+        if k == "full_suite_runs" and blocked:
+            out.append(f"| full_run_blocked | {blocked} | — | — |")
     if card.get("per_agent"):
         # PT-97 gate-4 verdict delta 4: the per-agent breakdown is a
         # transcript-derived heuristic, distinct from the records-based
@@ -633,8 +800,8 @@ def format_scorecard(card: Dict[str, Any]) -> str:
                 f"authoritative records-based count above ({per_agent_total} vs {card.get('full_suite_runs')})._"
             )
             out.append("")
-        out += [f"| agent | tool calls | {col} | msgs to lead | waste flags |", "|---|---|---|---|---|"]
+        out += [f"| agent | tool calls | {col} | blocked | msgs to lead | waste flags |", "|---|---|---|---|---|---|"]
         for role, s in card["per_agent"].items():
             w = ", ".join(f"{k} {n}" for k, n in sorted(s["waste"].items())) or "—"
-            out.append(f"| {role} | {s['tool_calls']} | {s['full_suite_runs']} | {s['msgs_to_lead']} | {w} |")
+            out.append(f"| {role} | {s['tool_calls']} | {s['full_suite_runs']} | {s.get('blocked', 0)} | {s['msgs_to_lead']} | {w} |")
     return "\n".join(out) + "\n"
