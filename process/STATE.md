@@ -23,7 +23,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-114-z-tier-ladder` |
 | Started | 2026-09-09 |
 | Goal | The z-tier ladder is written into the design spec, guarded structurally, and every overlay type in use is browser-verified above the header. |
-| Status | In Progress |
+| PR | https://github.com/richmosko/project_template/pull/209 |
+| Status | In Review |
 
 ## Releases
 
