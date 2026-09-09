@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Dashboard build is non-deterministic: consecutive clean builds differ in assets/index.css |
-| Issue | PT-106 (cairn) |
+| Feature | Dashboard header is fixed to the top of the viewport and does not scroll with the page |
+| Issue | PT-110 (cairn) |
 | Milestone | PT-0.12.2 |
-| Branch | `feature/pt-106-dist-reproducible-build` |
+| Branch | `feature/pt-110-fixed-dashboard-header` |
 | Started | 2026-09-08 |
-| Goal | A clean dashboard build is byte-identical wherever it runs; the dist-freshness rescue actually rescues; a two-build identity test guards it. |
-| PR | https://github.com/richmosko/project_template/pull/201 |
+| Goal | The shell header stays at the top on both routes while content scrolls; nothing hidden under it; browser-verified in two variants, light and dark. |
+| PR | https://github.com/richmosko/project_template/pull/202 |
 | Status | In Review |
 
 ## Releases

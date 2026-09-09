@@ -324,19 +324,43 @@
 	     Sidebar.Inset (architect's landmine note) -- Inset owns page-level
 	     layout/peer-margins now, this div no longer wraps a bare <body>. -->
 	<div class="flex min-h-screen flex-col gap-6 bg-muted px-7 py-7">
-	<!-- PT-74 (Mosko's finding, 2026-08-31): this wrapper kept the old
-	     max-w-6xl inset when PT-73 unified the sections below it -- match
-	     the same rule the content wrapper already uses (no cap), on both
-	     routes (this header renders before the route switch, so it's
-	     already shared chrome -- no per-route duplication to fix). -->
-	<div class="mx-auto flex w-full flex-col gap-6">
-	<header class="flex flex-wrap items-center justify-between gap-4">
+	<!-- PT-110 (architect's ruling, re-issued whole, PT-110.md @ 4faae8f):
+	     `<header>` is now a DIRECT CHILD of this page-root div, not a
+	     wrapper's -- the browser leg measured the header un-pinning after
+	     ~89px of scroll, because its old parent (the PT-74 wrapper,
+	     `div.mx-auto.flex.w-full.flex-col.gap-6`, purpose: give the
+	     header the same width rule as the sections below) was itself
+	     only as tall as the header. A `sticky` element cannot outlive its
+	     containing block's box, so it stuck within 89px and left with
+	     it. This div spans the WHOLE page (3073px measured) -- `sticky`
+	     now has a containing block tall enough to stick within. PT-74's
+	     width rule (`mx-auto w-full`, no cap) moves onto the header
+	     itself below rather than a now-redundant single-child wrapper;
+	     no restructure to the sidebar-07 shape. `z-40` -- ONE tier BELOW
+	     the portal'd overlay tier (chart tooltips/dropdown/select/
+	     popover/sheet, all `z-50`) -- lets the header's own settings
+	     popover win the hit test over the header's bottom edge where the
+	     two overlap; the original `z-50` (equal tier, DOM order breaking
+	     the tie) let the header clip its own settings menu instead
+	     (measured on the live board, PT-110.md addendum).
+	     `bg-muted` matches body's own surface (page chrome, not a
+	     floating card); `border-b` (colour via app.css's universal
+	     `border-border` rule) so scrolled content never bleeds through;
+	     `py-4` is the header's own vertical padding now that it needs
+	     breathing room as an opaque bar rather than blending into the
+	     page. Never `fixed` -- that would leave normal flow and
+	     reintroduce the overlap. -->
+	<header class="sticky top-0 z-40 mx-auto flex w-full flex-wrap items-center justify-between gap-4 border-b bg-muted py-4">
 		<div class="flex items-center gap-3">
 			<Sidebar.Trigger />
 			<Sidebar.Separator orientation="vertical" class="h-4" />
 			<div class="flex flex-col gap-1">
 				<h1 class="font-heading text-2xl font-bold text-foreground">Project Dashboard</h1>
-				<p class="text-sm text-muted-foreground">
+				<!-- PT-110 item (4): hidden below `sm` -- a wrapped two-line
+				     header pinned to the top eats viewport on exactly the
+				     screens with least of it; the title and the trigger are
+				     what must survive. -->
+				<p class="hidden text-sm text-muted-foreground sm:block">
 					Real-time repo, tracker, and release state.
 				</p>
 			</div>
@@ -372,7 +396,6 @@
 			<ThemeSettings themeState={themeSettings} />
 		</div>
 	</header>
-	</div>
 
 	<!-- PT-72 (architect ruling §1): chrome above (Sidebar.Root + this
 	     header) mounts once and never remounts across Dashboard <->
