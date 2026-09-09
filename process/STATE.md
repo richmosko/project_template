@@ -23,7 +23,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-120-chart-color-exact-shadcn` |
 | Started | 2026-09-09 |
 | Goal | Selecting a Chart Color makes both charts use that variant's vendored shadcn chart values verbatim; Pink is pink. |
-| Status | In Progress |
+| PR | https://github.com/richmosko/project_template/pull/212 |
+| Status | In Review |
 
 ## Releases
 
