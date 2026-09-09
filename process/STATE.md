@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Dashboard z-tier ladder: verify every bits-ui floating overlay sits above page chrome and record the ladder in the design spec |
-| Issue | PT-114 (cairn) |
+| Feature | Settings → Chart Color drives both charts (derived chart-local tokens per variant) |
+| Issue | PT-118 (cairn) |
 | Milestone | PT-0.12.2 |
-| Branch | `feature/pt-114-z-tier-ladder` |
+| Branch | `feature/pt-118-chart-color-drives-charts` |
 | Started | 2026-09-09 |
-| Goal | The z-tier ladder is written into the design spec, guarded structurally, and every overlay type in use is browser-verified above the header. |
-| PR | https://github.com/richmosko/project_template/pull/209 |
+| Goal | The Chart Color setting changes the throughput and token charts' colours in every variant × mode, with the contrast and distinctness guards passing mechanically and yellow byte-identical to today. |
+| PR | https://github.com/richmosko/project_template/pull/210 |
 | Status | In Review |
 
 ## Releases

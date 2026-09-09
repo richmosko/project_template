@@ -278,6 +278,171 @@ def derive_destructive_foreground(direction: str, ink_value: str, destructive_va
     )
 
 
+# ---------------------------------------------------------------------------
+# PT-118 gate-1 ruling (PT-118.md @c80dee8): Chart Color now drives the
+# dashboard's flow (`--chart-flow-opened/closed/wip`) and counter
+# (`--chart-counter-input/cache-write/cache-read/output`) token families
+# via a global hue rotation, computed here at render time from app.css's
+# `yellow`/base ratified values -- one source of truth, same shape as
+# `derive_muted_foreground` above: never precomputed into variants.json,
+# which stays vendored hue data (its own per-variant chart-flow-* entries
+# predate this ticket and are no longer read; PT-92's ratified hues live
+# in app.css now). The role family (`--chart-role-1..8` + 3 neutral
+# guards) stays FIXED -- an identity mapping (PT-69/PT-79) -- and is
+# never touched by this module at all.
+#
+# Mechanism (ux-designer's rule, ratified by the architect's measured
+# sweep): (1) rotate -- Δh(variant) = variant["chart-1"].h -
+# yellow["chart-1"].h (mode-invariant), applied to every rotating token's
+# hue, holding its own L/C fixed; (2) map -- rotation alone is not
+# sufficient (finding 3: 61 of 322 real combinations land outside sRGB
+# after a bare rotation), so every rotated value is then gamut-mapped:
+# hold L/h, binary-search the largest in-gamut C. `yellow` itself never
+# renders through this path at all (its variant name never appears in
+# variants.json's `variants` dict -- "never a default-variant block"),
+# so byte-identity for `yellow` is structural, not a special case here.
+CHART_FLOW_TOKENS = ("chart-flow-opened", "chart-flow-closed", "chart-flow-wip")
+CHART_COUNTER_TOKENS = (
+    "chart-counter-input", "chart-counter-cache-write",
+    "chart-counter-cache-read", "chart-counter-output",
+)
+CHART_ROTATING_TOKENS = CHART_FLOW_TOKENS + CHART_COUNTER_TOKENS
+
+_APP_CSS_PATH = SCRIPT_DIR.parent / "dashboard" / "src" / "app.css"
+
+
+def _oklch_to_linear_rgb_unclamped(l: float, c: float, h_deg: float):
+    """Finding 1 (architect, PT-118.md @c80dee8): `_oklch_to_linear_rgb`
+    above CLAMPS to [0,1] ON RETURN, so any gamut check built on it
+    passes by construction (the control probe L .6/C .40/h300 came back
+    "in range"). This is a deliberately SEPARATE, unclamped conversion --
+    the thing being detected is the clamp itself, so the gamut predicate
+    below must not share code with the clamping one."""
+    h = math.radians(h_deg)
+    a, b = c * math.cos(h), c * math.sin(h)
+    l_ = l + 0.3963377774 * a + 0.2158037573 * b
+    m_ = l - 0.1055613458 * a - 0.0638541728 * b
+    s_ = l - 0.0894841775 * a - 1.2914855480 * b
+    ll, mm, ss = l_ ** 3, m_ ** 3, s_ ** 3
+    r = 4.0767416621 * ll - 3.3077115913 * mm + 0.2309699292 * ss
+    g = -1.2684380046 * ll + 2.6097574011 * mm - 0.3413193965 * ss
+    bb = -0.0041960863 * ll - 0.7034186147 * mm + 1.7076147010 * ss
+    return r, g, bb  # deliberately NOT clamped
+
+
+def _is_in_gamut(l: float, c: float, h_deg: float, eps: float = 1e-6) -> bool:
+    r, g, b = _oklch_to_linear_rgb_unclamped(l, c, h_deg)
+    return all(-eps <= v <= 1 + eps for v in (r, g, b))
+
+
+def _round_down(value: float, places: int = 4) -> float:
+    """Truncates TOWARD ZERO, never away from it -- used only on a
+    gamut-mapped chroma, where rounding UP even slightly could push an
+    already-safe value back outside sRGB (the binary search's converged
+    bound is safe; a floor keeps it that way)."""
+    factor = 10 ** places
+    return math.floor(value * factor) / factor
+
+
+def _max_in_gamut_chroma(l: float, c: float, h_deg: float, iterations: int = 60) -> float:
+    """The largest chroma <= `c`, at fixed `l`/`h_deg`, that is in-gamut --
+    finding 3's ruled mechanism ("hold L and h, binary-search the largest
+    in-gamut C"). `c=0` (achromatic) is always in-gamut for a valid L, so
+    the search always has a safe floor to converge toward. Returns `c`
+    unchanged (still floored for consistency) if already in gamut."""
+    if _is_in_gamut(l, c, h_deg):
+        return _round_down(c)
+    lo, hi = 0.0, c
+    for _ in range(iterations):
+        mid = (lo + hi) / 2
+        if _is_in_gamut(l, mid, h_deg):
+            lo = mid
+        else:
+            hi = mid
+    return _round_down(lo)
+
+
+def _extract_css_block(source: str, selector: str) -> str:
+    """Comment-stripped, brace-depth block extraction for a plain
+    selector (`:root`, `.dark`) -- same shape as the qa suite's own
+    `_extract_unqualified_block`/`_extract_css_rule_block`."""
+    stripped = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    match = re.search(re.escape(selector) + r"\s*\{", stripped)
+    if not match:
+        return ""
+    depth, i, n = 1, match.end(), len(stripped)
+    while i < n and depth > 0:
+        if stripped[i] == "{":
+            depth += 1
+        elif stripped[i] == "}":
+            depth -= 1
+        i += 1
+    return stripped[match.end():i - 1]
+
+
+def _oklch_literal_in_block(block: str, var_name: str):
+    m = re.search(r"--" + re.escape(var_name) + r"\s*:\s*oklch\(([^)/]*)\)", block)
+    if not m:
+        return None
+    parts = m.group(1).split()
+    if len(parts) != 3:
+        return None
+    return tuple(float(p) for p in parts)
+
+
+_chart_yellow_anchor_cache: dict | None = None
+
+
+def _chart_yellow_anchors() -> dict:
+    """`{"light"|"dark": {"chart-1_h": float, "rotating": {token: (l,c,h)}}}`
+    -- app.css's own literal values for `--chart-1` (the Δh source) and
+    every rotating token, read once and cached (this module is invoked
+    once per `generate()` call; re-parsing per variant would be wasted
+    work, not a correctness issue)."""
+    global _chart_yellow_anchor_cache
+    if _chart_yellow_anchor_cache is not None:
+        return _chart_yellow_anchor_cache
+    css_text = _APP_CSS_PATH.read_text(encoding="utf-8")
+    root_block = _extract_css_block(css_text, ":root")
+    dark_block = _extract_css_block(css_text, ".dark")
+    out = {}
+    for mode, block in (("light", root_block), ("dark", dark_block)):
+        chart1 = _oklch_literal_in_block(block, "chart-1")
+        if chart1 is None:
+            raise ValueError(f"{_APP_CSS_PATH}: {mode} block has no literal --chart-1 declaration")
+        rotating = {}
+        for token in CHART_ROTATING_TOKENS:
+            value = _oklch_literal_in_block(block, token)
+            if value is None:
+                raise ValueError(f"{_APP_CSS_PATH}: {mode} block has no literal --{token} declaration")
+            rotating[token] = value
+        out[mode] = {"chart-1_h": chart1[2], "rotating": rotating}
+    if out["light"]["chart-1_h"] != out["dark"]["chart-1_h"]:
+        raise ValueError(
+            f"{_APP_CSS_PATH}: --chart-1 hue differs between light ({out['light']['chart-1_h']}) and "
+            f"dark ({out['dark']['chart-1_h']}) -- the mode-invariant Δh assumption (PT-118 gate-1 "
+            f"ruling) no longer holds; the rotation needs a per-mode Δh, not a shared one."
+        )
+    _chart_yellow_anchor_cache = out
+    return out
+
+
+def derive_chart_family_hue_rotation(yellow_values: dict, delta_h: float) -> dict:
+    """`yellow_values`: `{token: (l, c, h)}` for the rotating family (flow
+    + counter) in ONE mode -- app.css's own ratified values. Returns
+    `{token: "oklch(l c h)"}` with `h` rotated by `delta_h`, `l` held
+    exactly, and `c` reduced (never increased) only as far as
+    gamut-mapping requires (finding 3: rotation alone is not enough).
+    `delta_h=0` never renders through this function at all (`yellow` is
+    not a `variants.json` entry), so this has no special case for it."""
+    out = {}
+    for token, (l, c, h) in yellow_values.items():
+        new_h = round((h + delta_h) % 360, 4)
+        new_c = _max_in_gamut_chroma(l, c, new_h)
+        out[token] = f"oklch({l} {new_c} {new_h})"
+    return out
+
+
 # Fixed emission order -- architect's ruling table order, not the JSON's
 # (json.load doesn't guarantee dict order is meaningful here; we don't
 # rely on it).
@@ -365,19 +530,26 @@ def _load_variants() -> dict:
         return json.load(f)
 
 
-def _resolve_values(dim: str, values: dict) -> dict:
+def _resolve_values(dim: str, values: dict, mode: str) -> dict:
     """The values a block actually emits -- identical to `values` for every
-    dimension/pair except the two DERIVED ones: Base's `muted-foreground`
-    (Mosko's "darken the ink" ruling) and Theme's `primary-foreground`
+    dimension/pair except three DERIVED cases: Base's `muted-foreground`
+    (Mosko's "darken the ink" ruling), Theme's `primary-foreground`
     (same treatment, applied once qa's contrast gate found 'yellow' sitting
     inside the derivation-headroom margin once Theme's option-set cap was
-    lifted) -- both derived from the vendored ink + this same block's own
-    background token, never emitted verbatim."""
+    lifted), and Chart's flow/counter families (PT-118 gate-1 ruling:
+    rotate app.css's yellow base by this variant's own Δh, then
+    gamut-map) -- all three derived from vendored data, never emitted
+    verbatim."""
     resolved = dict(values)
     if dim == "base" and "muted-foreground" in values and "muted" in values:
         resolved["muted-foreground"] = derive_muted_foreground(values["muted-foreground"], values["muted"])
     if dim == "theme" and "primary-foreground" in values and "primary" in values:
         resolved["primary-foreground"] = derive_primary_foreground(values["primary-foreground"], values["primary"])
+    if dim == "chart" and "chart-1" in values:
+        anchors = _chart_yellow_anchors()
+        _, _, variant_hue = _parse_oklch(values["chart-1"])
+        delta_h = variant_hue - anchors[mode]["chart-1_h"]
+        resolved.update(derive_chart_family_hue_rotation(anchors[mode]["rotating"], delta_h))
     return resolved
 
 
@@ -388,7 +560,7 @@ def _render_block(dim: str, name: str, mode: str, values: dict, indent: str) -> 
         if mode == "light"
         else f':root.dark[{attribute}="{name}"]'
     )
-    resolved = _resolve_values(dim, values)
+    resolved = _resolve_values(dim, values, mode)
     lines = [selector + " {"]
     for key in sorted(resolved):
         lines.append(f"{indent}--{key}: {resolved[key]};")
