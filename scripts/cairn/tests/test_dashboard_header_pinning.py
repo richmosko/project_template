@@ -87,13 +87,58 @@ class HeaderStickyPositioningTests(unittest.TestCase):
         self.assertIn("border-b", classes, f"header must carry `border-b` -- got {sorted(classes)}")
 
 
+PAGE_ROOT_OPEN_RE = re.compile(r'<div class="flex min-h-screen flex-col gap-6 bg-muted px-7 py-7">\s*')
+
+
+class HeaderIsAnImmediateChildOfThePageRootTests(unittest.TestCase):
+    """PT-110 NO-GO, gate-4 verdict (architect, PT-110.md @ 4faae8f):
+    "pinning classes are necessary and not sufficient; the containing
+    block is the mechanism" -- a sticky element cannot outlive its
+    PARENT's box, and the first fix (5d94640) left the header inside an
+    89px-tall wrapper div (`div.mx-auto.flex.w-full.flex-col.gap-6`,
+    PT-74) whose own box is exactly the header's height, defeating
+    `sticky top-0` at the real page-root scroll extent. Re-issued
+    ruling item (1): delete that wrapper, move `mx-auto w-full` onto
+    the `<header>` itself, so it is a DIRECT child of the tall page
+    root (`flex min-h-screen ... px-7 py-7`, ~3073px measured).
+
+    Structural, not stylistic -- this is the guard that would have
+    caught the first (class-only) fix. Mutation: reintroduce ANY
+    wrapper element between the page root and `<header` -> red."""
+
+    def setUp(self):
+        self.assertTrue(DASHBOARD_APP_SVELTE.is_file(), f"{DASHBOARD_APP_SVELTE} does not exist")
+        self.source = _strip_html_comments(DASHBOARD_APP_SVELTE.read_text(encoding="utf-8"))
+
+    def test_header_opening_tag_immediately_follows_the_page_root_div(self):
+        match = PAGE_ROOT_OPEN_RE.search(self.source)
+        self.assertIsNotNone(
+            match,
+            f"{DASHBOARD_APP_SVELTE}: page-root div (`flex min-h-screen flex-col gap-6 bg-muted "
+            f"px-7 py-7`) not found -- this test's structural assumption may be stale, not "
+            f"something to silence.",
+        )
+        after = self.source[match.end():].lstrip()
+        self.assertTrue(
+            after.startswith("<header"),
+            f"{DASHBOARD_APP_SVELTE}: expected `<header` to be the IMMEDIATE child of the page-root "
+            f"div -- found {after[:80]!r} instead. A wrapper between them (even one that carries no "
+            f"visible styling) becomes the sticky header's containing block and silently caps it "
+            f"at the wrapper's own height (PT-110 NO-GO @ 4faae8f) -- exactly the bug this guard "
+            f"exists to catch.",
+        )
+
+
 class NoSpacerElementBelowTheHeaderTests(unittest.TestCase):
-    """Ruling item (2): `sticky` keeps the header in normal flow, so a
+    """Ruling item (3): `sticky` keeps the header in normal flow, so a
     spacer/padding-top element equal to the header height would
     double-count and push the first card down by a header's worth of
-    dead space -- explicitly rejected. Mutation: insert a spacer div
-    (e.g. `<div class="h-16"></div>` or similar) directly after
-    `</header>` -> this goes red."""
+    dead space -- explicitly rejected. Restated for the post-NO-GO
+    shape (team-lead, red-2 kickoff): with the PT-74 wrapper deleted,
+    the header's own close is immediately followed -- once comments are
+    stripped -- by the route switch (`{#if !onIssueTracking}`), never a
+    spacer. Mutation: insert a spacer div (e.g. `<div class="h-16">
+    </div>`) directly after `</header>` -> this goes red."""
 
     def setUp(self):
         self.assertTrue(DASHBOARD_APP_SVELTE.is_file(), f"{DASHBOARD_APP_SVELTE} does not exist")
@@ -104,10 +149,10 @@ class NoSpacerElementBelowTheHeaderTests(unittest.TestCase):
         after = self.source.split("</header>", 1)[1]
         stripped = after.lstrip()
         self.assertTrue(
-            stripped.startswith("</div>"),
-            f"{DASHBOARD_APP_SVELTE}: expected the header's wrapper div to close immediately after "
-            f"</header> with nothing in between -- found {stripped[:80]!r} instead, which looks like "
-            f"a spacer element the ruling explicitly forbids (sticky needs none)",
+            stripped.startswith("{#if !onIssueTracking}"),
+            f"{DASHBOARD_APP_SVELTE}: expected the route switch (`{{#if !onIssueTracking}}`) to "
+            f"follow </header> directly (comments aside) -- found {stripped[:80]!r} instead, which "
+            f"looks like a spacer element the ruling explicitly forbids (sticky needs none)",
         )
 
 
