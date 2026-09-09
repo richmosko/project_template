@@ -374,22 +374,24 @@ class BuiltCssHasTheGapAndIsolationRulesTests(unittest.TestCase):
         )
 
     def test_built_css_compiles_the_negative_margin_rule(self):
-        # Addendum (implementation-lead's measurement): Tailwind v4 emits
-        # this utility as `margin-bottom:calc(var(--spacing) * -6)` --
-        # never a literal `-1.5rem` anywhere in the built CSS. Whitespace-
-        # tolerant around the calc() internals; the selector and the
-        # calc() shape are still what the ruling's own trap is about
-        # (compiled or not), a literal-rem match is simply unreachable.
+        # Addendum 1 to the gate-1 ruling (PT-117.md @982001d): this
+        # repo's Tailwind v4 compiles every spacing utility as
+        # `calc(var(--spacing) * N)` -- verified against sibling
+        # utilities already in the built CSS (`.gap-6`, `.py-4`,
+        # `margin-inline:calc(var(--spacing) * -1)`), zero literal `rem`
+        # margins anywhere. Accept either property name Tailwind might
+        # emit (`margin-bottom` or the logical `margin-block-end`); no
+        # literal `rem` may be required in either direction.
         found = bool(re.search(
-            r"\.-mb-6\{[^}]*margin-bottom:\s*calc\(\s*var\(--spacing\)\s*\*\s*-6\s*\)[^}]*\}",
+            r"\.-mb-6\{[^}]*margin-(?:bottom|block-end):\s*calc\(\s*var\(--spacing\)\s*\*\s*-6\s*\)[^}]*\}",
             self.css_text,
         ))
         self.assertTrue(
             found,
-            "dist/assets/*.css must compile -mb-6 as margin-bottom: calc(var(--spacing) * -6) "
-            "(Tailwind v4's own compiled form -- never a literal -1.5rem) -- the architect's "
-            "own measured trap: applying this utility via classList alone read as a no-op "
-            "because it was never in the compiled CSS at all",
+            "dist/assets/*.css must compile -mb-6 as margin-(bottom|block-end): "
+            "calc(var(--spacing) * -6) (Tailwind v4's own compiled form -- never a literal "
+            "rem) -- the architect's own measured trap: applying this utility via classList "
+            "alone read as a no-op because it was never in the compiled CSS at all",
         )
 
 
