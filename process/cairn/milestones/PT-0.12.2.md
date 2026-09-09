@@ -3,7 +3,7 @@ id: PT-0.12.2
 name: loop tooling follow-ups
 kind: product
 major: PT-V1
-status: planned
+status: done
 target_tag: v0.12.2
 ga: false
 ---
