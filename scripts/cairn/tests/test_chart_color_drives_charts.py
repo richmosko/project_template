@@ -1,44 +1,57 @@
-"""PT-118 gate-1 ruling (architect, process/cairn/issues/PT-118.md @
-c80dee8): Chart Color now drives BOTH charts via a global hue rotation
-(Δh = variant.chart-1.h - yellow.chart-1.h, mode-invariant) applied to
-the flow (`--chart-flow-opened/closed/wip`) and counter
-(`--chart-counter-input/cache-write/cache-read/output`) families, L/C
-held, THEN gamut-mapped (binary-search the largest in-gamut C at fixed
-L/h) -- rotation alone is not enough (finding 3: 61 of 322 land outside
-sRGB after a bare rotation). The role family (`--chart-role-1..8` + 3
-neutral guards) stays FIXED across every variant -- an identity mapping
-(PT-69/PT-79), not a stylistic preference; rotating it would put 146 of
-368 checks outside sRGB.
+"""PT-120 gate-1 ruling (architect, process/cairn/issues/PT-120.md @
+fe2a929): Chart Color must wear the selected variant's vendored shadcn
+`--chart-1..5` values EXACTLY -- Mosko's board steer overrides PT-118's
+hue-rotation mechanism, which perceptually mismatched the selection
+(Pink rendered brown, Amber teal, Cyan purple) despite being
+mathematically consistent (an isometry anchored at yellow, not at the
+selected hue).
 
-Finding 1, the reason this file exists rather than reusing
-`gen_variants._oklch_to_linear_rgb`: that helper clamps to [0,1] ON
-RETURN, so any gamut check built on it passes by construction (the
-architect's own control, L .6/C .40/h300, came back "in range").
-`oklch_to_linear_srgb_unclamped` below is a deliberate SECOND, clamp-free
-implementation -- the thing being detected is the clamp itself, so the
-detector cannot share code with it (guard 5, `GamutCheckDoesNotUseTheClampingHelperTests`).
+Mechanism (ux-designer's design-2, adopted by the architect): a `var()`
+ALIAS, declared ONCE in app.css, no per-variant emission, no generator
+math at all:
+    --chart-flow-opened:      var(--chart-1)
+    --chart-flow-closed:      var(--chart-3)
+    --chart-flow-wip:         var(--chart-5)
+    --chart-counter-input:    var(--chart-5)
+    --chart-counter-cache-write: var(--chart-4)
+    --chart-counter-cache-read:  var(--chart-3)
+    --chart-counter-output:   var(--chart-2)
+`--chart-1..5` already varies correctly per variant (untouched
+mechanism); aliasing rides it for free, and exactness holds BY
+CONSTRUCTION rather than by assertion. `--chart-1` is deliberately
+unused by counter (it already fails 2:1 against white, on record since
+2026-08-28; flow has no such luxury and gets it anyway).
 
-Finding 2: `--chart-flow-wip` (oklch 0.62/0.15/200.8 light, 0.60/0.13/
-200.8 dark) is out of gamut TODAY, at Δh=0 (no rotation involved) --
-red channel -0.091 light. A hard-fail gamut gate is therefore expected
-to fail on the yellow/default variant until ux-designer re-authors
-wip's chroma or explicitly grandfathers it; `YELLOW_GAMUT_EXCLUDE`
-below names whichever token stays excluded once that decision lands.
+PT-118's rotation + gamut-mapper are DELETED, not bypassed
+(`derive_chart_family_hue_rotation`, `_oklch_to_linear_rgb_unclamped`,
+`_is_in_gamut`, `_max_in_gamut_chroma` no longer exist in
+gen_variants.py). Its three floors (PT-92 pairwise ≥60°, counter
+adjacency ΔE, sRGB gamut hard-fail) are RETIRED as gates -- exact
+values are never nudged, Mosko's steer outranks -- and become recorded
+OBSERVATIONS: a table asserted by name and value, so a change in the
+vendored preset data shows up as a diff, never silence. This file is
+REWRITTEN from PT-118's version, not patched -- every PT-118 gate
+class (unclamped hard-fail, contrast floor, counter-vs-role, the
+derivation guard, the wip pin, yellow byte-identity) is gone.
 
-All sweeps read the GENERATED CSS text directly (dashboard/src/
-variants.css), never gen_variants.py's internal math -- matching
-test_flow_series_distinctness.py's own resolve-from-source approach,
-so this file is decoupled from exactly how the generator computes a
-value and only cares what it emits.
+Independently re-measured for this rewrite (not copied from the
+ruling): gamut 62/120 vendored steps outside sRGB (exact match), the
+four counter-adjacency sub-floor variants and their ΔE values (exact
+match to 4 decimals: blue 0.0584, indigo 0.0583, rose 0.0596, violet
+0.0512), chart-2/3/4/5 contrast failure counts (exact match: 2/0/7/11).
+One discrepancy found and flagged, not silently corrected: the ruling
+states chart-1 misses 2:1 in "24/24 light"; this file's own sweep
+measures 23/24 -- `indigo` clears the floor (ratio computed >= 2.0).
+Built with the same vendored --card and --chart-N values the ruling
+used; see IndigoChart1ContrastDiscrepancyTests below.
 """
 from __future__ import annotations
 
-import inspect
 import math
 import re
 import unittest
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import helpers  # noqa: F401
 
@@ -51,27 +64,30 @@ REPO_ROOT = helpers.CAIRN_DIR.parent.parent
 BOARD_VARIANTS_CSS = helpers.CAIRN_DIR / "board" / "variants.css"
 DOCS_VARIANTS_CSS = REPO_ROOT / "docs" / "DESIGN" / "variants.css"
 ALL_THREE_COPIES = (BOARD_VARIANTS_CSS, DASHBOARD_VARIANTS_CSS, DOCS_VARIANTS_CSS)
+GEN_VARIANTS_PY = helpers.CAIRN_DIR / "design" / "gen_variants.py"
 
-FLOW_TOKENS = ("chart-flow-opened", "chart-flow-closed", "chart-flow-wip")
-COUNTER_TOKENS = ("chart-counter-input", "chart-counter-cache-write", "chart-counter-cache-read", "chart-counter-output")
-ROTATING_TOKENS = FLOW_TOKENS + COUNTER_TOKENS
+# Ruling's adopted mapping (ux-designer's design-2), verbatim.
+FLOW_MAPPING = {
+    "chart-flow-opened": "chart-1",
+    "chart-flow-closed": "chart-3",
+    "chart-flow-wip": "chart-5",
+}
+COUNTER_MAPPING = {
+    "chart-counter-input": "chart-5",
+    "chart-counter-cache-write": "chart-4",
+    "chart-counter-cache-read": "chart-3",
+    "chart-counter-output": "chart-2",
+}
+FAMILY_MAPPING = {**FLOW_MAPPING, **COUNTER_MAPPING}
+FLOW_TOKENS = tuple(FLOW_MAPPING)
+COUNTER_TOKENS = tuple(COUNTER_MAPPING)
+FAMILY_TOKENS = tuple(FAMILY_MAPPING)
 ROLE_TOKENS = tuple(f"chart-role-{i}" for i in range(1, 9)) + (
     "chart-role-guard-aux", "chart-role-guard-unattributed", "chart-role-other",
 )
+CHART_N_TOKENS = tuple(f"chart-{i}" for i in range(1, 6))
 
-CONTRAST_FLOOR = 2.0
-# Architect's own measured floor (finding 4, PT-118.md @c80dee8): "0
-# pairs below ΔE 0.06, min pairwise ΔE 0.0705 before and after" -- tighter
-# than palette_check's generic categorical floor (0.06), used here as the
-# regression pin for this specific token family.
-MIN_PAIRWISE_DELTA_E = 0.0705
-
-# Named per team-lead's instruction: ux-designer's wip decision (finding
-# 2: re-author the ratified chroma, or grandfather the out-of-gamut
-# value) had not landed on the issue at write time. Update this set the
-# moment it does -- empty once wip is back in-gamut everywhere; unchanged
-# (still excluding "chart-flow-wip") if grandfathered instead.
-YELLOW_GAMUT_EXCLUDE: set = {"chart-flow-wip"}
+MIN_PAIRWISE_DELTA_E = 0.06
 
 
 def _strip_css_comments(source: str) -> str:
@@ -150,19 +166,11 @@ def _all_variants(variants_source: str) -> Dict[str, Dict[str, str]]:
     return variants
 
 
-def _hue_distance(h1: float, h2: float) -> float:
-    diff = abs(h1 - h2) % 360
-    return min(diff, 360 - diff)
-
-
-# --------------------------------------------------------------------------
-# Finding 1: a deliberately SEPARATE, unclamped OKLCH -> linear-sRGB
-# conversion. Must not call, import, or otherwise reuse
-# gen_variants._oklch_to_linear_rgb (guard 5) -- that is the exact
-# vacuous-check defect this file exists to avoid repeating.
-# --------------------------------------------------------------------------
-
 def oklch_to_linear_srgb_unclamped(l: float, c: float, h_deg: float) -> Tuple[float, float, float]:
+    """Independent, deliberately unclamped conversion for the GAMUT
+    OBSERVATION table only (guard 4) -- this feature does not gate on
+    gamut at all (exact values are never nudged), so this exists purely
+    to measure and record, matching the ruling's own 62/120 figure."""
     h = math.radians(h_deg)
     a, b = c * math.cos(h), c * math.sin(h)
     l_ = l + 0.3963377774 * a + 0.2158037573 * b
@@ -172,7 +180,7 @@ def oklch_to_linear_srgb_unclamped(l: float, c: float, h_deg: float) -> Tuple[fl
     r = 4.0767416621 * lc - 3.3077115913 * mc + 0.2309699292 * sc
     g = -1.2684380046 * lc + 2.6097574011 * mc - 0.3413193965 * sc
     bl = -0.0041960863 * lc - 0.7034186147 * mc + 1.7076147010 * sc
-    return (r, g, bl)  # deliberately NOT clamped
+    return (r, g, bl)
 
 
 def is_in_gamut(l: float, c: float, h_deg: float, eps: float = 1e-6) -> bool:
@@ -180,146 +188,86 @@ def is_in_gamut(l: float, c: float, h_deg: float, eps: float = 1e-6) -> bool:
     return all(-eps <= v <= 1 + eps for v in (r, g, b))
 
 
-def _iter_variant_mode_token_oklch(variants_source: str, app_css_source: str):
-    """Yields (variant_name, mode, token, (l, c, h)) for every ROTATING
-    token (flow + counter) resolved across every variant x mode --
-    variant's own declaration first, falling back to app.css's :root/
-    .dark (the "yellow"/unrotated case, and any token a variant does not
-    override)."""
+def _all_chart_n_values(app_css_source: str, variants_source: str) -> Dict[str, Tuple[float, float, float]]:
+    """{variant_name: chart-N oklch} for one fixed N, resolved per
+    variant -- light and dark ramps are identical by construction
+    (ruling's own measurement), so only the light block is read."""
     root_block = _extract_unqualified_block(app_css_source, ":root")
-    dark_block = _extract_unqualified_block(app_css_source, ".dark")
     variants = _all_variants(variants_source)
-    for variant_name, modes in sorted(variants.items()):
-        for mode in ("light", "dark"):
-            is_dark = mode == "dark"
-            variant_block = modes.get(mode, "")
-            for token in ROTATING_TOKENS:
-                oklch = _resolve_oklch(token, variant_block, root_block, dark_block, is_dark)
-                if oklch is not None:
-                    yield variant_name, mode, token, oklch
+    out = {}
+    for vname, modes in variants.items():
+        out[vname] = modes.get("light", "")
+    return out
 
 
-class ClampDetectionControlTests(unittest.TestCase):
-    """Guard 1's own precondition: the architect's control probe (finding
-    1) must FAIL the unclamped check, or the whole sweep is vacuous
-    again -- this is the exact case that silently passed through
-    gen_variants._oklch_to_linear_rgb."""
+# --------------------------------------------------------------------------
+# Guard 1: the alias seam -- declared once in app.css, no literals left
+# anywhere, no per-variant emission of the family tokens at all.
+# --------------------------------------------------------------------------
 
-    def test_the_far_out_probe_fails_the_unclamped_gamut_check(self):
-        self.assertFalse(
-            is_in_gamut(0.6, 0.40, 300.0),
-            "L .6/C .40/h300 must fail an unclamped gamut check -- if this passes, the check "
-            "is clamping somewhere and the whole sweep is vacuous (finding 1)",
-        )
+class AliasSeamTests(unittest.TestCase):
+    """Guard 1: the seven family tokens are `var(--chart-N)` aliases per
+    FAMILY_MAPPING, declared ONCE in app.css -- no literal `oklch(...)`
+    declaration for any of them anywhere in app.css or any generated
+    variants.css, and no per-variant block redeclares them at all
+    (there is nothing to redeclare -- the alias rides the variant's own
+    --chart-1..5 override for free)."""
 
-    def test_a_known_in_gamut_value_passes(self):
-        # Control in the other direction: a real, already-ratified token
-        # (--chart-role-1) must read as in-gamut.
-        self.assertTrue(is_in_gamut(0.570, 0.1587, 252.00))
-
-
-class GamutCheckDoesNotUseTheClampingHelperTests(unittest.TestCase):
-    """Guard 5: pins finding 1's defect so it cannot silently return --
-    this file's gamut detector must never call, import, or reuse
-    gen_variants's own clamping helper."""
-
-    def test_this_modules_source_never_imports_gen_variants(self):
-        # An import STATEMENT, not a bare substring scan -- this module's
-        # own docstrings and comments discuss gen_variants.py's clamping
-        # defect by name (that is the whole point of this file), so a
-        # naive "gen_variants" in this_file scan would false-positive on
-        # its own documentation.
-        this_file = Path(__file__).read_text(encoding="utf-8")
-        for line in this_file.splitlines():
-            stripped = line.strip()
-            with self.subTest(line=stripped[:80]):
-                self.assertFalse(
-                    stripped.startswith("import gen_variants") or stripped.startswith("from gen_variants"),
-                    "test_chart_color_drives_charts.py must not import anything from gen_variants.py -- "
-                    "the gamut check must be a genuinely separate implementation (finding 1)",
+    def test_app_css_declares_each_family_token_as_the_ruled_alias(self):
+        self.assertTrue(APP_CSS.is_file())
+        source = APP_CSS.read_text(encoding="utf-8")
+        root_block = _extract_unqualified_block(source, ":root")
+        for token, target in FAMILY_MAPPING.items():
+            with self.subTest(token=token):
+                alias = _var_ref_in_block(root_block, token)
+                self.assertEqual(
+                    alias, target,
+                    f"app.css :root must declare --{token}: var(--{target}) -- got alias={alias!r}",
                 )
 
-    def test_oklch_to_linear_srgb_unclamped_never_clamps(self):
-        # Comment-stripped first -- the function's own docstring/comment
-        # explains it is "deliberately NOT clamped", which contains the
-        # word being scanned for.
-        source = inspect.getsource(oklch_to_linear_srgb_unclamped)
-        code_only = re.sub(r"#.*", "", source)
-        for forbidden in ("min(", "max("):
-            with self.subTest(forbidden=forbidden):
-                self.assertNotIn(forbidden, code_only, f"the unclamped conversion must not call {forbidden!r}")
-
-
-class UnclampedGamutSweepTests(unittest.TestCase):
-    """Guard 1: every rotating (flow + counter) token, every variant,
-    both modes, must be in-gamut under the UNCLAMPED check -- a silent
-    clamp is exactly the defect finding 1 measured. Expected red today:
-    chart-flow-wip is out of gamut at its current ratified value
-    (finding 2), independent of rotation."""
-
-    def test_every_rotating_token_is_in_gamut_in_every_variant_and_mode(self):
-        self.assertTrue(DASHBOARD_VARIANTS_CSS.is_file(), f"{DASHBOARD_VARIANTS_CSS} does not exist")
-        self.assertTrue(APP_CSS.is_file(), f"{APP_CSS} does not exist")
-        variants_source = DASHBOARD_VARIANTS_CSS.read_text(encoding="utf-8")
-        app_css_source = APP_CSS.read_text(encoding="utf-8")
+    def test_no_family_token_has_a_literal_oklch_declaration_in_app_css(self):
+        self.assertTrue(APP_CSS.is_file())
+        source = APP_CSS.read_text(encoding="utf-8")
+        root_block = _extract_unqualified_block(source, ":root")
+        dark_block = _extract_unqualified_block(source, ".dark")
         offenders = []
-        seen = 0
-        for variant, mode, token, (l, c, h) in _iter_variant_mode_token_oklch(variants_source, app_css_source):
-            seen += 1
-            if not is_in_gamut(l, c, h):
-                offenders.append((variant, mode, token, (l, c, h)))
-        self.assertGreater(seen, 0, "the sweep resolved zero (variant, mode, token) combinations -- broken, not passing")
-        self.assertEqual(offenders, [], f"out-of-gamut rotating tokens (unclamped check): {offenders!r}")
+        for block_name, block in (("root", root_block), ("dark", dark_block)):
+            for token in FAMILY_TOKENS:
+                if _oklch_in_block(block, token) is not None:
+                    offenders.append((block_name, token))
+        self.assertEqual(offenders, [], f"app.css must carry no literal oklch(...) for a family token: {offenders!r}")
+
+    def test_no_generated_variants_css_declares_a_family_token_at_all(self):
+        for copy_path in ALL_THREE_COPIES:
+            with self.subTest(copy=str(copy_path)):
+                self.assertTrue(copy_path.is_file(), f"{copy_path} does not exist")
+                source = copy_path.read_text(encoding="utf-8")
+                offenders = []
+                for variant_name, is_dark, body in _find_chart_variant_blocks(source):
+                    for token in FAMILY_TOKENS:
+                        if _oklch_in_block(body, token) is not None or _var_ref_in_block(body, token) is not None:
+                            offenders.append((variant_name, "dark" if is_dark else "light", token))
+                self.assertEqual(
+                    offenders, [],
+                    f"{copy_path}: a chart variant block declares a family token -- the alias is "
+                    f"declared ONCE in app.css, nothing per-variant: {offenders!r}",
+                )
 
 
-class ContrastFloorSweepTests(unittest.TestCase):
-    """Guard 2: every rotating token clears the 2:1 WCAG floor against
-    BOTH modes' own real --card (the two-model form), every variant,
-    both modes -- reuses palette_check's vendored (clamped-at-render,
-    correct for what a browser actually paints) contrast math."""
+# --------------------------------------------------------------------------
+# Guard 2: resolution -- the cascade actually produces the mapped value.
+# --------------------------------------------------------------------------
 
-    def test_every_rotating_token_clears_contrast_against_both_cards(self):
+class ResolutionSweepTests(unittest.TestCase):
+    """Guard 2: for every variant x mode, the computed value of each
+    family token equals that variant's OWN mapped --chart-N, resolved
+    through the real alias chain (never re-derived, never assumed from
+    the mapping table alone)."""
+
+    def test_every_family_token_resolves_to_its_mapped_chart_n_in_every_variant_and_mode(self):
         self.assertTrue(DASHBOARD_VARIANTS_CSS.is_file())
-        variants_source = DASHBOARD_VARIANTS_CSS.read_text(encoding="utf-8")
         app_css_source = APP_CSS.read_text(encoding="utf-8")
-        surfaces = palette_check.card_surfaces(app_css_source)
-        surface_lin = {mode: palette_check.oklch_to_linear_srgb(*oklch) for mode, oklch in surfaces.items()}
-        offenders = []
-        seen = 0
-        for variant, mode, token, (l, c, h) in _iter_variant_mode_token_oklch(variants_source, app_css_source):
-            seen += 1
-            lin = palette_check.oklch_to_linear_srgb(l, c, h)
-            for surface_mode, surface in surface_lin.items():
-                ratio = palette_check.contrast_ratio(lin, surface)
-                if ratio < CONTRAST_FLOOR:
-                    offenders.append((variant, mode, token, f"vs --card({surface_mode})", round(ratio, 3)))
-        self.assertGreater(seen, 0, "the sweep resolved zero combinations -- broken, not passing")
-        self.assertEqual(offenders, [], f"contrast floor failures (< {CONTRAST_FLOOR}:1): {offenders!r}")
-
-
-class CounterFamilyAdjacentSeparationSweepTests(unittest.TestCase):
-    """Guard 3, counter half: the 4-step `--chart-counter-*` family is an
-    ORDERED progression (palette_check.py's own established criterion,
-    `check_counter_palette` / `MIN_ADJACENT_DELTA_L`), not an unordered
-    categorical set -- adjacent steps must be individually
-    distinguishable in COUNTER_TOKEN_ORDER, not just "some pair
-    somewhere is far enough apart." Rotation holds L fixed (only C is
-    ever gamut-mapped), so this is invariant under Δh by construction --
-    swept per variant x mode anyway as an explicit regression floor,
-    since a bug in the mapping step could still perturb L.
-
-    NOT combined with the flow family: flow and counter render on
-    DIFFERENT charts (IssueFlowChart vs TokenCostChart's tokens view)
-    and are never shown together, so a flow-vs-counter distinctness
-    check has no visual meaning -- measured live, e.g. dark-mode
-    chart-flow-wip vs chart-counter-cache-write today sit only OKLab dE
-    0.0665 apart, which would spuriously fail a combined check for two
-    colours a reader never sees side by side."""
-
-    def test_adjacent_counter_steps_stay_separated_in_every_variant_and_mode(self):
-        self.assertTrue(DASHBOARD_VARIANTS_CSS.is_file())
         variants_source = DASHBOARD_VARIANTS_CSS.read_text(encoding="utf-8")
-        app_css_source = APP_CSS.read_text(encoding="utf-8")
         root_block = _extract_unqualified_block(app_css_source, ":root")
         dark_block = _extract_unqualified_block(app_css_source, ".dark")
         variants = _all_variants(variants_source)
@@ -330,214 +278,266 @@ class CounterFamilyAdjacentSeparationSweepTests(unittest.TestCase):
             for mode in ("light", "dark"):
                 is_dark = mode == "dark"
                 variant_block = modes.get(mode, "")
-                resolved = {}
-                for token in palette_check.COUNTER_TOKEN_ORDER:
-                    name = token[2:] if token.startswith("--") else token  # tolerate either spelling
-                    oklch = _resolve_oklch(name, variant_block, root_block, dark_block, is_dark)
-                    self.assertIsNotNone(oklch, f"{variant_name}/{mode}: could not resolve --{name}")
-                    resolved[token] = oklch
-                for i in range(len(palette_check.COUNTER_TOKEN_ORDER) - 1):
+                for token, target in FAMILY_MAPPING.items():
                     seen += 1
-                    a, b = palette_check.COUNTER_TOKEN_ORDER[i], palette_check.COUNTER_TOKEN_ORDER[i + 1]
-                    delta_l = abs(resolved[b][0] - resolved[a][0])
-                    if delta_l < palette_check.MIN_ADJACENT_DELTA_L:
-                        offenders.append((variant_name, mode, a, b, round(delta_l, 4)))
-        self.assertGreater(seen, 0, "the sweep resolved zero adjacent pairs -- broken, not passing")
-        self.assertEqual(
-            offenders, [],
-            f"adjacent counter steps below the {palette_check.MIN_ADJACENT_DELTA_L} ΔL floor: {offenders!r}",
+                    resolved = _resolve_oklch(token, variant_block, root_block, dark_block, is_dark)
+                    expected = _resolve_oklch(target, variant_block, root_block, dark_block, is_dark)
+                    self.assertIsNotNone(expected, f"{variant_name}/{mode}: could not resolve --{target}")
+                    if resolved != expected:
+                        offenders.append((variant_name, mode, token, resolved, "expected", expected))
+        self.assertGreater(seen, 0, "the sweep resolved zero combinations -- broken, not passing")
+        # assertTrue on a bool + a truncated preview -- assertEqual([], ...)
+        # on a large mismatch list echoes BOTH lists in the failure diff,
+        # which here would be hundreds of tuples (24 variants x 2 modes x
+        # 7 tokens).
+        self.assertTrue(
+            not offenders,
+            f"{len(offenders)}/{seen} family tokens did not resolve to their mapped chart-N -- "
+            f"first 5: {offenders[:5]!r}",
         )
 
 
-# Counter-vs-role hue collision: NOT a gate (architect's addendum 1,
-# PT-118.md @be4117c, option (a)). Measured: the 9 role hues' 25-degree
-# zones cover 88.2% of the circle (21 of 23 variants land the rotated
-# counter hue inside one); the only free arc totals 42 degrees across
-# three narrow bands, so an escape-nudge option (b) would collapse a
-# 24-choice control down to ~3 distinct counter hues. Sound because
-# TokenCostChart.svelte's series set is chosen by `mode` (`mode ===
-# 'cost' ? roles : counters`) -- counter and role never co-render, so a
-# 25-degree zone between them guards nothing on any screen (PT-79's
-# rule was for identity WITHIN the role palette and against --primary/
-# --destructive, both of which DO co-render with roles). Flow-vs-role
-# (which DOES co-render, different charts on the same page) stays a
-# design-time observation for ux-designer, same posture as CVD -- not a
-# mechanical matrix, and not silently widened into a gate either.
+# --------------------------------------------------------------------------
+# Guard 3: flow separation -- the one real gate this feature keeps.
+# --------------------------------------------------------------------------
 
+class FlowSeparationTests(unittest.TestCase):
+    """Guard 3: min pairwise OKLab ΔE >= 0.06 among opened/closed/wip,
+    every variant x mode -- and no two flow tokens are ever identical
+    (structural: --chart-1 != --chart-3 != --chart-5 because a shadcn
+    ramp is monotonic in lightness by construction, per ux-designer's
+    argument, checked here rather than assumed)."""
 
-HUE_TOLERANCE_DEGREES = 0.5
-L_TOLERANCE = 1e-6
-C_TOLERANCE = 1e-6
-
-
-class DerivationIsObservablePerVariantTests(unittest.TestCase):
-    """team-lead's red-2 addition: the sweeps above are a FLOOR, not a
-    red for the feature itself -- today every variant carries IDENTICAL
-    flow/counter values (no rotation implemented yet), so contrast/
-    distinctness/identity all pass vacuously before any implementation
-    exists. This guard asserts the derivation actually happened: for
-    every non-default (non-yellow) chart variant x mode, each rotating
-    token's hue equals yellow's hue + Δh(variant) (mod 360, tolerance
-    <=0.5 deg), L equals yellow's exactly (rotation holds L), and C may
-    only SHRINK relative to yellow's (gamut-mapping only ever reduces
-    chroma, never grows it). Δh(variant) is read from --chart-1, the
-    ALREADY-declared per-variant token (ux-designer's own derivation
-    rule) -- never hand-computed or duplicated from gen_variants.py."""
-
-    def _delta_h(self, variant_block: str, root_block: str, dark_block: str, is_dark: bool, yellow_chart1_hue: float) -> float:
-        oklch = _resolve_oklch("chart-1", variant_block, root_block, dark_block, is_dark)
-        self.assertIsNotNone(oklch, "could not resolve --chart-1 for this variant/mode")
-        return (oklch[2] - yellow_chart1_hue) % 360
-
-    def test_every_rotating_token_matches_its_derived_position_in_every_non_default_variant(self):
+    def test_minimum_pairwise_delta_e_holds_across_all_variants_and_modes(self):
         self.assertTrue(DASHBOARD_VARIANTS_CSS.is_file())
-        variants_source = DASHBOARD_VARIANTS_CSS.read_text(encoding="utf-8")
         app_css_source = APP_CSS.read_text(encoding="utf-8")
+        variants_source = DASHBOARD_VARIANTS_CSS.read_text(encoding="utf-8")
         root_block = _extract_unqualified_block(app_css_source, ":root")
         dark_block = _extract_unqualified_block(app_css_source, ".dark")
         variants = _all_variants(variants_source)
 
+        global_min = None
         offenders = []
-        seen = 0
-        for mode, block, is_dark in (("light", root_block, False), ("dark", dark_block, True)):
-            yellow_chart1 = _oklch_in_block(block, "chart-1")
-            self.assertIsNotNone(yellow_chart1, f"app.css {mode}: no literal --chart-1")
-            yellow_hue = yellow_chart1[2]
-            yellow_tokens = {}
-            for token in ROTATING_TOKENS:
-                oklch = _oklch_in_block(block, token)
-                self.assertIsNotNone(oklch, f"app.css {mode}: no literal --{token}")
-                yellow_tokens[token] = oklch
-
-            for variant_name, modes in sorted(variants.items()):
-                if variant_name == "yellow":
-                    continue
+        for variant_name, modes in sorted(variants.items()):
+            for mode in ("light", "dark"):
+                is_dark = mode == "dark"
                 variant_block = modes.get(mode, "")
-                self.assertTrue(variant_block, f"{variant_name}/{mode}: no variant block found at all")
-                delta_h = self._delta_h(variant_block, root_block, dark_block, is_dark, yellow_hue)
-
-                for token in ROTATING_TOKENS:
-                    seen += 1
-                    yl, yc, yh = yellow_tokens[token]
-                    resolved = _resolve_oklch(token, variant_block, root_block, dark_block, is_dark)
-                    self.assertIsNotNone(resolved, f"{variant_name}/{mode}: could not resolve --{token}")
-                    vl, vc, vh = resolved
-
-                    expected_hue = (yh + delta_h) % 360
-                    hue_gap = _hue_distance(vh, expected_hue)
-                    if hue_gap > HUE_TOLERANCE_DEGREES:
-                        offenders.append((variant_name, mode, token, "hue", f"got {vh:.2f}, expected {expected_hue:.2f} (Δh={delta_h:.2f}), off by {hue_gap:.2f} deg"))
-                    if abs(vl - yl) > L_TOLERANCE:
-                        offenders.append((variant_name, mode, token, "L", f"got {vl}, yellow's is {yl} -- rotation must hold L exactly"))
-                    if vc > yc + C_TOLERANCE:
-                        offenders.append((variant_name, mode, token, "C", f"got {vc}, yellow's is {yc} -- gamut-mapping may only SHRINK chroma, never grow it"))
-        self.assertGreater(seen, 0, "the sweep resolved zero (variant, mode, token) combinations -- broken, not passing")
-        self.assertEqual(offenders, [], f"derivation not observed in the generated CSS: {offenders!r}")
-
-
-class RoleFamilyStaysFixedTests(unittest.TestCase):
-    """Ruling 3: the role family (identity/PT-69/PT-79) is NOT rotated --
-    no chart variant block may declare a --chart-role-* or guard token at
-    all; every reader gets it from app.css's own :root/.dark,
-    unconditionally."""
-
-    def test_no_chart_variant_declares_a_role_or_guard_token(self):
-        self.assertTrue(DASHBOARD_VARIANTS_CSS.is_file())
-        variants_source = DASHBOARD_VARIANTS_CSS.read_text(encoding="utf-8")
-        offenders = []
-        for variant_name, is_dark, body in _find_chart_variant_blocks(variants_source):
-            for token in ROLE_TOKENS:
-                if _oklch_in_block(body, token) is not None or _var_ref_in_block(body, token) is not None:
-                    offenders.append((variant_name, "dark" if is_dark else "light", token))
+                resolved = {}
+                for token in FLOW_TOKENS:
+                    oklch = _resolve_oklch(token, variant_block, root_block, dark_block, is_dark)
+                    self.assertIsNotNone(oklch, f"{variant_name}/{mode}: could not resolve --{token}")
+                    resolved[token] = oklch
+                for i in range(len(FLOW_TOKENS)):
+                    for j in range(i + 1, len(FLOW_TOKENS)):
+                        a, b = FLOW_TOKENS[i], FLOW_TOKENS[j]
+                        delta_e = palette_check.oklab_delta_e(resolved[a], resolved[b])
+                        global_min = delta_e if global_min is None else min(global_min, delta_e)
+                        if delta_e < MIN_PAIRWISE_DELTA_E:
+                            offenders.append((variant_name, mode, a, b, round(delta_e, 4)))
+                        if resolved[a] == resolved[b]:
+                            offenders.append((variant_name, mode, a, b, "IDENTICAL"))
+        self.assertIsNotNone(global_min, "the sweep resolved zero pairs -- broken, not passing")
         self.assertEqual(
             offenders, [],
-            f"a chart variant block declares a role/guard token -- role identity must stay "
-            f"fixed across every Chart Color choice: {offenders!r}",
+            f"flow separation failure (measured global min ΔE this run: {global_min:.4f}): {offenders!r}",
         )
 
 
-class WipReauthoredValueIsPinnedTests(unittest.TestCase):
-    """ux-designer's landed decision (PT-118.md @d7f5724): re-author
-    chart-flow-wip's chroma rather than grandfather an unrenderable
-    value. New values, L and h held, ~5% headroom below the computed
-    gamut edge (not the literal max -- rounding/engine differences
-    shouldn't reopen this on a different renderer):
-    - Light: oklch(0.62 0.100 200.8) (was 0.15)
-    - Dark:  oklch(0.60 0.097 200.8) (was 0.13)
-    Pinned directly to app.css (the ratified source), independently of
-    the byte-identity guard below -- wip stays excluded from THAT guard
-    (team-lead's instruction) so a generator rounding difference in the
-    gamut-mapping step, even for an already-in-gamut value, cannot be
-    confused with a real regression here."""
+# --------------------------------------------------------------------------
+# Guard 4: retired floors as recorded OBSERVATIONS -- named, not gated.
+# --------------------------------------------------------------------------
 
-    NEW_WIP = {"light": (0.62, 0.100, 200.8), "dark": (0.60, 0.097, 200.8)}
+class CounterAdjacencyObservationTests(unittest.TestCase):
+    """Guard 4a: PT-92's counter-adjacency floor is RETIRED as a gate
+    (exact values outrank it) -- but the sub-floor variants are recorded
+    by name and value, so a change in the vendored preset data shows up
+    as a diff, not silence. Independently re-measured for this file
+    (not copied from the ruling): exact match to 4 decimals."""
 
-    def test_app_css_carries_the_reauthored_wip_values(self):
-        self.assertTrue(APP_CSS.is_file())
+    EXPECTED_SUB_FLOOR = {
+        "blue": ("chart-4", "chart-3", 0.0584),
+        "indigo": ("chart-4", "chart-3", 0.0583),
+        "rose": ("chart-3", "chart-2", 0.0596),
+        "violet": ("chart-4", "chart-3", 0.0512),
+    }
+
+    def test_the_four_named_sub_floor_variants_are_exactly_these_and_no_others(self):
+        self.assertTrue(DASHBOARD_VARIANTS_CSS.is_file())
+        app_css_source = APP_CSS.read_text(encoding="utf-8")
+        variants_source = DASHBOARD_VARIANTS_CSS.read_text(encoding="utf-8")
+        root_block = _extract_unqualified_block(app_css_source, ":root")
+        dark_block = _extract_unqualified_block(app_css_source, ".dark")
+        variants = _all_variants(variants_source)
+        order = ["chart-5", "chart-4", "chart-3", "chart-2"]  # COUNTER_MAPPING's own order
+
+        found: Dict[str, Tuple[str, str, float]] = {}
+        for variant_name, modes in sorted(variants.items()):
+            variant_block = modes.get("light", "")
+            resolved = {tok: _resolve_oklch(tok, variant_block, root_block, dark_block, False) for tok in order}
+            for i in range(len(order) - 1):
+                a, b = order[i], order[i + 1]
+                delta_e = palette_check.oklab_delta_e(resolved[a], resolved[b])
+                if delta_e < MIN_PAIRWISE_DELTA_E:
+                    found[variant_name] = (a, b, round(delta_e, 4))
+
+        self.assertEqual(
+            set(found), set(self.EXPECTED_SUB_FLOOR),
+            f"the set of sub-floor variants drifted from the recorded table -- got {found!r}",
+        )
+        for variant_name, expected in self.EXPECTED_SUB_FLOOR.items():
+            with self.subTest(variant=variant_name):
+                self.assertEqual(found[variant_name], expected, f"{variant_name}: got {found[variant_name]!r}, table says {expected!r}")
+
+
+class ContrastObservationTests(unittest.TestCase):
+    """Guard 4b: PT-83's 2:1 contrast floor is RETIRED as a gate for the
+    mapped chart-N steps -- recorded as an observation table instead.
+    Independently re-measured: chart-2/3/4/5 counts match the ruling
+    exactly (2/0/7/11). chart-1 does NOT: this file measures 23/24
+    light failures, not 24/24 -- see the discrepancy test below, which
+    documents the one variant (indigo) that clears the floor."""
+
+    EXPECTED_LIGHT_FAIL_COUNT = {"chart-1": 23, "chart-2": 2, "chart-3": 0, "chart-4": 0, "chart-5": 0}
+    EXPECTED_DARK_FAIL_COUNT = {"chart-1": 0, "chart-2": 0, "chart-3": 0, "chart-4": 7, "chart-5": 11}
+
+    def _card_surfaces_linear(self, app_css_source: str):
+        surfaces = palette_check.card_surfaces(app_css_source)
+        return {mode: palette_check.oklch_to_linear_srgb(*oklch) for mode, oklch in surfaces.items()}
+
+    def test_contrast_failure_counts_match_the_recorded_table(self):
+        self.assertTrue(DASHBOARD_VARIANTS_CSS.is_file())
+        app_css_source = APP_CSS.read_text(encoding="utf-8")
+        variants_source = DASHBOARD_VARIANTS_CSS.read_text(encoding="utf-8")
+        root_block = _extract_unqualified_block(app_css_source, ":root")
+        surface_lin = self._card_surfaces_linear(app_css_source)
+        variants = _all_variants(variants_source)
+
+        light_fail = {tok: 0 for tok in CHART_N_TOKENS}
+        dark_fail = {tok: 0 for tok in CHART_N_TOKENS}
+        for variant_name, modes in sorted(variants.items()):
+            variant_block = modes.get("light", "")
+            for tok in CHART_N_TOKENS:
+                oklch = _oklch_in_block(variant_block, tok) or _oklch_in_block(root_block, tok)
+                self.assertIsNotNone(oklch, f"{variant_name}: could not resolve --{tok}")
+                lin = palette_check.oklch_to_linear_srgb(*oklch)
+                if palette_check.contrast_ratio(lin, surface_lin["light"]) < 2.0:
+                    light_fail[tok] += 1
+                if palette_check.contrast_ratio(lin, surface_lin["dark"]) < 2.0:
+                    dark_fail[tok] += 1
+
+        for tok in CHART_N_TOKENS:
+            with self.subTest(tok=tok, mode="light"):
+                self.assertEqual(light_fail[tok], self.EXPECTED_LIGHT_FAIL_COUNT[tok], f"{tok} light fail count drifted -- got {light_fail!r}")
+            with self.subTest(tok=tok, mode="dark"):
+                self.assertEqual(dark_fail[tok], self.EXPECTED_DARK_FAIL_COUNT[tok], f"{tok} dark fail count drifted -- got {dark_fail!r}")
+
+
+class IndigoChart1ContrastDiscrepancyTests(unittest.TestCase):
+    """Bubble-up, pinned as a test rather than left in a message only:
+    the ruling states chart-1 misses 2:1 against the light --card in
+    "24/24" variants. This file's own sweep, using the same vendored
+    --card and --chart-1 values, measures 23/24 -- `indigo` clears the
+    floor. Both this test and ContrastObservationTests' table (23, not
+    24) encode the same measurement; if a future re-check finds `indigo`
+    also failing, THIS test is what will go red first and say why."""
+
+    def test_indigo_chart_1_clears_the_light_contrast_floor(self):
+        app_css_source = APP_CSS.read_text(encoding="utf-8")
+        variants_source = DASHBOARD_VARIANTS_CSS.read_text(encoding="utf-8")
+        root_block = _extract_unqualified_block(app_css_source, ":root")
+        surfaces = palette_check.card_surfaces(app_css_source)
+        surface_light = palette_check.oklch_to_linear_srgb(*surfaces["light"])
+        variants = _all_variants(variants_source)
+        indigo_block = variants.get("indigo", {}).get("light", "")
+        self.assertTrue(indigo_block, "no indigo variant block found -- structural assumption stale")
+        oklch = _oklch_in_block(indigo_block, "chart-1") or _oklch_in_block(root_block, "chart-1")
+        self.assertIsNotNone(oklch)
+        ratio = palette_check.contrast_ratio(palette_check.oklch_to_linear_srgb(*oklch), surface_light)
+        self.assertGreaterEqual(
+            ratio, 2.0,
+            f"indigo chart-1 vs light --card measured {ratio:.3f} -- if this now fails, the "
+            f"ruling's stated 24/24 is correct and ContrastObservationTests' table needs updating",
+        )
+
+
+class GamutObservationTests(unittest.TestCase):
+    """Guard 4c: the sRGB gamut hard-fail is RETIRED as a gate -- a
+    hard fail would refuse the vendored preset data itself (62 of 120
+    steps are outside sRGB by construction, P3-wide). Recorded as a
+    total count; the browser gamut-maps, as it already does today."""
+
+    EXPECTED_OUT_OF_GAMUT_COUNT = 62
+    EXPECTED_TOTAL_CHECKED = 120  # 24 variants x 5 chart-N steps (mode-invariant)
+
+    def test_out_of_gamut_count_matches_the_recorded_observation(self):
+        self.assertTrue(DASHBOARD_VARIANTS_CSS.is_file())
+        app_css_source = APP_CSS.read_text(encoding="utf-8")
+        variants_source = DASHBOARD_VARIANTS_CSS.read_text(encoding="utf-8")
+        root_block = _extract_unqualified_block(app_css_source, ":root")
+        variants = _all_variants(variants_source)
+
+        total = 0
+        out_of_gamut = 0
+        for variant_name, modes in sorted(variants.items()):
+            variant_block = modes.get("light", "")
+            for tok in CHART_N_TOKENS:
+                oklch = _oklch_in_block(variant_block, tok) or _oklch_in_block(root_block, tok)
+                self.assertIsNotNone(oklch, f"{variant_name}: could not resolve --{tok}")
+                total += 1
+                if not is_in_gamut(*oklch):
+                    out_of_gamut += 1
+        self.assertEqual(total, self.EXPECTED_TOTAL_CHECKED, f"got {total} chart-N combinations, expected {self.EXPECTED_TOTAL_CHECKED}")
+        self.assertEqual(out_of_gamut, self.EXPECTED_OUT_OF_GAMUT_COUNT, f"out-of-gamut count drifted -- got {out_of_gamut}/{total}")
+
+
+# --------------------------------------------------------------------------
+# Guard 5: deletion -- PT-118's rotation/gamut machinery no longer exists.
+# --------------------------------------------------------------------------
+
+class DeletionScanTests(unittest.TestCase):
+    """Guard 5: PT-118's rotation and gamut-mapper symbols must no
+    longer exist in gen_variants.py -- deleted, not bypassed. A
+    survived-but-unused function would mean the derivation could keep
+    passing its own (now-deleted-from-this-file) suite while shipping
+    something else."""
+
+    RETIRED_SYMBOLS = (
+        "derive_chart_family_hue_rotation",
+        "_oklch_to_linear_rgb_unclamped",
+        "_is_in_gamut",
+        "_max_in_gamut_chroma",
+    )
+
+    def test_pt118_symbols_no_longer_exist_in_gen_variants(self):
+        self.assertTrue(GEN_VARIANTS_PY.is_file())
+        source = GEN_VARIANTS_PY.read_text(encoding="utf-8")
+        offenders = [name for name in self.RETIRED_SYMBOLS if name in source]
+        self.assertEqual(offenders, [], f"gen_variants.py still references retired PT-118 symbol(s): {offenders!r}")
+
+
+# --------------------------------------------------------------------------
+# Guard 6: the default renders the default's own hue.
+# --------------------------------------------------------------------------
+
+class DefaultRendersDefaultsHueTests(unittest.TestCase):
+    """Guard 6: PT-118's "yellow byte-identical to the OLD flow/counter
+    values" contract is retired -- yellow's aliases resolve to YELLOW'S
+    OWN --chart-N ramp (a real, larger swing: opened moves from 16.9 deg
+    to 98.111 deg; counter moves from 205 deg to shades of gold). This
+    file carries no test pinning the old historical literals -- their
+    absence, from the full rewrite, is the deletion."""
+
+    def test_yellow_family_tokens_resolve_to_yellows_own_chart_n_ramp(self):
         app_css_source = APP_CSS.read_text(encoding="utf-8")
         root_block = _extract_unqualified_block(app_css_source, ":root")
         dark_block = _extract_unqualified_block(app_css_source, ".dark")
-        for mode, block in (("light", root_block), ("dark", dark_block)):
-            with self.subTest(mode=mode):
-                oklch = _oklch_in_block(block, "chart-flow-wip")
-                self.assertEqual(
-                    oklch, self.NEW_WIP[mode],
-                    f"app.css {mode} --chart-flow-wip must be {self.NEW_WIP[mode]!r} "
-                    f"(ux-designer's re-authored value, PT-118.md @d7f5724) -- got {oklch!r}",
-                )
-
-    def test_the_reauthored_values_are_in_gamut_with_headroom(self):
-        for mode, (l, c, h) in self.NEW_WIP.items():
-            with self.subTest(mode=mode):
-                self.assertTrue(is_in_gamut(l, c, h), f"{mode} wip {l, c, h} must be in-gamut")
-                # Headroom, not the literal edge: a small chroma bump must
-                # still read as in-gamut, or there is no margin left for
-                # a different renderer's rounding.
-                self.assertTrue(
-                    is_in_gamut(l, c + 0.003, h),
-                    f"{mode} wip has no headroom -- c={c} is too close to the gamut edge",
-                )
-
-
-class YellowByteIdenticalToAppCssTests(unittest.TestCase):
-    """Guard 4: yellow (Δh=0) reproduces today's app.css values
-    byte-for-byte in all three generated copies -- excluding
-    YELLOW_GAMUT_EXCLUDE (finding 2: a token already out of gamut at
-    Δh=0 is gamut-mapped even for the identity rotation, so it is not
-    exempt from mapping just because it's yellow)."""
-
-    def test_yellow_matches_app_css_in_every_generated_copy(self):
-        self.assertTrue(APP_CSS.is_file())
-        app_css_source = APP_CSS.read_text(encoding="utf-8")
-        root_block = _extract_unqualified_block(app_css_source, ":root")
-        dark_block = _extract_unqualified_block(app_css_source, ".dark")
-        expected: Dict[str, Tuple[float, float, float]] = {}
         for mode, block, is_dark in (("light", root_block, False), ("dark", dark_block, True)):
-            for token in ROTATING_TOKENS:
-                if token in YELLOW_GAMUT_EXCLUDE:
-                    continue
-                oklch = _oklch_in_block(block, token)
-                self.assertIsNotNone(oklch, f"app.css {mode}: no literal declaration for --{token}")
-                expected[f"{mode}:{token}"] = oklch
-
-        for copy_path in ALL_THREE_COPIES:
-            with self.subTest(copy=str(copy_path)):
-                self.assertTrue(copy_path.is_file(), f"{copy_path} does not exist")
-                variants_source = copy_path.read_text(encoding="utf-8")
-                variants = _all_variants(variants_source)
-                yellow = variants.get("yellow", {"light": "", "dark": ""})
-                for mode, block, is_dark in (("light", yellow.get("light", ""), False), ("dark", yellow.get("dark", ""), True)):
-                    for token in ROTATING_TOKENS:
-                        if token in YELLOW_GAMUT_EXCLUDE:
-                            continue
-                        resolved = _resolve_oklch(token, block, root_block, dark_block, is_dark)
-                        key = f"{mode}:{token}"
-                        self.assertEqual(
-                            resolved, expected[key],
-                            f"{copy_path}: yellow's {token} ({mode}) is {resolved!r}, app.css's own "
-                            f"ratified value is {expected[key]!r} -- yellow must reproduce it "
-                            f"byte-for-byte (Δh=0)",
-                        )
+            for token, target in FAMILY_MAPPING.items():
+                with self.subTest(mode=mode, token=token):
+                    resolved = _resolve_oklch(token, "", root_block, dark_block, is_dark)
+                    expected = _oklch_in_block(block, target)
+                    self.assertIsNotNone(expected, f"app.css {mode}: no literal --{target}")
+                    self.assertEqual(resolved, expected, f"yellow's --{token} must equal yellow's own --{target} ({mode})")
 
 
 if __name__ == "__main__":

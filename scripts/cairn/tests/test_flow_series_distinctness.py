@@ -58,6 +58,41 @@ Nothing under test exists yet in its final form: `IssueFlowChart.svelte`'s
 pointing at the retiring `--chart-flow-todo/-done/-in-progress` names) --
 every test below is expected to fail loudly on that shape, not silently
 skip.
+
+## PT-120 retirement (architect's gate-1 ruling, PT-120.md @fe2a929)
+
+The 60-degree pairwise floor and the 25-degree role-collision floor
+above are RETIRED, not tightened or weakened -- Mosko's board steer
+means the three flow series now alias EXACT vendored shadcn
+`--chart-N` steps (`opened=--chart-1, closed=--chart-3, wip=--chart-5`)
+per variant, and a single shadcn ramp's own hue spread is ~30-40 total
+degrees -- under any 3-step subset, pairwise ΔH tops out around 20-25
+degrees, never close to 60. Measured (architect): minimum hue gap
+across all three steps of one ramp is 0.2 degrees (violet); **all 48
+variant x mode combinations fail** the old 60-degree floor. This is
+the defining property of a single-hue ordinal ramp, not a per-variant
+measurement question -- same precedented action as PT-85 retiring the
+ordinal-ramp test when ITS assumption stopped holding.
+
+What survives, because it does not depend on hue distance at all:
+`--chart-1 != --chart-3 != --chart-5` structurally (a shadcn ramp is
+monotonic in lightness by construction), so the three flow series are
+always three DISTINCT colors -- `FlowSeriesAliasDistinctChartNSlotsTests`
+below. What actually carries the categorical read now is PT-92's
+PATTERN layer (solid/dashed/dotted stroke + graduated markers),
+hue-independent by design and untouched by this steer -- not tested
+here (it is `IssueFlowChart.svelte`'s own rendering concern), but it is
+the reason this retirement is survivable rather than a silent
+regression. The hue-gap numbers move to a recorded OBSERVATION
+(`FlowHueGapObservationTests`), not an assertion -- so a future change
+to the vendored ramp data shows up as a diff, never silence.
+
+Role-collision is retired outright (ux-designer's explicit
+recommendation, PT-120.md): flow now aliases whatever hue the selected
+variant's chart-1/3/5 happen to be, so a coincidental match with a
+fixed `--chart-role-*` hue is accepted collateral of "exact values
+outrank floors" -- the same posture PT-118's addendum 1 already
+established for counter-vs-role.
 """
 from __future__ import annotations
 
@@ -231,12 +266,29 @@ class SeriesTokensAreNotRetiredOrRampTokensTests(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------
-# The numeric categorical-distinctness check -- every Chart Color variant,
-# both modes.
+# PT-120: the surviving property (three distinct chart-N slots) and the
+# retired hue-gap numbers as a recorded observation, not an assertion.
 # --------------------------------------------------------------------------
 
-class CategoricalHueSeparationTests(unittest.TestCase):
-    def test_opened_closed_and_wip_are_hue_separated_in_every_variant_and_mode(self):
+def _all_variants_dict() -> Dict[str, Dict[str, str]]:
+    variants: Dict[str, Dict[str, str]] = {"__default__": {"light": "", "dark": ""}}
+    if DASHBOARD_VARIANTS_CSS.is_file():
+        variants_source = DASHBOARD_VARIANTS_CSS.read_text(encoding="utf-8")
+        for name, is_dark, body in _find_chart_variant_blocks(variants_source):
+            variants.setdefault(name, {})["dark" if is_dark else "light"] = body
+    return variants
+
+
+class FlowSeriesAliasDistinctChartNSlotsTests(unittest.TestCase):
+    """PT-120 gate-1 ruling (PT-120.md @fe2a929): the surviving property,
+    hue-distance-independent. The three flow series alias EXACT vendored
+    chart-N steps (opened/closed/wip -> chart-1/3/5); a shadcn ramp is
+    monotonic in lightness by construction, so chart-1 != chart-3 !=
+    chart-5 always holds -- the three series are always three distinct
+    colors, in every variant and mode, with no exception to check for
+    (ux-designer's own argument, verified here rather than assumed)."""
+
+    def test_opened_closed_and_wip_resolve_to_three_distinct_values_in_every_variant_and_mode(self):
         tokens = _series_color_tokens()
         app_css_source = APP_CSS.read_text(encoding="utf-8") if APP_CSS.is_file() else ""
         root_block = _extract_unqualified_block(app_css_source, ":root")
@@ -244,12 +296,8 @@ class CategoricalHueSeparationTests(unittest.TestCase):
         self.assertTrue(root_block, f"{APP_CSS} has no :root block (or doesn't exist)")
         self.assertTrue(dark_block, f"{APP_CSS} has no .dark block (or doesn't exist)")
 
-        variants = {"__default__": {"light": "", "dark": ""}}
-        if DASHBOARD_VARIANTS_CSS.is_file():
-            variants_source = DASHBOARD_VARIANTS_CSS.read_text(encoding="utf-8")
-            for name, is_dark, body in _find_chart_variant_blocks(variants_source):
-                variants.setdefault(name, {})["dark" if is_dark else "light"] = body
-
+        variants = _all_variants_dict()
+        seen = 0
         for variant_name, modes in sorted(variants.items()):
             for mode in ("light", "dark"):
                 with self.subTest(variant=variant_name, mode=mode):
@@ -266,63 +314,82 @@ class CategoricalHueSeparationTests(unittest.TestCase):
                             f"var(...) alias)",
                         )
                         resolved[series] = oklch
-
-                    hues = {series: oklch[2] for series, oklch in resolved.items()}
-                    pairs = [("opened", "closed"), ("opened", "wip"), ("closed", "wip")]
-                    for a, b in pairs:
-                        distance = _hue_distance(hues[a], hues[b])
-                        self.assertGreaterEqual(
-                            distance, FLOW_PAIRWISE_HUE_FLOOR_DEGREES,
-                            f"{variant_name}/{mode}: '{a}' ({hues[a]:.1f} deg) and '{b}' "
-                            f"({hues[b]:.1f} deg) are only {distance:.1f} deg apart -- below the "
-                            f"{FLOW_PAIRWISE_HUE_FLOOR_DEGREES} deg floor (architect's pre-"
-                            f"registered constraint 1, 9336826) for 'tell apart at a glance', "
-                            f"the same defect the retired ramp had",
-                        )
+                    seen += 1
+                    values = list(resolved.values())
+                    self.assertEqual(
+                        len(set(values)), 3,
+                        f"{variant_name}/{mode}: opened/closed/wip must resolve to three DISTINCT "
+                        f"values -- got {resolved!r}",
+                    )
+        self.assertGreater(seen, 0, "the sweep resolved zero (variant, mode) combinations -- broken, not passing")
 
 
-class NoCollisionWithChartRolePaletteTests(unittest.TestCase):
-    """team-lead's decision (69bee40): the three interim tokens must not
-    coincide with a --chart-role-* hue -- TokenCostChart.svelte, a
-    sibling block on the same dashboard, already uses that palette to
-    mean specific roster roles; an identical hue on the flow chart would
-    read as "this bar is architect's work" to a reader who has seen the
-    other chart. Threshold is the architect's pre-registered constraint
-    2 (9336826): >=25 deg from every role hue, checked in :root and
-    .dark SEPARATELY (their own note: matching hues across modes today
-    is an observation, not a guarantee)."""
+class FlowHueGapObservationTests(unittest.TestCase):
+    """PT-120 retirement, recorded not asserted: the old 60-degree
+    pairwise floor and 25-degree role-collision floor both fail by
+    construction now (a single shadcn ramp's own hue spread is too
+    narrow) -- the ruling reports the minimum three-step hue gap across
+    all 24 variants x 2 modes as 0.2 degrees (attributed to "violet"),
+    with all 48 combinations below the retired 60-degree floor.
 
-    def _role_hues(self, block: str, block_label: str) -> Dict[str, float]:
-        role_hues = {}
-        for name in CHART_ROLE_NAMES:
-            oklch = _oklch_in_block(block, name)
-            self.assertIsNotNone(oklch, f"{name} not found in app.css {block_label} -- expected the fixed role palette")
-            role_hues[name] = oklch[2]
-        return role_hues
+    Independently re-measured for this file: 0.2 degrees is right, but
+    the attribution is not -- `violet` measures 0.25 degrees here;
+    `neutral` (a pure grayscale variant, chroma 0, hue reported as 0 for
+    every step -- a degenerate case, not really "3 steps 0 degrees
+    apart" in the sense the ruling means) measures 0.0 degrees exactly;
+    the closest NON-degenerate match to the ruling's stated 0.2 is
+    `taupe`. Using the true global minimum (0.0, from `neutral`) rather
+    than silently matching either the ruling's number or excluding the
+    degenerate case unasked. Flagged for the verdict to reconcile. The
+    48-of-48 below-floor count matches the ruling exactly regardless."""
 
-    def test_no_flow_series_hue_matches_a_chart_role_hue_in_either_mode(self):
+    EXPECTED_MIN_HUE_GAP_DEGREES = 0.0  # neutral (grayscale, degenerate) -- see discrepancy note above
+    EXPECTED_BELOW_FLOOR_COUNT = 48  # 24 variants x 2 modes, all of them
+
+    def test_minimum_three_step_hue_gap_matches_the_recorded_observation(self):
         tokens = _series_color_tokens()
         app_css_source = APP_CSS.read_text(encoding="utf-8") if APP_CSS.is_file() else ""
         root_block = _extract_unqualified_block(app_css_source, ":root")
         dark_block = _extract_unqualified_block(app_css_source, ".dark")
-        self.assertTrue(root_block, f"{APP_CSS} has no :root block (or doesn't exist)")
-        self.assertTrue(dark_block, f"{APP_CSS} has no .dark block (or doesn't exist)")
+        variants = _all_variants_dict()
 
-        for mode, block, is_dark in (("light", root_block, False), ("dark", dark_block, True)):
-            with self.subTest(mode=mode):
-                role_hues = self._role_hues(block, f"({mode})")
+        global_min = None
+        below_floor = 0
+        for variant_name, modes in sorted(variants.items()):
+            for mode in ("light", "dark"):
+                variant_block = modes.get(mode, "")
+                is_dark = mode == "dark"
+                hues = {}
                 for series, var_name in tokens.items():
-                    oklch = _resolve_oklch(var_name, "", root_block, dark_block, is_dark=is_dark)
-                    self.assertIsNotNone(oklch, f"{mode}: could not resolve '{series}' token {var_name!r} in app.css")
-                    series_hue = oklch[2]
-                    for role_name, role_hue in role_hues.items():
-                        distance = _hue_distance(series_hue, role_hue)
-                        self.assertGreaterEqual(
-                            distance, ROLE_COLLISION_HUE_FLOOR_DEGREES,
-                            f"{mode}: '{series}' ({var_name}, {series_hue:.1f} deg) is only "
-                            f"{distance:.1f} deg from {role_name} ({role_hue:.1f} deg) -- below "
-                            f"the {ROLE_COLLISION_HUE_FLOOR_DEGREES} deg floor (architect's "
-                            f"pre-registered constraint 2, 9336826). TokenCostChart.svelte uses "
-                            f"that hue to mean a specific roster role; the same hue on the flow "
-                            f"chart would read as that role's work, not '{series}'",
-                        )
+                    oklch = _resolve_oklch(var_name, variant_block, root_block, dark_block, is_dark)
+                    self.assertIsNotNone(oklch, f"{variant_name}/{mode}: could not resolve {series}")
+                    hues[series] = oklch[2]
+                pair_gaps = [
+                    _hue_distance(hues["opened"], hues["closed"]),
+                    _hue_distance(hues["opened"], hues["wip"]),
+                    _hue_distance(hues["closed"], hues["wip"]),
+                ]
+                min_gap = min(pair_gaps)
+                global_min = min_gap if global_min is None else min(global_min, min_gap)
+                if min_gap < FLOW_PAIRWISE_HUE_FLOOR_DEGREES:
+                    below_floor += 1
+        self.assertIsNotNone(global_min, "the sweep resolved zero variants -- broken, not passing")
+        self.assertAlmostEqual(
+            global_min, self.EXPECTED_MIN_HUE_GAP_DEGREES, delta=0.1,
+            msg=f"minimum three-step hue gap drifted from the recorded observation -- got {global_min:.2f} deg",
+        )
+        self.assertEqual(
+            below_floor, self.EXPECTED_BELOW_FLOOR_COUNT,
+            f"count of variant x mode combinations below the retired {FLOW_PAIRWISE_HUE_FLOOR_DEGREES} deg "
+            f"floor drifted -- got {below_floor}/48",
+        )
+
+
+# Role-collision is RETIRED outright, not turned into an observation
+# (ux-designer's explicit recommendation, PT-120.md @fe2a929): flow now
+# aliases whatever hue the selected variant's chart-1/3/5 happen to be,
+# so a coincidental match with a fixed --chart-role-* hue is accepted
+# collateral of "exact values outrank floors" -- the same posture
+# PT-118's addendum 1 already established for counter-vs-role. No test
+# replaces NoCollisionWithChartRolePaletteTests; its removal IS the
+# guard's retirement.
