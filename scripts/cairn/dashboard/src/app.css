@@ -347,3 +347,11 @@
 		@apply bg-muted text-foreground;
 	}
 }
+
+/* PT-110 verdict delta 2: bits-ui 2.19 copies the content's computed
+   z-index onto this wrapper inside a requestAnimationFrame
+   (use-floating-layer.svelte.js:211-227); measured on the live board,
+   it does not land, leaving every floating overlay at layer 0.
+   shadcn's own `z-50` is on the content INSIDE the wrapper, which the
+   wrapper's stacking position makes inert. */
+[data-bits-floating-content-wrapper] { z-index: 50; }
