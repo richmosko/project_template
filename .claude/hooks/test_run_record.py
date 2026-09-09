@@ -12,8 +12,26 @@ its own record in-process (it has the counts, seconds, jobs and gate
 directly -- no stdout to scrape, no risk from a gate owner's `| tail`
 eating the summary before this hook ever sees it) with `"who": null`,
 since only the hook's `agent_type` field knows that. This hook's first
-job is filling that in: find the most recent still-`who: null` record
-and patch it.
+job is filling that in.
+
+PT-112 gate-1 ruling (PT-112.md @8b60a8b): with every teammate in its
+own worktree, two runs finishing close together used to cross-attribute
+under a last-line-only rule, and a stale `who: null` line could get
+adopted by an unrelated later hook. The runner's own
+`CLAUDE_CODE_SESSION_ID` and this hook's stdin `session_id` are the
+identical string (measured live), so that -- not position, not a run id
+printed in the summary -- is the deterministic matching key: scan the
+last `_TAIL_SCAN_LINES` lines for the NEWEST record with `who is null`
+and a non-null `session` equal to this payload's `session_id`, and
+patch only that line. A null-`session` line (every pre-PT-112 record)
+is never adopted -- that is the stale-line defect this replaces, and by
+design those records stay `who: null` permanently. No match, and the
+command is `run_tests` -> write nothing (the run recorded itself;
+unattributed beats misattributed). The read-modify-write holds
+`fcntl.flock(LOCK_EX)` across the whole critical section so a
+concurrent runner's own append -- landing between this hook's read and
+its write -- is never silently discarded; the runner's own append stays
+a plain `"a"`-mode write, unlocked.
 
 That covers `run_tests.py`. A bare `unittest discover` is stdlib code
 this project doesn't own and can't make self-recording -- for that
@@ -30,6 +48,7 @@ and never produces a record.
 from __future__ import annotations
 
 import datetime
+import fcntl
 import json
 import os
 import re
@@ -64,41 +83,64 @@ def _run_git(project_dir: Path, *args: str):
     return result.stdout.strip() or None
 
 
-def _read_last_line(path: Path):
-    if not path.exists():
-        return None
-    with open(path, "rb") as f:
-        f.seek(0, os.SEEK_END)
-        size = f.tell()
-        if size == 0:
-            return None
-        chunk = min(size, 8192)
-        f.seek(-chunk, os.SEEK_END)
-        tail = f.read().decode("utf-8", errors="replace")
-    lines = [l for l in tail.splitlines() if l.strip()]
-    return lines[-1] if lines else None
+_TAIL_SCAN_LINES = 200
 
 
-def _patch_last_who(path: Path, who) -> bool:
-    """If the last record in `path` is still `who: null` (a self-recorded
-    entry from run_tests.py awaiting attribution), fill it in and return
-    True. Never touches an already-attributed record -- a stale null-who
-    line from an earlier, different call is the one gap this leaves, and
-    no test in this batch exercises concurrent writers."""
-    last = _read_last_line(path)
-    if last is None:
+def _patch_session_who(path: Path, session_id, who) -> bool:
+    """PT-112 gate-1 ruling (PT-112.md @8b60a8b): scan the last
+    `_TAIL_SCAN_LINES` lines for the NEWEST record with `who is null` and
+    a non-null `session` equal to `session_id`; patch that line only. A
+    null-`session` line is never adopted -- every pre-PT-112 record looks
+    like that, and by design those stay `who: null` permanently. No
+    match (or no `session_id`, or a missing file) -> False, nothing
+    written. Holds `fcntl.flock(LOCK_EX)` across the whole
+    read-modify-write so a concurrent runner's own append -- landing
+    between this hook's read and its write -- is never silently
+    discarded; never raises if locking is unavailable (a hook must not
+    break the call it's attached to)."""
+    if session_id is None or not path.exists():
         return False
     try:
-        rec = json.loads(last)
-    except Exception:
+        f = open(path, "r+", encoding="utf-8")
+    except OSError:
         return False
-    if rec.get("who") is not None:
-        return False
-    rec["who"] = who
-    lines = path.read_text(encoding="utf-8").splitlines()
-    lines[-1] = json.dumps(rec)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return True
+    try:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX)
+        except OSError:
+            pass
+        lines = f.read().splitlines()
+        tail_start = max(0, len(lines) - _TAIL_SCAN_LINES)
+        target = None
+        for i in range(len(lines) - 1, tail_start - 1, -1):
+            line = lines[i]
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            if rec.get("who") is not None or rec.get("session") is None:
+                continue
+            if rec.get("session") != session_id:
+                continue
+            target = i
+            break
+        if target is None:
+            return False
+        rec = json.loads(lines[target])
+        rec["who"] = who
+        lines[target] = json.dumps(rec)
+        f.seek(0)
+        f.write("\n".join(lines) + "\n")
+        f.truncate()
+        return True
+    finally:
+        try:
+            fcntl.flock(f, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        f.close()
 
 
 def _scrape_record(data: dict, command: str, project_dir: Path) -> dict:
@@ -158,12 +200,22 @@ def main() -> int:
     project_dir = Path(os.environ.get("CLAUDE_PROJECT_DIR", "."))
     path = project_dir / _RECORDS_REL
     try:
-        if _patch_last_who(path, data.get("agent_type")):
+        if _patch_session_who(path, data.get("session_id"), data.get("agent_type")):
             return 0
-        # No self-recorded entry to patch -- either this is a bare
-        # `unittest` invocation (never self-records) or, for run_tests.py,
-        # the hook is being driven directly without a prior real
-        # execution (qa's isolated hook tests). Fall back to scraping.
+        # No session-matched self-recorded entry to patch. For a bare
+        # `unittest` invocation (never self-records) fall back to
+        # scraping, same as always -- `session` there comes straight from
+        # the payload, so the appended record is self-attributing from
+        # the start. For `run_tests.py`, only fall back when the ledger
+        # itself doesn't exist yet (the hook being driven directly with
+        # no prior real execution at all, e.g. this file's own isolated
+        # tests) -- once a real ledger is present, a run_tests command
+        # with no session match means the run recorded itself under a
+        # DIFFERENT session, and scraping would misattribute or
+        # double-record it (PT-112 gate-1 ruling, item 2: unattributed
+        # beats misattributed).
+        if _runner_of(command) == "run_tests" and path.exists():
+            return 0
         record = _scrape_record(data, command, project_dir)
         if record.get("tests") is None:
             # Delta 3 gap: a test-shaped command (real python invocation)
