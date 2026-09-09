@@ -58,7 +58,15 @@ APP_CSS = helpers.CAIRN_DIR / "dashboard" / "src" / "app.css"
 DASHBOARD_SRC = helpers.CAIRN_DIR / "dashboard" / "src"
 
 BASE_CHART_NAMES = {f"--chart-{i}" for i in range(1, 6)}
-CHART_VAR_RE = re.compile(r"(--chart-[\w-]+)\s*:\s*oklch\(([^)]*)\)")
+# PT-120 (architect's gate-1 ruling, PT-120.md @fe2a929): the derived
+# --chart-flow-*/--chart-counter-* families are now var(--chart-N)
+# ALIASES, not literal oklch(...) declarations (implementation-lead's
+# own edit, same "the guard edit is yours" posture as the PT-85 edit
+# below -- a forced mechanical consequence of the alias seam). This
+# file only ever inspected these tokens' NAMES (existence, mode parity,
+# cross-reference), never their resolved colour, so the alias branch
+# below stores no usable (L, C, H) -- nothing here needs one.
+CHART_VAR_RE = re.compile(r"(--chart-[\w-]+)\s*:\s*(?:oklch\(([^)]*)\)|var\((--chart-[\w-]+)\))")
 
 
 def _read_app_css() -> str:
@@ -72,9 +80,13 @@ def _block(source: str, selector: str) -> str:
 
 def _chart_vars_in_block(block_text: str) -> dict:
     """name -> (L, C, H) for every --chart-*-prefixed oklch(...) var in
-    this block, base ramp included."""
+    this block, base ramp included -- or name -> None for a
+    var(--chart-N) alias (PT-120), since nothing here resolves one."""
     out = {}
-    for name, triple in CHART_VAR_RE.findall(block_text):
+    for name, triple, alias in CHART_VAR_RE.findall(block_text):
+        if alias:
+            out[name] = None
+            continue
         parts = triple.split()
         if len(parts) != 3:
             continue
