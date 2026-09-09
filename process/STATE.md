@@ -23,7 +23,8 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 | Branch | `feature/pt-117-header-gap-mask` |
 | Started | 2026-09-09 |
 | Goal | Nothing scrolls into view between the header's top and the first content block's top; browser-verified in two variants, light and dark. |
-| Status | In Progress |
+| PR | https://github.com/richmosko/project_template/pull/206 |
+| Status | In Review |
 
 ## Releases
 
