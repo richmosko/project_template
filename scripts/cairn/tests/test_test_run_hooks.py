@@ -193,6 +193,109 @@ class RecorderTests(unittest.TestCase):
         self.assertEqual(records_path.read_text(encoding="utf-8"), "", "a non-test Bash call must never append a record")
 
 
+class VersionedPythonInterpreterGuardTests(unittest.TestCase):
+    """PT-113 gate-1 ruling (PT-113.md @ e5b1106): `_is_python_token` must
+    recognise `python3.14`-style basenames as a python invocation, not
+    just literal `python`/`python3` -- today a real run typed that way
+    passes the PreToolUse guard untouched. Widening the predicate widens
+    the guard too: a teammate's un-tiered `python3.14 -m unittest
+    discover -s tests` must now be refused (guard threshold 1)."""
+
+    def test_guard_refuses_a_versioned_bare_run_tests_py(self):
+        result = _run_hook("test_run_guard.py", json.dumps(
+            _pre_payload("python3.14 scripts/cairn/run_tests.py")))
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("-p", result.stderr)
+        self.assertIn("--gate", result.stderr)
+
+    def test_guard_refuses_a_versioned_bare_unittest_discover(self):
+        result = _run_hook("test_run_guard.py", json.dumps(
+            _pre_payload("python3.14 -m unittest discover -s tests")))
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("-p", result.stderr)
+        self.assertIn("--gate", result.stderr)
+
+    def test_guard_allows_the_same_two_versioned_commands_when_gated(self):
+        for cmd in (
+            "python3.14 scripts/cairn/run_tests.py --gate green",
+            "python3.14 -m unittest discover -s tests --gate green",
+        ):
+            with self.subTest(cmd=cmd):
+                result = _run_hook("test_run_guard.py", json.dumps(_pre_payload(cmd)))
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class VersionedPythonInterpreterRecordHookTests(unittest.TestCase):
+    """Guard threshold 2: a versioned command must patch a trailing
+    `who: null` record in place, same shape as
+    test_worktree_metrics_path_resolution.py's
+    test_the_post_hook_patches_who_in_place... -- and the literal-`python3`
+    case must still patch (no second record) once the predicate widens."""
+
+    def _seed(self, tmp: Path, cmd: str) -> Path:
+        records_path = tmp / "process" / "cairn" / "metrics" / "test-runs.jsonl"
+        records_path.parent.mkdir(parents=True, exist_ok=True)
+        seed = {
+            "ts": "2026-09-09T00:00:00.000Z", "who": None, "gate": "red", "full": True,
+            "runner": "run_tests", "sha": "deadbeef", "branch": "feature/pt-113",
+            "seconds": 1.0, "harness_ms": 1000, "jobs": 1, "files": 1, "tests": 1,
+            "skipped": 0, "ok": True, "session": "s", "cmd": cmd,
+        }
+        records_path.write_text(json.dumps(seed) + "\n", encoding="utf-8")
+        return records_path
+
+    def _patch_and_check(self, cmd: str):
+        tmp = helpers.make_empty_tmp_dir(self)
+        records_path = self._seed(tmp, cmd)
+        payload = {
+            "session_id": "s", "cwd": str(tmp), "agent_type": "architect",
+            "hook_event_name": "PostToolUse", "tool_name": "Bash",
+            "tool_input": {"command": cmd},
+            "tool_response": {"stdout": "", "stderr": ""},
+            "duration_ms": 1000, "tool_use_id": "x",
+        }
+        result = _run_hook("test_run_record.py", json.dumps(payload), env={"CLAUDE_PROJECT_DIR": str(tmp)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = [json.loads(l) for l in records_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(len(lines), 1, f"must patch the trailing null-who record in place, not append -- got {lines!r}")
+        self.assertEqual(lines[0]["who"], "architect")
+
+    def test_a_versioned_command_patches_the_trailing_null_who_record(self):
+        self._patch_and_check("python3.14 scripts/cairn/run_tests.py --gate red")
+
+    def test_the_literal_python3_case_still_patches_after_widening(self):
+        self._patch_and_check("python3 scripts/cairn/run_tests.py --gate red")
+
+
+class IsPythonTokenTruthTableTests(unittest.TestCase):
+    """Guard threshold 3: enumerated truth table over
+    `_test_run_shared._is_python_token` (PT-113.md @ e5b1106, gate-1
+    ruling) -- both directions, not sampled. `python3-config` and
+    `python3.14-config` are the reject side the ruling calls out as a
+    live evasion risk (both binaries exist on this box); `python2`,
+    `py`, and `pypy3` are the brief's out-of-scope interpreters."""
+
+    ACCEPT = (
+        "python", "python3", "python3.14",
+        "/opt/homebrew/bin/python3.14", "python3.14t",
+    )
+    REJECT = (
+        "python3-config", "python3.14-config", "pypy3", "py", "python2", "python3.x",
+    )
+
+    def test_accepted_basenames(self):
+        module = _load_hook_module("_test_run_shared.py")
+        for tok in self.ACCEPT:
+            with self.subTest(tok=tok):
+                self.assertTrue(module._is_python_token(tok), f"{tok!r} must be recognised as a python invocation")
+
+    def test_rejected_basenames(self):
+        module = _load_hook_module("_test_run_shared.py")
+        for tok in self.REJECT:
+            with self.subTest(tok=tok):
+                self.assertFalse(module._is_python_token(tok), f"{tok!r} must NOT be recognised as a python invocation")
+
+
 class FlagAwareNarrowingTests(unittest.TestCase):
     """Gate-4 verdict delta 1 (PT-97.md @ d896d8d, blocking): narrowing
     must be detected from the runner's own tokenised arguments, not a

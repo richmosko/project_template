@@ -15,9 +15,15 @@ for the runner's own narrowing flag -- and, symmetrically, a command that
 never actually invokes the runner (a `git log`, a `git add` whose path
 text happens to contain "run_tests.py --gate green") is never mistaken
 for a run at all.
+
+PT-113 gate-1 ruling: `_is_python_token` also recognises versioned
+basenames (`python3.14`, `/opt/homebrew/bin/python3.14`, the
+free-threaded `python3.14t`), not just literal `python`/`python3`, so a
+teammate typing a versioned interpreter can't slip past either hook.
 """
 from __future__ import annotations
 
+import re
 import shlex
 from typing import List, Optional, Tuple
 
@@ -28,6 +34,13 @@ TEST_CMD_TOKENS = ("unittest", "run_tests")
 
 _NARROW_FLAGS = ("-p", "--pattern", "-k")
 _CHAIN_BREAKS = ("&&", "||", ";", "|")
+
+# PT-113 gate-1 ruling (PT-113.md @ e5b1106): accept `python`, `python3`,
+# any `python3.<N>` version suffix, and the free-threaded `python3.14t`
+# forward-cover form; reject `python2`, `py`, `pypy3`, and any dashed
+# neighbour (`python3-config`, `python3.14-config`) -- anchored both ends,
+# no `startswith`.
+_PY_RE = re.compile(r"^python(3(\.\d+)?t?)?$")
 
 
 def tokenize(command: str) -> List[str]:
@@ -42,7 +55,7 @@ def tokenize(command: str) -> List[str]:
 
 def _is_python_token(tok: str) -> bool:
     name = tok.rsplit("/", 1)[-1]
-    return name in ("python", "python3")
+    return bool(_PY_RE.match(name))
 
 
 def find_runner_invocation(tokens: List[str]) -> Optional[Tuple[str, int]]:

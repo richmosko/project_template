@@ -17,13 +17,13 @@ A feature = one cairn issue = one PR = one Implement→Validate loop. Exists onl
 
 | Field | Value |
 |---|---|
-| Feature | Dashboard header is fixed to the top of the viewport and does not scroll with the page |
-| Issue | PT-110 (cairn) |
+| Feature | Test-run hooks ignore versioned interpreters — a run invoked as python3.14 run_tests.py records nothing |
+| Issue | PT-113 (cairn) |
 | Milestone | PT-0.12.2 |
-| Branch | `feature/pt-110-fixed-dashboard-header` |
-| Started | 2026-09-08 |
-| Goal | The shell header stays at the top on both routes while content scrolls; nothing hidden under it; browser-verified in two variants, light and dark. |
-| PR | https://github.com/richmosko/project_template/pull/202 |
+| Branch | `feature/pt-113-hooks-versioned-python` |
+| Started | 2026-09-09 |
+| Goal | Both test-run hooks recognise versioned Python basenames; a versioned full run is gated and recorded like a literal python3 one. |
+| PR | https://github.com/richmosko/project_template/pull/203 |
 | Status | In Review |
 
 ## Releases
