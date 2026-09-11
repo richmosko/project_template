@@ -15,7 +15,7 @@
 
 A feature = one cairn issue = one PR = one Implement→Validate loop. Exists only during Implement phase. This is a pointer — the issue file (`process/cairn/issues/<ID>.md`) is the record.
 
-_None — between loops. PT-0.12.2's last issue (PT-120) merged as #212 on 2026-09-09; milestone close pending Mosko's approval._
+_None — between milestones. PT-0.12.2 closed and archived 2026-09-09 (v0.12.2, #215/#216); next milestone not yet defined._
 
 ## Releases
 
